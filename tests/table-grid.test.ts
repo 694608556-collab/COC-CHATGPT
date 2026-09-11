@@ -41,4 +41,29 @@ describe('unified workbook grid', () => {
     expect(() => readWorkbookGrid(new Uint8Array(20 * 1024 * 1024 + 1), 'large.xlsx')).toThrow()
     expect(() => readWorkbookGrid(new Uint8Array(), 'bad.txt')).toThrow()
   })
+  it('keeps readable worksheets when a later worksheet is too wide for import', () => {
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([['ok'], ['value']]), 'Readable')
+    const huge = XLSX.utils.aoa_to_sheet([['skip me']])
+    huge['!ref'] = 'A1:ZZ1000'
+    XLSX.utils.book_append_sheet(workbook, huge, 'HugeLookup')
+    const bytes = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
+    const grid = readWorkbookGrid(bytes, 'mixed.xlsx')
+    expect(grid.sheets[0]?.rows[1]?.[0]).toBe('value')
+    expect(grid.sheets[1]).toMatchObject({
+      name: 'HugeLookup',
+      rows: [],
+      skippedReason: expect.stringContaining('200000')
+    })
+  })
+
+  it('still rejects a single oversized worksheet', () => {
+    const workbook = XLSX.utils.book_new()
+    const huge = XLSX.utils.aoa_to_sheet([['too big']])
+    huge['!ref'] = 'A1:ZZ1000'
+    XLSX.utils.book_append_sheet(workbook, huge, 'HugeOnly')
+    const bytes = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
+    expect(() => readWorkbookGrid(bytes, 'huge.xlsx')).toThrow(/200000/)
+  })
+
 })

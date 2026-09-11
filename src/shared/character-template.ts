@@ -56,6 +56,19 @@ const SKILL_OCCUPATION_LABELS = ['职业', '本职', 'occupation']
 const SKILL_INTEREST_LABELS = ['兴趣', 'interest']
 const SKILL_GROWTH_LABELS = ['成长', 'growth']
 const SKILL_TOTAL_LABELS = ['合计', '总值', '技能值', '成功率', 'value', 'total']
+const STORY_VALUE_LABELS = [
+  '个人描述',
+  '角色外貌',
+  '思想与信念',
+  '重要之人',
+  '意义非凡之地',
+  '宝贵之物',
+  '特质',
+  '难言之隐',
+  '伤口和疤痕',
+  '恐惧症和狂躁症',
+  '关键链接'
+]
 const CORE_FIELDS = Object.keys(LABELS) as CharacterField[]
 
 function normalized(value: unknown): string {
@@ -83,9 +96,12 @@ function labelMatchesField(field: CharacterField, value: unknown): boolean {
     if (label === target) return true
     if (field.startsWith('attrs.') || field === 'derived.luck7') {
       if (isAsciiWord(target)) return new RegExp('(^|[^a-z0-9])' + escapeRegExp(target) + '([^a-z0-9]|$)', 'i').test(label)
-      return label.startsWith(target)
+      if (field === 'attrs.INT' && target === '灵感' && label.includes(target)) return true
+      if (!label.startsWith(target)) return false
+      const suffix = label.slice(target.length)
+      return !suffix || /^[a-z0-9]+$/i.test(suffix)
     }
-    if (field === 'story') return label.includes(target)
+    if (field === 'story') return label === target || (target.length >= 4 && label.startsWith(target))
     return false
   })
 }
@@ -126,7 +142,7 @@ function scanRight(
   sheet: GridSheet,
   row: number,
   startColumn: number,
-  maxSteps = 10
+  maxSteps = 5
 ): { address: string; value: string | number } | undefined {
   const limit = Math.min(sheet.rows[row]?.length ?? 0, startColumn + maxSteps)
   for (let column = startColumn; column < limit; column += 1) {
@@ -136,17 +152,45 @@ function scanRight(
   return undefined
 }
 
+function scanStoryValue(
+  sheet: GridSheet,
+  row: number,
+  startColumn: number,
+  maxSteps: number
+): { address: string; value: string | number } | undefined {
+  const limit = Math.min(sheet.rows[row]?.length ?? 0, startColumn + maxSteps)
+  for (let column = startColumn; column < limit; column += 1) {
+    const found = nonBlankValue(sheet, row, column)
+    if (!found || labelMatchesAny(found.value, STORY_VALUE_LABELS)) continue
+    return found
+  }
+  return undefined
+}
+
+function hasNonBlankRight(sheet: GridSheet, row: number, startColumn: number): boolean {
+  return (sheet.rows[row] ?? []).slice(startColumn).some((value) => {
+    return value !== null && value !== undefined && String(value).trim()
+  })
+}
+
 function valueBeside(
   sheet: GridSheet,
   row: number,
   column: number,
-  mergedRanges: XLSX.Range[]
+  mergedRanges: XLSX.Range[],
+  field: CharacterField
 ): { address: string; value: string | number } | undefined {
   const range = containingRange(mergedRanges, row, column)
   const rightStart = range && range.s.r === row ? range.e.c + 1 : column + 1
   const sameRow = scanRight(sheet, row, rightStart)
   if (sameRow) return sameRow
   const belowRow = range ? range.e.r + 1 : row + 1
+  if (field === 'story') {
+    const storyStart = range ? range.s.c : rightStart
+    const storyWidth = range ? range.e.c - range.s.c + 1 : 5
+    return scanStoryValue(sheet, belowRow, storyStart, storyWidth)
+  }
+  if (hasNonBlankRight(sheet, row, rightStart)) return undefined
   return nonBlankValue(sheet, belowRow, column) ?? scanRight(sheet, belowRow, rightStart)
 }
 
@@ -165,7 +209,7 @@ export function detectCharacterSheets(workbook: WorkbookGrid): CharacterSheetPre
           if (skillHeaderRow === undefined && isSkillNameHeader(sheet.rows[row]?.[column])) skillHeaderRow = row
           for (const field of CORE_FIELDS) {
             if (mapping[field] || !labelMatchesField(field, sheet.rows[row]?.[column])) continue
-            const found = valueBeside(sheet, row, column, mergedRanges)
+            const found = valueBeside(sheet, row, column, mergedRanges, field)
             if (found) {
               mapping[field] = found.address
               values[field] = found.value
