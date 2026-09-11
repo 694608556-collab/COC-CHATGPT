@@ -1,0 +1,60 @@
+const { contextBridge, ipcRenderer } = require('electron')
+
+async function invoke(channel, input = {}) {
+  const result = await ipcRenderer.invoke(channel, input)
+  if (!result.ok) throw new Error(result.error.message)
+  return result.value
+}
+
+contextBridge.exposeInMainWorld('coc', {
+  window: {
+    minimize: () => ipcRenderer.invoke('window:minimize'),
+    toggleMaximize: () => ipcRenderer.invoke('window:toggle-maximize'),
+    close: () => ipcRenderer.invoke('window:close')
+  },
+  app: { snapshot: () => invoke('app:snapshot') },
+  modules: {
+    create: (input) => invoke('modules:create', input),
+    update: (id, patch) => invoke('modules:update', { id, patch }),
+    delete: (id) => invoke('modules:delete', { id }),
+    move: (id, direction) => invoke('modules:move', { id, direction })
+  },
+  records: {
+    create: (input) => invoke('records:create', input),
+    update: (id, patch) => invoke('records:update', { id, patch }),
+    delete: (id) => invoke('records:delete', { id }),
+    move: (id, direction) => invoke('records:move', { id, direction }),
+    findDuplicate: (moduleId, link, excludingId) =>
+      invoke('records:duplicate', { moduleId, link, excludingId }),
+    probe: (id) => invoke('records:probe', { id })
+  },
+  characters: {
+    create: (input) => invoke('characters:create', input),
+    update: (id, data) => invoke('characters:update', { id, data }),
+    convert: (id, edition) => invoke('characters:convert', { id, edition }),
+    move: (id, moduleId, oldModulePolicy) => invoke('characters:move', { id, moduleId, oldModulePolicy }),
+    delete: (id) => invoke('characters:delete', { id })
+  },
+  settings: { update: (patch) => invoke('settings:update', patch) },
+  files: {
+    exportRecord: (id, format) => invoke('files:export-record', { id, format }),
+    batchExport: (ids, format) => invoke('files:batch-export', { ids, format }),
+    exportCombined: (ids, format) => invoke('files:export-combined', { ids, format }),
+    exportTable: (ids, format) => invoke('files:export-table', { ids, format }),
+    exportCharacter: (id, format) => invoke('files:export-character', { id, format }),
+    saveCharacterTemplate: (edition) => invoke('files:save-character-template', { edition }),
+    chooseCharacterImport: () => invoke('files:choose-character-import'),
+    commitCharacterImport: (token, selections) =>
+      invoke('files:commit-character-import', { token, selections }),
+    chooseArchiveDirectory: () => invoke('files:choose-archive-directory'),
+    openDirectory: (kind, moduleId) => invoke('files:open-directory', { kind, moduleId })
+  },
+  backup: {
+    create: (includeArchives) => invoke('backup:create', { includeArchives }),
+    chooseRestore: () => invoke('backup:choose-restore'),
+    restore: (token, options) => invoke('backup:restore', { token, options }),
+    cacheStats: () => invoke('backup:cache-stats'),
+    clearCache: () => invoke('backup:clear-cache'),
+    clearData: (options) => invoke('backup:clear-data', options)
+  }
+})

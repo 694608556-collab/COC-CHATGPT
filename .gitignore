@@ -1,0 +1,12 @@
+node_modules/
+out/
+dist/
+data/
+outputs/
+test-results/
+work/
+*.log
+.env
+.env.*
+.DS_Store
+Thumbs.db
