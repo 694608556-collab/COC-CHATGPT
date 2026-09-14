@@ -12,7 +12,7 @@ import {
   type TableImportRow
 } from '../../shared/table-import'
 import { applyLogFilters } from '../../shared/log-filter'
-import { skillFinal, skillPointSummary } from '../../shared/coc-rules'
+import { skillFinal } from '../../shared/coc-rules'
 import type { BackupPreviewApi } from '../../shared/api'
 import {
   DEFAULT_FILTER_PRESET,
@@ -717,8 +717,8 @@ export default function App(): React.JSX.Element {
       return
     }
     setMessageClosing(false)
-    const fadeTimer = window.setTimeout(() => setMessageClosing(true), 4500)
-    const closeTimer = window.setTimeout(() => setMessage(undefined), 5000)
+    const fadeTimer = window.setTimeout(() => setMessageClosing(true), 5000)
+    const closeTimer = window.setTimeout(() => setMessage(undefined), 5550)
     return () => {
       window.clearTimeout(fadeTimer)
       window.clearTimeout(closeTimer)
@@ -939,8 +939,9 @@ export default function App(): React.JSX.Element {
   const header = pageMeta[page]
 
   return (
-    <main className={windowMaximized ? 'app-shell maximized' : 'app-shell'}>
+    <div className={windowMaximized ? 'window-frame maximized' : 'window-frame'}>
       <ResizeHandles disabled={windowMaximized} />
+      <main className={windowMaximized ? 'app-shell maximized' : 'app-shell'}>
       <header className="titlebar" onDoubleClick={() => void window.coc.window.toggleMaximize()}>
         <span className="app-name">COC 跑团记录簿</span>
         <WindowControls />
@@ -1156,16 +1157,10 @@ export default function App(): React.JSX.Element {
                           {!module.collapsed && (
                             <>
                               <div className="participants">
-                                <span>KP：{module.kps.join('、') || '未填写'}</span>
-                                <span>
-                                  PC / PL：
-                                  {module.pairs
-                                    .map((pair) => `${pair.pc || '未填写'} / ${pair.pl || '未填写'}`)
-                                    .join('；') || '未填写'}
-                                </span>
                                 <button
                                   className="icon-button participants-edit"
                                   title="编辑 KP / PC / PL"
+                                  aria-label="编辑 KP / PC / PL"
                                   onClick={() =>
                                     setModuleDraft({
                                       id: module.id,
@@ -1177,6 +1172,13 @@ export default function App(): React.JSX.Element {
                                 >
                                   <PencilIcon />
                                 </button>
+                                <span>KP：{module.kps.join('、') || '未填写'}</span>
+                                <span>
+                                  PC / PL：
+                                  {module.pairs
+                                    .map((pair) => `${pair.pc || '未填写'} / ${pair.pl || '未填写'}`)
+                                    .join('；') || '未填写'}
+                                </span>
                               </div>
                               {records.length ? (
                                 <table>
@@ -1354,7 +1356,6 @@ export default function App(): React.JSX.Element {
                       const linkedModules = snapshot.modules.filter((item) =>
                         character.moduleIds.includes(item.id)
                       )
-                      const points = skillPointSummary(character)
                       const topSkills = [...character.skills]
                         .sort((a, b) => skillFinal(b) - skillFinal(a))
                         .slice(0, 3)
@@ -1364,12 +1365,6 @@ export default function App(): React.JSX.Element {
                             <span>
                               {linkedModules.map((item) => item.name).join('、') || '未关联模组'}
                             </span>
-                            <button
-                              className="text-button danger"
-                              onClick={() => requestDeleteCharacter(character)}
-                            >
-                              删除
-                            </button>
                           </div>
                           <button
                             className="character-card-main"
@@ -1380,17 +1375,21 @@ export default function App(): React.JSX.Element {
                             <span>{character.basic.occupation || '未填写职业'}</span>
                             <span>{linkedModules.map((item) => item.name).join('、') || '未关联模组'}</span>
                             <span className="attribute-summary">
-                              STR {character.attrs.STR} · CON {character.attrs.CON} · DEX{' '}
-                              {character.attrs.DEX} · INT {character.attrs.INT}
+                              力量 {character.attrs.STR} · 体质 {character.attrs.CON} · 敏捷{' '}
+                              {character.attrs.DEX} · 智力 {character.attrs.INT}
                             </span>
                             <span className="character-skills">
                               {topSkills.map((skill) => `${skill.name} ${skillFinal(skill)}`).join(' · ')}
                             </span>
-                            <small>
-                              职业技能点 {points.occupationUsed}/{points.occupationLimit} · 兴趣技能点{' '}
-                              {points.interestUsed}/{points.interestLimit}
-                            </small>
                           </button>
+                          <div className="character-card-actions">
+                            <button
+                              className="text-button danger"
+                              onClick={() => requestDeleteCharacter(character)}
+                            >
+                              删除
+                            </button>
+                          </div>
                         </article>
                       )
                     })}
@@ -1650,6 +1649,7 @@ export default function App(): React.JSX.Element {
           }}
         />
       )}
-    </main>
+      </main>
+    </div>
   )
 }

@@ -1,4 +1,5 @@
 :root {
+  font-size: 13px;
   font-family:
     'SF Pro Text', 'SF Pro Display', 'PingFang SC', 'Segoe UI', sans-serif;
   --bg: #e6e8ec;
@@ -8,6 +9,7 @@
   --text: #14161a;
   --muted: #545b66;
   --accent: #6d45f5;
+  --accent-soft: rgba(109, 69, 245, 0.12);
   --success: #1a7f37;
   --danger: #cf222e;
   --warning: #9a6700;
@@ -24,6 +26,7 @@
   --text: #e6e8ec;
   --muted: #9aa3b2;
   --accent: #7c5cff;
+  --accent-soft: rgba(124, 92, 255, 0.16);
   --success: #3fb950;
   --danger: #f85149;
   --warning: #d29922;
@@ -68,13 +71,24 @@ body,
   background: transparent;
 }
 
+.window-frame {
+  --window-gutter: 18px;
+  height: 100%;
+  padding: var(--window-gutter);
+}
+
+.window-frame.maximized {
+  --window-gutter: 0px;
+  padding: 0;
+}
+
 .app-shell {
-  height: 100vh;
+  height: 100%;
   overflow: hidden;
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 14px;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.26);
 }
 
 .app-shell.maximized {
@@ -389,22 +403,43 @@ body,
 }
 
 .notice {
-  position: sticky;
-  z-index: 5;
-  top: 0;
+  position: fixed;
+  z-index: 30;
+  top: auto;
+  right: calc(var(--window-gutter, 0px) + 20px);
+  bottom: calc(var(--window-gutter, 0px) + 20px);
+  left: auto;
   display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 12px;
-  padding: 10px 14px;
-  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
-  border-radius: 9px;
+  align-items: flex-start;
+  gap: 14px;
+  max-width: 460px;
+  margin: 0;
+  padding: 12px 14px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.26);
+  animation: notice-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.notice span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.6;
 }
 .notice button {
+  flex: none;
+  color: var(--muted);
   border: 0;
   background: transparent;
+  font-size: 15px;
+  line-height: 1;
   cursor: pointer;
+}
+.notice button:hover {
+  color: var(--text);
 }
 .module-list {
   display: grid;
@@ -715,7 +750,7 @@ th {
 }
 
 .modal:has(.character-editor) {
-  width: min(1120px, 100%);
+  width: min(1000px, 100%);
 }
 
 .modal:has(.import-preview-list) {
@@ -1187,18 +1222,14 @@ th {
   color: var(--accent);
 }
 
-.notice {
-  animation: notice-in 160ms ease-out;
-}
-
 @keyframes notice-in {
   from {
     opacity: 0;
-    transform: translateY(-6px);
+    transform: translateX(28px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateX(0);
   }
 }
 
@@ -1352,8 +1383,8 @@ h3 {
 }
 
 .filter-option.active {
-  color: #fff;
-  background: var(--accent);
+  color: var(--text);
+  background: var(--accent-soft);
   border-color: var(--accent);
 }
 
@@ -1363,7 +1394,7 @@ h3 {
 }
 
 .filter-option.active small {
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--accent);
 }
 
 table {
@@ -1431,9 +1462,8 @@ td {
 
 .modal .secondary,
 .modal .primary {
-  min-height: 32px;
-  padding: 6px 10px;
-  font-size: 12px;
+  min-height: 34px;
+  padding: 7px 14px;
 }
 
 .add-participant {
@@ -1454,13 +1484,13 @@ td {
 }
 
 .notice.toast-closing {
-  animation: notice-out 500ms ease forwards;
+  animation: notice-out 520ms ease forwards;
 }
 
 @keyframes notice-out {
   to {
     opacity: 0;
-    transform: translateY(-6px);
+    transform: translateX(28px);
   }
 }
 
@@ -1579,4 +1609,217 @@ td {
   color: var(--muted);
   font-size: 11.5px;
   line-height: 1.6;
+}
+
+/* ============ 0.4.0 adjustments ============ */
+
+/* character card: delete button moves to the bottom-right */
+.character-card-actions {
+  justify-content: flex-end;
+}
+
+.character-card-head {
+  right: 86px;
+}
+
+/* character editor: single-line module chips */
+.module-link-grid label > span {
+  white-space: nowrap;
+}
+
+/* character editor: name suggest combo (replaces the native datalist) */
+.field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.combo {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.combo input {
+  padding-right: 30px;
+}
+
+.combo-caret {
+  position: absolute;
+  right: 10px;
+  color: var(--muted);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.combo-list {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 4px;
+  max-height: 190px;
+  overflow: auto;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+}
+
+.combo-list li {
+  padding: 7px 9px;
+  color: var(--text);
+  border-radius: 7px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.combo-list li:hover,
+.combo-list li.active {
+  background: var(--accent-soft);
+}
+
+/* character editor: skills are just name + points now */
+.skill-editor {
+  display: grid;
+  gap: 6px;
+  max-height: 300px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.skill-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 32px;
+  align-items: center;
+  gap: 8px;
+}
+
+.skill-row-head {
+  padding: 0 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.add-skill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  margin-top: 4px;
+}
+
+/* character editor: property and equipment in two columns */
+.item-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+
+.item-grid .item-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 0;
+}
+
+/* native checkboxes / radios must not inherit the full-width field rules */
+input[type='checkbox'],
+input[type='radio'] {
+  width: 15px;
+  height: 15px;
+  min-width: 15px;
+  min-height: 15px;
+  margin: 0;
+  padding: 0;
+  flex: none;
+  background: transparent;
+  border: 0;
+  accent-color: var(--accent);
+}
+
+/* export dialog: readable radio rows and tidy spacing */
+.export-dialog fieldset {
+  padding: 14px 16px 16px;
+}
+
+.form-grid .radio-row {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 8px 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.radio-row + .radio-row {
+  border-top: 1px solid var(--line);
+}
+
+.form-grid .radio-row input[type='radio'] {
+  margin: 0;
+}
+
+.export-dialog .muted {
+  margin: 0;
+}
+
+/* module editor: inputs and their delete icons share one height */
+.form-grid input,
+.form-grid select {
+  min-height: 34px;
+  padding: 7px 10px;
+}
+
+.kp-edit-row .icon-button,
+.pair-row .icon-button {
+  width: 34px;
+  min-height: 34px;
+}
+
+/* participants row: edit button sits before the KP label */
+.participants-edit {
+  margin-left: 0;
+  margin-right: 2px;
+}
+
+/* toolbar: same button metrics as the rest of the app */
+.toolbar .secondary {
+  min-height: 32px;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+/* confirmation dialogs: identical buttons */
+.modal-actions .secondary,
+.modal-actions .primary,
+.modal-actions .danger-button {
+  min-height: 34px;
+  padding: 7px 16px;
+  font-size: 13px;
+  border-radius: 8px;
+}
+
+.modal-actions .danger-link {
+  min-height: 34px;
+  padding: 7px 16px;
+  color: var(--danger);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.modal-actions .danger-link:hover {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--panel));
 }

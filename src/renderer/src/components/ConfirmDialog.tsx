@@ -1,4 +1,4 @@
-import { DialogShell } from './DialogShell2'
+import { DialogShell } from './DialogShell'
 
 export interface ConfirmOptions {
   title: string

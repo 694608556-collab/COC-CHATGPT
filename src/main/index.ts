@@ -107,7 +107,7 @@ function createWindow(): void {
     transparent: true,
     resizable: false,
     maximizable: true,
-    hasShadow: true,
+    hasShadow: false,
     roundedCorners: true,
     backgroundColor: '#00000000',
     show: false,

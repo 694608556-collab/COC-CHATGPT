@@ -67,6 +67,17 @@ export function builtInSkills(edition: Edition): Skill[] {
   }))
 }
 
+export function createSkill(name = '', points = 0): Skill {
+  return {
+    id: createId(),
+    name,
+    base: points,
+    occupation: 0,
+    interest: 0,
+    growth: 0
+  }
+}
+
 export function calculateDb(edition: Edition, strength: number, size: number): string {
   const sum = strength + size
   if (edition === 6) {

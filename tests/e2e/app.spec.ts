@@ -118,8 +118,16 @@ test('real desktop shell persists data and isolates Node', async () => {
     await expect(page.getByRole('dialog', { name: '批量检测' })).toContainText('按模组合集检测')
     await page.getByRole('dialog', { name: '批量检测' }).getByRole('button', { name: '取消' }).click()
     await expect(page.getByRole('status')).toBeVisible()
+    const toastBox = await page.getByRole('status').boundingBox()
+    const shellBox = await page.locator('.app-shell').boundingBox()
+    expect(toastBox).not.toBeNull()
+    expect(shellBox).not.toBeNull()
+    if (toastBox && shellBox) {
+      expect(toastBox.x + toastBox.width).toBeGreaterThan(shellBox.x + shellBox.width - 80)
+      expect(toastBox.y + toastBox.height).toBeGreaterThan(shellBox.y + shellBox.height - 80)
+    }
     await expect(page.getByRole('status')).toBeHidden({
-      timeout: 6_000
+      timeout: 9_000
     })
     for (const label of [
       '\u539f\u59cb\u6587\u4ef6',
@@ -149,9 +157,20 @@ test('real desktop shell persists data and isolates Node', async () => {
         name: '暗影循迹'
       })
       .check()
+    await expect(page.locator('.skill-editor .skill-row:not(.skill-row-head)').first().locator('input')).toHaveCount(2)
+    await expect(page.locator('.skill-editor .skill-row:not(.skill-row-head)').first().getByRole('button')).toHaveCount(1)
     await page.getByLabel('力量').fill('57')
     await page.getByRole('button', { name: '保存', exact: true }).click()
     await expect(page.getByRole('button', { name: /林恩/ })).toBeVisible()
+    const cardBox = await page.locator('.character-card').first().boundingBox()
+    const cardDeleteBox = await page
+      .locator('.character-card')
+      .first()
+      .getByRole('button', { name: '删除' })
+      .boundingBox()
+    if (cardBox && cardDeleteBox) {
+      expect(cardDeleteBox.y).toBeGreaterThan(cardBox.y + cardBox.height / 2)
+    }
 
     await page.getByRole('button', { name: '+ 新建角色卡' }).click()
     await page.getByLabel('角色名').fill('临时调查员')

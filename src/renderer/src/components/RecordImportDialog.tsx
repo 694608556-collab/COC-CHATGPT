@@ -7,7 +7,7 @@ import {
   validateTableImportRow,
   type TableImportRow
 } from '../../../shared/table-import'
-import { DialogShell } from './DialogShell2'
+import { DialogShell } from './DialogShell'
 
 export interface ImportOutcome {
   modules: number

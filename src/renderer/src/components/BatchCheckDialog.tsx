@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { ModuleRecord, SessionRecord } from '../../../shared/types'
-import { DialogShell } from './DialogShell2'
+import { DialogShell } from './DialogShell'
 
 type Mode = 'module' | 'record'
 type State = 'pending' | 'running' | 'done' | 'failed'

@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import type { CharacterData, ModuleRecord } from '../../../shared/types'
-import { calculateDerived, convertCharacterEdition, skillFinal, skillPointSummary } from '../../../shared/coc-rules'
-import { DialogShell } from './DialogShell2'
+import { calculateDerived, convertCharacterEdition, createSkill } from '../../../shared/coc-rules'
+import { DialogShell } from './DialogShell'
+import { PlusIcon, TrashIcon } from './Icons'
+import { NameSuggestField } from './NameSuggestField'
 
 const ATTR_LABELS: Record<keyof CharacterData['attrs'], string> = {
   STR: '力量',
@@ -49,7 +51,16 @@ export function CharacterEditor({
   onSave(data: CharacterData): void
   onDelete(): void
 }): React.JSX.Element {
-  const [draft, setDraft] = useState(() => structuredClone(character))
+  const [draft, setDraft] = useState(() => {
+    const next = structuredClone(character)
+    next.skills = next.skills.map((skill) => ({
+      ...skill,
+      occupation: 0,
+      interest: 0,
+      growth: 0
+    }))
+    return next
+  })
 
   const updateBasic = (field: keyof CharacterData['basic'], value: string): void =>
     setDraft({ ...draft, basic: { ...draft.basic, [field]: value } })
@@ -76,12 +87,10 @@ export function CharacterEditor({
   }
 
   const limits = calculateDerived(draft.edition, draft.attrs, draft.derived.luck7 ?? 50)
-  const points = skillPointSummary(draft)
   const selectedModules = modules.filter((module) => draft.moduleIds.includes(module.id))
   const pcSuggestions = [...new Set(
     selectedModules.flatMap((module) => module.pairs.map((pair) => pair.pc).filter(Boolean))
   )]
-  const nameListId = `pc-names-${draft.id}`
 
   return (
     <DialogShell title="调查员角色卡" onClose={onClose} wide>
@@ -122,17 +131,12 @@ export function CharacterEditor({
                 ))}
               </div>
             </div>
-            <label>
-              角色名
-              <input
-                list={nameListId}
-                value={draft.basic.name}
-                onChange={(event) => updateBasic('name', event.target.value)}
-              />
-              <datalist id={nameListId}>
-                {pcSuggestions.map((name) => <option key={name} value={name} />)}
-              </datalist>
-            </label>
+            <NameSuggestField
+              label="角色名"
+              value={draft.basic.name}
+              options={pcSuggestions}
+              onChange={(next) => updateBasic('name', next)}
+            />
             <label>
               职业
               <input value={draft.basic.occupation} onChange={(event) => updateBasic('occupation', event.target.value)} />
@@ -180,20 +184,6 @@ export function CharacterEditor({
         </section>
 
         <section>
-          <h3>技能点数上限</h3>
-          <div className="form-grid two-columns">
-            <label>
-              职业技能（EDU × 4）
-              <input value={points.occupationLimit} readOnly />
-            </label>
-            <label>
-              个人兴趣（INT × 2）
-              <input value={points.interestLimit} readOnly />
-            </label>
-          </div>
-        </section>
-
-        <section>
           <h3>武器战斗表</h3>
           <div className="weapon-table">
             {draft.weapons.map((weapon, index) => (
@@ -207,8 +197,14 @@ export function CharacterEditor({
                     />
                   </label>
                 ))}
-                <button className="icon-button danger" onClick={() => setDraft({ ...draft, weapons: draft.weapons.filter((_, i) => i !== index) })}>
-                  删除
+                <button
+                  className="icon-button danger"
+                  aria-label={`删除武器${index + 1}`}
+                  onClick={() =>
+                    setDraft({ ...draft, weapons: draft.weapons.filter((_, i) => i !== index) })
+                  }
+                >
+                  <TrashIcon />
                 </button>
               </div>
             ))}
@@ -220,36 +216,88 @@ export function CharacterEditor({
 
         <section>
           <h3>技能</h3>
-          <div className="skill-table-wrap">
-            <table className="skill-table">
-              <thead><tr><th>技能</th><th>基础</th><th>职业</th><th>兴趣</th><th>成长</th><th>合计</th></tr></thead>
-              <tbody>
-                {draft.skills.map((skill, index) => (
-                  <tr key={skill.id}>
-                    <td><input value={skill.name} onChange={(event) => setDraft({ ...draft, skills: draft.skills.map((item, i) => i === index ? { ...item, name: event.target.value } : item) })} /></td>
-                    {(['base', 'occupation', 'interest', 'growth'] as const).map((field) => (
-                      <td key={field}><input type="number" value={skill[field]} onChange={(event) => setDraft({ ...draft, skills: draft.skills.map((item, i) => i === index ? { ...item, [field]: Number(event.target.value) } : item) })} /></td>
-                    ))}
-                    <td>{skillFinal(skill)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="skill-editor">
+            <div className="skill-row skill-row-head">
+              <span>技能名称</span>
+              <span>技能点数</span>
+              <span />
+            </div>
+            {draft.skills.map((skill, index) => (
+              <div className="skill-row" key={skill.id}>
+                <input
+                  aria-label={`技能名称${index + 1}`}
+                  value={skill.name}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      skills: draft.skills.map((item, i) =>
+                        i === index ? { ...item, name: event.target.value } : item
+                      )
+                    })
+                  }
+                />
+                <input
+                  aria-label={`技能点数${index + 1}`}
+                  type="number"
+                  value={skill.base}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      skills: draft.skills.map((item, i) =>
+                        i === index ? { ...item, base: Number(event.target.value) } : item
+                      )
+                    })
+                  }
+                />
+                <button
+                  className="icon-button danger"
+                  aria-label={`删除技能${index + 1}`}
+                  onClick={() =>
+                    setDraft({ ...draft, skills: draft.skills.filter((_, i) => i !== index) })
+                  }
+                >
+                  <TrashIcon />
+                </button>
+              </div>
+            ))}
+            <button
+              className="secondary add-skill"
+              onClick={() => setDraft({ ...draft, skills: [...draft.skills, createSkill()] })}
+            >
+              <PlusIcon /> 添加技能
+            </button>
           </div>
         </section>
+
 
         <div className="character-detail-grid">
           <section>
             <h3>财产与装备</h3>
-            {draft.items.map((item, index) => (
-              <div className="item-row" key={index}>
-                <input
-                  value={item}
-                  onChange={(event) => setDraft({ ...draft, items: draft.items.map((value, i) => i === index ? event.target.value : value) })}
-                />
-                <button className="icon-button danger" onClick={() => setDraft({ ...draft, items: draft.items.filter((_, i) => i !== index) })}>删除</button>
-              </div>
-            ))}
+            <div className="item-grid">
+              {draft.items.map((item, index) => (
+                <div className="item-row" key={index}>
+                  <input
+                    aria-label={`物品${index + 1}`}
+                    value={item}
+                    onChange={(event) =>
+                      setDraft({
+                        ...draft,
+                        items: draft.items.map((value, i) => (i === index ? event.target.value : value))
+                      })
+                    }
+                  />
+                  <button
+                    className="icon-button danger"
+                    aria-label={`删除物品${index + 1}`}
+                    onClick={() =>
+                      setDraft({ ...draft, items: draft.items.filter((_, i) => i !== index) })
+                    }
+                  >
+                    <TrashIcon />
+                  </button>
+                </div>
+              ))}
+            </div>
             <button className="secondary" onClick={() => setDraft({ ...draft, items: [...draft.items, ''] })}>+ 添加物品</button>
           </section>
           <section>
