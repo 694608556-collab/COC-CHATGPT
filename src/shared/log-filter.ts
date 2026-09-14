@@ -1,4 +1,4 @@
-import type { FilterPreset, NormalizedLog } from './types'
+import type { FilterPreset, LogMessage, NormalizedLog } from './types'
 
 export interface RenderedLogMessage {
   id: string
@@ -16,10 +16,18 @@ function displayTime(timestamp: string | undefined, hideYearMonthDay: boolean): 
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${time}`
 }
 
+function isOffTopicMessage(message: LogMessage): boolean {
+  return message.isOffTopic || /^[\s\u3000]*[\uff08(]/.test(message.text)
+}
+
+function hasCqCode(message: LogMessage): boolean {
+  return message.images.length > 0 || /\[CQ:[^\]]+\]/i.test(message.text)
+}
 export function applyLogFilters(log: NormalizedLog, preset: FilterPreset): RenderedLogMessage[] {
   return log.messages
     .filter((message) => !preset.hideDiceCommands || !message.isDiceCommand)
-    .filter((message) => !preset.hideOffTopic || !message.isOffTopic)
+    .filter((message) => !preset.hideOffTopic || !isOffTopicMessage(message))
+    .filter((message) => !preset.hideImages || !hasCqCode(message))
     .map((message) => {
       const parts: string[] = []
       if (!preset.hideTime) {
@@ -32,7 +40,7 @@ export function applyLogFilters(log: NormalizedLog, preset: FilterPreset): Rende
         id: message.id,
         header: parts.join(' '),
         text: preset.indentFirstLine ? `\u3000\u3000${message.text}` : message.text,
-        images: preset.hideImages ? [] : message.images
+        images: message.images
       }
     })
 }

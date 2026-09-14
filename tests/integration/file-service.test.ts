@@ -88,6 +88,8 @@ describe('safe local export', () => {
     const service = new FileService(repository, async () => Buffer.from('%PDF-test'))
     await expect(service.exportCombined([first.id, otherRecord.id], 'txt')).rejects.toThrow('同一个模组')
     const result = await service.exportCombined([first.id, missing.id, third.id], 'txt')
+    expect(result.entry.path).toContain(path.join('批量合成', '长团'))
+    expect(path.basename(result.entry.path)).toMatch(/^\d{8}长团合集\.txt$/)
     const text = fs.readFileSync(result.entry.path, 'utf8')
     expect(text.indexOf('第三场')).toBeLessThan(
       text.indexOf('第二场') < 0 ? Number.MAX_SAFE_INTEGER : text.indexOf('第二场')
@@ -135,8 +137,19 @@ describe('safe local export', () => {
               content: '\u8c03\u67e5\u5f00\u59cb',
               images: ['https://example.com/handout.png']
             },
+            {
+              id: 'm1b',
+              nickname: 'KP',
+              time: '2025-03-08 19:30:30',
+              content: '保留正文'
+            },
             { id: 'm2', nickname: '\u9ab0\u5b50', time: '2025-03-08 19:31:00', content: '.r\u4fa6\u67e5' },
-            { id: 'm3', nickname: 'PL', time: '2025-03-08 19:32:00', content: '(ooc) \u6211\u53bb\u5012\u6c34' }
+            {
+              id: 'm3',
+              nickname: 'PL',
+              time: '2025-03-08 19:32:00',
+              content: '(ooc) \u6211\u53bb\u5012\u6c34'
+            }
           ])
         )
       return response(
@@ -166,7 +179,8 @@ describe('safe local export', () => {
     const txt = await service.exportRecord(first.id, 'txt')
     const text = fs.readFileSync(txt.path, 'utf8')
     expect(text).toContain('19:30 KP')
-    expect(text).toContain('\u3000\u3000\u8c03\u67e5\u5f00\u59cb')
+    expect(text).not.toContain('\u3000\u3000\u8c03\u67e5\u5f00\u59cb')
+    expect(text).toContain('保留正文')
     expect(text).not.toContain('2025-03-08')
     expect(text).not.toContain('seal-account')
     expect(text).not.toContain('.r\u4fa6\u67e5')
@@ -180,7 +194,7 @@ describe('safe local export', () => {
     expect(pdf.format).toBe('pdf')
     let html = pdfInputs[pdfInputs.length - 1] ?? ''
     expect(html).toContain('class="dark"')
-    expect(html).toContain('\u8c03\u67e5\u5f00\u59cb')
+    expect(html).toContain('\u4fdd\u7559\u6b63\u6587')
     expect(html).not.toContain('seal-account')
     expect(html).not.toContain('.r\u4fa6\u67e5')
     expect(html).not.toContain('https://example.com/handout.png')

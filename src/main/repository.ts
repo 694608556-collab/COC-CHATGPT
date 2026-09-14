@@ -38,6 +38,17 @@ function cleanPairs(values: ParticipantPair[]): ParticipantPair[] {
     .filter((pair) => pair.pc || pair.pl || pair.characterId)
 }
 
+function normalizeCharacter(value: CharacterData): CharacterData {
+  const moduleIds = [
+    ...new Set(
+      (Array.isArray(value.moduleIds) ? value.moduleIds : value.moduleId ? [value.moduleId] : []).filter(
+        Boolean
+      )
+    )
+  ]
+  return { ...value, moduleIds, moduleId: moduleIds[0] }
+}
+
 function rowToModule(row: Record<string, unknown>): ModuleRecord {
   return {
     id: String(row.id),
@@ -106,7 +117,9 @@ export class AppRepository {
     const characters = this.connection
       .prepare('SELECT data_json FROM characters ORDER BY created_at')
       .all()
-      .map((row) => parseJson((row as Record<string, unknown>).data_json, {} as CharacterData))
+      .map((row) =>
+        normalizeCharacter(parseJson((row as Record<string, unknown>).data_json, {} as CharacterData))
+      )
     const archiveEntries = this.connection
       .prepare('SELECT * FROM archive_entries ORDER BY created_at')
       .all()
@@ -362,9 +375,17 @@ export class AppRepository {
     this.moveRow('records', id, direction, 'module_id', record.moduleId)
   }
 
-  createCharacter(input: { edition: 6 | 7; moduleId?: string; name?: string }): CharacterData {
-    if (input.moduleId) this.getModule(input.moduleId)
-    const character = createEmptyCharacter(input)
+  createCharacter(input: {
+    edition: 6 | 7
+    moduleId?: string
+    moduleIds?: string[]
+    name?: string
+  }): CharacterData {
+    const moduleIds = [...new Set(input.moduleIds ?? (input.moduleId ? [input.moduleId] : []))].filter(
+      Boolean
+    )
+    for (const moduleId of moduleIds) this.getModule(moduleId)
+    const character = createEmptyCharacter({ ...input, moduleIds })
     this.database.transaction(() => {
       this.connection
         .prepare(
@@ -372,7 +393,7 @@ export class AppRepository {
         )
         .run(
           character.id,
-          character.moduleId ?? null,
+          character.moduleIds[0] ?? null,
           character.edition,
           JSON.stringify(character),
           character.createdAt,
@@ -387,7 +408,9 @@ export class AppRepository {
     const current = this.getCharacter(id)
     const next = structuredClone(nextData)
     next.id = id
-    next.moduleId = current.moduleId
+    next.moduleIds = [...new Set(next.moduleIds ?? current.moduleIds ?? [])].filter(Boolean)
+    for (const moduleId of next.moduleIds) this.getModule(moduleId)
+    next.moduleId = next.moduleIds[0]
     next.createdAt = current.createdAt
     next.updatedAt = now()
     next.basic.name = next.basic.name.trim()
@@ -401,6 +424,7 @@ export class AppRepository {
     if (next.edition === 6) next.derived.luck6 = next.attrs.POW * 5
     this.database.transaction(() => {
       this.writeCharacter(next)
+      this.syncCharacterLinks(next)
       this.syncCharacterName(id, next.basic.name)
     })
     return this.getCharacter(id)
@@ -422,7 +446,12 @@ export class AppRepository {
     if (oldModulePolicy === 'cancel') return current
     if (moduleId) this.getModule(moduleId)
     if (moduleId === current.moduleId) return current
-    const next = { ...structuredClone(current), moduleId, updatedAt: now() }
+    const next = {
+      ...structuredClone(current),
+      moduleId,
+      moduleIds: moduleId ? [moduleId] : [],
+      updatedAt: now()
+    }
     this.database.transaction(() => {
       if (current.moduleId) {
         const oldModule = this.getModule(current.moduleId)
@@ -649,10 +678,11 @@ export class AppRepository {
   }
 
   private writeCharacter(character: CharacterData): void {
+    character = normalizeCharacter(character)
     this.connection
       .prepare('UPDATE characters SET module_id=?,edition=?,data_json=?,updated_at=? WHERE id=?')
       .run(
-        character.moduleId ?? null,
+        character.moduleIds[0] ?? null,
         character.edition,
         JSON.stringify(character),
         character.updatedAt,
@@ -667,18 +697,36 @@ export class AppRepository {
   }
 
   private linkCharacterToModule(character: CharacterData): void {
-    if (!character.moduleId) return
-    const module = this.getModule(character.moduleId)
-    const existing = module.pairs.findIndex((pair) => pair.characterId === character.id)
-    const pair = {
-      pc: character.basic.name,
-      pl: existing >= 0 ? module.pairs[existing]!.pl : '',
-      characterId: character.id
+    for (const moduleId of character.moduleIds) {
+      const module = this.getModule(moduleId)
+      const existing = module.pairs.findIndex((pair) => pair.characterId === character.id)
+      const pair = {
+        pc: character.basic.name,
+        pl: existing >= 0 ? module.pairs[existing]!.pl : '',
+        characterId: character.id
+      }
+      const pairs = [...module.pairs]
+      if (existing >= 0) pairs[existing] = pair
+      else pairs.push(pair)
+      this.writeModulePairs(module.id, pairs)
     }
-    const pairs = [...module.pairs]
-    if (existing >= 0) pairs[existing] = pair
-    else pairs.push(pair)
-    this.writeModulePairs(module.id, pairs)
+  }
+
+  private syncCharacterLinks(character: CharacterData): void {
+    const selected = new Set(character.moduleIds)
+    for (const module of this.snapshot().modules) {
+      if (selected.has(module.id)) {
+        this.linkCharacterToModule(character)
+        continue
+      }
+      if (!module.pairs.some((pair) => pair.characterId === character.id)) {
+        continue
+      }
+      this.writeModulePairs(
+        module.id,
+        module.pairs.map((pair) => (pair.characterId === character.id ? { pc: pair.pc, pl: pair.pl } : pair))
+      )
+    }
   }
 
   private syncCharacterName(characterId: string, name: string): void {

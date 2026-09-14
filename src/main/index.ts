@@ -101,11 +101,16 @@ function createWindow(): void {
     y: bounds.y,
     width: bounds.width,
     height: bounds.height,
-    minWidth: 1024,
+    minWidth: 1280,
     minHeight: 720,
     frame: false,
+    transparent: true,
+    resizable: false,
+    maximizable: true,
+    hasShadow: true,
+    roundedCorners: true,
+    backgroundColor: '#00000000',
     show: false,
-    backgroundColor: repository?.getSettings().theme === 'dark' ? '#0f1115' : '#e6e8ec',
     webPreferences: {
       preload: app.isPackaged
         ? path.join(process.resourcesPath, 'resources', 'preload.cjs')
@@ -167,7 +172,6 @@ app.on('second-instance', () => {
   mainWindow.focus()
 })
 
-app.disableHardwareAcceleration()
 
 app.whenReady().then(() => {
   if (process.argv.includes('--smoke-test')) {

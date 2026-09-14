@@ -1,14 +1,19 @@
-import { useEffect, useMemo, useState } from 'react'
-import { applyLogFilters } from '../../shared/log-filter'
+
+import { CharacterEditor } from './components/CharacterEditor'
+import { useEffect, useRef, useState } from 'react'
+import { BatchCheckDialog } from './components/BatchCheckDialog'
+import { ConfirmDialog, type ConfirmOptions } from './components/ConfirmDialog'
+import { RecordImportDialog } from './components/RecordImportDialog'
+import { ResizeHandles } from './components/ResizeHandles'
+import { ChevronIcon, FolderIcon, PencilIcon, PlusIcon, TrashIcon } from './components/Icons'
 import {
-  COC7_FORMULAS,
-  calculateDerived,
-  convertCharacterEdition,
-  skillFinal,
-  skillPointSummary
-} from '../../shared/coc-rules'
-import type { CharacterField } from '../../shared/character-template'
-import type { BackupPreviewApi, CharacterImportPreviewApi } from '../../shared/api'
+  mergeImportedParticipants,
+  parseImportedParticipants,
+  type TableImportRow
+} from '../../shared/table-import'
+import { applyLogFilters } from '../../shared/log-filter'
+import { skillFinal, skillPointSummary } from '../../shared/coc-rules'
+import type { BackupPreviewApi } from '../../shared/api'
 import {
   DEFAULT_FILTER_PRESET,
   type AppSnapshot,
@@ -33,7 +38,7 @@ const pageMeta: Record<Page, { title: string; subtitle: (snapshot: AppSnapshot) 
 interface ModuleDraft {
   id?: string
   name: string
-  kps: string
+  kps: string[]
   pairs: ParticipantPair[]
 }
 
@@ -117,193 +122,6 @@ function ExportDialog({
       <footer className="modal-actions">
         <button className="secondary" onClick={onClose}>
           取消
-        </button>
-      </footer>
-    </Modal>
-  )
-}
-
-const importFields: Array<[CharacterField, string]> = [
-  ['basic.name', '姓名'],
-  ['basic.occupation', '职业'],
-  ['basic.age', '年龄'],
-  ['basic.gender', '性别'],
-  ['basic.birthplace', '出生地'],
-  ['basic.residence', '居住地'],
-  ['attrs.STR', 'STR'],
-  ['attrs.CON', 'CON'],
-  ['attrs.SIZ', 'SIZ'],
-  ['attrs.DEX', 'DEX'],
-  ['attrs.APP', 'APP'],
-  ['attrs.INT', 'INT'],
-  ['attrs.POW', 'POW'],
-  ['attrs.EDU', 'EDU'],
-  ['derived.luck7', '幸运'],
-  ['story', '调查员经历']
-]
-
-function CharacterImportDialog({
-  preview,
-  modules,
-  onClose,
-  onConfirm
-}: {
-  preview: CharacterImportPreviewApi
-  modules: ModuleRecord[]
-  onClose(): void
-  onConfirm(selections: Parameters<Window['coc']['files']['commitCharacterImport']>[1]): void
-}): React.JSX.Element {
-  const [rows, setRows] = useState(() =>
-    preview.sheets.map((sheet) => ({
-      selected: true,
-      sheetName: sheet.sheetName,
-      edition: sheet.edition,
-      moduleId: '',
-      mapping: { ...sheet.mapping },
-      skillHeaderRow: sheet.skillHeaderRow,
-      mappingName: ''
-    }))
-  )
-  return (
-    <Modal title={`导入角色卡 · ${preview.fileName}`} onClose={onClose}>
-      <div className="import-preview-list">
-        {preview.sheets.map((sheet, index) => {
-          const row = rows[index]!
-          return (
-            <section className="import-sheet" key={sheet.sheetName}>
-              <div className="section-heading">
-                <label className="radio-row">
-                  <input
-                    type="checkbox"
-                    checked={row.selected}
-                    onChange={(event) =>
-                      setRows(
-                        rows.map((item, i) =>
-                          i === index ? { ...item, selected: event.target.checked } : item
-                        )
-                      )
-                    }
-                  />
-                  <strong>{sheet.sheetName}</strong>
-                </label>
-                <span className={sheet.confidence < 0.6 ? 'warning-text' : ''}>
-                  识别置信度 {Math.round(sheet.confidence * 100)}%
-                </span>
-              </div>
-              {sheet.warnings.map((warning) => (
-                <p className="warning-text" key={warning}>
-                  {warning}
-                </p>
-              ))}
-              <div className="form-grid two-columns">
-                <label>
-                  规则版本
-                  <select
-                    value={row.edition}
-                    onChange={(event) =>
-                      setRows(
-                        rows.map((item, i) =>
-                          i === index ? { ...item, edition: Number(event.target.value) as 6 | 7 } : item
-                        )
-                      )
-                    }
-                  >
-                    <option value={7}>第七版</option>
-                    <option value={6}>第六版</option>
-                  </select>
-                </label>
-                <label>
-                  关联模组
-                  <select
-                    value={row.moduleId}
-                    onChange={(event) =>
-                      setRows(
-                        rows.map((item, i) =>
-                          i === index ? { ...item, moduleId: event.target.value } : item
-                        )
-                      )
-                    }
-                  >
-                    <option value="">暂不关联</option>
-                    {modules.map((module) => (
-                      <option key={module.id} value={module.id}>
-                        {module.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <details open={sheet.confidence < 0.6}>
-                <summary>检查或手动调整字段映射</summary>
-                <div className="mapping-grid">
-                  {importFields.map(([field, label]) => (
-                    <label key={field}>
-                      {label}
-                      <select
-                        value={row.mapping[field] ?? ''}
-                        onChange={(event) =>
-                          setRows(
-                            rows.map((item, i) =>
-                              i === index
-                                ? {
-                                    ...item,
-                                    mapping: { ...item.mapping, [field]: event.target.value || undefined }
-                                  }
-                                : item
-                            )
-                          )
-                        }
-                      >
-                        <option value="">未映射</option>
-                        {sheet.cells.map((cell) => (
-                          <option key={cell.address} value={cell.address}>
-                            {cell.address} · {String(cell.value).slice(0, 30)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  ))}
-                </div>
-              </details>
-              <label>
-                保存此映射为（选填）
-                <input
-                  value={row.mappingName}
-                  onChange={(event) =>
-                    setRows(
-                      rows.map((item, i) =>
-                        i === index ? { ...item, mappingName: event.target.value } : item
-                      )
-                    )
-                  }
-                />
-              </label>
-            </section>
-          )
-        })}
-      </div>
-      <footer className="modal-actions">
-        <button className="secondary" onClick={onClose}>
-          取消
-        </button>
-        <button
-          className="primary"
-          onClick={() =>
-            onConfirm(
-              rows
-                .filter((row) => row.selected)
-                .map((row) => ({
-                  sheetName: row.sheetName,
-                  edition: row.edition,
-                  moduleId: row.moduleId || undefined,
-                  mapping: row.mapping,
-                  skillHeaderRow: row.skillHeaderRow,
-                  mappingName: row.mappingName || undefined
-                }))
-            )
-          }
-        >
-          确认导入
         </button>
       </footer>
     </Modal>
@@ -465,317 +283,6 @@ function ClearDataDialog({
   )
 }
 
-function CharacterEditor({
-  character,
-  modules,
-  onClose,
-  onSave,
-  onDelete
-}: {
-  character: CharacterData
-  modules: ModuleRecord[]
-  onClose(): void
-  onSave(data: CharacterData, moduleId: string | undefined, policy: 'remove' | 'retain-name' | 'cancel'): void
-  onDelete(): void
-}): React.JSX.Element {
-  const [draft, setDraft] = useState(() => structuredClone(character))
-  const [moduleId, setModuleId] = useState(character.moduleId ?? '')
-  const [movePolicy, setMovePolicy] = useState<'remove' | 'retain-name' | 'cancel'>('retain-name')
-  const points = skillPointSummary(draft)
-  const limits = calculateDerived(draft.edition, draft.attrs, draft.derived.luck7 ?? 50)
-  const moduleChanged = moduleId !== (character.moduleId ?? '')
-  const updateBasic = (field: keyof CharacterData['basic'], value: string): void =>
-    setDraft({ ...draft, basic: { ...draft.basic, [field]: value } })
-  const updateAttribute = (field: keyof CharacterData['attrs'], value: number): void =>
-    setDraft({ ...draft, attrs: { ...draft.attrs, [field]: value } })
-  return (
-    <Modal title={`调查员角色卡 · ${draft.basic.name || '未命名'}`} onClose={onClose}>
-      <div className="character-editor">
-        <section>
-          <h3>基本资料</h3>
-          <div className="form-grid two-columns">
-            <label>
-              姓名
-              <input value={draft.basic.name} onChange={(event) => updateBasic('name', event.target.value)} />
-            </label>
-            <label>
-              职业
-              <input
-                value={draft.basic.occupation}
-                onChange={(event) => updateBasic('occupation', event.target.value)}
-              />
-            </label>
-            <label>
-              规则版本
-              <select
-                value={draft.edition}
-                onChange={(event) =>
-                  setDraft(convertCharacterEdition(draft, Number(event.target.value) as 6 | 7))
-                }
-              >
-                <option value={7}>第七版</option>
-                <option value={6}>第六版</option>
-              </select>
-            </label>
-            <label>
-              所属模组
-              <select value={moduleId} onChange={(event) => setModuleId(event.target.value)}>
-                <option value="">未归属模组</option>
-                {modules.map((module) => (
-                  <option key={module.id} value={module.id}>
-                    {module.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {(['age', 'gender', 'birthplace', 'residence'] as const).map((field) => (
-              <label key={field}>
-                {{ age: '年龄', gender: '性别', birthplace: '出生地', residence: '居住地' }[field]}
-                <input
-                  value={draft.basic[field]}
-                  onChange={(event) => updateBasic(field, event.target.value)}
-                />
-              </label>
-            ))}
-          </div>
-          {moduleChanged && (
-            <label>
-              原模组的 PC 名单
-              <select
-                value={movePolicy}
-                onChange={(event) => setMovePolicy(event.target.value as typeof movePolicy)}
-              >
-                <option value="retain-name">保留名字，但解除角色卡关联</option>
-                <option value="remove">删除原模组中的 PC 行</option>
-                <option value="cancel">只保存资料，不移动角色卡</option>
-              </select>
-            </label>
-          )}
-        </section>
-        <section>
-          <h3>属性与当前状态</h3>
-          <div className="attribute-grid">
-            {(Object.keys(draft.attrs) as Array<keyof CharacterData['attrs']>).map((field) => (
-              <label key={field}>
-                {field}
-                <input
-                  type="number"
-                  min={0}
-                  value={draft.attrs[field]}
-                  onChange={(event) => updateAttribute(field, Number(event.target.value))}
-                />
-              </label>
-            ))}
-          </div>
-          <div className="derived-strip">
-            <label>
-              HP（上限 {limits.hp}）
-              <input
-                type="number"
-                value={draft.derived.hpCurrent}
-                onChange={(event) =>
-                  setDraft({ ...draft, derived: { ...draft.derived, hpCurrent: Number(event.target.value) } })
-                }
-              />
-            </label>
-            <label>
-              MP（上限 {limits.mp}）
-              <input
-                type="number"
-                value={draft.derived.mpCurrent}
-                onChange={(event) =>
-                  setDraft({ ...draft, derived: { ...draft.derived, mpCurrent: Number(event.target.value) } })
-                }
-              />
-            </label>
-            <label>
-              SAN（上限 {limits.san}）
-              <input
-                type="number"
-                value={draft.derived.sanCurrent}
-                onChange={(event) =>
-                  setDraft({
-                    ...draft,
-                    derived: { ...draft.derived, sanCurrent: Number(event.target.value) }
-                  })
-                }
-              />
-            </label>
-            <label>
-              幸运
-              <input
-                type="number"
-                value={draft.edition === 6 ? draft.attrs.POW * 5 : (draft.derived.luck7 ?? 50)}
-                disabled={draft.edition === 6}
-                onChange={(event) =>
-                  setDraft({ ...draft, derived: { ...draft.derived, luck7: Number(event.target.value) } })
-                }
-              />
-            </label>
-            <span>伤害加值：{limits.db}</span>
-          </div>
-        </section>
-        <section>
-          <div className="section-heading">
-            <h3>技能</h3>
-            <div className="point-summary">
-              <span className={points.occupationUsed > points.occupationLimit ? 'warning-text' : ''}>
-                职业 {points.occupationUsed}/{points.occupationLimit}
-              </span>
-              <span className={points.interestUsed > points.interestLimit ? 'warning-text' : ''}>
-                兴趣 {points.interestUsed}/{points.interestLimit}
-              </span>
-            </div>
-          </div>
-          <div className="form-grid two-columns">
-            {draft.edition === 7 && (
-              <label>
-                职业技能点公式
-                <select
-                  value={draft.occupationFormula}
-                  onChange={(event) => setDraft({ ...draft, occupationFormula: event.target.value })}
-                >
-                  {COC7_FORMULAS.map((formula) => (
-                    <option key={formula}>{formula}</option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <label>
-              手动职业技能点上限（留空使用公式）
-              <input
-                type="number"
-                value={draft.occupationPointOverride ?? ''}
-                onChange={(event) =>
-                  setDraft({
-                    ...draft,
-                    occupationPointOverride: event.target.value ? Number(event.target.value) : undefined
-                  })
-                }
-              />
-            </label>
-          </div>
-          <div className="skill-table-wrap">
-            <table className="skill-table">
-              <thead>
-                <tr>
-                  <th>技能</th>
-                  <th>基础</th>
-                  <th>职业</th>
-                  <th>兴趣</th>
-                  <th>成长</th>
-                  <th>合计</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {draft.skills.map((skill, index) => (
-                  <tr key={skill.id}>
-                    <td>
-                      <input
-                        value={skill.name}
-                        onChange={(event) =>
-                          setDraft({
-                            ...draft,
-                            skills: draft.skills.map((item, i) =>
-                              i === index ? { ...item, name: event.target.value } : item
-                            )
-                          })
-                        }
-                      />
-                    </td>
-                    {(['base', 'occupation', 'interest', 'growth'] as const).map((field) => (
-                      <td key={field}>
-                        <input
-                          type="number"
-                          value={skill[field]}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              skills: draft.skills.map((item, i) =>
-                                i === index ? { ...item, [field]: Number(event.target.value) } : item
-                              )
-                            })
-                          }
-                        />
-                      </td>
-                    ))}
-                    <td>{skillFinal(skill)}</td>
-                    <td>
-                      <button
-                        className="text-button danger"
-                        onClick={() =>
-                          setDraft({ ...draft, skills: draft.skills.filter((_, i) => i !== index) })
-                        }
-                      >
-                        删除
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <button
-            className="secondary"
-            onClick={() =>
-              setDraft({
-                ...draft,
-                skills: [
-                  ...draft.skills,
-                  {
-                    id: crypto.randomUUID(),
-                    name: '自定义技能',
-                    base: 0,
-                    occupation: 0,
-                    interest: 0,
-                    growth: 0,
-                    builtIn: false,
-                    mappingState: 'review'
-                  }
-                ]
-              })
-            }
-          >
-            + 添加自定义技能
-          </button>
-        </section>
-        <section>
-          <h3>物品清单与经历</h3>
-          <label>
-            物品清单（每行一项）
-            <textarea
-              rows={4}
-              value={draft.items.join('\n')}
-              onChange={(event) => setDraft({ ...draft, items: event.target.value.split(/\r?\n/) })}
-            />
-          </label>
-          <label>
-            调查员经历
-            <textarea
-              rows={5}
-              value={draft.story}
-              onChange={(event) => setDraft({ ...draft, story: event.target.value })}
-            />
-          </label>
-        </section>
-      </div>
-      <footer className="modal-actions">
-        <button className="text-button danger" onClick={onDelete}>
-          删除角色卡
-        </button>
-        <span className="spacer" />
-        <button className="secondary" onClick={onClose}>
-          取消
-        </button>
-        <button className="primary" onClick={() => onSave(draft, moduleId || undefined, movePolicy)}>
-          保存角色卡
-        </button>
-      </footer>
-    </Modal>
-  )
-}
-
 const emptySnapshot: AppSnapshot = {
   schemaVersion: 1,
   exportedAt: '',
@@ -885,14 +392,48 @@ function ModuleEditor({
             placeholder="例如：暗影循迹"
           />
         </label>
-        <label>
-          KP（每行一位）
-          <textarea
-            rows={3}
-            value={draft.kps}
-            onChange={(event) => onChange({ ...draft, kps: event.target.value })}
-          />
-        </label>
+        <div className="participant-editor">
+          <div className="field-label">KP（守密人）</div>
+          {draft.kps.map((kp, index) => (
+            <div className="kp-edit-row" key={index}>
+              <span className="tag">KP</span>
+              <input
+                aria-label={`KP${index + 1}`}
+                placeholder="守密人名称"
+                value={kp}
+                onChange={(event) =>
+                  onChange({
+                    ...draft,
+                    kps: draft.kps.map((item, i) => (i === index ? event.target.value : item))
+                  })
+                }
+              />
+              <button
+                className="icon-button danger"
+                aria-label={`删除 KP${index + 1}`}
+                onClick={() =>
+                  onChange({
+                    ...draft,
+                    kps: draft.kps.filter((_, i) => i !== index)
+                  })
+                }
+              >
+                <TrashIcon />
+              </button>
+            </div>
+          ))}
+          <button
+            className="secondary add-participant"
+            onClick={() =>
+              onChange({
+                ...draft,
+                kps: [...draft.kps, '']
+              })
+            }
+          >
+            <PlusIcon /> 添加 KP
+          </button>
+        </div>
         <div className="pair-editor">
           <div className="field-label">PC / PL 成对名单</div>
           {draft.pairs.map((pair, index) => (
@@ -911,12 +452,16 @@ function ModuleEditor({
                 onChange={(event) => updatePair(index, 'pl', event.target.value)}
               />
               <button
-                className="text-button danger"
+                className="icon-button danger"
+                aria-label={`删除 PC${index + 1} / PL${index + 1}`}
                 onClick={() =>
-                  onChange({ ...draft, pairs: draft.pairs.filter((_, pairIndex) => pairIndex !== index) })
+                  onChange({
+                    ...draft,
+                    pairs: draft.pairs.filter((_, pairIndex) => pairIndex !== index)
+                  })
                 }
               >
-                删除
+                <TrashIcon />
               </button>
             </div>
           ))}
@@ -1030,8 +575,6 @@ const filterLabels: Array<[keyof FilterPreset, string]> = [
   ['hideTime', '时间显示过滤'],
   ['hidePlatformAccount', '平台账号隐藏'],
   ['hideYearMonthDay', '年月日不展示'],
-  ['indentFirstLine', '首行缩进对齐'],
-  ['darkDisplay', '深色模式展示']
 ]
 
 function FilterEditor({
@@ -1048,14 +591,15 @@ function FilterEditor({
     <Modal title="选项预设" onClose={onClose}>
       <div className="filter-list">
         {filterLabels.map(([key, label]) => (
-          <label key={key}>
+          <button
+            type="button"
+            className={draft[key] ? 'filter-option active' : 'filter-option'}
+            key={key}
+            onClick={() => setDraft({ ...draft, [key]: !draft[key] })}
+          >
             <span>{label}</span>
-            <input
-              type="checkbox"
-              checked={draft[key]}
-              onChange={(event) => setDraft({ ...draft, [key]: event.target.checked })}
-            />
-          </label>
+            <small>{draft[key] ? '已开启' : '未开启'}</small>
+          </button>
         ))}
       </div>
       <footer className="modal-actions">
@@ -1133,15 +677,20 @@ export default function App(): React.JSX.Element {
   const [page, setPage] = useState<Page>('records')
   const [snapshot, setSnapshot] = useState<AppSnapshot>(emptySnapshot)
   const [loading, setLoading] = useState(true)
+  const characterScroller = useRef<HTMLDivElement>(null)
+  const [windowMaximized, setWindowMaximized] = useState(false)
+  const [confirmOptions, setConfirmOptions] = useState<ConfirmOptions>()
   const [message, setMessage] = useState<string>()
+  const [messageClosing, setMessageClosing] = useState(false)
   const [moduleDraft, setModuleDraft] = useState<ModuleDraft>()
   const [recordDraft, setRecordDraft] = useState<RecordDraft>()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [filterOpen, setFilterOpen] = useState(false)
+  const [tableImportOpen, setTableImportOpen] = useState(false)
+  const [batchCheckOpen, setBatchCheckOpen] = useState(false)
   const [detailRecordId, setDetailRecordId] = useState<string>()
   const [exportAction, setExportAction] = useState<ExportAction>()
   const [characterId, setCharacterId] = useState<string>()
-  const [characterImport, setCharacterImport] = useState<CharacterImportPreviewApi>()
   const [backupChoiceOpen, setBackupChoiceOpen] = useState(false)
   const [restorePreview, setRestorePreview] = useState<BackupPreviewApi>()
   const [clearDataOpen, setClearDataOpen] = useState(false)
@@ -1160,6 +709,29 @@ export default function App(): React.JSX.Element {
       setMessage(error instanceof Error ? error.message : '无法读取本地数据')
       setLoading(false)
     })
+  }, [])
+
+  useEffect(() => {
+    if (!message) {
+      setMessageClosing(false)
+      return
+    }
+    setMessageClosing(false)
+    const fadeTimer = window.setTimeout(() => setMessageClosing(true), 4500)
+    const closeTimer = window.setTimeout(() => setMessage(undefined), 5000)
+    return () => {
+      window.clearTimeout(fadeTimer)
+      window.clearTimeout(closeTimer)
+    }
+  }, [message])
+
+  useEffect(() => {
+    const syncMaximized = (): void => {
+      void window.coc.window.isMaximized().then(setWindowMaximized)
+    }
+    syncMaximized()
+    window.addEventListener('resize', syncMaximized)
+    return () => window.removeEventListener('resize', syncMaximized)
   }, [])
 
   const run = async (action: () => Promise<unknown>, success?: string): Promise<void> => {
@@ -1201,10 +773,7 @@ export default function App(): React.JSX.Element {
     }
   }
 
-  const executeExport = async (
-    format: ExportFormat,
-    scope: 'all' | 'selected'
-  ): Promise<void> => {
+  const executeExport = async (format: ExportFormat, scope: 'all' | 'selected'): Promise<void> => {
     if (!exportAction) return
     const ids = [...selected]
     const action = exportAction
@@ -1222,10 +791,21 @@ export default function App(): React.JSX.Element {
         const failed = job.results.filter((item) => item.state === 'failed').length
         setMessage(`批量下载完成：成功 ${succeeded}，失败 ${failed}。`)
       } else {
-        const result = await window.coc.files.exportCombined(ids, format as CombinedExportFormat)
-        setMessage(
-          `合集已保存：${result.entry.path}；包含 ${result.included.length} 场，跳过 ${result.failed.length} 场。`
-        )
+        const grouped = new Map<string, string[]>()
+        for (const recordId of ids) {
+          const record = snapshot.records.find((item) => item.id === recordId)
+          if (!record) continue
+          const group = grouped.get(record.moduleId) ?? []
+          group.push(recordId)
+          grouped.set(record.moduleId, group)
+        }
+        const combinedResults = []
+        for (const group of grouped.values()) {
+          combinedResults.push(await window.coc.files.exportCombined(group, format as CombinedExportFormat))
+        }
+        const included = combinedResults.reduce((sum, item) => sum + item.included.length, 0)
+        const failed = combinedResults.reduce((sum, item) => sum + item.failed.length, 0)
+        setMessage(`合集已保存 ${combinedResults.length} 份；包含 ${included} 场，跳过 ${failed} 场。`)
       }
       await refresh()
     } catch (error) {
@@ -1235,7 +815,7 @@ export default function App(): React.JSX.Element {
 
   const saveModule = async (): Promise<void> => {
     if (!moduleDraft) return
-    const input = { name: moduleDraft.name, kps: moduleDraft.kps.split(/\r?\n/), pairs: moduleDraft.pairs }
+    const input = { name: moduleDraft.name, kps: moduleDraft.kps, pairs: moduleDraft.pairs }
     await run(
       () =>
         moduleDraft.id ? window.coc.modules.update(moduleDraft.id, input) : window.coc.modules.create(input),
@@ -1279,6 +859,49 @@ export default function App(): React.JSX.Element {
     setRecordDraft(undefined)
   }
 
+  const importTableRows = async (
+    rows: TableImportRow[]
+  ): Promise<{ modules: number; records: number; skipped: number }> => {
+    const known = new Map(snapshot.modules.map((module) => [module.name.toLowerCase(), module]))
+    let createdModules = 0
+    let createdRecords = 0
+    let skipped = 0
+    for (const row of rows) {
+      const key = row.moduleName.toLowerCase()
+      let module = known.get(key)
+      const participants = parseImportedParticipants(row.participants)
+      if (!module) {
+        module = await window.coc.modules.create({
+          name: row.moduleName,
+          kps: participants.kps,
+          pairs: participants.pairs
+        })
+        createdModules += 1
+        known.set(key, module)
+      } else if (row.participants) {
+        const merged = mergeImportedParticipants({ kps: module.kps, pairs: module.pairs }, participants)
+        module = await window.coc.modules.update(module.id, merged)
+        known.set(key, module)
+      }
+      const duplicate = await window.coc.records.findDuplicate(module.id, row.link)
+      if (duplicate) {
+        skipped += 1
+        continue
+      }
+      await window.coc.records.create({
+        moduleId: module.id,
+        name: row.sessionName,
+        link: row.link
+      })
+      createdRecords += 1
+    }
+    await refresh()
+    return {
+      modules: createdModules,
+      records: createdRecords,
+      skipped
+    }
+  }
   const createCharacter = async (): Promise<void> => {
     try {
       const character = await window.coc.characters.create({ edition: 7 })
@@ -1289,33 +912,9 @@ export default function App(): React.JSX.Element {
     }
   }
 
-  const chooseCharacterImport = async (): Promise<void> => {
-    try {
-      const preview = await window.coc.files.chooseCharacterImport()
-      if (preview) setCharacterImport(preview)
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '无法读取角色卡表格')
-    }
-  }
-
-  const exportCharacter = async (id: string, format: 'xlsx' | 'pdf'): Promise<void> => {
-    try {
-      const entry = await window.coc.files.exportCharacter(id, format)
-      await refresh()
-      setMessage(`角色卡已保存：${entry.path}`)
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '角色卡导出失败')
-    }
-  }
-
-  const saveCharacter = async (
-    data: CharacterData,
-    moduleId: string | undefined,
-    policy: 'remove' | 'retain-name' | 'cancel'
-  ): Promise<void> => {
+  const saveCharacter = async (data: CharacterData): Promise<void> => {
     try {
       await window.coc.characters.update(data.id, data)
-      if (moduleId !== data.moduleId) await window.coc.characters.move(data.id, moduleId, policy)
       await refresh()
       setCharacterId(undefined)
       setMessage('角色卡已保存')
@@ -1324,28 +923,31 @@ export default function App(): React.JSX.Element {
     }
   }
 
-  const selectedModules = useMemo(
-    () =>
-      new Set(snapshot.records.filter((record) => selected.has(record.id)).map((record) => record.moduleId)),
-    [selected, snapshot.records]
-  )
+  const requestDeleteCharacter = (character: CharacterData): void => {
+    setConfirmOptions({
+      title: '删除角色卡',
+      text: `删除角色卡“${character.basic.name || '未命名调查员'}”？模组内的 PC 名字会保留。`,
+      confirmLabel: '确认删除',
+      danger: true,
+      onConfirm: async () => {
+        await run(() => window.coc.characters.delete(character.id), '角色卡已删除')
+        setCharacterId(undefined)
+      }
+    })
+  }
+
   const header = pageMeta[page]
 
   return (
-    <main className="app-shell">
+    <main className={windowMaximized ? 'app-shell maximized' : 'app-shell'}>
+      <ResizeHandles disabled={windowMaximized} />
       <header className="titlebar" onDoubleClick={() => void window.coc.window.toggleMaximize()}>
         <span className="app-name">COC 跑团记录簿</span>
         <WindowControls />
       </header>
       <div className="workspace">
         <nav className="sidebar" aria-label="主导航">
-          <div className="brand">
-            <span className="brand-mark">C</span>
-            <div>
-              <strong>COC</strong>
-              <small>个人记录簿</small>
-            </div>
-          </div>
+
           {(['records', 'characters', 'settings'] as const).map((item) => (
             <button
               className={page === item ? 'nav-item active' : 'nav-item'}
@@ -1369,50 +971,16 @@ export default function App(): React.JSX.Element {
               <p>{header.subtitle(snapshot)}</p>
             </div>
             <div className="header-actions">
-              <button
-                className="secondary"
-                onClick={() =>
-                  void run(() =>
-                    window.coc.settings.update({
-                      theme: snapshot.settings.theme === 'light' ? 'dark' : 'light'
-                    })
-                  )
-                }
-              >
-                {snapshot.settings.theme === 'light' ? '深色' : '浅色'}
-              </button>
               {page === 'records' && (
-                <button className="primary" onClick={() => setModuleDraft({ name: '', kps: '', pairs: [] })}>
+                <button
+                  className="primary"
+                  onClick={() => setModuleDraft({ name: '', kps: [''], pairs: [] })}
+                >
                   + 新建模组
                 </button>
               )}
               {page === 'characters' && (
                 <>
-                  <button className="secondary" onClick={() => void chooseCharacterImport()}>
-                    导入模板
-                  </button>
-                  <button
-                    className="secondary"
-                    onClick={() =>
-                      void run(
-                        () => window.coc.files.saveCharacterTemplate(6),
-                        '第六版空白模板已保存到归档目录'
-                      )
-                    }
-                  >
-                    第六版空白模板
-                  </button>
-                  <button
-                    className="secondary"
-                    onClick={() =>
-                      void run(
-                        () => window.coc.files.saveCharacterTemplate(7),
-                        '第七版通用空白模板已保存到归档目录'
-                      )
-                    }
-                  >
-                    第七版空白模板
-                  </button>
                   <button className="primary" onClick={() => void createCharacter()}>
                     + 新建角色卡
                   </button>
@@ -1422,7 +990,7 @@ export default function App(): React.JSX.Element {
           </header>
           <div className="content">
             {message && (
-              <div className="notice" role="status">
+              <div className={messageClosing ? 'notice toast-closing' : 'notice'} role="status">
                 <span>{message}</span>
                 <button aria-label="关闭提示" onClick={() => setMessage(undefined)}>
                   ×
@@ -1434,11 +1002,16 @@ export default function App(): React.JSX.Element {
             ) : page === 'records' ? (
               <>
                 <div className="toolbar">
-                  <button className="secondary">导入表格</button>
+                  <button className="secondary" onClick={() => setTableImportOpen(true)}>
+                    导入表格
+                  </button>
                   <button className="secondary" onClick={() => setExportAction('table')}>
                     导出表格
                   </button>
                   <span className="toolbar-divider" />
+                  <button className="secondary" onClick={() => setBatchCheckOpen(true)}>
+                    批量检测
+                  </button>
                   <button
                     className="secondary"
                     disabled={!selected.size}
@@ -1448,12 +1021,11 @@ export default function App(): React.JSX.Element {
                   </button>
                   <button
                     className="secondary"
-                    disabled={!selected.size || selectedModules.size > 1}
-                    title={selectedModules.size > 1 ? '批量合成只允许同一模组' : ''}
+                    disabled={!selected.size}
                     onClick={() => setExportAction('combine')}
                   >
                     批量合成
-                  </button>
+                  </button>{' '}
                   <button className="secondary" onClick={() => setFilterOpen(true)}>
                     选项预设
                   </button>
@@ -1464,7 +1036,7 @@ export default function App(): React.JSX.Element {
                     <p>先建立一个模组，再添加 KP、PC / PL 和场次记录。</p>
                     <button
                       className="primary"
-                      onClick={() => setModuleDraft({ name: '', kps: '', pairs: [] })}
+                      onClick={() => setModuleDraft({ name: '', kps: [''], pairs: [] })}
                     >
                       新建第一个模组
                     </button>
@@ -1487,7 +1059,7 @@ export default function App(): React.JSX.Element {
                                 )
                               }
                             >
-                              {module.collapsed ? '›' : '⌄'}
+                              <ChevronIcon className={module.collapsed ? 'collapsed' : ''} />
                             </button>
                             <button
                               className="module-name"
@@ -1495,12 +1067,21 @@ export default function App(): React.JSX.Element {
                                 setModuleDraft({
                                   id: module.id,
                                   name: module.name,
-                                  kps: module.kps.join('\n'),
+                                  kps: module.kps.length ? module.kps : [''],
                                   pairs: module.pairs
                                 })
                               }
                             >
                               {module.name}
+                            </button>
+                            <button
+                              className="icon-button folder-action"
+                              title="打开该模组归档文件夹"
+                              onClick={() =>
+                                void run(() => window.coc.files.openDirectory('module', module.id))
+                              }
+                            >
+                              <FolderIcon />
                             </button>
                             <span className="count-badge">{records.length} 场</span>
                             <div className="module-actions">
@@ -1521,14 +1102,7 @@ export default function App(): React.JSX.Element {
                                 />
                                 全选本模组
                               </label>
-                              <button
-                                className="text-button"
-                                onClick={() =>
-                                  void run(() => window.coc.files.openDirectory('module', module.id))
-                                }
-                              >
-                                文件夹
-                              </button>
+
                               <button
                                 className="text-button"
                                 onClick={() =>
@@ -1561,10 +1135,19 @@ export default function App(): React.JSX.Element {
                               </button>
                               <button
                                 className="text-button danger"
-                                onClick={() => {
-                                  if (window.confirm(`删除模组“${module.name}”及其场次？角色卡会保留。`))
-                                    void run(() => window.coc.modules.delete(module.id), '模组已删除')
-                                }}
+                                onClick={() =>
+                                  setConfirmOptions({
+                                    title: '删除模组',
+                                    text: `删除模组“${module.name}”及其场次？角色卡会保留。`,
+                                    confirmLabel: '确认删除',
+                                    danger: true,
+                                    onConfirm: () =>
+                                      run(
+                                        () => window.coc.modules.delete(module.id),
+                                        '模组已删除'
+                                      )
+                                  })
+                                }
                               >
                                 删除
                               </button>
@@ -1580,6 +1163,20 @@ export default function App(): React.JSX.Element {
                                     .map((pair) => `${pair.pc || '未填写'} / ${pair.pl || '未填写'}`)
                                     .join('；') || '未填写'}
                                 </span>
+                                <button
+                                  className="icon-button participants-edit"
+                                  title="编辑 KP / PC / PL"
+                                  onClick={() =>
+                                    setModuleDraft({
+                                      id: module.id,
+                                      name: module.name,
+                                      kps: module.kps.length ? module.kps : [''],
+                                      pairs: module.pairs
+                                    })
+                                  }
+                                >
+                                  <PencilIcon />
+                                </button>
                               </div>
                               {records.length ? (
                                 <table>
@@ -1648,17 +1245,17 @@ export default function App(): React.JSX.Element {
                                             >
                                               检测
                                             </button>
-                                            {(['raw', 'doc', 'dialogue-doc', 'docx', 'txt', 'pdf'] as const).map(
-                                              (format) => (
-                                                <button
-                                                  className="text-button"
-                                                  key={format}
-                                                  onClick={() => void exportRecord(record.id, format)}
-                                                >
-                                                  {exportFormatLabel(format)}
-                                                </button>
-                                              )
-                                            )}
+                                            {(
+                                              ['raw', 'doc', 'dialogue-doc', 'docx', 'txt', 'pdf'] as const
+                                            ).map((format) => (
+                                              <button
+                                                className="text-button"
+                                                key={format}
+                                                onClick={() => void exportRecord(record.id, format)}
+                                              >
+                                                {exportFormatLabel(format)}
+                                              </button>
+                                            ))}
                                             <button
                                               className="icon-button"
                                               disabled={recordIndex === 0}
@@ -1696,19 +1293,25 @@ export default function App(): React.JSX.Element {
                                             </button>
                                             <button
                                               className="text-button danger"
-                                              onClick={() => {
-                                                if (window.confirm(`删除场次“${record.name}”？`)) {
-                                                  setSelected((current) => {
-                                                    const next = new Set(current)
-                                                    next.delete(record.id)
-                                                    return next
-                                                  })
-                                                  void run(
-                                                    () => window.coc.records.delete(record.id),
-                                                    '场次已删除'
-                                                  )
-                                                }
-                                              }}
+                                              onClick={() =>
+                                                setConfirmOptions({
+                                                  title: '删除场次',
+                                                  text: `删除场次“${record.name}”？`,
+                                                  confirmLabel: '确认删除',
+                                                  danger: true,
+                                                  onConfirm: () => {
+                                                    setSelected((current) => {
+                                                      const next = new Set(current)
+                                                      next.delete(record.id)
+                                                      return next
+                                                    })
+                                                    return run(
+                                                      () => window.coc.records.delete(record.id),
+                                                      '场次已删除'
+                                                    )
+                                                  }
+                                                })
+                                              }
                                             >
                                               删除
                                             </button>
@@ -1733,39 +1336,77 @@ export default function App(): React.JSX.Element {
               </>
             ) : page === 'characters' ? (
               snapshot.characters.length ? (
-                <div className="character-grid">
-                  {snapshot.characters.map((character) => {
-                    const module = snapshot.modules.find((item) => item.id === character.moduleId)
-                    const points = skillPointSummary(character)
-                    return (
-                      <article className="character-card" key={character.id}>
-                        <button className="character-card-main" onClick={() => setCharacterId(character.id)}>
-                          <span className="edition-badge">第{character.edition === 7 ? '七' : '六'}版</span>
-                          <strong>{character.basic.name || '未命名调查员'}</strong>
-                          <span>{character.basic.occupation || '未填写职业'}</span>
-                          <span>{module?.name || '未归属模组'}</span>
-                          <small>
-                            职业技能点 {points.occupationUsed}/{points.occupationLimit} · 兴趣技能点{' '}
-                            {points.interestUsed}/{points.interestLimit}
-                          </small>
-                        </button>
-                        <div className="character-card-actions">
+                <div className="character-carousel">
+                  <button
+                    className="icon-button carousel-button"
+                    aria-label="浏览上一张角色卡"
+                    onClick={() =>
+                      characterScroller.current?.scrollBy({
+                        left: -340,
+                        behavior: 'smooth'
+                      })
+                    }
+                  >
+                    <ChevronIcon className="nav-left" />
+                  </button>
+                  <div className="character-grid" ref={characterScroller}>
+                    {snapshot.characters.map((character) => {
+                      const linkedModules = snapshot.modules.filter((item) =>
+                        character.moduleIds.includes(item.id)
+                      )
+                      const points = skillPointSummary(character)
+                      const topSkills = [...character.skills]
+                        .sort((a, b) => skillFinal(b) - skillFinal(a))
+                        .slice(0, 3)
+                      return (
+                        <article className="character-card" key={character.id}>
+                          <div className="character-card-head">
+                            <span>
+                              {linkedModules.map((item) => item.name).join('、') || '未关联模组'}
+                            </span>
+                            <button
+                              className="text-button danger"
+                              onClick={() => requestDeleteCharacter(character)}
+                            >
+                              删除
+                            </button>
+                          </div>
                           <button
-                            className="text-button"
-                            onClick={() => void exportCharacter(character.id, 'xlsx')}
+                            className="character-card-main"
+                            onClick={() => setCharacterId(character.id)}
                           >
-                            导出 XLSX
+                            <span className="edition-badge">第{character.edition === 7 ? '七' : '六'}版</span>
+                            <strong>{character.basic.name || '未命名调查员'}</strong>
+                            <span>{character.basic.occupation || '未填写职业'}</span>
+                            <span>{linkedModules.map((item) => item.name).join('、') || '未关联模组'}</span>
+                            <span className="attribute-summary">
+                              STR {character.attrs.STR} · CON {character.attrs.CON} · DEX{' '}
+                              {character.attrs.DEX} · INT {character.attrs.INT}
+                            </span>
+                            <span className="character-skills">
+                              {topSkills.map((skill) => `${skill.name} ${skillFinal(skill)}`).join(' · ')}
+                            </span>
+                            <small>
+                              职业技能点 {points.occupationUsed}/{points.occupationLimit} · 兴趣技能点{' '}
+                              {points.interestUsed}/{points.interestLimit}
+                            </small>
                           </button>
-                          <button
-                            className="text-button"
-                            onClick={() => void exportCharacter(character.id, 'pdf')}
-                          >
-                            导出 PDF
-                          </button>
-                        </div>
-                      </article>
-                    )
-                  })}
+                        </article>
+                      )
+                    })}
+                  </div>
+                  <button
+                    className="icon-button carousel-button"
+                    aria-label="浏览下一张角色卡"
+                    onClick={() =>
+                      characterScroller.current?.scrollBy({
+                        left: 340,
+                        behavior: 'smooth'
+                      })
+                    }
+                  >
+                    <ChevronIcon className="nav-right" />
+                  </button>
                 </div>
               ) : (
                 <div className="empty-state">
@@ -1825,7 +1466,7 @@ export default function App(): React.JSX.Element {
                     </button>
                   </div>
                 </section>
-                <section className="settings-card wide">
+                <section className="settings-card">
                   <h2>下载归档位置</h2>
                   <p className="path-text">{snapshot.settings.archiveDirectory}</p>
                   <p className="muted">新下载和导出的文件会写入此目录；应用只管理已登记文件。</p>
@@ -1862,21 +1503,22 @@ export default function App(): React.JSX.Element {
                     className="secondary"
                     disabled={!cacheInfo.files}
                     onClick={() =>
-                      void (async () => {
-                        if (
-                          !window.confirm(
-                            `清理 ${cacheInfo.files} 个记录缓存文件？不会删除场次、角色卡或归档文件。`
-                          )
-                        )
-                          return
-                        try {
-                          const removed = await window.coc.backup.clearCache()
-                          await refresh()
-                          setMessage(`已清理 ${removed.files} 个缓存文件，释放 ${removed.bytes} 字节。`)
-                        } catch (error) {
-                          setMessage(error instanceof Error ? error.message : '缓存清理失败')
+                      setConfirmOptions({
+                        title: '清理记录缓存',
+                        text: `清理 ${cacheInfo.files} 个记录缓存文件？不会删除场次、角色卡或归档文件。`,
+                        confirmLabel: '确认清理',
+                        onConfirm: async () => {
+                          try {
+                            const removed = await window.coc.backup.clearCache()
+                            await refresh()
+                            setMessage(
+                              `已清理 ${removed.files} 个缓存文件，释放 ${removed.bytes} 字节。`
+                            )
+                          } catch (error) {
+                            setMessage(error instanceof Error ? error.message : '缓存清理失败')
+                          }
                         }
-                      })()
+                      })
                     }
                   >
                     清理记录缓存
@@ -1940,6 +1582,17 @@ export default function App(): React.JSX.Element {
           onConfirm={(format, scope) => void executeExport(format, scope)}
         />
       )}
+      {tableImportOpen && (
+        <RecordImportDialog onClose={() => setTableImportOpen(false)} onImport={importTableRows} />
+      )}
+      {batchCheckOpen && (
+        <BatchCheckDialog
+          modules={snapshot.modules}
+          records={snapshot.records}
+          onClose={() => setBatchCheckOpen(false)}
+          onRefresh={refresh}
+        />
+      )}
       {characterId &&
         (() => {
           const character = snapshot.characters.find((item) => item.id === characterId)
@@ -1948,41 +1601,13 @@ export default function App(): React.JSX.Element {
               character={character}
               modules={snapshot.modules}
               onClose={() => setCharacterId(undefined)}
-              onSave={(data, moduleId, policy) => void saveCharacter(data, moduleId, policy)}
-              onDelete={() => {
-                if (
-                  !window.confirm(
-                    `删除角色卡“${character.basic.name || '未命名调查员'}”？模组内的 PC 名字会保留。`
-                  )
-                )
-                  return
-                void run(() => window.coc.characters.delete(character.id), '角色卡已删除')
-                setCharacterId(undefined)
-              }}
+              onSave={(data) => void saveCharacter(data)}
+              onDelete={() => requestDeleteCharacter(character)}
             />
           ) : null
         })()}
-      {characterImport && (
-        <CharacterImportDialog
-          preview={characterImport}
-          modules={snapshot.modules}
-          onClose={() => setCharacterImport(undefined)}
-          onConfirm={(selections) => {
-            void (async () => {
-              try {
-                const created = await window.coc.files.commitCharacterImport(
-                  characterImport.token,
-                  selections
-                )
-                await refresh()
-                setCharacterImport(undefined)
-                setMessage(`已导入 ${created.length} 张角色卡`)
-              } catch (error) {
-                setMessage(error instanceof Error ? error.message : '角色卡导入失败')
-              }
-            })()
-          }}
-        />
+      {confirmOptions && (
+        <ConfirmDialog options={confirmOptions} onClose={() => setConfirmOptions(undefined)} />
       )}
       {backupChoiceOpen && (
         <BackupChoiceDialog

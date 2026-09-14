@@ -10,6 +10,14 @@ describe('desktop window state', () => {
     })
   })
 
+  it('enforces the 1280x720 minimum when the work area is large enough', () => {
+    expect(
+      resolveWindowBounds({ width: 1024, height: 600, maximized: false }, [
+        { x: 0, y: 0, width: 2560, height: 1400 }
+      ])
+    ).toEqual({ width: 1280, height: 720, maximized: false })
+  })
+
   it('clamps the default size to a smaller work area', () => {
     expect(resolveWindowBounds(undefined, [{ x: 0, y: 0, width: 1366, height: 768 }])).toMatchObject({
       width: 1366,
@@ -19,15 +27,15 @@ describe('desktop window state', () => {
 
   it('keeps a visible saved position and rejects a disconnected display', () => {
     const area = [{ x: 0, y: 0, width: 1920, height: 1040 }]
-    expect(resolveWindowBounds({ x: 100, y: 100, width: 1200, height: 800, maximized: true }, area)).toEqual({
+    expect(resolveWindowBounds({ x: 100, y: 100, width: 1280, height: 800, maximized: true }, area)).toEqual({
       x: 100,
       y: 100,
-      width: 1200,
+      width: 1280,
       height: 800,
       maximized: true
     })
     expect(
-      resolveWindowBounds({ x: 4000, y: 100, width: 1200, height: 800, maximized: false }, area)
-    ).toEqual({ width: 1200, height: 800, maximized: false })
+      resolveWindowBounds({ x: 4000, y: 100, width: 1280, height: 800, maximized: false }, area)
+    ).toEqual({ width: 1280, height: 800, maximized: false })
   })
 })

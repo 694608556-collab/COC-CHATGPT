@@ -32,7 +32,7 @@ export function resolveWindowBounds(
   workAreas: Rectangle[]
 ): ResolvedWindowBounds {
   const primary = workAreas[0] ?? { x: 0, y: 0, width: 1920, height: 1080 }
-  const width = Math.min(Math.max(saved?.width ?? 1920, 1024), primary.width)
+  const width = Math.min(Math.max(saved?.width ?? 1920, 1280), primary.width)
   const height = Math.min(Math.max(saved?.height ?? 1080, 720), primary.height)
   if (saved?.x !== undefined && saved.y !== undefined) {
     const proposed = { x: saved.x, y: saved.y, width, height }

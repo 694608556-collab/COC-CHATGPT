@@ -10,7 +10,10 @@ contextBridge.exposeInMainWorld('coc', {
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),
     toggleMaximize: () => ipcRenderer.invoke('window:toggle-maximize'),
-    close: () => ipcRenderer.invoke('window:close')
+    close: () => ipcRenderer.invoke('window:close'),
+    getBounds: () => ipcRenderer.invoke('window:get-bounds'),
+    setBounds: (bounds) => ipcRenderer.invoke('window:set-bounds', bounds),
+    isMaximized: () => ipcRenderer.invoke('window:is-maximized')
   },
   app: { snapshot: () => invoke('app:snapshot') },
   modules: {

@@ -65,6 +65,7 @@ const characterData = z
   .object({
     id,
     moduleId: id.optional(),
+    moduleIds: z.array(id).max(100),
     edition,
     basic: z.object({
       name: text,
@@ -218,8 +219,15 @@ export function registerIpc(
   )
   register('records:probe', z.object({ id }), ({ id: recordId }) => seaLogService.probe(recordId))
 
-  register('characters:create', z.object({ edition, moduleId: id.optional(), name: optionalText }), (input) =>
-    repository.createCharacter(input)
+  register(
+    'characters:create',
+    z.object({
+      edition,
+      moduleId: id.optional(),
+      moduleIds: z.array(id).max(100).optional(),
+      name: optionalText
+    }),
+    (input) => repository.createCharacter(input)
   )
   register('characters:update', z.object({ id, data: characterData }), ({ id: characterId, data }) =>
     repository.updateCharacter(characterId, data)
@@ -284,7 +292,10 @@ export function registerIpc(
   )
   register(
     'files:batch-export',
-    z.object({ ids: z.array(id).min(1).max(10_000), format: z.enum(['raw', 'doc', 'dialogue-doc', 'docx', 'txt', 'pdf']) }),
+    z.object({
+      ids: z.array(id).min(1).max(10_000),
+      format: z.enum(['raw', 'doc', 'dialogue-doc', 'docx', 'txt', 'pdf'])
+    }),
     ({ ids, format }) => fileService.batchExport(ids, format)
   )
   register(
@@ -362,6 +373,22 @@ export function registerIpc(
     }
   )
 
+  ipcMain.handle('window:get-bounds', () => windowProvider()?.getBounds())
+  ipcMain.handle('window:set-bounds', (_event, rawBounds) => {
+    const bounds = z
+      .object({
+        x: z.number().int(),
+        y: z.number().int(),
+        width: z.number().int().min(1280),
+        height: z.number().int().min(720)
+      })
+      .parse(rawBounds)
+    const window = windowProvider()
+    if (window && !window.isMaximized()) window.setBounds(bounds)
+  })
+  ipcMain.handle('window:is-maximized', () =>
+    windowProvider()?.isMaximized() ?? false
+  )
   ipcMain.handle('window:minimize', () => windowProvider()?.minimize())
   ipcMain.handle('window:toggle-maximize', () => {
     const window = windowProvider()

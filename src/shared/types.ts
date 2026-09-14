@@ -103,6 +103,7 @@ export interface Skill {
 export interface CharacterData {
   id: string
   moduleId?: string
+  moduleIds: string[]
   edition: Edition
   basic: {
     name: string

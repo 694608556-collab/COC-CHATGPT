@@ -60,4 +60,23 @@ describe('character persistence and module linking', () => {
     expect(repository.findModule(first.id).pairs).toHaveLength(0)
     expect(repository.findModule(second.id).pairs[0]?.characterId).toBe(character.id)
   })
+  it('links one card to multiple modules and syncs PC names', () => {
+    const first = repository.createModule({ name: '甲模组' })
+    const second = repository.createModule({ name: '乙模组' })
+    const character = repository.createCharacter({
+      edition: 7,
+      moduleId: first.id,
+      name: '林恩'
+    })
+    character.moduleIds = [first.id, second.id]
+    const updated = repository.updateCharacter(character.id, character)
+    expect(updated.moduleIds).toEqual([first.id, second.id])
+    expect(repository.findModule(first.id).pairs[0]?.characterId).toBe(character.id)
+    expect(repository.findModule(second.id).pairs[0]?.characterId).toBe(character.id)
+
+    updated.basic.name = '林恩·怀特'
+    repository.updateCharacter(updated.id, updated)
+    expect(repository.findModule(first.id).pairs[0]?.pc).toBe('林恩·怀特')
+    expect(repository.findModule(second.id).pairs[0]?.pc).toBe('林恩·怀特')
+  })
 })

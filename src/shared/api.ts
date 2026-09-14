@@ -68,6 +68,19 @@ export interface CocApi {
     minimize(): Promise<void>
     toggleMaximize(): Promise<void>
     close(): Promise<void>
+    getBounds(): Promise<{
+      x: number
+      y: number
+      width: number
+      height: number
+    }>
+    setBounds(bounds: {
+      x: number
+      y: number
+      width: number
+      height: number
+    }): Promise<void>
+    isMaximized(): Promise<boolean>
   }
   app: {
     snapshot(): Promise<AppSnapshot>
@@ -99,7 +112,12 @@ export interface CocApi {
     probe(id: string): Promise<SessionRecord>
   }
   characters: {
-    create(input: { edition: 6 | 7; moduleId?: string; name?: string }): Promise<CharacterData>
+    create(input: {
+      edition: 6 | 7
+      moduleId?: string
+      moduleIds?: string[]
+      name?: string
+    }): Promise<CharacterData>
     update(id: string, data: CharacterData): Promise<CharacterData>
     convert(id: string, edition: 6 | 7): Promise<CharacterData>
     move(

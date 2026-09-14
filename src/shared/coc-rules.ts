@@ -146,6 +146,7 @@ export function skillPointSummary(character: CharacterData): {
 export function createEmptyCharacter(input: {
   edition: Edition
   moduleId?: string
+  moduleIds?: string[]
   name?: string
   occupation?: string
 }): CharacterData {
@@ -162,9 +163,11 @@ export function createEmptyCharacter(input: {
     EDU: value
   }
   const limits = calculateDerived(input.edition, attrs, 50)
+  const moduleIds = [...new Set(input.moduleIds ?? (input.moduleId ? [input.moduleId] : []))].filter(Boolean)
   return {
     id: createId(),
-    moduleId: input.moduleId,
+    moduleIds,
+    moduleId: moduleIds[0],
     edition: input.edition,
     basic: {
       name: input.name ?? '',

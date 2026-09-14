@@ -78,7 +78,8 @@ export class FileService {
     try {
       const session = [{ record, log }]
       if (format === 'raw') fs.writeFileSync(temporary, renderRawLogJson(log), 'utf8')
-      else if (format === 'txt') fs.writeFileSync(temporary, renderLogText(log, settings.filterPreset), 'utf8')
+      else if (format === 'txt')
+        fs.writeFileSync(temporary, renderLogText(log, settings.filterPreset), 'utf8')
       else if (format === 'doc')
         fs.writeFileSync(temporary, renderWordHtml(module, session, settings.filterPreset, true), 'utf8')
       else if (format === 'dialogue-doc')
@@ -124,9 +125,9 @@ export class FileService {
       throw new AppError('COMBINE_NO_CONTENT', 'CONVERSION', '所选场次均无可用正文，未生成合集。')
     const settings = this.repository.getSettings()
     const generatedDate = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-    const destination = new ArchivePathService(() => settings.archiveDirectory).availableFile(
+    const destination = new ArchivePathService(() => settings.archiveDirectory).batchFile(
       module.name,
-      `${module.name}合集${generatedDate}.${format}`
+      `${generatedDate}${module.name}合集.${format}`
     )
     const temporary = `${destination}.${process.pid}.tmp`
     try {

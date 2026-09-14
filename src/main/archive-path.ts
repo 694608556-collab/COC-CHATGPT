@@ -23,6 +23,22 @@ export class ArchivePathService {
     return destination
   }
 
+  batchFile(moduleName: string, requestedName: string): string {
+    const root = path.resolve(this.rootProvider())
+    const batchRoot = path.join(root, '批量合成')
+    const directory = path.join(batchRoot, sanitizeWindowsName(moduleName, '未命名模组'))
+    if (!isPathInside(root, directory)) {
+      throw new Error('归档目录不安全')
+    }
+    fs.mkdirSync(directory, { recursive: true })
+    const extension = path.extname(requestedName)
+    const safeName = sanitizeWindowsName(requestedName.slice(0, -extension.length)) + extension
+    const destination = path.join(directory, nextAvailableName(fs.readdirSync(directory), safeName))
+    if (!isPathInside(directory, destination)) {
+      throw new Error('归档文件路径不安全')
+    }
+    return destination
+  }
   availableRootFile(requestedName: string): string {
     const root = path.resolve(this.rootProvider())
     fs.mkdirSync(root, { recursive: true })
