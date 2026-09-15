@@ -134,6 +134,21 @@ export interface CharacterData {
   updatedAt: string
 }
 
+export interface NoteImage {
+  path: string
+  name: string
+}
+
+export interface NoteRecord {
+  id: string
+  moduleName: string
+  content: string
+  images: NoteImage[]
+  noteDate: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface ArchiveEntry {
   id: string
   ownerType: 'record' | 'module' | 'character' | 'backup'
@@ -173,11 +188,12 @@ export interface SettingsPatch {
 }
 
 export interface AppSnapshot {
-  schemaVersion: 1
+  schemaVersion: 1 | 2
   exportedAt: string
   modules: ModuleRecord[]
   records: SessionRecord[]
   characters: CharacterData[]
+  notes: NoteRecord[]
   settings: AppSettings
   importMappings: unknown[]
   archiveEntries: ArchiveEntry[]

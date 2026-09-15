@@ -10,11 +10,27 @@ import type { FileService } from './file-service'
 import type { TableExportService } from './table-export-service'
 import type { CharacterFileService } from './character-file-service'
 import type { BackupService } from './backup-service'
+import type { NoteFileService } from './note-file-service'
 
 const id = z.string().uuid()
 const text = z.string().max(10_000)
 const optionalText = text.optional()
 const pair = z.object({ pc: text, pl: text, characterId: id.optional() })
+const noteImage = z.object({ path: z.string().max(400), name: z.string().max(260) })
+const noteInput = z.object({
+  moduleName: z.string().max(200).optional(),
+  content: z.string().max(200_000).optional(),
+  noteDate: z.string().max(20).optional(),
+  images: z.array(noteImage).max(60).optional()
+})
+const notePatch = noteInput.partial()
+const noteImageUpload = z.object({
+  name: z.string().max(260),
+  bytes: z
+    .instanceof(Uint8Array)
+    .refine((value) => value.byteLength > 0 && value.byteLength <= 25 * 1024 * 1024)
+})
+
 const moduleInput = z.object({
   name: z.string().max(200),
   kps: z.array(text).max(100).optional(),
@@ -155,6 +171,9 @@ const automaticBackupChannels = new Set([
   'characters:convert',
   'characters:move',
   'characters:delete',
+  'notes:create',
+  'notes:update',
+  'notes:delete',
   'settings:update',
   'files:export-record',
   'files:batch-export',
@@ -181,6 +200,7 @@ export function registerIpc(
   fileService: FileService,
   tableExportService: TableExportService,
   characterFileService: CharacterFileService,
+  noteFileService: NoteFileService,
   backupService: BackupService,
   dataDirectory: string
 ): void {
@@ -250,6 +270,21 @@ export function registerIpc(
     repository.deleteCharacter(characterId)
   )
 
+  register('notes:create', noteInput, (input) => repository.createNote(input))
+  register('notes:update', z.object({ id, patch: notePatch }), ({ id: noteId, patch }) => {
+    const before = repository.findNote(noteId)
+    const updated = repository.updateNote(noteId, patch)
+    if (patch.images) {
+      const kept = new Set(updated.images.map((image) => image.path))
+      noteFileService.remove(before.images.filter((image) => !kept.has(image.path)))
+    }
+    return updated
+  })
+  register('notes:delete', z.object({ id }), ({ id: noteId }) => {
+    const note = repository.findNote(noteId)
+    repository.deleteNote(noteId)
+    noteFileService.remove(note.images)
+  })
   register('settings:update', settingsPatch, (patch) => repository.updateSettings(patch))
 
   register('backup:create', z.object({ includeArchives: z.boolean() }), ({ includeArchives }) =>
@@ -372,6 +407,20 @@ export function registerIpc(
       const error = await shell.openPath(directory)
       if (error) throw new AppError('OPEN_DIRECTORY_FAILED', 'FILE', '无法打开文件夹，请检查路径。')
     }
+  )
+  register('files:choose-note-image', empty, async () => {
+    const options: Electron.OpenDialogOptions = {
+      title: '选择图片',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] }]
+    }
+    const owner = windowProvider()
+    const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
+    if (result.canceled) return []
+    return result.filePaths.map((filePath) => noteFileService.saveFromPath(filePath))
+  })
+  register('files:paste-note-image', noteImageUpload, ({ name, bytes }) =>
+    noteFileService.saveFromBytes(bytes, name)
   )
 
   ipcMain.handle('window:get-bounds', () => windowProvider()?.getBounds())

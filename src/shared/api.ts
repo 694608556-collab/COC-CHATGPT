@@ -4,6 +4,8 @@ import type {
   ArchiveEntry,
   CharacterData,
   ModuleRecord,
+  NoteImage,
+  NoteRecord,
   ParticipantPair,
   SessionRecord,
   SettingsPatch
@@ -128,6 +130,24 @@ export interface CocApi {
     ): Promise<CharacterData>
     delete(id: string): Promise<void>
   }
+  notes: {
+    create(input: {
+      moduleName?: string
+      content?: string
+      noteDate?: string
+      images?: NoteImage[]
+    }): Promise<NoteRecord>
+    update(
+      id: string,
+      patch: {
+        moduleName?: string
+        content?: string
+        noteDate?: string
+        images?: NoteImage[]
+      }
+    ): Promise<NoteRecord>
+    delete(id: string): Promise<void>
+  }
   settings: {
     update(patch: SettingsPatch): Promise<AppSettings>
   }
@@ -150,6 +170,8 @@ export interface CocApi {
         mappingName?: string
       }>
     ): Promise<CharacterData[]>
+    chooseNoteImage(): Promise<NoteImage[]>
+    pasteNoteImage(input: { name: string; bytes: Uint8Array }): Promise<NoteImage>
     chooseArchiveDirectory(): Promise<string | undefined>
     openDirectory(kind: 'archive' | 'data' | 'logs' | 'module', moduleId?: string): Promise<void>
   }

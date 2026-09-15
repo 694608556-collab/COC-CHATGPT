@@ -5,7 +5,7 @@ import { ZipArchive } from 'archiver'
 import * as unzipper from 'unzipper'
 import { AppError } from '../shared/errors'
 import { isPathInside, nextAvailableName, sanitizeWindowsName } from '../shared/safe-path'
-import type { AppSnapshot, ArchiveEntry } from '../shared/types'
+import type { AppSnapshot, ArchiveEntry, NoteRecord } from '../shared/types'
 import type { AppRepository } from './repository'
 
 export interface BackupManifestEntry {
@@ -16,7 +16,7 @@ export interface BackupManifestEntry {
 }
 
 export interface BackupPayload {
-  schemaVersion: 1
+  schemaVersion: 1 | 2
   exportedAt: string
   modules: AppSnapshot['modules']
   records: AppSnapshot['records']
@@ -24,7 +24,9 @@ export interface BackupPayload {
   settings: AppSnapshot['settings']
   importMappings: AppSnapshot['importMappings']
   archiveEntries: ArchiveEntry[]
+  notes?: NoteRecord[]
   manifest?: BackupManifestEntry[]
+  noteImages?: BackupManifestEntry[]
 }
 
 export interface BackupResult {
@@ -194,6 +196,7 @@ export class BackupService {
         cacheSourceUrl: undefined
       }))
       snapshot.archiveEntries = this.restoreArchives(prepared.payload, prepared.archiveFiles, targetArchive)
+      this.restoreNoteImages(prepared.archiveFiles)
       this.repository.replaceFromBackup(snapshot, {
         restoreSettings: options.restoreSettings,
         archiveDirectory: targetArchive
@@ -250,7 +253,7 @@ export class BackupService {
       return { ...entry, path: relative, exists: includeArchives && entry.exists && Boolean(relative) }
     })
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       exportedAt: new Date().toISOString(),
       modules: snapshot.modules,
       records: snapshot.records.map((record) => ({
@@ -263,7 +266,9 @@ export class BackupService {
       settings: snapshot.settings,
       importMappings: snapshot.importMappings,
       archiveEntries,
-      manifest: includeArchives ? this.manifestFor(root, snapshot.archiveEntries) : undefined
+      notes: snapshot.notes,
+      manifest: includeArchives ? this.manifestFor(root, snapshot.archiveEntries) : undefined,
+      noteImages: includeArchives ? this.noteImageManifest(snapshot.notes) : undefined
     }
   }
 
@@ -285,6 +290,27 @@ export class BackupService {
     })
   }
 
+  private noteImageManifest(notes: NoteRecord[]): BackupManifestEntry[] {
+    const seen = new Set<string>()
+    return notes.flatMap((note) =>
+      note.images.flatMap((image) => {
+        if (seen.has(image.path)) return []
+        const candidate = path.resolve(this.dataDirectory, image.path)
+        if (!isPathInside(this.dataDirectory, candidate) || !fs.existsSync(candidate)) return []
+        seen.add(image.path)
+        const bytes = fs.readFileSync(candidate)
+        return [
+          {
+            archivePath: image.path,
+            zipPath: image.path.replaceAll('\\', '/'),
+            size: bytes.length,
+            hash: sha256(bytes)
+          }
+        ]
+      })
+    )
+  }
+
   private writeZip(destination: string, payload: BackupPayload): Promise<void> {
     return new Promise((resolve, reject) => {
       const output = fs.createWriteStream(destination)
@@ -298,6 +324,11 @@ export class BackupService {
       for (const item of payload.manifest ?? []) {
         const candidate = path.resolve(root, item.archivePath)
         if (isPathInside(root, candidate) && fs.existsSync(candidate))
+          archive.file(candidate, { name: item.zipPath })
+      }
+      for (const item of payload.noteImages ?? []) {
+        const candidate = path.resolve(this.dataDirectory, item.archivePath)
+        if (isPathInside(this.dataDirectory, candidate) && fs.existsSync(candidate))
           archive.file(candidate, { name: item.zipPath })
       }
       void archive.finalize()
@@ -316,7 +347,8 @@ export class BackupService {
     const payload = JSON.parse((await backup.buffer()).toString('utf8')) as BackupPayload
     const archiveFiles = new Map<string, Buffer>()
     for (const file of directory.files) {
-      if (file.type !== 'File' || !file.path.startsWith('archives/')) continue
+      if (file.type !== 'File') continue
+      if (!file.path.startsWith('archives/') && !file.path.startsWith('notes/')) continue
       if (!safeZipPath(file.path))
         throw new AppError('BACKUP_ZIP_PATH_INVALID', 'BACKUP', 'ZIP 内含不安全路径。')
       archiveFiles.set(file.path, await file.buffer())
@@ -344,6 +376,15 @@ export class BackupService {
       fs.writeFileSync(destination, bytes)
       return { ...entry, path: destination, size: bytes.length, hash: sha256(bytes), exists: true }
     })
+  }
+
+  private restoreNoteImages(files: Map<string, Buffer>): void {
+    const directory = path.join(this.dataDirectory, 'notes')
+    fs.mkdirSync(directory, { recursive: true })
+    for (const [zipPath, bytes] of files) {
+      if (!zipPath.startsWith('notes/') || !safeZipPath(zipPath)) continue
+      fs.writeFileSync(path.join(directory, path.basename(zipPath)), bytes)
+    }
   }
 
   private createSafetyBackup(): string {
@@ -384,7 +425,7 @@ export class BackupService {
   private validatePayload(payload: BackupPayload): void {
     if (
       !payload ||
-      payload.schemaVersion !== 1 ||
+      (payload.schemaVersion !== 1 && payload.schemaVersion !== 2) ||
       !Array.isArray(payload.modules) ||
       !Array.isArray(payload.records) ||
       !Array.isArray(payload.characters)

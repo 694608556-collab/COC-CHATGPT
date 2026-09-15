@@ -25,6 +25,14 @@ describe('rounded window with custom resizing', () => {
     expect(handles).toContain("['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']")
   })
 
+  it('coalesces pointer bursts into one window update per frame', () => {
+    expect(handles).toContain('window.requestAnimationFrame(flush)')
+    expect(handles).toContain('window.cancelAnimationFrame(frame)')
+    expect(handles).toContain("document.body.classList.add('window-resizing')")
+    expect(handles).toContain("document.body.classList.remove('window-resizing')")
+    expect(styles).toContain('body.window-resizing .app-shell { box-shadow: none; }')
+  })
+
   it('enforces the shared minimum size while dragging', () => {
     expect(handles).toContain('const MIN_WIDTH = 960')
     expect(handles).toContain('const MIN_HEIGHT = 640')
@@ -32,10 +40,10 @@ describe('rounded window with custom resizing', () => {
   })
 
   it('places every handle across the visible shell edge, not the window edge', () => {
-    expect(styles).toContain('left: calc(var(--window-gutter) - 5px)')
-    expect(styles).toContain('right: calc(var(--window-gutter) - 5px)')
-    expect(styles).toContain('top: calc(var(--window-gutter) - 5px)')
-    expect(styles).toContain('bottom: calc(var(--window-gutter) - 5px)')
+    expect(styles).toContain('left: calc(var(--window-gutter) - 7px)')
+    expect(styles).toContain('right: calc(var(--window-gutter) - 7px)')
+    expect(styles).toContain('top: calc(var(--window-gutter) - 7px)')
+    expect(styles).toContain('bottom: calc(var(--window-gutter) - 7px)')
     const block = styles.slice(styles.indexOf('/* handles sit on the visible shell edge'), styles.indexOf('.filter-option {'))
     expect(block).not.toMatch(/top: 0;/)
     expect(block).not.toMatch(/left: 0;/)

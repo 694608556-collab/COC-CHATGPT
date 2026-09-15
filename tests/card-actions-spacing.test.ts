@@ -7,7 +7,7 @@ const styles = fs.readFileSync(path.join(root, 'src/renderer/src/styles.css'), '
 
 describe('character card action row spacing', () => {
   it('slides the divider and delete button toward the card bottom', () => {
-    expect(styles).toContain('.character-card { min-height: 204px; padding-bottom: 8px; }')
+    expect(styles).toContain('.character-card { min-height: 204px; padding-bottom: 4px; }')
   })
 
   it('keeps the action row pinned to the bottom of the card', () => {

@@ -5,6 +5,8 @@ import type {
   AppSnapshot,
   ArchiveEntry,
   CharacterData,
+  NoteImage,
+  NoteRecord,
   ModuleRecord,
   ParticipantPair,
   SessionRecord,
@@ -17,6 +19,12 @@ import type { AppDatabase } from './database'
 
 function now(): string {
   return new Date().toISOString()
+}
+
+function today(): string {
+  const date = new Date()
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
 function parseJson<T>(value: unknown, fallback: T): T {
@@ -47,6 +55,18 @@ function normalizeCharacter(value: CharacterData): CharacterData {
     )
   ]
   return { ...value, moduleIds, moduleId: moduleIds[0] }
+}
+
+function rowToNote(row: Record<string, unknown>): NoteRecord {
+  return {
+    id: String(row.id),
+    moduleName: String(row.module_name ?? ''),
+    content: String(row.content ?? ''),
+    images: parseJson<NoteImage[]>(row.images_json, []),
+    noteDate: String(row.note_date),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  }
 }
 
 function rowToModule(row: Record<string, unknown>): ModuleRecord {
@@ -137,16 +157,18 @@ export class AppRepository {
           createdAt: String(row.created_at)
         }
       })
+    const notes = this.listNotes()
     const importMappings = this.connection
       .prepare('SELECT data_json FROM import_mappings ORDER BY created_at')
       .all()
       .map((row) => parseJson((row as Record<string, unknown>).data_json, {}))
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       exportedAt: now(),
       modules,
       records,
       characters,
+      notes,
       settings: this.getSettings(),
       importMappings,
       archiveEntries
@@ -536,14 +558,79 @@ export class AppRepository {
       .run(randomUUID(), JSON.stringify(data), now())
   }
 
+  listNotes(): NoteRecord[] {
+    return this.connection
+      .prepare('SELECT * FROM notes ORDER BY created_at DESC')
+      .all()
+      .map((row) => rowToNote(row as Record<string, unknown>))
+  }
+
+  findNote(id: string): NoteRecord {
+    const row = this.connection.prepare('SELECT * FROM notes WHERE id = ?').get(id)
+    if (!row) throw new Error('闲记不存在')
+    return rowToNote(row as Record<string, unknown>)
+  }
+
+  createNote(input: {
+    moduleName?: string
+    content?: string
+    noteDate?: string
+    images?: NoteImage[]
+  }): NoteRecord {
+    const id = randomUUID()
+    const timestamp = now()
+    this.connection
+      .prepare(
+        'INSERT INTO notes (id,module_name,content,images_json,note_date,created_at,updated_at) VALUES (?,?,?,?,?,?,?)'
+      )
+      .run(
+        id,
+        input.moduleName?.trim() ?? '',
+        input.content ?? '',
+        JSON.stringify(input.images ?? []),
+        input.noteDate?.trim() || today(),
+        timestamp,
+        timestamp
+      )
+    return this.findNote(id)
+  }
+
+  updateNote(
+    id: string,
+    patch: {
+      moduleName?: string
+      content?: string
+      noteDate?: string
+      images?: NoteImage[]
+    }
+  ): NoteRecord {
+    const current = this.findNote(id)
+    this.connection
+      .prepare('UPDATE notes SET module_name=?, content=?, images_json=?, note_date=?, updated_at=? WHERE id=?')
+      .run(
+        patch.moduleName === undefined ? current.moduleName : patch.moduleName,
+        patch.content === undefined ? current.content : patch.content,
+        JSON.stringify(patch.images === undefined ? current.images : patch.images),
+        patch.noteDate === undefined ? current.noteDate : patch.noteDate.trim() || current.noteDate,
+        now(),
+        id
+      )
+    return this.findNote(id)
+  }
+
+  deleteNote(id: string): void {
+    this.connection.prepare('DELETE FROM notes WHERE id = ?').run(id)
+  }
+
   replaceFromBackup(
     snapshot: AppSnapshot,
     options: { restoreSettings: boolean; archiveDirectory: string }
   ): void {
-    if (snapshot.schemaVersion !== 1) throw new Error('备份版本不受支持')
+    if (snapshot.schemaVersion !== 1 && snapshot.schemaVersion !== 2)
+      throw new Error('备份版本不受支持')
     this.database.transaction(() => {
       this.connection.exec(
-        'DELETE FROM records; DELETE FROM characters; DELETE FROM module_sequences; DELETE FROM modules; DELETE FROM import_mappings; DELETE FROM archive_entries;'
+        'DELETE FROM records; DELETE FROM characters; DELETE FROM notes; DELETE FROM module_sequences; DELETE FROM modules; DELETE FROM import_mappings; DELETE FROM archive_entries;'
       )
       for (const module of snapshot.modules) {
         this.connection
@@ -605,6 +692,21 @@ export class AppRepository {
             character.updatedAt
           )
       }
+      for (const note of snapshot.notes ?? []) {
+        this.connection
+          .prepare(
+            'INSERT INTO notes (id,module_name,content,images_json,note_date,created_at,updated_at) VALUES (?,?,?,?,?,?,?)'
+          )
+          .run(
+            note.id,
+            note.moduleName ?? '',
+            note.content ?? '',
+            JSON.stringify(note.images ?? []),
+            note.noteDate,
+            note.createdAt,
+            note.updatedAt
+          )
+      }
       for (const mapping of snapshot.importMappings) {
         this.connection
           .prepare('INSERT INTO import_mappings (id,data_json,created_at) VALUES (?,?,?)')
@@ -639,7 +741,7 @@ export class AppRepository {
   clearBusinessData(options: { resetSettings: boolean; clearMappings: boolean }): void {
     this.database.transaction(() => {
       this.connection.exec(
-        'DELETE FROM records; DELETE FROM characters; DELETE FROM module_sequences; DELETE FROM modules; DELETE FROM archive_entries;'
+        'DELETE FROM records; DELETE FROM characters; DELETE FROM notes; DELETE FROM module_sequences; DELETE FROM modules; DELETE FROM archive_entries;'
       )
       if (options.clearMappings) this.connection.exec('DELETE FROM import_mappings;')
       if (options.resetSettings)

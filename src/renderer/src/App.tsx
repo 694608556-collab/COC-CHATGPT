@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { BatchCheckDialog } from './components/BatchCheckDialog'
 import { ConfirmDialog, type ConfirmOptions } from './components/ConfirmDialog'
 import { RecordImportDialog } from './components/RecordImportDialog'
+import { NoteBoard } from './components/NoteBoard'
 import { ResizeHandles } from './components/ResizeHandles'
 import { FolderIcon, PencilIcon, PlusIcon, SolidTriangleIcon, XIcon } from './components/Icons'
 import {
@@ -24,7 +25,7 @@ import {
   type SessionRecord
 } from '../../shared/types'
 
-type Page = 'records' | 'characters' | 'settings'
+type Page = 'records' | 'characters' | 'notes' | 'settings'
 
 const pageMeta: Record<Page, { title: string; subtitle: (snapshot: AppSnapshot) => string }> = {
   records: {
@@ -32,6 +33,7 @@ const pageMeta: Record<Page, { title: string; subtitle: (snapshot: AppSnapshot) 
     subtitle: (snapshot) => `模组 ${snapshot.modules.length} · 场次 ${snapshot.records.length}`
   },
   characters: { title: '调查员角色卡', subtitle: (snapshot) => `角色 ${snapshot.characters.length}` },
+  notes: { title: '跑团闲记', subtitle: (snapshot) => `闲记 ${snapshot.notes.length}` },
   settings: { title: '数据与设置', subtitle: () => '全部数据仅保存在本机' }
 }
 
@@ -289,6 +291,7 @@ const emptySnapshot: AppSnapshot = {
   modules: [],
   records: [],
   characters: [],
+  notes: [],
   settings: {
     theme: 'light',
     archiveDirectory: '',
@@ -677,6 +680,7 @@ export default function App(): React.JSX.Element {
   const [page, setPage] = useState<Page>('records')
   const [snapshot, setSnapshot] = useState<AppSnapshot>(emptySnapshot)
   const [appVersion, setAppVersion] = useState('')
+  const [noteCreating, setNoteCreating] = useState(false)
   const [loading, setLoading] = useState(true)
   const [windowMaximized, setWindowMaximized] = useState(false)
   const [confirmOptions, setConfirmOptions] = useState<ConfirmOptions>()
@@ -951,14 +955,14 @@ export default function App(): React.JSX.Element {
       <div className="workspace">
         <nav className="sidebar" aria-label="主导航">
 
-          {(['records', 'characters', 'settings'] as const).map((item) => (
+          {(['records', 'characters', 'notes', 'settings'] as const).map((item) => (
             <button
               className={page === item ? 'nav-item active' : 'nav-item'}
               key={item}
               onClick={() => setPage(item)}
             >
               <span className="nav-dot" />
-              {{ records: '跑团记录汇总', characters: '调查员角色卡', settings: '数据与设置' }[item]}
+              {{ records: '跑团记录汇总', characters: '调查员角色卡', notes: '跑团闲记', settings: '数据与设置' }[item]}
             </button>
           ))}
           <div className="privacy-note">
@@ -989,6 +993,11 @@ export default function App(): React.JSX.Element {
                     + 新建角色卡
                   </button>
                 </>
+              )}
+              {page === 'notes' && (
+                <button className="primary" onClick={() => setNoteCreating(true)}>
+                  + 新建闲记
+                </button>
               )}
             </div>
           </header>
@@ -1392,6 +1401,16 @@ export default function App(): React.JSX.Element {
                   </button>
                 </div>
               )
+            ) : page === 'notes' ? (
+              <NoteBoard
+                notes={snapshot.notes}
+                modules={snapshot.modules}
+                creating={noteCreating}
+                onCreatingHandled={() => setNoteCreating(false)}
+                onChanged={refresh}
+                onNotice={setMessage}
+                onStartCreating={() => setNoteCreating(true)}
+              />
             ) : (
               <div className="settings-grid">
                 <section className="settings-card">

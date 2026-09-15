@@ -220,7 +220,7 @@ test('real desktop shell persists data and isolates Node', async () => {
     const cardActionsBox = await page.locator('.character-card-actions').first().boundingBox()
     if (cardBox && cardActionsBox) {
       const gapBelow = Math.round(cardBox.y + cardBox.height - (cardActionsBox.y + cardActionsBox.height))
-      expect(gapBelow).toBe(9)
+      expect(gapBelow).toBe(5)
     }
 
     await page.getByRole('button', { name: '+ 新建角色卡' }).click()
@@ -236,6 +236,43 @@ test('real desktop shell persists data and isolates Node', async () => {
     await tempCard.getByRole('button', { name: '删除' }).click()
     await page.getByRole('dialog', { name: '删除角色卡' }).getByRole('button', { name: '确认删除' }).click()
     await expect(page.locator('.character-card').filter({ hasText: '临时调查员' })).toHaveCount(0)
+
+    await page.getByRole('button', { name: '跑团闲记' }).click()
+    await expect(page.locator('.module-header h1')).toHaveText('跑团闲记')
+    await page.getByRole('button', { name: '+ 新建闲记' }).click()
+    await page.getByLabel('闲记内容').fill('第一行\n第二行')
+    await page.getByLabel('模组名称').fill('暗影循迹')
+    await page.getByRole('button', { name: '保存', exact: true }).click()
+    await expect(page.locator('.note-card')).toHaveCount(1)
+    await expect(page.locator('.note-card-head').first()).toContainText('暗影循迹')
+    await expect(page.locator('.note-card-head').first()).toContainText(/\d{4}-\d{2}-\d{2}/)
+    await expect(page.locator('.note-content').first()).toContainText('第一行')
+
+    // the default 1920 window shows five cards per row
+    const noteColumns = await page
+      .locator('.note-grid')
+      .evaluate((element) => getComputedStyle(element).gridTemplateColumns)
+    expect(noteColumns.split(' ')).toHaveLength(5)
+
+    // clicking the card edits in place and Enter keeps a newline
+    await page.locator('.note-card-main').first().click()
+    const noteEditor = page.getByLabel('闲记内容')
+    await expect(noteEditor).toHaveValue('第一行\n第二行')
+    await expect(page.locator('.note-card-editing .note-card-actions button')).toHaveText([
+      '删除',
+      '取消',
+      '保存'
+    ])
+    await noteEditor.focus()
+    await noteEditor.press('Control+End')
+    const noteText = await noteEditor.inputValue()
+    await noteEditor.press('Enter')
+    await noteEditor.pressSequentially('第三行')
+    await expect(noteEditor).toHaveValue(noteText + '\n第三行')
+    // Enter must not finish the edit
+    await expect(noteEditor).toBeVisible()
+    await page.getByRole('button', { name: '保存', exact: true }).click()
+    await expect(page.locator('.note-content').first()).toContainText('第三行')
 
     await page.getByRole('button', { name: '数据与设置' }).click()
     await page.locator('.segmented').getByRole('button', { name: '深色' }).click()

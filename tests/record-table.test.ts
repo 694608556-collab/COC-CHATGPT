@@ -8,6 +8,7 @@ const snapshot: AppSnapshot = {
   schemaVersion: 1,
   exportedAt: '',
   characters: [],
+  notes: [],
   importMappings: [],
   archiveEntries: [],
   settings: {

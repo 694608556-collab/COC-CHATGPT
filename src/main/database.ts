@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 
 const MIGRATION_V1 = `
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -88,6 +88,19 @@ CREATE INDEX IF NOT EXISTS idx_archive_owner ON archive_entries(owner_type, owne
 CREATE UNIQUE INDEX IF NOT EXISTS idx_archive_path ON archive_entries(path);
 `
 
+const MIGRATION_V2 = `
+CREATE TABLE IF NOT EXISTS notes (
+  id TEXT PRIMARY KEY,
+  module_name TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL DEFAULT '',
+  images_json TEXT NOT NULL DEFAULT '[]',
+  note_date TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at);
+`
+
 export class AppDatabase {
   readonly connection: DatabaseSync
 
@@ -115,6 +128,14 @@ export class AppDatabase {
         this.connection
           .prepare('INSERT OR REPLACE INTO schema_meta (id, version, migrated_at) VALUES (1, ?, ?)')
           .run(1, new Date().toISOString())
+      })
+    }
+    if (currentVersion < 2) {
+      this.transaction(() => {
+        this.connection.exec(MIGRATION_V2)
+        this.connection
+          .prepare('INSERT OR REPLACE INTO schema_meta (id, version, migrated_at) VALUES (1, ?, ?)')
+          .run(2, new Date().toISOString())
       })
     }
     const integrity = this.integrityCheck()

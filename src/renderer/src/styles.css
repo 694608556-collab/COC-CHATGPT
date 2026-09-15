@@ -1344,35 +1344,35 @@ h3 {
 
 .resize-n,
 .resize-s {
-  left: calc(var(--window-gutter) - 5px);
-  right: calc(var(--window-gutter) - 5px);
-  height: 10px;
+  left: calc(var(--window-gutter) - 7px);
+  right: calc(var(--window-gutter) - 7px);
+  height: 14px;
 }
 
 .resize-e,
 .resize-w {
-  top: calc(var(--window-gutter) - 5px);
-  bottom: calc(var(--window-gutter) - 5px);
-  width: 10px;
+  top: calc(var(--window-gutter) - 7px);
+  bottom: calc(var(--window-gutter) - 7px);
+  width: 14px;
 }
 
-.resize-n { top: calc(var(--window-gutter) - 5px); cursor: n-resize; }
-.resize-s { bottom: calc(var(--window-gutter) - 5px); cursor: s-resize; }
-.resize-e { right: calc(var(--window-gutter) - 5px); cursor: e-resize; }
-.resize-w { left: calc(var(--window-gutter) - 5px); cursor: w-resize; }
+.resize-n { top: calc(var(--window-gutter) - 7px); cursor: n-resize; }
+.resize-s { bottom: calc(var(--window-gutter) - 7px); cursor: s-resize; }
+.resize-e { right: calc(var(--window-gutter) - 7px); cursor: e-resize; }
+.resize-w { left: calc(var(--window-gutter) - 7px); cursor: w-resize; }
 
 .resize-ne,
 .resize-nw,
 .resize-se,
 .resize-sw {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
 }
 
-.resize-ne { top: calc(var(--window-gutter) - 8px); right: calc(var(--window-gutter) - 8px); cursor: ne-resize; }
-.resize-nw { top: calc(var(--window-gutter) - 8px); left: calc(var(--window-gutter) - 8px); cursor: nw-resize; }
-.resize-se { bottom: calc(var(--window-gutter) - 8px); right: calc(var(--window-gutter) - 8px); cursor: se-resize; }
-.resize-sw { bottom: calc(var(--window-gutter) - 8px); left: calc(var(--window-gutter) - 8px); cursor: sw-resize; }
+.resize-ne { top: calc(var(--window-gutter) - 10px); right: calc(var(--window-gutter) - 10px); cursor: ne-resize; }
+.resize-nw { top: calc(var(--window-gutter) - 10px); left: calc(var(--window-gutter) - 10px); cursor: nw-resize; }
+.resize-se { bottom: calc(var(--window-gutter) - 10px); right: calc(var(--window-gutter) - 10px); cursor: se-resize; }
+.resize-sw { bottom: calc(var(--window-gutter) - 10px); left: calc(var(--window-gutter) - 10px); cursor: sw-resize; }
 
 .filter-option {
   display: flex;
@@ -2285,4 +2285,190 @@ grid-row:6;
 /* ============ 0.5.4 feedback pass ============ */
 /* move the card divider and its delete button closer to the card bottom */
 /* the min-height keeps the card the same size while the group slides down */
-.character-card { min-height: 204px; padding-bottom: 8px; }
+.character-card { min-height: 204px; padding-bottom: 4px; }
+
+/* ============ 0.5.5 feedback pass ============ */
+/* a transparent window repaints its shadow on every resize step */
+body.window-resizing .app-shell { box-shadow: none; }
+
+/* ============ 跑团闲记 ============ */
+.note-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 1660px) {
+  .note-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (max-width: 1340px) {
+  .note-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 1060px) {
+  .note-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.note-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 200px;
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+}
+
+.note-card-editing {
+  grid-column: span 2;
+  border-color: var(--accent);
+}
+
+.note-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 10px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.note-card-editing .note-card-head {
+  align-items: flex-end;
+}
+
+.note-module {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-date {
+  flex: none;
+}
+
+.note-card .field > label,
+.note-date-field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.note-date-field input {
+  width: 150px;
+  padding: 6px 8px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.note-card-main {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 8px;
+  align-content: start;
+  padding: 12px 0 0;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.note-content {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.note-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.note-thumbs img {
+  width: 46px;
+  height: 46px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.note-more {
+  align-self: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.note-card-body {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+}
+
+.note-textarea {
+  width: 100%;
+  min-height: 140px;
+  padding: 10px;
+  color: var(--text);
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  resize: vertical;
+  line-height: 1.7;
+}
+
+.note-image-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.note-image-item {
+  position: relative;
+}
+
+.note-image-item img {
+  width: 76px;
+  height: 76px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.note-image-item .icon-button {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  min-height: 20px;
+  height: 20px;
+  padding: 0;
+  background: var(--panel);
+}
+
+.add-note-image {
+  margin-top: 2px;
+}
+
+.note-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+}

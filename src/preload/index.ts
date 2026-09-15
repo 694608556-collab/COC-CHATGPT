@@ -39,6 +39,11 @@ const api: CocApi = {
     move: (id, moduleId, oldModulePolicy) => invoke('characters:move', { id, moduleId, oldModulePolicy }),
     delete: (id) => invoke('characters:delete', { id })
   },
+  notes: {
+    create: (input) => invoke('notes:create', input),
+    update: (id, patch) => invoke('notes:update', { id, patch }),
+    delete: (id) => invoke('notes:delete', { id })
+  },
   settings: { update: (patch) => invoke('settings:update', patch) },
   files: {
     exportRecord: (id, format) => invoke('files:export-record', { id, format }),
@@ -50,6 +55,8 @@ const api: CocApi = {
     chooseCharacterImport: () => invoke('files:choose-character-import'),
     commitCharacterImport: (token, selections) =>
       invoke('files:commit-character-import', { token, selections }),
+    chooseNoteImage: () => invoke('files:choose-note-image'),
+    pasteNoteImage: (input) => invoke('files:paste-note-image', input),
     chooseArchiveDirectory: () => invoke('files:choose-archive-directory'),
     openDirectory: (kind, moduleId) => invoke('files:open-directory', { kind, moduleId })
   },

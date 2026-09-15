@@ -1,4 +1,4 @@
-import { app, BrowserWindow, net, screen } from 'electron'
+import { app, BrowserWindow, net, protocol, screen } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +13,7 @@ import { FileService } from './file-service'
 import { TableExportService } from './table-export-service'
 import { CharacterFileService } from './character-file-service'
 import { BackupService } from './backup-service'
+import { NoteFileService } from './note-file-service'
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
 let mainWindow: BrowserWindow | null = null
@@ -21,6 +22,11 @@ let repository: AppRepository | null = null
 let backupService: BackupService | null = null
 let logger: AppLogger | null = null
 let windowStateTimer: NodeJS.Timeout | undefined
+
+// note images live outside the asar and are served through this scheme
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'coc-media', privileges: { standard: true, secure: true, supportFetchAPI: true } }
+])
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) app.quit()
@@ -46,6 +52,7 @@ function initializeServices(): void {
   const fileService = new FileService(repository, printHtmlToPdf)
   const tableExportService = new TableExportService(repository)
   const characterFileService = new CharacterFileService(repository, printHtmlToPdf)
+  const noteFileService = new NoteFileService(dataDirectory)
   backupService = new BackupService(repository, dataDirectory, path.join(dataDirectory, 'cache'))
   registerIpc(
     repository,
@@ -54,11 +61,34 @@ function initializeServices(): void {
     fileService,
     tableExportService,
     characterFileService,
+    noteFileService,
     backupService,
     dataDirectory
   )
+  protocol.handle('coc-media', (request) => {
+    try {
+      const url = new URL(request.url)
+      const relative = decodeURIComponent(url.host + url.pathname).replace(/^\/+/, '')
+      const target = noteFileService.absolutePath(relative)
+      if (!fs.existsSync(target)) return new Response('', { status: 404 })
+      return new Response(fs.readFileSync(target), {
+        headers: { 'content-type': contentTypeFor(target) }
+      })
+    } catch {
+      return new Response('', { status: 400 })
+    }
+  })
   backupService.startAutomaticBackups()
   logger.info('application-ready', { packaged: app.isPackaged, electron: process.versions.electron })
+}
+
+function contentTypeFor(filePath: string): string {
+  const extension = path.extname(filePath).toLowerCase()
+  if (extension === '.jpg' || extension === '.jpeg') return 'image/jpeg'
+  if (extension === '.gif') return 'image/gif'
+  if (extension === '.webp') return 'image/webp'
+  if (extension === '.bmp') return 'image/bmp'
+  return 'image/png'
 }
 
 async function printHtmlToPdf(html: string): Promise<Buffer> {
