@@ -937,7 +937,7 @@ export default function App(): React.JSX.Element {
   }
 
   const header = pageMeta[page]
-  const versionLabel = appVersion ? `V${appVersion.replace(/^0\./, '')}` : ''
+  const versionLabel = appVersion ? `V${appVersion}` : ''
 
   return (
     <div className={windowMaximized ? 'window-frame maximized' : 'window-frame'}>

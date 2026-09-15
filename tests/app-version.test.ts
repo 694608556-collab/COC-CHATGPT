@@ -14,6 +14,7 @@ describe('app version display', () => {
     const app = read('src/renderer/src/App.tsx')
     expect(app).toContain('setAppVersion(await window.coc.app.version())')
     expect(app).toContain('const versionLabel')
+    expect(app).toContain('`V${appVersion}`')
     expect(app).not.toContain('V5.3')
   })
 })
