@@ -43,7 +43,8 @@
       }
     ],
     "win": {
-      "signAndEditExecutable": false,
+      "icon": "build/icon.ico",
+      "signExecutable": false,
       "target": [
         {
           "target": "portable",
