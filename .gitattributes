@@ -1,0 +1,2 @@
+# 批处理必须保持 Windows 换行，否则公司电脑 clone 下来可能无法双击运行
+*.bat text eol=crlf
