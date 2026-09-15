@@ -287,6 +287,8 @@ test('real desktop shell persists data and isolates Node', async () => {
     await expect(page.locator('.note-content').first()).toContainText('第三行')
 
     await page.getByRole('button', { name: '数据与设置' }).click()
+    await expect(page.locator('.stats')).toContainText('闲记')
+    await expect(page.locator('.stats div').filter({ hasText: '闲记' })).toContainText('1')
     await page.locator('.segmented').getByRole('button', { name: '深色' }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
     await application.close()

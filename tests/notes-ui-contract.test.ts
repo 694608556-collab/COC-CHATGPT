@@ -74,4 +74,11 @@ describe('跑团闲记 module contract', () => {
     const rule = styles.slice(styles.indexOf('.modal:has(.confirm-text)'))
     expect(rule.slice(0, 120)).toContain('width: min(500px, 100%)')
   })
+
+  it('counts notes in the settings overview', () => {
+    const stats = app.slice(app.indexOf('className="stats"'), app.indexOf('备份与恢复'))
+    expect(stats).toContain('snapshot.notes.length')
+    expect(stats).toContain('闲记')
+    expect(styles).toContain('grid-template-columns: repeat(4, minmax(0, 1fr))')
+  })
 })

@@ -1432,6 +1432,10 @@ export default function App(): React.JSX.Element {
                       <strong>{snapshot.characters.length}</strong>
                       <span>角色卡</span>
                     </div>
+                    <div>
+                      <strong>{snapshot.notes.length}</strong>
+                      <span>闲记</span>
+                    </div>
                   </div>
                 </section>
                 <section className="settings-card">
