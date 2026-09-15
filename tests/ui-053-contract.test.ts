@@ -14,22 +14,13 @@ describe('0.5.3 recovered UI contract', () => {
   const windowState = read('src/shared/window-state.ts')
   const styles = read('src/renderer/src/styles.css')
 
-  it('runs as a natively resizable frameless window', () => {
-    expect(main).toContain('transparent: false')
-    expect(main).toContain('thickFrame: true')
-    expect(main).toContain('resizable: true')
+  it('keeps the 960x640 minimum window size', () => {
     expect(main).toContain('minWidth: 960')
     expect(main).toContain('minHeight: 640')
-    expect(main).toContain("backgroundColor: '#eef0f4'")
     expect(ipc).toContain('.min(960)')
     expect(ipc).toContain('.min(640)')
     expect(windowState).toContain('1920, 960')
     expect(windowState).toContain('1080, 640')
-  })
-
-  it('drops the custom resize handles', () => {
-    expect(app).not.toContain('ResizeHandles')
-    expect(fs.existsSync(path.join(root, 'src/renderer/src/components/ResizeHandles.tsx'))).toBe(false)
   })
 
   it('uses the solid triangle and X icons', () => {

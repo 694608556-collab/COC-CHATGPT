@@ -32,9 +32,41 @@ test('real desktop shell persists data and isolates Node', async () => {
     let page = await application.firstWindow()
 
     await expect(page.getByText('COC 跑团记录簿').first()).toBeVisible()
-    expect(await page.locator('.resize-handle').count()).toBe(0)
+    expect(await page.locator('.resize-handle').count()).toBe(8)
     await expect(page.locator('.window-frame .app-shell')).toHaveCount(1)
     await expect(page.locator('.privacy-note')).toContainText('数据仅本机保存、无账户')
+
+    // the drag area must straddle the visible edge of the shell, not sit in the gutter
+    const windowShellBox = await page.locator('.app-shell').boundingBox()
+    const northBox = await page.locator('.resize-n').boundingBox()
+    expect(windowShellBox).not.toBeNull()
+    expect(northBox).not.toBeNull()
+    if (windowShellBox && northBox) {
+      expect(northBox.y).toBeLessThan(windowShellBox.y)
+      expect(northBox.y + northBox.height).toBeGreaterThan(windowShellBox.y)
+    }
+
+    // dragging that edge really resizes the window
+    const beforeResize = await page.evaluate(() => window.coc.window.getBounds())
+    const southEast = await page.locator('.resize-se').boundingBox()
+    expect(southEast).not.toBeNull()
+    if (southEast) {
+      await page.mouse.move(southEast.x + southEast.width / 2, southEast.y + southEast.height / 2)
+      await page.mouse.down()
+      // drag inwards so every synthetic pointer position stays inside the viewport
+      await page.mouse.move(
+        southEast.x + southEast.width / 2 - 120,
+        southEast.y + southEast.height / 2 - 90,
+        { steps: 6 }
+      )
+      await page.mouse.up()
+      await page.waitForTimeout(400)
+      const afterResize = await page.evaluate(() => window.coc.window.getBounds())
+      expect(afterResize.width).toBeLessThan(beforeResize.width)
+      expect(afterResize.height).toBeLessThan(beforeResize.height)
+      await page.evaluate((bounds) => window.coc.window.setBounds(bounds), beforeResize)
+      await page.waitForTimeout(300)
+    }
     expect(
       await page.locator('.app-shell').evaluate((element) =>
         getComputedStyle(element).borderRadius
@@ -81,6 +113,12 @@ test('real desktop shell persists data and isolates Node', async () => {
         exact: true
       })
       .fill('阿默')
+    // the module editor delete icon shrinks while its button box stays 34px
+    const moduleDeleteBox = await page.locator('.module-remove').first().boundingBox()
+    const moduleDeleteIcon = await page.locator('.module-remove svg').first().boundingBox()
+    expect(Math.round(moduleDeleteBox?.width ?? 0)).toBe(34)
+    expect(Math.round(moduleDeleteIcon?.width ?? 0)).toBe(12)
+
     await page.getByRole('button', { name: '+ 添加一对 PC / PL' }).click()
     await page
       .getByRole('textbox', {
@@ -161,6 +199,12 @@ test('real desktop shell persists data and isolates Node', async () => {
       .check()
     await expect(page.locator('.skill-editor .skill-row:not(.skill-row-head)').first().locator('input')).toHaveCount(2)
     await expect(page.locator('.skill-editor .skill-row:not(.skill-row-head)').first().getByRole('button')).toHaveCount(1)
+    // the character editor delete icon shrinks while its button box stays 22px
+    const characterDeleteBox = await page.locator('.character-editor .neutral-delete').first().boundingBox()
+    const characterDeleteIcon = await page.locator('.character-editor .neutral-delete svg').first().boundingBox()
+    expect(Math.round(characterDeleteBox?.width ?? 0)).toBe(22)
+    expect(Math.round(characterDeleteIcon?.width ?? 0)).toBe(12)
+
     await page.getByLabel('力量').fill('57')
     await page.getByRole('button', { name: '保存', exact: true }).click()
     await expect(page.getByRole('button', { name: /林恩/ })).toBeVisible()
@@ -172,6 +216,11 @@ test('real desktop shell persists data and isolates Node', async () => {
       .boundingBox()
     if (cardBox && cardDeleteBox) {
       expect(cardDeleteBox.y).toBeGreaterThan(cardBox.y + cardBox.height / 2)
+    }
+    const cardActionsBox = await page.locator('.character-card-actions').first().boundingBox()
+    if (cardBox && cardActionsBox) {
+      const gapBelow = Math.round(cardBox.y + cardBox.height - (cardActionsBox.y + cardActionsBox.height))
+      expect(gapBelow).toBe(9)
     }
 
     await page.getByRole('button', { name: '+ 新建角色卡' }).click()

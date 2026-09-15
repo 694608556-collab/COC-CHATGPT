@@ -1334,43 +1334,45 @@ h3 {
   font-family: 'SF Pro Display', 'PingFang SC', sans-serif;
 }
 
+/* handles sit on the visible shell edge, inside the transparent gutter */
 .resize-handle {
   position: fixed;
-  z-index: 200;
+  z-index: 500;
+  pointer-events: auto;
   app-region: no-drag;
 }
 
 .resize-n,
 .resize-s {
-  right: 12px;
-  left: 12px;
-  height: 5px;
+  left: calc(var(--window-gutter) - 5px);
+  right: calc(var(--window-gutter) - 5px);
+  height: 10px;
 }
 
 .resize-e,
 .resize-w {
-  top: 12px;
-  bottom: 12px;
-  width: 5px;
+  top: calc(var(--window-gutter) - 5px);
+  bottom: calc(var(--window-gutter) - 5px);
+  width: 10px;
 }
 
-.resize-n { top: 0; cursor: n-resize; }
-.resize-s { bottom: 0; cursor: s-resize; }
-.resize-e { right: 0; cursor: e-resize; }
-.resize-w { left: 0; cursor: w-resize; }
+.resize-n { top: calc(var(--window-gutter) - 5px); cursor: n-resize; }
+.resize-s { bottom: calc(var(--window-gutter) - 5px); cursor: s-resize; }
+.resize-e { right: calc(var(--window-gutter) - 5px); cursor: e-resize; }
+.resize-w { left: calc(var(--window-gutter) - 5px); cursor: w-resize; }
 
 .resize-ne,
 .resize-nw,
 .resize-se,
 .resize-sw {
-  width: 14px;
-  height: 14px;
+  width: 20px;
+  height: 20px;
 }
 
-.resize-ne { top: 0; right: 0; cursor: ne-resize; }
-.resize-nw { top: 0; left: 0; cursor: nw-resize; }
-.resize-se { right: 0; bottom: 0; cursor: se-resize; }
-.resize-sw { bottom: 0; left: 0; cursor: sw-resize; }
+.resize-ne { top: calc(var(--window-gutter) - 8px); right: calc(var(--window-gutter) - 8px); cursor: ne-resize; }
+.resize-nw { top: calc(var(--window-gutter) - 8px); left: calc(var(--window-gutter) - 8px); cursor: nw-resize; }
+.resize-se { bottom: calc(var(--window-gutter) - 8px); right: calc(var(--window-gutter) - 8px); cursor: se-resize; }
+.resize-sw { bottom: calc(var(--window-gutter) - 8px); left: calc(var(--window-gutter) - 8px); cursor: sw-resize; }
 
 .filter-option {
   display: flex;
@@ -2077,32 +2079,6 @@ td {
   white-space: nowrap;
 }
 
-.resize-handle {
-  z-index: 500;
-}
-
-.resize-n,
-.resize-s {
-  right: 14px;
-  left: 14px;
-  height: 12px;
-}
-
-.resize-e,
-.resize-w {
-  top: 14px;
-  bottom: 14px;
-  width: 12px;
-}
-
-.resize-ne,
-.resize-nw,
-.resize-se,
-.resize-sw {
-  width: 22px;
-  height: 22px;
-}
-
 /* ============ 0.5.0 feedback pass: record alignment ============ */
 .module-row {
   align-items: center;
@@ -2280,11 +2256,9 @@ grid-row:6;
 .modal:has(.character-editor) { overflow: hidden; background-clip: padding-box; }
 .modal:has(.character-editor) > .character-editor { max-height: calc(100vh - 145px); overflow: auto; }
 .character-editor .neutral-delete { width: 22px; min-width: 22px; min-height: 22px; height: 22px; padding: 3px; color: color-mix(in srgb, var(--muted) 70%, var(--panel)); border-color: color-mix(in srgb, var(--line) 72%, var(--panel)); }
-.character-editor .neutral-delete svg { width: 13px; height: 13px; stroke-width: 1.5; }
+.character-editor .neutral-delete svg { width: 12px; height: 12px; stroke-width: 1.5; }
 
 /* ============ 0.5.1 feedback pass ============ */
-.resize-handle { pointer-events: auto; -webkit-app-region: no-drag; }
-.resize-ne, .resize-nw, .resize-se, .resize-sw { z-index: 501; pointer-events: auto; }
 .edition-badge { width: auto; min-width: 0; padding: 3px 10px; white-space: nowrap; }
 .character-card { height: 196px; min-height: 196px; }
 .character-card-main { padding-top: 48px; gap: 8px; }
@@ -2306,4 +2280,9 @@ grid-row:6;
 /* ============ 0.5.3 feedback pass ============ */
 .module-remove { color: var(--muted); background: var(--panel); border-color: var(--line); }
 .module-remove:hover { color: var(--text); background: var(--panel2); border-color: var(--muted); }
-.module-remove svg { width: 14px; height: 14px; stroke-width: 1.5; }
+.module-remove svg { width: 12px; height: 12px; stroke-width: 1.5; }
+
+/* ============ 0.5.4 feedback pass ============ */
+/* move the card divider and its delete button closer to the card bottom */
+/* the min-height keeps the card the same size while the group slides down */
+.character-card { min-height: 204px; padding-bottom: 8px; }

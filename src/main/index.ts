@@ -104,13 +104,12 @@ function createWindow(): void {
     minWidth: 960,
     minHeight: 640,
     frame: false,
-    transparent: false,
-    thickFrame: true,
-    resizable: true,
+    transparent: true,
+    resizable: false,
     maximizable: true,
     hasShadow: false,
     roundedCorners: true,
-    backgroundColor: '#eef0f4',
+    backgroundColor: '#00000000',
     show: false,
     webPreferences: {
       preload: app.isPackaged

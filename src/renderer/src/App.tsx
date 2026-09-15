@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { BatchCheckDialog } from './components/BatchCheckDialog'
 import { ConfirmDialog, type ConfirmOptions } from './components/ConfirmDialog'
 import { RecordImportDialog } from './components/RecordImportDialog'
+import { ResizeHandles } from './components/ResizeHandles'
 import { FolderIcon, PencilIcon, PlusIcon, SolidTriangleIcon, XIcon } from './components/Icons'
 import {
   mergeImportedParticipants,
@@ -941,6 +942,7 @@ export default function App(): React.JSX.Element {
 
   return (
     <div className={windowMaximized ? 'window-frame maximized' : 'window-frame'}>
+      <ResizeHandles disabled={windowMaximized} />
       <main className={windowMaximized ? 'app-shell maximized' : 'app-shell'}>
       <header className="titlebar" onDoubleClick={() => void window.coc.window.toggleMaximize()}>
         <span className="app-name">COC 跑团记录簿</span>
