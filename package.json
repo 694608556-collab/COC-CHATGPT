@@ -12,6 +12,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "package": "pnpm build && node scripts/package.cjs",
+    "package:setup": "pnpm build && node scripts/package-setup.cjs",
     "lint": "eslint src tests",
     "format": "prettier --write src tests scripts *.json *.md",
     "format:check": "prettier --check src tests scripts *.json *.md",
@@ -55,6 +56,15 @@
     },
     "portable": {
       "artifactName": "COC跑团记录簿-${version}-win-x64.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "COC跑团记录簿",
+      "artifactName": "COC跑团记录簿-${version}-Windows-x64-Setup.${ext}"
     }
   },
   "engines": {

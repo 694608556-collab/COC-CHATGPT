@@ -15,7 +15,10 @@ contextBridge.exposeInMainWorld('coc', {
     setBounds: (bounds) => ipcRenderer.invoke('window:set-bounds', bounds),
     isMaximized: () => ipcRenderer.invoke('window:is-maximized')
   },
-  app: { snapshot: () => invoke('app:snapshot') },
+  app: {
+    snapshot: () => invoke('app:snapshot'),
+    version: () => invoke('app:version')
+  },
   modules: {
     create: (input) => invoke('modules:create', input),
     update: (id, patch) => invoke('modules:update', { id, patch }),

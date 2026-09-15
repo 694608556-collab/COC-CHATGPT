@@ -675,6 +675,7 @@ function RecordDetail({
 export default function App(): React.JSX.Element {
   const [page, setPage] = useState<Page>('records')
   const [snapshot, setSnapshot] = useState<AppSnapshot>(emptySnapshot)
+  const [appVersion, setAppVersion] = useState('')
   const [loading, setLoading] = useState(true)
   const [windowMaximized, setWindowMaximized] = useState(false)
   const [confirmOptions, setConfirmOptions] = useState<ConfirmOptions>()
@@ -697,6 +698,7 @@ export default function App(): React.JSX.Element {
   const refresh = async (): Promise<void> => {
     const value = await window.coc.app.snapshot()
     setSnapshot(value)
+    setAppVersion(await window.coc.app.version())
     document.documentElement.dataset.theme = value.settings.theme
     setCacheInfo(await window.coc.backup.cacheStats())
     setLoading(false)
@@ -935,6 +937,7 @@ export default function App(): React.JSX.Element {
   }
 
   const header = pageMeta[page]
+  const versionLabel = appVersion ? `V${appVersion.replace(/^0\./, '')}` : ''
 
   return (
     <div className={windowMaximized ? 'window-frame maximized' : 'window-frame'}>
@@ -957,7 +960,7 @@ export default function App(): React.JSX.Element {
             </button>
           ))}
           <div className="privacy-note">
-            <strong>V5.3</strong>
+            <strong>{versionLabel}</strong>
             <span>数据仅本机保存、无账户</span>
             <span>仅海豹链接相关联网</span>
             <span>应用制作：亦如长风万里沙</span>

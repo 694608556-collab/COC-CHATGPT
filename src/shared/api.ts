@@ -84,6 +84,7 @@ export interface CocApi {
   }
   app: {
     snapshot(): Promise<AppSnapshot>
+    version(): Promise<string>
   }
   modules: {
     create(input: { name: string; kps?: string[]; pairs?: ParticipantPair[] }): Promise<ModuleRecord>

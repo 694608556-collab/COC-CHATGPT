@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
@@ -190,6 +190,7 @@ export function registerIpc(
   }
 
   register('app:snapshot', empty, () => repository.snapshot())
+  register('app:version', empty, () => app.getVersion())
 
   register('modules:create', moduleInput, (input) => repository.createModule(input))
   register('modules:update', z.object({ id, patch: modulePatch }), ({ id: moduleId, patch }) =>
