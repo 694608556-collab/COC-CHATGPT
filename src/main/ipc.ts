@@ -374,18 +374,21 @@ export function registerIpc(
   )
 
   ipcMain.handle('window:get-bounds', () => windowProvider()?.getBounds())
-  ipcMain.handle('window:set-bounds', (_event, rawBounds) => {
-    const bounds = z
+  const parseWindowBounds = (rawBounds: unknown): Electron.Rectangle =>
+    z
       .object({
         x: z.number().int(),
         y: z.number().int(),
-        width: z.number().int().min(1280),
-        height: z.number().int().min(720)
+        width: z.number().int().min(960),
+        height: z.number().int().min(640)
       })
       .parse(rawBounds)
+  const applyWindowBounds = (rawBounds: unknown): void => {
+    const bounds = parseWindowBounds(rawBounds)
     const window = windowProvider()
     if (window && !window.isMaximized()) window.setBounds(bounds)
-  })
+  }
+  ipcMain.handle('window:set-bounds', (_event, rawBounds) => applyWindowBounds(rawBounds))
   ipcMain.handle('window:is-maximized', () =>
     windowProvider()?.isMaximized() ?? false
   )

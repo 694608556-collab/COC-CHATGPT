@@ -18,13 +18,13 @@ function base(size: number, className?: string) {
   }
 }
 
-export function ChevronIcon({
+export function SolidTriangleIcon({
   size = 16,
   className
 }: IconProps): React.JSX.Element {
   return (
-    <svg {...base(size, className)}>
-      <path d="m8 10 4 4 4-4" />
+    <svg {...base(size, className)} fill="currentColor" stroke="none">
+      <path d="M7.5 5.75c-.92-.53-2.05.13-2.05 1.19v10.12c0 1.06 1.13 1.72 2.05 1.19l8.78-5.06a1.37 1.37 0 0 0 0-2.38z" />
     </svg>
   )
 }
@@ -64,15 +64,13 @@ export function PlusIcon({
   )
 }
 
-export function TrashIcon({
+export function XIcon({
   size = 16,
   className
 }: IconProps): React.JSX.Element {
   return (
     <svg {...base(size, className)}>
-      <path d="M4 7h16M9 7V4h6v3" />
-      <path d="m7 7 1 13h8l1-13" />
-      <path d="M10 11v5M14 11v5" />
+      <path d="M6 6l12 12M18 6L6 18" />
     </svg>
   )
 }

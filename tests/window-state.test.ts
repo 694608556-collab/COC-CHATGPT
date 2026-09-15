@@ -10,12 +10,12 @@ describe('desktop window state', () => {
     })
   })
 
-  it('enforces the 1280x720 minimum when the work area is large enough', () => {
+  it('enforces the 960x640 minimum when the work area is large enough', () => {
     expect(
-      resolveWindowBounds({ width: 1024, height: 600, maximized: false }, [
+      resolveWindowBounds({ width: 900, height: 600, maximized: false }, [
         { x: 0, y: 0, width: 2560, height: 1400 }
       ])
-    ).toEqual({ width: 1280, height: 720, maximized: false })
+    ).toEqual({ width: 960, height: 640, maximized: false })
   })
 
   it('clamps the default size to a smaller work area', () => {

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { CharacterData, ModuleRecord } from '../../../shared/types'
 import { calculateDerived, convertCharacterEdition, createSkill } from '../../../shared/coc-rules'
 import { DialogShell } from './DialogShell'
-import { PlusIcon, TrashIcon } from './Icons'
+import { PlusIcon, XIcon } from './Icons'
 import { NameSuggestField } from './NameSuggestField'
 
 const ATTR_LABELS: Record<keyof CharacterData['attrs'], string> = {
@@ -198,17 +198,17 @@ export function CharacterEditor({
                   </label>
                 ))}
                 <button
-                  className="icon-button danger"
+                  className="icon-button neutral-delete"
                   aria-label={`删除武器${index + 1}`}
                   onClick={() =>
                     setDraft({ ...draft, weapons: draft.weapons.filter((_, i) => i !== index) })
                   }
                 >
-                  <TrashIcon />
+                  <XIcon />
                 </button>
               </div>
             ))}
-            <button className="secondary" onClick={() => setDraft({ ...draft, weapons: [...draft.weapons, {}] })}>
+            <button className="secondary inline-add add-weapon" onClick={() => setDraft({ ...draft, weapons: [...draft.weapons, {}] })}>
               + 添加武器
             </button>
           </div>
@@ -217,15 +217,10 @@ export function CharacterEditor({
         <section>
           <h3>技能</h3>
           <div className="skill-editor">
-            <div className="skill-row skill-row-head">
-              <span>技能名称</span>
-              <span>技能点数</span>
-              <span />
-            </div>
             {draft.skills.map((skill, index) => (
               <div className="skill-row" key={skill.id}>
                 <input
-                  aria-label={`技能名称${index + 1}`}
+                  aria-label={`技能${index + 1}名称`}
                   value={skill.name}
                   onChange={(event) =>
                     setDraft({
@@ -237,7 +232,7 @@ export function CharacterEditor({
                   }
                 />
                 <input
-                  aria-label={`技能点数${index + 1}`}
+                  aria-label={`技能${index + 1}点数`}
                   type="number"
                   value={skill.base}
                   onChange={(event) =>
@@ -250,13 +245,13 @@ export function CharacterEditor({
                   }
                 />
                 <button
-                  className="icon-button danger"
+                  className="icon-button neutral-delete"
                   aria-label={`删除技能${index + 1}`}
                   onClick={() =>
                     setDraft({ ...draft, skills: draft.skills.filter((_, i) => i !== index) })
                   }
                 >
-                  <TrashIcon />
+                  <XIcon />
                 </button>
               </div>
             ))}
@@ -272,7 +267,15 @@ export function CharacterEditor({
 
         <div className="character-detail-grid">
           <section>
-            <h3>财产与装备</h3>
+            <div className="section-heading-with-action">
+              <h3>财产与装备</h3>
+              <button
+                className="secondary inline-add add-item"
+                onClick={() => setDraft({ ...draft, items: [...draft.items, ''] })}
+              >
+                + 添加物品
+              </button>
+            </div>
             <div className="item-grid">
               {draft.items.map((item, index) => (
                 <div className="item-row" key={index}>
@@ -287,23 +290,25 @@ export function CharacterEditor({
                     }
                   />
                   <button
-                    className="icon-button danger"
+                    className="icon-button neutral-delete"
                     aria-label={`删除物品${index + 1}`}
                     onClick={() =>
                       setDraft({ ...draft, items: draft.items.filter((_, i) => i !== index) })
                     }
                   >
-                    <TrashIcon />
+                    <XIcon />
                   </button>
                 </div>
               ))}
             </div>
-            <button className="secondary" onClick={() => setDraft({ ...draft, items: [...draft.items, ''] })}>+ 添加物品</button>
           </section>
           <section>
             <h3>背景详情</h3>
             {BG_FIELDS.map(([field, label]) => (
-              <label key={field}>
+              <label
+                className={field === 'phobia' ? 'background-field background-wide' : `background-field background-${field}`}
+                key={field}
+              >
                 {label}
                 <input value={draft.background[field] ?? ''} onChange={(event) => updateBackground(field, event.target.value)} />
               </label>
@@ -313,7 +318,12 @@ export function CharacterEditor({
 
         <section>
           <h3>背景故事</h3>
-          <textarea rows={5} value={draft.story} onChange={(event) => setDraft({ ...draft, story: event.target.value })} />
+          <textarea
+            className="story-textarea"
+            rows={8}
+            value={draft.story}
+            onChange={(event) => setDraft({ ...draft, story: event.target.value })}
+          />
         </section>
       </div>
       <footer className="modal-actions">

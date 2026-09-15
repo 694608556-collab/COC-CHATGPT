@@ -32,7 +32,9 @@ test('real desktop shell persists data and isolates Node', async () => {
     let page = await application.firstWindow()
 
     await expect(page.getByText('COC 跑团记录簿').first()).toBeVisible()
-    expect(await page.locator('.resize-handle').count()).toBe(8)
+    expect(await page.locator('.resize-handle').count()).toBe(0)
+    await expect(page.locator('.window-frame .app-shell')).toHaveCount(1)
+    await expect(page.locator('.privacy-note')).toContainText('数据仅本机保存、无账户')
     expect(
       await page.locator('.app-shell').evaluate((element) =>
         getComputedStyle(element).borderRadius

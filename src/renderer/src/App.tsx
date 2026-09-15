@@ -1,11 +1,10 @@
 
 import { CharacterEditor } from './components/CharacterEditor'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { BatchCheckDialog } from './components/BatchCheckDialog'
 import { ConfirmDialog, type ConfirmOptions } from './components/ConfirmDialog'
 import { RecordImportDialog } from './components/RecordImportDialog'
-import { ResizeHandles } from './components/ResizeHandles'
-import { ChevronIcon, FolderIcon, PencilIcon, PlusIcon, TrashIcon } from './components/Icons'
+import { FolderIcon, PencilIcon, PlusIcon, SolidTriangleIcon, XIcon } from './components/Icons'
 import {
   mergeImportedParticipants,
   parseImportedParticipants,
@@ -409,7 +408,7 @@ function ModuleEditor({
                 }
               />
               <button
-                className="icon-button danger"
+                className="icon-button module-remove"
                 aria-label={`删除 KP${index + 1}`}
                 onClick={() =>
                   onChange({
@@ -418,7 +417,7 @@ function ModuleEditor({
                   })
                 }
               >
-                <TrashIcon />
+                <XIcon />
               </button>
             </div>
           ))}
@@ -452,7 +451,7 @@ function ModuleEditor({
                 onChange={(event) => updatePair(index, 'pl', event.target.value)}
               />
               <button
-                className="icon-button danger"
+                className="icon-button module-remove"
                 aria-label={`删除 PC${index + 1} / PL${index + 1}`}
                 onClick={() =>
                   onChange({
@@ -461,7 +460,7 @@ function ModuleEditor({
                   })
                 }
               >
-                <TrashIcon />
+                <XIcon />
               </button>
             </div>
           ))}
@@ -677,7 +676,6 @@ export default function App(): React.JSX.Element {
   const [page, setPage] = useState<Page>('records')
   const [snapshot, setSnapshot] = useState<AppSnapshot>(emptySnapshot)
   const [loading, setLoading] = useState(true)
-  const characterScroller = useRef<HTMLDivElement>(null)
   const [windowMaximized, setWindowMaximized] = useState(false)
   const [confirmOptions, setConfirmOptions] = useState<ConfirmOptions>()
   const [message, setMessage] = useState<string>()
@@ -940,7 +938,6 @@ export default function App(): React.JSX.Element {
 
   return (
     <div className={windowMaximized ? 'window-frame maximized' : 'window-frame'}>
-      <ResizeHandles disabled={windowMaximized} />
       <main className={windowMaximized ? 'app-shell maximized' : 'app-shell'}>
       <header className="titlebar" onDoubleClick={() => void window.coc.window.toggleMaximize()}>
         <span className="app-name">COC 跑团记录簿</span>
@@ -960,9 +957,10 @@ export default function App(): React.JSX.Element {
             </button>
           ))}
           <div className="privacy-note">
-            本机保存
-            <br />
-            <span>无账号 · 无云同步</span>
+            <strong>V5.3</strong>
+            <span>数据仅本机保存、无账户</span>
+            <span>仅海豹链接相关联网</span>
+            <span>应用制作：亦如长风万里沙</span>
           </div>
         </nav>
         <section className="main-panel">
@@ -1060,7 +1058,7 @@ export default function App(): React.JSX.Element {
                                 )
                               }
                             >
-                              <ChevronIcon className={module.collapsed ? 'collapsed' : ''} />
+                              <SolidTriangleIcon className={module.collapsed ? 'collapsed' : ''} />
                             </button>
                             <button
                               className="module-name"
@@ -1338,74 +1336,47 @@ export default function App(): React.JSX.Element {
               </>
             ) : page === 'characters' ? (
               snapshot.characters.length ? (
-                <div className="character-carousel">
-                  <button
-                    className="icon-button carousel-button"
-                    aria-label="浏览上一张角色卡"
-                    onClick={() =>
-                      characterScroller.current?.scrollBy({
-                        left: -340,
-                        behavior: 'smooth'
-                      })
-                    }
-                  >
-                    <ChevronIcon className="nav-left" />
-                  </button>
-                  <div className="character-grid" ref={characterScroller}>
-                    {snapshot.characters.map((character) => {
-                      const linkedModules = snapshot.modules.filter((item) =>
-                        character.moduleIds.includes(item.id)
-                      )
-                      const topSkills = [...character.skills]
-                        .sort((a, b) => skillFinal(b) - skillFinal(a))
-                        .slice(0, 3)
-                      return (
-                        <article className="character-card" key={character.id}>
-                          <div className="character-card-head">
-                            <span>
-                              {linkedModules.map((item) => item.name).join('、') || '未关联模组'}
-                            </span>
-                          </div>
+                <div className="character-grid">
+                  {snapshot.characters.map((character) => {
+                    const linkedModules = snapshot.modules.filter((item) =>
+                      character.moduleIds.includes(item.id)
+                    )
+                    const topSkills = [...character.skills]
+                      .sort((a, b) => skillFinal(b) - skillFinal(a))
+                      .slice(0, 3)
+                    return (
+                      <article className="character-card" key={character.id}>
+                        <div className="character-card-head">
+                          <span>
+                            {linkedModules.map((item) => item.name).join('、') || '未关联模组'}
+                          </span>
+                          <span className="edition-badge">第{character.edition === 7 ? '七' : '六'}版</span>
+                        </div>
+                        <button
+                          className="character-card-main"
+                          onClick={() => setCharacterId(character.id)}
+                        >
+                          <strong>{character.basic.name || '未命名调查员'}</strong>
+                          <span>{character.basic.age || '未关联年龄'} · {character.basic.occupation || '未填写职业'}</span>
+                          <span className="attribute-summary">
+                            力量 {character.attrs.STR} · 体质 {character.attrs.CON} · 敏捷{' '}
+                            {character.attrs.DEX} · 智力 {character.attrs.INT}
+                          </span>
+                          <span className="character-skills">
+                            {topSkills.map((skill) => `${skill.name} ${skillFinal(skill)}`).join(' · ')}
+                          </span>
+                        </button>
+                        <div className="character-card-actions">
                           <button
-                            className="character-card-main"
-                            onClick={() => setCharacterId(character.id)}
+                            className="text-button danger"
+                            onClick={() => requestDeleteCharacter(character)}
                           >
-                            <span className="edition-badge">第{character.edition === 7 ? '七' : '六'}版</span>
-                            <strong>{character.basic.name || '未命名调查员'}</strong>
-                            <span>{character.basic.occupation || '未填写职业'}</span>
-                            <span>{linkedModules.map((item) => item.name).join('、') || '未关联模组'}</span>
-                            <span className="attribute-summary">
-                              力量 {character.attrs.STR} · 体质 {character.attrs.CON} · 敏捷{' '}
-                              {character.attrs.DEX} · 智力 {character.attrs.INT}
-                            </span>
-                            <span className="character-skills">
-                              {topSkills.map((skill) => `${skill.name} ${skillFinal(skill)}`).join(' · ')}
-                            </span>
+                            删除
                           </button>
-                          <div className="character-card-actions">
-                            <button
-                              className="text-button danger"
-                              onClick={() => requestDeleteCharacter(character)}
-                            >
-                              删除
-                            </button>
-                          </div>
-                        </article>
-                      )
-                    })}
-                  </div>
-                  <button
-                    className="icon-button carousel-button"
-                    aria-label="浏览下一张角色卡"
-                    onClick={() =>
-                      characterScroller.current?.scrollBy({
-                        left: 340,
-                        behavior: 'smooth'
-                      })
-                    }
-                  >
-                    <ChevronIcon className="nav-right" />
-                  </button>
+                        </div>
+                      </article>
+                    )
+                  })}
                 </div>
               ) : (
                 <div className="empty-state">
