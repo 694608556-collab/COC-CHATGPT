@@ -421,7 +421,6 @@ export class AppRepository {
           character.createdAt,
           character.updatedAt
         )
-      if (character.moduleId && character.basic.name) this.linkCharacterToModule(character)
     })
     return this.getCharacter(character.id)
   }
@@ -484,7 +483,6 @@ export class AppRepository {
         this.writeModulePairs(oldModule.id, pairs)
       }
       this.writeCharacter(next)
-      if (moduleId && next.basic.name) this.linkCharacterToModule(next)
     })
     return this.getCharacter(id)
   }
@@ -798,29 +796,10 @@ export class AppRepository {
       .run(JSON.stringify(cleanPairs(pairs)), now(), moduleId)
   }
 
-  private linkCharacterToModule(character: CharacterData): void {
-    for (const moduleId of character.moduleIds) {
-      const module = this.getModule(moduleId)
-      const existing = module.pairs.findIndex((pair) => pair.characterId === character.id)
-      const pair = {
-        pc: character.basic.name,
-        pl: existing >= 0 ? module.pairs[existing]!.pl : '',
-        characterId: character.id
-      }
-      const pairs = [...module.pairs]
-      if (existing >= 0) pairs[existing] = pair
-      else pairs.push(pair)
-      this.writeModulePairs(module.id, pairs)
-    }
-  }
-
   private syncCharacterLinks(character: CharacterData): void {
     const selected = new Set(character.moduleIds)
     for (const module of this.snapshot().modules) {
-      if (selected.has(module.id)) {
-        this.linkCharacterToModule(character)
-        continue
-      }
+      if (selected.has(module.id)) continue
       if (!module.pairs.some((pair) => pair.characterId === character.id)) {
         continue
       }

@@ -1,8 +1,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import type { ParticipantPair } from '../shared/types'
 
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 3
 
 const MIGRATION_V1 = `
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -101,6 +102,59 @@ CREATE TABLE IF NOT EXISTS notes (
 CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at);
 `
 
+
+/**
+ * Character cards used to append a PC/PL row to every linked module. That row
+ * is not something the user asked for, so drop the untouched leftovers and
+ * drop the link from the rows the user did keep. The module list is then
+ * owned by the module editor only.
+ */
+export function cleanLinkedPairs(
+  pairs: ParticipantPair[],
+  characterName: (id: string) => string | undefined
+): ParticipantPair[] {
+  const cleaned: ParticipantPair[] = []
+  for (const pair of pairs) {
+    if (!pair || typeof pair !== 'object') continue
+    const characterId = pair.characterId
+    if (!characterId) {
+      cleaned.push({ pc: pair.pc ?? '', pl: pair.pl ?? '' })
+      continue
+    }
+    const name = characterName(characterId)
+    const untouched = name !== undefined && !String(pair.pl ?? '').trim() && pair.pc === name
+    if (untouched) continue
+    cleaned.push({ pc: pair.pc ?? '', pl: pair.pl ?? '' })
+  }
+  return cleaned
+}
+function cleanLinkedPairsInDatabase(connection: DatabaseSync): void {
+  const names = new Map<string, string>()
+  for (const row of connection.prepare('SELECT id, data_json FROM characters').all() as Array<Record<string, unknown>>) {
+    try {
+      const data = JSON.parse(String(row.data_json ?? '{}')) as { basic?: { name?: string } }
+      names.set(String(row.id), String(data.basic?.name ?? ''))
+    } catch {
+      // ignore unreadable rows
+    }
+  }
+  for (const row of connection
+    .prepare('SELECT id, pairs_json FROM modules')
+    .all() as Array<Record<string, unknown>>) {
+    let pairs: ParticipantPair[]
+    try {
+      const parsed = JSON.parse(String(row.pairs_json ?? '[]'))
+      pairs = Array.isArray(parsed) ? (parsed as ParticipantPair[]) : []
+    } catch {
+      continue
+    }
+    if (!pairs.some((pair) => pair && pair.characterId)) continue
+    const cleaned = cleanLinkedPairs(pairs, (id) => names.get(id))
+    connection
+      .prepare('UPDATE modules SET pairs_json = ? WHERE id = ?')
+      .run(JSON.stringify(cleaned), String(row.id))
+  }
+}
 export class AppDatabase {
   readonly connection: DatabaseSync
 
@@ -136,6 +190,14 @@ export class AppDatabase {
         this.connection
           .prepare('INSERT OR REPLACE INTO schema_meta (id, version, migrated_at) VALUES (1, ?, ?)')
           .run(2, new Date().toISOString())
+      })
+    }
+    if (currentVersion < 3) {
+      this.transaction(() => {
+        cleanLinkedPairsInDatabase(this.connection)
+        this.connection
+          .prepare('INSERT OR REPLACE INTO schema_meta (id, version, migrated_at) VALUES (1, ?, ?)')
+          .run(3, new Date().toISOString())
       })
     }
     const integrity = this.integrityCheck()

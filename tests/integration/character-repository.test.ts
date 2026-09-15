@@ -17,13 +17,12 @@ beforeEach(() => {
 
 afterEach(() => database.close())
 
-describe('character persistence and module linking', () => {
-  it('persists edits, recalculates derived limits and synchronizes linked PC names', () => {
+describe('character persistence', () => {
+  it('persists edits and recalculates derived limits without inventing module rows', () => {
     const module = repository.createModule({ name: '长夜' })
     const character = repository.createCharacter({ edition: 7, moduleId: module.id, name: '林恩' })
-    expect(repository.findModule(module.id).pairs).toEqual([
-      { pc: '林恩', pl: '', characterId: character.id }
-    ])
+    // creating a card must not add a PC/PL row to the module roster
+    expect(repository.findModule(module.id).pairs).toEqual([])
 
     character.basic.name = '林恩·怀特'
     character.attrs.CON = 80
@@ -32,35 +31,33 @@ describe('character persistence and module linking', () => {
     const updated = repository.updateCharacter(character.id, character)
 
     expect(updated.derived.hpCurrent).toBe(15)
-    expect(repository.findModule(module.id).pairs[0]?.pc).toBe('林恩·怀特')
+    // renaming the card must not add rows either
+    expect(repository.findModule(module.id).pairs).toEqual([])
     expect(repository.snapshot().characters[0]?.basic.name).toBe('林恩·怀特')
   })
 
-  it('moves with explicit old-module policies and retains the name when deleting a card', () => {
-    const first = repository.createModule({ name: '旧模组' })
-    const second = repository.createModule({ name: '新模组' })
+  it('leaves both rosters untouched when a card changes module', () => {
+    const first = repository.createModule({ name: '旧模组', pairs: [{ pc: '阿伦', pl: '小夏' }] })
+    const second = repository.createModule({ name: '新模组', pairs: [{ pc: '林恩', pl: '长风' }] })
     const character = repository.createCharacter({ edition: 6, moduleId: first.id, name: '阿伦' })
 
     repository.moveCharacter(character.id, second.id, 'retain-name')
-    expect(repository.findModule(first.id).pairs).toEqual([{ pc: '阿伦', pl: '' }])
-    expect(repository.findModule(second.id).pairs[0]?.characterId).toBe(character.id)
+    expect(repository.findModule(first.id).pairs).toEqual([{ pc: '阿伦', pl: '小夏' }])
+    expect(repository.findModule(second.id).pairs).toEqual([{ pc: '林恩', pl: '长风' }])
+
+    expect(repository.moveCharacter(character.id, first.id, 'cancel').moduleId).toBe(second.id)
+  })
+
+  it('leaves the roster alone when a card is deleted', () => {
+    const module = repository.createModule({ name: '长夜', pairs: [{ pc: '林恩', pl: '小夏' }] })
+    const character = repository.createCharacter({ edition: 7, moduleId: module.id, name: '林恩' })
 
     repository.deleteCharacter(character.id)
     expect(repository.snapshot().characters).toHaveLength(0)
-    expect(repository.findModule(second.id).pairs).toEqual([{ pc: '阿伦', pl: '' }])
+    expect(repository.findModule(module.id).pairs).toEqual([{ pc: '林恩', pl: '小夏' }])
   })
 
-  it('can remove the old PC row or cancel a move', () => {
-    const first = repository.createModule({ name: '甲' })
-    const second = repository.createModule({ name: '乙' })
-    const character = repository.createCharacter({ edition: 7, moduleId: first.id, name: '调查员' })
-
-    expect(repository.moveCharacter(character.id, second.id, 'cancel').moduleId).toBe(first.id)
-    repository.moveCharacter(character.id, second.id, 'remove')
-    expect(repository.findModule(first.id).pairs).toHaveLength(0)
-    expect(repository.findModule(second.id).pairs[0]?.characterId).toBe(character.id)
-  })
-  it('links one card to multiple modules and syncs PC names', () => {
+  it('links one card to several modules without touching their rosters', () => {
     const first = repository.createModule({ name: '甲模组' })
     const second = repository.createModule({ name: '乙模组' })
     const character = repository.createCharacter({
@@ -71,12 +68,12 @@ describe('character persistence and module linking', () => {
     character.moduleIds = [first.id, second.id]
     const updated = repository.updateCharacter(character.id, character)
     expect(updated.moduleIds).toEqual([first.id, second.id])
-    expect(repository.findModule(first.id).pairs[0]?.characterId).toBe(character.id)
-    expect(repository.findModule(second.id).pairs[0]?.characterId).toBe(character.id)
+    expect(repository.findModule(first.id).pairs).toEqual([])
+    expect(repository.findModule(second.id).pairs).toEqual([])
 
     updated.basic.name = '林恩·怀特'
     repository.updateCharacter(updated.id, updated)
-    expect(repository.findModule(first.id).pairs[0]?.pc).toBe('林恩·怀特')
-    expect(repository.findModule(second.id).pairs[0]?.pc).toBe('林恩·怀特')
+    expect(repository.findModule(first.id).pairs).toEqual([])
+    expect(repository.findModule(second.id).pairs).toEqual([])
   })
 })

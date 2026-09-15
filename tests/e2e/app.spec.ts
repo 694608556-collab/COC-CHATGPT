@@ -213,6 +213,13 @@ test('real desktop shell persists data and isolates Node', async () => {
     await page.getByLabel('力量').fill('57')
     await page.getByRole('button', { name: '保存', exact: true }).click()
     await expect(page.getByRole('button', { name: /林恩/ })).toBeVisible()
+
+    // creating a card must not append a PC row to its module roster
+    await page.getByRole('button', { name: '跑团记录汇总' }).click()
+    const participants = page.locator('.participants').first()
+    await expect(participants).toContainText('林恩 / 小夏')
+    await expect(participants).not.toContainText('林恩 / 未填写')
+    await page.getByRole('button', { name: '调查员角色卡' }).click()
     const cardBox = await page.locator('.character-card').first().boundingBox()
     const cardDeleteBox = await page
       .locator('.character-card')
