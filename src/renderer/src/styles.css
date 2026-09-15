@@ -757,6 +757,11 @@ th {
   font-size: 11px;
 }
 
+/* destructive confirmations only need to be a little wider than their text */
+.modal:has(.confirm-text) {
+  width: min(500px, 100%);
+}
+
 .modal:has(.character-editor) {
   width: min(1000px, 100%);
 }
@@ -2285,11 +2290,19 @@ grid-row:6;
 /* ============ 0.5.4 feedback pass ============ */
 /* move the card divider and its delete button closer to the card bottom */
 /* the min-height keeps the card the same size while the group slides down */
-.character-card { min-height: 204px; padding-bottom: 4px; }
+.character-card { min-height: 216px; padding-bottom: 4px; }
 
 /* ============ 0.5.5 feedback pass ============ */
 /* a transparent window repaints its shadow on every resize step */
 body.window-resizing .app-shell { box-shadow: none; }
+
+/* nothing should be animating while the window is being resized */
+body.window-resizing *,
+body.window-resizing *::before,
+body.window-resizing *::after {
+  transition: none !important;
+  animation: none !important;
+}
 
 /* ============ 跑团闲记 ============ */
 .note-grid {
@@ -2361,13 +2374,31 @@ body.window-resizing .app-shell { box-shadow: none; }
   font-weight: 650;
 }
 
-.note-date-field input {
-  width: 150px;
-  padding: 6px 8px;
+/* module name and date share one control style */
+.note-date-field input,
+.note-card .combo input {
+  min-height: 34px;
+  padding: 7px 10px;
   color: var(--text);
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: 8px;
+}
+
+/* let the module name field take the space left of the date */
+.note-card-editing .note-card-head .field {
+  flex: 1 1 auto;
+}
+
+.note-card .combo input {
+  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-right: 30px;
+}
+
+.note-date-field input {
+  width: 160px;
 }
 
 .note-card-main {
@@ -2471,4 +2502,25 @@ body.window-resizing .app-shell { box-shadow: none; }
   gap: 8px;
   margin-top: auto;
   padding-top: 10px;
+}
+
+/* every bottom button keeps the same outer box */
+.note-card-actions .text-button,
+.note-card-actions .secondary,
+.note-card-actions .primary {
+  min-height: 34px;
+  padding: 7px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.note-card-actions .text-button {
+  color: var(--danger);
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+
+.note-card-actions .text-button:hover {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--panel));
 }

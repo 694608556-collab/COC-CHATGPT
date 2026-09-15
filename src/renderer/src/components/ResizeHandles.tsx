@@ -29,15 +29,29 @@ export function ResizeHandles({
     const startY = event.screenY
     let frame = 0
     let pending: Bounds | undefined
+    let inFlight = false
+    let lastSent: Bounds | undefined
 
-    // Collapse pointer bursts into one window update per animation frame so the
-    // resize IPC queue cannot fall behind the cursor.
+    const same = (a: Bounds | undefined, b: Bounds | undefined): boolean =>
+      Boolean(a && b && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height)
+
+    // Collapse pointer bursts into one update per frame and never let more than
+    // one resize request sit in the IPC queue at a time.
     const flush = (): void => {
       frame = 0
-      if (!pending) return
+      if (inFlight || !pending) return
+      if (same(pending, lastSent)) {
+        pending = undefined
+        return
+      }
       const next = pending
       pending = undefined
-      void window.coc.window.setBounds(next)
+      lastSent = next
+      inFlight = true
+      void window.coc.window.setBounds(next).finally(() => {
+        inFlight = false
+        if (pending) frame = window.requestAnimationFrame(flush)
+      })
     }
 
     const move = (moveEvent: PointerEvent): void => {

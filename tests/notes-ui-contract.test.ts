@@ -60,4 +60,18 @@ describe('跑团闲记 module contract', () => {
     expect(ipc).toContain("'files:choose-note-image'")
     expect(ipc).toContain("'files:paste-note-image'")
   })
+  it('matches the note editor controls to the rest of the app', () => {
+    const editor = styles.slice(styles.indexOf('.note-date-field input,'), styles.indexOf('.note-date-field input {'))
+    expect(editor).toContain('min-height: 34px')
+    expect(editor).toContain('border-radius: 8px')
+    const actions = styles.slice(styles.indexOf('.note-card-actions .text-button,'))
+    expect(actions).toContain('min-height: 34px')
+    expect(actions).toContain('.note-card-actions .text-button {')
+    expect(actions).toContain('border: 1px solid var(--line)')
+  })
+
+  it('keeps destructive confirmations narrow', () => {
+    const rule = styles.slice(styles.indexOf('.modal:has(.confirm-text)'))
+    expect(rule.slice(0, 120)).toContain('width: min(500px, 100%)')
+  })
 })

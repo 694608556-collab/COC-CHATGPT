@@ -33,6 +33,20 @@ describe('rounded window with custom resizing', () => {
     expect(styles).toContain('body.window-resizing .app-shell { box-shadow: none; }')
   })
 
+  it('never queues more than one resize request and skips unchanged sizes', () => {
+    expect(handles).toContain('let inFlight = false')
+    expect(handles).toContain('let lastSent: Bounds | undefined')
+    expect(handles).toContain('const same = (')
+    expect(handles).toContain('if (inFlight || !pending) return')
+    expect(handles).toContain('inFlight = true')
+  })
+
+  it('stops transitions and animations while dragging a transparent window', () => {
+    expect(styles).toContain('body.window-resizing *::after')
+    expect(styles).toContain('transition: none !important')
+    expect(styles).toContain('animation: none !important')
+  })
+
   it('enforces the shared minimum size while dragging', () => {
     expect(handles).toContain('const MIN_WIDTH = 960')
     expect(handles).toContain('const MIN_HEIGHT = 640')

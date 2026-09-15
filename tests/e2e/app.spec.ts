@@ -19,7 +19,9 @@ function cleanEnvironment(dataDirectory: string): Record<string, string> {
 async function launch(dataDirectory: string): Promise<ElectronApplication> {
   return electron.launch({
     executablePath,
-    args: ['.'],
+    // isolate the Electron user data so a second instance never hits the
+    // single instance lock and nothing is written to the real profile
+    args: ['.', `--user-data-dir=${dataDirectory}`],
     cwd: projectRoot,
     env: cleanEnvironment(dataDirectory)
   })
@@ -177,7 +179,7 @@ test('real desktop shell persists data and isolates Node', async () => {
       'TXT',
       'PDF'
     ]) {
-      await expect(page.getByRole('button', { name: label })).toBeVisible()
+      await expect(page.locator('.row-actions').first().getByRole('button', { name: label })).toBeVisible()
     }
 
     await page.getByLabel('选择 暗影循迹第 1 场').check()
