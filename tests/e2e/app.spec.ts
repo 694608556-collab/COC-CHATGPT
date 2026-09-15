@@ -83,6 +83,9 @@ test('real desktop shell persists data and isolates Node', async () => {
       await page.locator('.titlebar').evaluate((element) => element.getBoundingClientRect().height)
     ).toBeCloseTo(46, 1)
     await expect(page.locator('.window-controls button')).toHaveCount(3)
+    const titleIcon = page.locator('.app-icon')
+    await expect(titleIcon).toBeVisible()
+    expect(await titleIcon.evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
     expect(
       await page.evaluate(() => ({
         require: typeof Reflect.get(window, 'require'),

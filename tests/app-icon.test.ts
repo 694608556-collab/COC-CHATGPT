@@ -45,4 +45,18 @@ describe('application icon', () => {
     expect(png.readUInt32BE(20)).toBe(1024)
     expect(png.readUInt8(25)).toBe(6)
   })
+
+  it('shows the same emblem next to the window title', () => {
+    const assetPath = path.join(root, 'src', 'renderer', 'src', 'assets', 'app-icon.png')
+    expect(fs.existsSync(assetPath)).toBe(true)
+    const png = fs.readFileSync(assetPath)
+    expect(png.readUInt32BE(16)).toBe(128)
+    expect(png.readUInt32BE(20)).toBe(128)
+    expect(png.readUInt8(25)).toBe(6)
+    const app = fs.readFileSync(path.join(root, 'src/renderer/src/App.tsx'), 'utf8')
+    expect(app).toContain("import appIcon from './assets/app-icon.png'")
+    expect(app).toContain('className="app-icon"')
+    const styles = fs.readFileSync(path.join(root, 'src/renderer/src/styles.css'), 'utf8')
+    expect(styles).toContain('width: 18px')
+  })
 })

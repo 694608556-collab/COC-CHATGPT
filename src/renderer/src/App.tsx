@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { BatchCheckDialog } from './components/BatchCheckDialog'
 import { ConfirmDialog, type ConfirmOptions } from './components/ConfirmDialog'
 import { RecordImportDialog } from './components/RecordImportDialog'
+import appIcon from './assets/app-icon.png'
 import { NoteBoard } from './components/NoteBoard'
 import { ResizeHandles } from './components/ResizeHandles'
 import { FolderIcon, PencilIcon, PlusIcon, SolidTriangleIcon, XIcon } from './components/Icons'
@@ -949,7 +950,10 @@ export default function App(): React.JSX.Element {
       <ResizeHandles disabled={windowMaximized} />
       <main className={windowMaximized ? 'app-shell maximized' : 'app-shell'}>
       <header className="titlebar" onDoubleClick={() => void window.coc.window.toggleMaximize()}>
-        <span className="app-name">COC 跑团记录簿</span>
+        <span className="app-name">
+          <img className="app-icon" src={appIcon} alt="" />
+          COC 跑团记录簿
+        </span>
         <WindowControls />
       </header>
       <div className="workspace">

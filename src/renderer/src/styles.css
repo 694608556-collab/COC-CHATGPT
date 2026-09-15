@@ -107,9 +107,18 @@ body,
   user-select: none;
 }
 .app-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
   font-weight: 650;
   letter-spacing: 0.02em;
+}
+.app-icon {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
 }
 .window-controls {
   display: flex;
