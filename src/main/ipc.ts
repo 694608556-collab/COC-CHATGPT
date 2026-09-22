@@ -37,19 +37,25 @@ const moduleInput = z.object({
   pairs: z.array(pair).max(500).optional()
 })
 const modulePatch = moduleInput.partial().extend({ collapsed: z.boolean().optional() })
+const recordStatus = z.enum(['pending', 'valid', 'fetch_failed', 'manual'])
 const recordInput = z.object({
   moduleId: id,
   name: optionalText,
   link: optionalText,
   manualContent: z.string().max(20_000_000).optional(),
-  playDate: z.string().max(20).optional()
+  playDate: z.string().max(20).optional(),
+  sequenceNo: z.number().int().min(1).max(9999).optional(),
+  status: recordStatus.optional(),
+  fetchedAt: z.string().max(40).optional()
 })
 const recordPatch = z.object({
   name: optionalText,
   link: optionalText,
   manualContent: z.string().max(20_000_000).optional(),
   playDate: z.string().max(20).optional(),
-  dateSource: z.enum(['parsed', 'manual', 'none']).optional()
+  dateSource: z.enum(['parsed', 'manual', 'none']).optional(),
+  status: recordStatus.optional(),
+  fetchedAt: z.string().max(40).optional()
 })
 const settingsPatch = z.object({
   theme: z.enum(['light', 'dark']).optional(),
@@ -166,6 +172,7 @@ const automaticBackupChannels = new Set([
   'records:delete',
   'records:move',
   'records:probe',
+  'records:reset-probe',
   'characters:create',
   'characters:update',
   'characters:convert',
@@ -239,6 +246,9 @@ export function registerIpc(
     ({ moduleId, link, excludingId }) => repository.findDuplicateLink(moduleId, link, excludingId)
   )
   register('records:probe', z.object({ id }), ({ id: recordId }) => seaLogService.probe(recordId))
+  register('records:reset-probe', z.object({ id }), ({ id: recordId }) =>
+    repository.resetRecordProbeState(recordId)
+  )
 
   register(
     'characters:create',
@@ -408,6 +418,13 @@ export function registerIpc(
       if (error) throw new AppError('OPEN_DIRECTORY_FAILED', 'FILE', '无法打开文件夹，请检查路径。')
     }
   )
+  register('files:show-item', z.object({ targetPath: z.string().max(32_000) }), ({ targetPath }) => {
+    const resolved = path.resolve(targetPath)
+    if (!fs.existsSync(resolved)) {
+      throw new AppError('SHOW_ITEM_MISSING', 'FILE', '文件已经不存在，请检查归档目录。')
+    }
+    shell.showItemInFolder(resolved)
+  })
   register('files:choose-note-image', empty, async () => {
     const options: Electron.OpenDialogOptions = {
       title: '选择图片',

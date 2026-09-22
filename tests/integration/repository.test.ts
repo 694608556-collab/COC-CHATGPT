@@ -40,7 +40,7 @@ describe('SQLite repository', () => {
     })
   })
 
-  it('preserves historical session sequence numbers after deletion and sorting', () => {
+  it('keeps existing session names and numbers after deletion and sorting', () => {
     const module = repository.createModule({ name: '无尽食欲' })
     const first = repository.createRecord({ moduleId: module.id })
     const second = repository.createRecord({ moduleId: module.id })
@@ -48,9 +48,44 @@ describe('SQLite repository', () => {
     const third = repository.createRecord({ moduleId: module.id })
     repository.moveRecord(third.id, -1)
     const records = repository.snapshot().records
+    // 删除不会重命名或重排已有场次：第 1 场仍然叫第 1 场
     expect(first.name).toBe('无尽食欲第 1 场')
-    expect(third.name).toBe('无尽食欲第 3 场')
-    expect(records.map((record) => record.sequenceNo)).toEqual([3, 1])
+    // 0.6.2 起新增场次接续现存场次的最大编号，末尾被删掉的编号会被重新使用
+    expect(third.name).toBe('无尽食欲第 2 场')
+    expect(records.map((record) => record.sequenceNo)).toEqual([2, 1])
+  })
+
+  it('resets probe state so an imported link must be checked again', () => {
+    const module = repository.createModule({ name: '模组' })
+    const record = repository.createRecord({
+      moduleId: module.id,
+      link: 'https://log.weizaima.com/?key=one'
+    })
+    repository.updateRecord(record.id, {
+      status: 'valid',
+      rawContent: { messages: [], parserVersion: 1 },
+      fetchedAt: '2026-09-22T04:07:50.839Z',
+      cacheSourceUrl: record.link
+    })
+    repository.updateRecord(record.id, { status: 'fetch_failed', lastError: '连接超时' })
+
+    const reset = repository.resetRecordProbeState(record.id)
+    expect(reset.status).toBe('pending')
+    expect(reset.previousStatus).toBeUndefined()
+    expect(reset.rawContent).toBeUndefined()
+    expect(reset.fetchedAt).toBeUndefined()
+    expect(reset.cacheSourceUrl).toBeUndefined()
+    expect(reset.lastError).toBeUndefined()
+    // 链接本身保留，用户不需要重新填写
+    expect(reset.link).toBe(record.link)
+  })
+
+  it('never resets a manual-content session when importing', () => {
+    const module = repository.createModule({ name: '模组' })
+    const record = repository.createRecord({ moduleId: module.id, manualContent: '本地正文' })
+    const reset = repository.resetRecordProbeState(record.id)
+    expect(reset.status).toBe('manual')
+    expect(reset.manualContent).toBe('本地正文')
   })
 
   it('persists collapse, ordering, theme and manual content', () => {

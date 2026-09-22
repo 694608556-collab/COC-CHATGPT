@@ -34,46 +34,40 @@ test('real desktop shell persists data and isolates Node', async () => {
     let page = await application.firstWindow()
 
     await expect(page.getByText('COC 跑团记录簿').first()).toBeVisible()
-    expect(await page.locator('.resize-handle').count()).toBe(8)
+    // 0.6.1 起八方向缩放完全交给系统原生隐形边框，渲染层不再有任何 DOM 热区
+    expect(await page.locator('.resize-handle').count()).toBe(0)
     await expect(page.locator('.window-frame .app-shell')).toHaveCount(1)
     await expect(page.locator('.privacy-note')).toContainText('数据仅本机保存、无账户')
 
-    // the drag area must straddle the visible edge of the shell, not sit in the gutter
-    const windowShellBox = await page.locator('.app-shell').boundingBox()
-    const northBox = await page.locator('.resize-n').boundingBox()
-    expect(windowShellBox).not.toBeNull()
-    expect(northBox).not.toBeNull()
-    if (windowShellBox && northBox) {
-      expect(northBox.y).toBeLessThan(windowShellBox.y)
-      expect(northBox.y + northBox.height).toBeGreaterThan(windowShellBox.y)
-    }
-
-    // dragging that edge really resizes the window
-    const beforeResize = await page.evaluate(() => window.coc.window.getBounds())
-    const southEast = await page.locator('.resize-se').boundingBox()
-    expect(southEast).not.toBeNull()
-    if (southEast) {
-      await page.mouse.move(southEast.x + southEast.width / 2, southEast.y + southEast.height / 2)
-      await page.mouse.down()
-      // drag inwards so every synthetic pointer position stays inside the viewport
-      await page.mouse.move(
-        southEast.x + southEast.width / 2 - 120,
-        southEast.y + southEast.height / 2 - 90,
-        { steps: 6 }
-      )
-      await page.mouse.up()
-      await page.waitForTimeout(400)
-      const afterResize = await page.evaluate(() => window.coc.window.getBounds())
-      expect(afterResize.width).toBeLessThan(beforeResize.width)
-      expect(afterResize.height).toBeLessThan(beforeResize.height)
-      await page.evaluate((bounds) => window.coc.window.setBounds(bounds), beforeResize)
-      await page.waitForTimeout(300)
-    }
+    // 原生缩放回归（0.6.1）：0.6.0 的根因是 resizable:false 禁用了系统隐形边框。
+    // 这里在主进程侧确定性地断言窗口可自由缩放、最小尺寸生效；隐形边框八方向的
+    // 鼠标手感（左/上/四角在窗口 bounds 外侧，CDP 合成鼠标事件无法稳定命中）
+    // 由真人实机验收，不用像素拖拽断言，避免 DPI 缩放导致的随机失败。
+    const resizeInfo = await application.evaluate(async ({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows()[0]
+      if (!win) throw new Error('没有可用的应用窗口')
+      const before = win.getBounds()
+      const resizable = win.isResizable()
+      const maximizable = win.isMaximizable()
+      win.setSize(1400, 900)
+      const medium = win.getSize()
+      win.setSize(200, 200) // 低于最小尺寸，应被钳制到 960x640
+      const clamped = win.getSize()
+      win.setBounds(before)
+      return { resizable, maximizable, medium, clamped }
+    })
+    expect(resizeInfo.resizable).toBe(true)
+    expect(resizeInfo.maximizable).toBe(true)
+    expect(Math.abs(resizeInfo.medium[0]! - 1400)).toBeLessThanOrEqual(8)
+    expect(Math.abs(resizeInfo.medium[1]! - 900)).toBeLessThanOrEqual(8)
+    expect(resizeInfo.clamped[0]).toBeGreaterThanOrEqual(960)
+    expect(resizeInfo.clamped[1]).toBeGreaterThanOrEqual(640)
+    await page.waitForTimeout(300)
     expect(
       await page.locator('.app-shell').evaluate((element) =>
         getComputedStyle(element).borderRadius
       )
-    ).toBe('14px')
+    ).toBe('0px')
     await page.evaluate(() => document.fonts.ready)
     const loadedFonts = await page.evaluate(() => Array.from(document.fonts).map((font) => font.family))
     expect(loadedFonts).toContain('SF Pro Text')
@@ -151,14 +145,11 @@ test('real desktop shell persists data and isolates Node', async () => {
     await page.getByRole('button', { name: '保存场次' }).click()
     await expect(page.getByRole('button', { name: '暗影循迹第 1 场' })).toBeVisible()
     await page.getByRole('button', { name: '导入表格' }).click()
-    await expect(page.getByRole('dialog', { name: '导入表格' })).toContainText('模组名称')
-    await page
-      .getByRole('dialog', { name: '导入表格' })
-      .getByRole('button', {
-        name: '关闭',
-        exact: true
-      })
-      .click()
+    const importDialog = page.getByRole('dialog', { name: '导入表格' })
+    await expect(importDialog).toContainText('PC1/PL1')
+    await expect(importDialog.getByRole('button', { name: '下载空白模板（xlsx）' })).toBeVisible()
+    await expect(importDialog.getByRole('button', { name: '下载空白模板（CSV）' })).toBeVisible()
+    await importDialog.getByRole('button', { name: '关闭', exact: true }).click()
     await page.getByRole('button', { name: '批量检测' }).click()
     await expect(page.getByRole('dialog', { name: '批量检测' })).toContainText('按模组合集检测')
     await page.getByRole('dialog', { name: '批量检测' }).getByRole('button', { name: '取消' }).click()

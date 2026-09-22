@@ -91,7 +91,7 @@ function rowToRecord(row: Record<string, unknown>): SessionRecord {
     link: row.link ? String(row.link) : undefined,
     sourceType: row.source_type as SessionRecord['sourceType'],
     status: row.status as SessionRecord['status'],
-    previousStatus: row.previous_status as SessionRecord['previousStatus'],
+    previousStatus: row.previous_status ? (row.previous_status as SessionRecord['previousStatus']) : undefined,
     playDate: row.play_date ? String(row.play_date) : undefined,
     dateSource: row.date_source as SessionRecord['dateSource'],
     fetchedAt: row.fetched_at ? String(row.fetched_at) : undefined,
@@ -273,6 +273,9 @@ export class AppRepository {
     link?: string
     manualContent?: string
     playDate?: string
+    sequenceNo?: number
+    status?: SessionRecord['status']
+    fetchedAt?: string
   }): SessionRecord {
     const module = this.getModule(input.moduleId)
     const timestamp = now()
@@ -281,10 +284,35 @@ export class AppRepository {
       const sequenceRow = this.connection
         .prepare('SELECT maximum FROM module_sequences WHERE module_id = ?')
         .get(input.moduleId) as { maximum: number }
-      const sequenceNo = Number(sequenceRow.maximum) + 1
+      const storedMaximum = Number(sequenceRow.maximum)
+      const usedRows = this.connection
+        .prepare('SELECT sequence_no FROM records WHERE module_id = ?')
+        .all(input.moduleId) as Array<{ sequence_no: number }>
+      const usedNumbers = new Set(usedRows.map((row) => Number(row.sequence_no)))
+      let sequenceNo: number
+      if (input.sequenceNo !== undefined && input.sequenceNo !== null) {
+        const requested = Number(input.sequenceNo)
+        if (!Number.isInteger(requested) || requested < 1)
+          throw new Error('场次编号必须是大于 0 的整数')
+        if (requested > 9999) throw new Error('场次编号不能超过 9999')
+        if (usedNumbers.has(requested))
+          throw new Error(`第 ${requested} 场已存在，请选择其他编号`)
+        sequenceNo = requested
+      } else {
+        // 默认接续现存场次的最大编号。0.6.2 起不再参考 module_sequences 的历史最大值：
+        // 删除末尾场次不会留下空缺，界面不会弹出编号选择窗口，历史最大值会让编号
+        // 凭空跳到“第 17 场”这类从未存在过的号段。删除场次造成的中间空缺仍由界面
+        // 提示用户主动选择是否填补。
+        const largestUsed = usedRows.reduce(
+          (value, row) => Math.max(value, Number(row.sequence_no)),
+          0
+        )
+        sequenceNo = largestUsed + 1
+      }
+      const nextMaximum = Math.max(storedMaximum, sequenceNo)
       this.connection
         .prepare('UPDATE module_sequences SET maximum = ? WHERE module_id = ?')
-        .run(sequenceNo, input.moduleId)
+        .run(nextMaximum, input.moduleId)
       const order = Number(
         (
           this.connection
@@ -296,14 +324,17 @@ export class AppRepository {
       const link = input.link?.trim() || undefined
       if (link) parseSeaLogUrl(link)
       const sourceType = manualContent ? 'manual' : 'online'
-      const status = manualContent ? 'manual' : 'pending'
+      // 0.6.2 起导入不再采信表格里的历史状态：链接必须重新检测才能抓取正文。
+      // 手动记录始终为 manual，其余情况默认 pending。
+      const status = manualContent ? 'manual' : input.status ?? 'pending'
       const parsedDate = !input.playDate && manualContent ? parseDateFromText(manualContent) : undefined
       const playDate = input.playDate || parsedDate
       const dateSource = input.playDate ? 'manual' : parsedDate ? 'parsed' : 'none'
+      const fetchedAt = input.fetchedAt?.trim() || undefined
       const name = input.name?.trim() || `${module.name}第 ${sequenceNo} 场`
       this.connection
         .prepare(
-          `INSERT INTO records (id,module_id,name,sequence_no,link,source_type,status,play_date,date_source,manual_content,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          `INSERT INTO records (id,module_id,name,sequence_no,link,source_type,status,play_date,date_source,fetched_at,manual_content,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         )
         .run(
           id,
@@ -315,6 +346,7 @@ export class AppRepository {
           status,
           playDate ?? null,
           dateSource,
+          fetchedAt ?? null,
           manualContent ?? null,
           order,
           timestamp,
@@ -381,6 +413,22 @@ export class AppRepository {
         now(),
         id
       )
+    return this.getRecord(id)
+  }
+
+  /**
+   * 重新导入表格后，链接必须重新检测才能抓取正文：把记录恢复成干净的“待检测”，
+   * 一并清空已抓取的正文、抓取时间、缓存来源、错误信息和上一次状态。
+   * 手动正文的场次不会被在线内容覆盖，保持 manual 不变。
+   */
+  resetRecordProbeState(id: string): SessionRecord {
+    const current = this.getRecord(id)
+    if (current.sourceType === 'manual' || current.manualContent) return current
+    this.connection
+      .prepare(
+        `UPDATE records SET status='pending', previous_status=NULL, raw_json=NULL, fetched_at=NULL, cache_source_url=NULL, last_error=NULL, updated_at=? WHERE id=?`
+      )
+      .run(now(), id)
     return this.getRecord(id)
   }
 

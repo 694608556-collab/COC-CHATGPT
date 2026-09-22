@@ -38,13 +38,15 @@ export function renderCombinedText(
       (pair, index) => `PC${index + 1}：${pair.pc || '未填写'}\u3000PL${index + 1}：${pair.pl || '未填写'}`
     )
   ]
+  // 场次连排，不再用分页符；场次之间用明显的分隔线，便于确认场次边界。
+  const divider = '\n\n────────────────────────────────────────\n\n'
   return [
     people.join('\n'),
     ...sessions.map(
       ({ record, log }) =>
         `${record.name} · ${record.playDate || '日期未知'}\n\n${renderLogText(log, preset)}`
     )
-  ].join('\n\n\f\n\n')
+  ].join(divider)
 }
 
 export function renderRawLogJson(log: NormalizedLog): string {
@@ -73,7 +75,7 @@ export function renderCombinedHtml(
       return `<section class="session"><h1>${escapeHtml(record.name)} · ${escapeHtml(record.playDate || '日期未知')}</h1>${messages}</section>`
     })
     .join('')
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>@page{size:A4;margin:18mm}body{font-family:"Microsoft YaHei","Segoe UI",sans-serif;color:#171717;font-size:11pt;line-height:1.65}.cover{page-break-after:always}.session{page-break-before:always}.session:first-of-type{page-break-before:auto}h1{font-size:20pt}.meta{font-weight:700;margin-top:12px}.message{white-space:normal}.image{color:#666;font-size:9pt}.dark{background:#171a21;color:#eee}</style></head><body class="${preset.darkDisplay ? 'dark' : ''}"><section class="cover"><h1>${escapeHtml(module.name)}</h1><p>KP：${escapeHtml(module.kps.join('、') || '未填写')}</p>${participantRows}</section>${sections}</body></html>`
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>@page{size:A4;margin:18mm}body{font-family:"Microsoft YaHei","Segoe UI",sans-serif;color:#171717;font-size:11pt;line-height:1.65}.cover{page-break-after:always}.session+.session{border-top:2px solid #8a8a8a;margin-top:22px;padding-top:14px}h1{font-size:20pt}.meta{font-weight:700;margin-top:12px}.message{white-space:normal}.image{color:#666;font-size:9pt}.dark{background:#171a21;color:#eee}</style></head><body class="${preset.darkDisplay ? 'dark' : ''}"><section class="cover"><h1>${escapeHtml(module.name)}</h1><p>KP：${escapeHtml(module.kps.join('、') || '未填写')}</p>${participantRows}</section>${sections}</body></html>`
 }
 
 export function renderWordHtml(
@@ -167,13 +169,30 @@ export async function createCombinedDocx(
     )
   ]
   for (const [sessionIndex, session] of sessions.entries()) {
-    children.push(
-      new Paragraph({
-        text: `${session.record.name} · ${session.record.playDate || '日期未知'}`,
-        heading: HeadingLevel.HEADING_1,
-        pageBreakBefore: sessionIndex >= 0
-      })
-    )
+    if (sessionIndex === 0) {
+      // 第一场从封面后的新一页开始；之后的场次连排，只插分割线，不再另起页。
+      children.push(
+        new Paragraph({
+          text: `${session.record.name} · ${session.record.playDate || '日期未知'}`,
+          heading: HeadingLevel.HEADING_1,
+          pageBreakBefore: true
+        })
+      )
+    } else {
+      children.push(
+        new Paragraph({
+          border: { bottom: { color: '999999', size: 12, style: 'single', space: 8 } },
+          spacing: { before: 240, after: 240 },
+          children: []
+        })
+      )
+      children.push(
+        new Paragraph({
+          text: `${session.record.name} · ${session.record.playDate || '日期未知'}`,
+          heading: HeadingLevel.HEADING_1
+        })
+      )
+    }
     for (const message of applyLogFilters(session.log, preset)) {
       children.push(new Paragraph({ children: [new TextRun({ text: message.header, bold: true })] }))
       children.push(new Paragraph({ text: message.text }))

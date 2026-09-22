@@ -30,7 +30,8 @@ const api: CocApi = {
     move: (id, direction) => invoke('records:move', { id, direction }),
     findDuplicate: (moduleId, link, excludingId) =>
       invoke('records:duplicate', { moduleId, link, excludingId }),
-    probe: (id) => invoke('records:probe', { id })
+    probe: (id) => invoke('records:probe', { id }),
+    resetProbe: (id) => invoke('records:reset-probe', { id })
   },
   characters: {
     create: (input) => invoke('characters:create', input),
@@ -58,7 +59,8 @@ const api: CocApi = {
     chooseNoteImage: () => invoke('files:choose-note-image'),
     pasteNoteImage: (input) => invoke('files:paste-note-image', input),
     chooseArchiveDirectory: () => invoke('files:choose-archive-directory'),
-    openDirectory: (kind, moduleId) => invoke('files:open-directory', { kind, moduleId })
+    openDirectory: (kind, moduleId) => invoke('files:open-directory', { kind, moduleId }),
+    showItem: (targetPath: string) => invoke('files:show-item', { targetPath })
   },
   backup: {
     create: (includeArchives) => invoke('backup:create', { includeArchives }),

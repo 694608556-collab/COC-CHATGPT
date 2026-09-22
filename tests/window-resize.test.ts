@@ -1,65 +1,57 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-
 const root = path.resolve(__dirname, '..')
 const read = (rel: string): string => fs.readFileSync(path.join(root, rel), 'utf8')
-
-describe('rounded window with custom resizing', () => {
+describe('square Windows 10 window with native resizing', () => {
   const main = read('src/main/index.ts')
   const app = read('src/renderer/src/App.tsx')
   const styles = read('src/renderer/src/styles.css')
-  const handles = read('src/renderer/src/components/ResizeHandles.tsx')
 
-  it('keeps the window transparent so the shell can draw rounded corners', () => {
-    expect(main).toContain('transparent: true')
-    expect(main).toContain('resizable: false')
-    expect(main).toContain("backgroundColor: '#00000000'")
-    expect(main).not.toContain('thickFrame: true')
-    expect(styles).toContain('border-radius: 14px')
+  it('uses an opaque square window with native thick-frame resizing enabled', () => {
+    expect(main).toContain('transparent: false')
+    // 必须同时开启 resizable 与 thickFrame：系统隐形边框才能原生完成八方向缩放；
+    // 只开 thickFrame 而 resizable:false 会让边框吞掉鼠标事件且无法缩放（0.6.0 的故障）。
+    expect(main).toContain('resizable: true')
+    expect(main).toContain('thickFrame: true')
+    expect(main).toContain('hasShadow: false')
+    expect(main).toContain('roundedCorners: false')
+    expect(main).toContain("backgroundColor: '#e6e8ec'")
+    expect(main).not.toContain('transparent: true')
+    expect(main).not.toContain('resizable: false')
+    expect(main).not.toContain("backgroundColor: '#00000000'")
+    // 原生缩放仍遵守应用的最小窗口尺寸
+    expect(main).toContain('minWidth: 960')
+    expect(main).toContain('minHeight: 640')
+
+    const shellBlock = styles.slice(styles.indexOf('.app-shell {'), styles.indexOf('.app-shell.maximized {'))
+    expect(shellBlock).toContain('border-radius: 0')
+    expect(shellBlock).toContain('box-shadow: none')
+
+    const frameBlock = styles.slice(
+      styles.indexOf('.window-frame {'),
+      styles.indexOf('.window-frame.maximized {')
+    )
+    expect(frameBlock).toContain('--window-gutter: 0px')
+    expect(frameBlock).toContain('padding: 0')
+
+    // transparent page backgrounds would leave residual blocks behind an opaque window
+    const rootBlock = styles.slice(styles.indexOf(':root {'), styles.indexOf(":root[data-theme"))
+    expect(rootBlock).toContain('background: var(--bg)')
+    const bodyBlock = styles.slice(styles.indexOf('body {'), styles.indexOf('body {') + 200)
+    expect(bodyBlock).toContain('background: var(--bg)')
   })
 
-  it('renders the eight resize handles again', () => {
-    expect(app).toContain("import { ResizeHandles } from './components/ResizeHandles'")
-    expect(app).toContain('<ResizeHandles disabled={windowMaximized} />')
-    expect(handles).toContain("['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw']")
+  it('does not render DOM resize handles that fight the native frame', () => {
+    expect(app).not.toContain('ResizeHandles')
+    expect(styles).not.toContain('.resize-handle')
+    expect(styles).not.toContain('window-resizing')
+    expect(fs.existsSync(path.join(root, 'src/renderer/src/components/ResizeHandles.tsx'))).toBe(false)
   })
 
-  it('coalesces pointer bursts into one window update per frame', () => {
-    expect(handles).toContain('window.requestAnimationFrame(flush)')
-    expect(handles).toContain('window.cancelAnimationFrame(frame)')
-    expect(handles).toContain("document.body.classList.add('window-resizing')")
-    expect(handles).toContain("document.body.classList.remove('window-resizing')")
-    expect(styles).toContain('body.window-resizing .app-shell { box-shadow: none; }')
-  })
-
-  it('never queues more than one resize request and skips unchanged sizes', () => {
-    expect(handles).toContain('let inFlight = false')
-    expect(handles).toContain('let lastSent: Bounds | undefined')
-    expect(handles).toContain('const same = (')
-    expect(handles).toContain('if (inFlight || !pending) return')
-    expect(handles).toContain('inFlight = true')
-  })
-
-  it('stops transitions and animations while dragging a transparent window', () => {
-    expect(styles).toContain('body.window-resizing *::after')
-    expect(styles).toContain('transition: none !important')
-    expect(styles).toContain('animation: none !important')
-  })
-
-  it('enforces the shared minimum size while dragging', () => {
-    expect(handles).toContain('const MIN_WIDTH = 960')
-    expect(handles).toContain('const MIN_HEIGHT = 640')
-    expect(handles).toContain('window.coc.window.setBounds')
-  })
-
-  it('places every handle across the visible shell edge, not the window edge', () => {
-    expect(styles).toContain('left: calc(var(--window-gutter) - 7px)')
-    expect(styles).toContain('right: calc(var(--window-gutter) - 7px)')
-    expect(styles).toContain('top: calc(var(--window-gutter) - 7px)')
-    expect(styles).toContain('bottom: calc(var(--window-gutter) - 7px)')
-    const block = styles.slice(styles.indexOf('/* handles sit on the visible shell edge'), styles.indexOf('.filter-option {'))
-    expect(block).not.toMatch(/top: 0;/)
-    expect(block).not.toMatch(/left: 0;/)
+  it('keeps the custom title bar draggable and its buttons click-through safe', () => {
+    expect(styles).toContain('.titlebar { -webkit-app-region: drag; }')
+    expect(styles).toContain('.window-controls,')
+    expect(styles).toContain('.window-controls button { -webkit-app-region: no-drag; }')
   })
 })

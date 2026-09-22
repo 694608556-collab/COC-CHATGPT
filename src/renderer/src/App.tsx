@@ -6,13 +6,8 @@ import { ConfirmDialog, type ConfirmOptions } from './components/ConfirmDialog'
 import { RecordImportDialog } from './components/RecordImportDialog'
 import appIcon from './assets/app-icon.png'
 import { NoteBoard } from './components/NoteBoard'
-import { ResizeHandles } from './components/ResizeHandles'
 import { FolderIcon, PencilIcon, PlusIcon, SolidTriangleIcon, XIcon } from './components/Icons'
-import {
-  mergeImportedParticipants,
-  parseImportedParticipants,
-  type TableImportRow
-} from '../../shared/table-import'
+import { mergeImportedParticipants, type TableImportRow } from '../../shared/table-import'
 import { applyLogFilters } from '../../shared/log-filter'
 import { skillFinal } from '../../shared/coc-rules'
 import type { BackupPreviewApi } from '../../shared/api'
@@ -52,6 +47,15 @@ interface RecordDraft {
   link: string
   playDate: string
   manualContent: string
+  sequenceNo?: number
+}
+
+interface SequencePickerState {
+  moduleId: string
+  moduleName: string
+  used: number[]
+  gaps: number[]
+  next: number
 }
 
 type RecordExportFormat = 'raw' | 'doc' | 'dialogue-doc' | 'docx' | 'txt' | 'pdf'
@@ -566,6 +570,110 @@ function RecordEditor({
   )
 }
 
+function SequencePickerDialog({
+  moduleName,
+  gaps,
+  next,
+  used,
+  onClose,
+  onConfirm
+}: {
+  moduleName: string
+  gaps: number[]
+  next: number
+  used: number[]
+  onClose(): void
+  onConfirm(sequenceNo: number): void
+}): React.JSX.Element {
+  const [choice, setChoice] = useState<number>(next)
+  const [custom, setCustom] = useState('')
+  const [error, setError] = useState('')
+  const usedSet = new Set(used)
+
+  const choosePreset = (value: number): void => {
+    setCustom('')
+    setError('')
+    setChoice(value)
+  }
+
+  const confirm = (): void => {
+    if (custom.trim() !== '') {
+      const value = Number(custom)
+      if (!Number.isInteger(value) || value < 1) {
+        setError('场次编号必须是大于 0 的整数')
+        return
+      }
+      if (value > 9999) {
+        setError('场次编号不能超过 9999')
+        return
+      }
+      if (usedSet.has(value)) {
+        setError(`第 ${value} 场已存在，请选择其他编号`)
+        return
+      }
+      onConfirm(value)
+      return
+    }
+    onConfirm(choice)
+  }
+
+  return (
+    <Modal title="选择下一场编号" onClose={onClose}>
+      <div className="sequence-picker">
+        <p className="sequence-used">
+          模组“{moduleName}”现有场次编号不连续（已有：{used.length ? used.join('、') : '无'}）。
+          可以填补空缺编号，也可以接续最后编号。
+        </p>
+        <div className="sequence-options">
+          {gaps.map((gap) => (
+            <button
+              type="button"
+              key={gap}
+              className={!custom && choice === gap ? 'backup-option selected' : 'backup-option'}
+              onClick={() => choosePreset(gap)}
+            >
+              <strong>第 {gap} 场</strong>
+              <span>填补编号空缺</span>
+            </button>
+          ))}
+          <button
+            type="button"
+            className={!custom && choice === next ? 'backup-option selected' : 'backup-option'}
+            onClick={() => choosePreset(next)}
+          >
+            <strong>第 {next} 场</strong>
+            <span>接续最后编号</span>
+          </button>
+        </div>
+        <label className="sequence-custom">
+          自定义编号
+          <input
+            type="number"
+            min={1}
+            max={9999}
+            value={custom}
+            onChange={(event) => {
+              setCustom(event.target.value)
+              setError('')
+            }}
+            placeholder="1-9999"
+          />
+          <span>范围 1-9999，且不能与现有编号重复</span>
+        </label>
+        {error && <p className="sequence-error">{error}</p>}
+      </div>
+      <footer className="modal-actions">
+        <button className="secondary" onClick={onClose}>
+          取消
+        </button>
+        <button className="primary" onClick={confirm}>
+          确认
+        </button>
+      </footer>
+    </Modal>
+  )
+}
+
 function statusLabel(status: SessionRecord['status']): string {
   return { pending: '待检测', valid: '有效', invalid: '失效', fetch_failed: '检测失败', manual: '手动内容' }[
     status
@@ -689,6 +797,7 @@ export default function App(): React.JSX.Element {
   const [messageClosing, setMessageClosing] = useState(false)
   const [moduleDraft, setModuleDraft] = useState<ModuleDraft>()
   const [recordDraft, setRecordDraft] = useState<RecordDraft>()
+  const [sequencePicker, setSequencePicker] = useState<SequencePickerState>()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [filterOpen, setFilterOpen] = useState(false)
   const [tableImportOpen, setTableImportOpen] = useState(false)
@@ -791,11 +900,21 @@ export default function App(): React.JSX.Element {
           format as TableExportFormat
         )
         setMessage(`表格已保存：${entry.path}`)
+        try {
+          await window.coc.files.showItem(entry.path)
+        } catch {
+          // 资源管理器打开失败不影响导出结果
+        }
       } else if (action === 'batch') {
         const job = await window.coc.files.batchExport(ids, format as RecordExportFormat)
         const succeeded = job.results.filter((item) => item.state === 'success').length
         const failed = job.results.filter((item) => item.state === 'failed').length
         setMessage(`批量下载完成：成功 ${succeeded}，失败 ${failed}。`)
+        try {
+          await window.coc.files.openDirectory('archive')
+        } catch {
+          // 资源管理器打开失败不影响导出结果
+        }
       } else {
         const grouped = new Map<string, string[]>()
         for (const recordId of ids) {
@@ -812,6 +931,15 @@ export default function App(): React.JSX.Element {
         const included = combinedResults.reduce((sum, item) => sum + item.included.length, 0)
         const failed = combinedResults.reduce((sum, item) => sum + item.failed.length, 0)
         setMessage(`合集已保存 ${combinedResults.length} 份；包含 ${included} 场，跳过 ${failed} 场。`)
+        try {
+          if (combinedResults.length === 1) {
+            await window.coc.files.showItem(combinedResults[0]!.entry.path)
+          } else {
+            await window.coc.files.openDirectory('archive')
+          }
+        } catch {
+          // 资源管理器打开失败不影响导出结果
+        }
       }
       await refresh()
     } catch (error) {
@@ -859,52 +987,121 @@ export default function App(): React.JSX.Element {
               ...input,
               dateSource: recordDraft.playDate ? 'manual' : 'none'
             })
-          : window.coc.records.create({ moduleId: recordDraft.moduleId, ...input }),
+          : window.coc.records.create({
+              moduleId: recordDraft.moduleId,
+              ...(recordDraft.sequenceNo !== undefined ? { sequenceNo: recordDraft.sequenceNo } : {}),
+              ...input
+            }),
       '场次已保存'
     )
     setRecordDraft(undefined)
   }
 
+  const openRecordEditor = (module: ModuleRecord, sequenceNo?: number): void => {
+    setRecordDraft({
+      moduleId: module.id,
+      name: sequenceNo !== undefined ? `${module.name}第 ${sequenceNo} 场` : '',
+      link: '',
+      playDate: '',
+      manualContent: '',
+      ...(sequenceNo !== undefined ? { sequenceNo } : {})
+    })
+  }
+
+  // 添加场次：编号连续时直接打开编辑器；存在空缺（如删除过场次）时先让用户选择编号
+  const requestAddRecord = (module: ModuleRecord): void => {
+    const used = snapshot.records
+      .filter((record) => record.moduleId === module.id)
+      .map((record) => record.sequenceNo)
+    const maximum = used.length ? Math.max(...used) : 0
+    const usedSet = new Set(used)
+    const gaps: number[] = []
+    for (let number = 1; number <= maximum; number += 1) {
+      if (!usedSet.has(number)) gaps.push(number)
+    }
+    if (!gaps.length) {
+      openRecordEditor(module)
+      return
+    }
+    setSequencePicker({
+      moduleId: module.id,
+      moduleName: module.name,
+      used: [...used].sort((a, b) => a - b),
+      gaps,
+      next: maximum + 1
+    })
+  }
+
+  const confirmSequence = (sequenceNo: number): void => {
+    const module = snapshot.modules.find((item) => item.id === sequencePicker?.moduleId)
+    setSequencePicker(undefined)
+    if (module) openRecordEditor(module, sequenceNo)
+  }
+
+  // 新建草稿切换所属模组后，原编号选择不再适用，需要清空并重置预填名称
+  const onRecordDraftChange = (draft: RecordDraft): void => {
+    if (!draft.id && draft.moduleId !== recordDraft?.moduleId) {
+      setRecordDraft({ ...draft, sequenceNo: undefined, name: '' })
+      return
+    }
+    setRecordDraft(draft)
+  }
+
   const importTableRows = async (
     rows: TableImportRow[]
-  ): Promise<{ modules: number; records: number; skipped: number }> => {
+  ): Promise<{ modules: number; records: number; updated: number; skipped: number }> => {
     const known = new Map(snapshot.modules.map((module) => [module.name.toLowerCase(), module]))
     let createdModules = 0
     let createdRecords = 0
+    let updatedRecords = 0
     let skipped = 0
     for (const row of rows) {
       const key = row.moduleName.toLowerCase()
       let module = known.get(key)
-      const participants = parseImportedParticipants(row.participants)
+      const incoming = { kps: row.kps, pairs: row.pairs }
       if (!module) {
         module = await window.coc.modules.create({
           name: row.moduleName,
-          kps: participants.kps,
-          pairs: participants.pairs
+          kps: incoming.kps,
+          pairs: incoming.pairs
         })
         createdModules += 1
         known.set(key, module)
-      } else if (row.participants) {
-        const merged = mergeImportedParticipants({ kps: module.kps, pairs: module.pairs }, participants)
+      } else if (incoming.kps.length || incoming.pairs.length) {
+        const merged = mergeImportedParticipants({ kps: module.kps, pairs: module.pairs }, incoming)
         module = await window.coc.modules.update(module.id, merged)
         known.set(key, module)
       }
       const duplicate = await window.coc.records.findDuplicate(module.id, row.link)
       if (duplicate) {
-        skipped += 1
+        // 导出表再导入：用表内信息覆盖更新已存在场次。
+        // 0.6.2 起导入不再采信表格里的历史状态，链接一律回到“待检测”，
+        // 并清空已抓取的正文与抓取时间，强制重新检测后才能拿到正文。
+        await window.coc.records.update(duplicate.id, {
+          name: row.sessionName,
+          ...(row.playDate ? { playDate: row.playDate, dateSource: 'manual' as const } : {})
+        })
+        await window.coc.records.resetProbe(duplicate.id)
+        updatedRecords += 1
         continue
       }
-      await window.coc.records.create({
-        moduleId: module.id,
-        name: row.sessionName,
-        link: row.link
-      })
-      createdRecords += 1
+      try {
+        await window.coc.records.create({
+          moduleId: module.id,
+          name: row.sessionName,
+          link: row.link,
+          ...(row.playDate ? { playDate: row.playDate } : {})
+        })
+        createdRecords += 1
+      } catch {
+        skipped += 1
+      }
     }
     await refresh()
     return {
       modules: createdModules,
       records: createdRecords,
+      updated: updatedRecords,
       skipped
     }
   }
@@ -947,7 +1144,6 @@ export default function App(): React.JSX.Element {
 
   return (
     <div className={windowMaximized ? 'window-frame maximized' : 'window-frame'}>
-      <ResizeHandles disabled={windowMaximized} />
       <main className={windowMaximized ? 'app-shell maximized' : 'app-shell'}>
       <header className="titlebar" onDoubleClick={() => void window.coc.window.toggleMaximize()}>
         <span className="app-name">
@@ -1122,15 +1318,7 @@ export default function App(): React.JSX.Element {
 
                               <button
                                 className="text-button"
-                                onClick={() =>
-                                  setRecordDraft({
-                                    moduleId: module.id,
-                                    name: '',
-                                    link: '',
-                                    playDate: '',
-                                    manualContent: ''
-                                  })
-                                }
+                                onClick={() => requestAddRecord(module)}
                               >
                                 + 添加场次
                               </button>
@@ -1550,9 +1738,19 @@ export default function App(): React.JSX.Element {
         <RecordEditor
           draft={recordDraft}
           modules={snapshot.modules}
-          onChange={setRecordDraft}
+          onChange={onRecordDraftChange}
           onCancel={() => setRecordDraft(undefined)}
           onSave={() => void saveRecord()}
+        />
+      )}
+      {sequencePicker && (
+        <SequencePickerDialog
+          moduleName={sequencePicker.moduleName}
+          gaps={sequencePicker.gaps}
+          next={sequencePicker.next}
+          used={sequencePicker.used}
+          onClose={() => setSequencePicker(undefined)}
+          onConfirm={confirmSequence}
         />
       )}
       {filterOpen && (

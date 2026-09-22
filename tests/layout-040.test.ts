@@ -10,10 +10,13 @@ describe('0.4.0 layout contract', () => {
   const app = read('src/renderer/src/App.tsx')
   const main = read('src/main/index.ts')
 
-  it('renders the shell inside a transparent gutter so the window shadow follows the corners', () => {
+  it('renders the square shell edge to edge with native resizing and no shadow residue', () => {
     expect(main).toContain('hasShadow: false')
+    // 0.6.1：thickFrame + resizable 交给系统原生隐形边框完成八方向缩放
+    expect(main).toContain('thickFrame: true')
+    expect(main).toContain('resizable: true')
     expect(styles).toContain('.window-frame {')
-    expect(styles).toContain('--window-gutter: 18px')
+    expect(styles).toContain('--window-gutter: 0px')
     expect(styles).toContain('.window-frame.maximized {')
     expect(app).toContain('window-frame maximized')
     expect(app).toContain("'app-shell maximized' : 'app-shell'")

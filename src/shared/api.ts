@@ -104,15 +104,24 @@ export interface CocApi {
       link?: string
       manualContent?: string
       playDate?: string
+      sequenceNo?: number
+      status?: SessionRecord['status']
+      fetchedAt?: string
     }): Promise<SessionRecord>
     update(
       id: string,
-      patch: Partial<Pick<SessionRecord, 'name' | 'link' | 'manualContent' | 'playDate' | 'dateSource'>>
+      patch: Partial<
+        Pick<
+          SessionRecord,
+          'name' | 'link' | 'manualContent' | 'playDate' | 'dateSource' | 'status' | 'fetchedAt'
+        >
+      >
     ): Promise<SessionRecord>
     delete(id: string): Promise<void>
     move(id: string, direction: -1 | 1): Promise<void>
     findDuplicate(moduleId: string, link: string, excludingId?: string): Promise<SessionRecord | undefined>
     probe(id: string): Promise<SessionRecord>
+    resetProbe(id: string): Promise<SessionRecord>
   }
   characters: {
     create(input: {
@@ -174,6 +183,7 @@ export interface CocApi {
     pasteNoteImage(input: { name: string; bytes: Uint8Array }): Promise<NoteImage>
     chooseArchiveDirectory(): Promise<string | undefined>
     openDirectory(kind: 'archive' | 'data' | 'logs' | 'module', moduleId?: string): Promise<void>
+    showItem(targetPath: string): Promise<void>
   }
   backup: {
     create(includeArchives: boolean): Promise<{ path: string; format: 'json' | 'zip'; size: number }>

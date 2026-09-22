@@ -134,12 +134,15 @@ function createWindow(): void {
     minWidth: 960,
     minHeight: 640,
     frame: false,
-    transparent: true,
-    resizable: false,
+    // Windows 10 风格：不透明直角窗口。thickFrame + resizable 交给系统原生
+    // 隐形边框完成八方向缩放（原生、顺滑、遵守最小尺寸）。
+    transparent: false,
+    resizable: true,
     maximizable: true,
+    thickFrame: true,
     hasShadow: false,
-    roundedCorners: true,
-    backgroundColor: '#00000000',
+    roundedCorners: false,
+    backgroundColor: '#e6e8ec',
     show: false,
     webPreferences: {
       preload: app.isPackaged
