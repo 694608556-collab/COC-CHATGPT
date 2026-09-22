@@ -9,6 +9,6 @@
 | 公司电脑-一键提交并推送.bat | 把本机改动提交并推送到 GitHub。推送成功前不要关机，否则进度会丢 |
 | 公司电脑-一键跑测试并打包.bat | 依次执行 pnpm install、pnpm test、pnpm package:setup，安装包输出到 dist 目录 |
 
-- 工作分支：`v0.5.7`
+- 工作分支：`v0.6.2`（脚本里写死了分支名，切换开发分支时要同步修改）
 - 需要先装好 Git for Windows、Node.js 22 或更新版本；脚本会检查并在缺少 pnpm 时自动安装
 - 脚本本体是 GBK 编码：cmd.exe 在中文 Windows 下解析 UTF-8 批处理会串码，所以不要把它转成 UTF-8

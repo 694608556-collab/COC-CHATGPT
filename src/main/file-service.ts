@@ -94,6 +94,8 @@ export class FileService {
       return this.finishAndRegister(temporary, destination, 'record', record.id, format)
     } catch (error) {
       if (fs.existsSync(temporary)) fs.unlinkSync(temporary)
+      // 归档目录本身的错误已经写清楚了原因，原样抛出，别再包一层
+      if (error instanceof AppError && error.code.startsWith('ARCHIVE_DIRECTORY')) throw error
       if (error instanceof AppError) throw error
       throw new AppError('EXPORT_FAILED', 'CONVERSION', '文件生成失败，请检查归档目录是否可写。', true, error)
     }
@@ -144,6 +146,8 @@ export class FileService {
       return { entry, included: included.map((item) => item.record.id), failed }
     } catch (error) {
       if (fs.existsSync(temporary)) fs.unlinkSync(temporary)
+      // 归档目录本身的错误已经写清楚了原因，原样抛出，别再包一层
+      if (error instanceof AppError && error.code.startsWith('ARCHIVE_DIRECTORY')) throw error
       throw new AppError('COMBINE_FAILED', 'CONVERSION', '合集生成失败，请检查归档目录。', true, error)
     }
   }

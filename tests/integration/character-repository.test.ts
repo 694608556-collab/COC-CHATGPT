@@ -19,7 +19,7 @@ afterEach(() => database.close())
 
 describe('character persistence', () => {
   it('persists edits and recalculates derived limits without inventing module rows', () => {
-    const module = repository.createModule({ name: '长夜' })
+    const module = repository.createModule({ name: '长夜', playStatus: 'not_started' })
     const character = repository.createCharacter({ edition: 7, moduleId: module.id, name: '林恩' })
     // creating a card must not add a PC/PL row to the module roster
     expect(repository.findModule(module.id).pairs).toEqual([])
@@ -37,8 +37,8 @@ describe('character persistence', () => {
   })
 
   it('leaves both rosters untouched when a card changes module', () => {
-    const first = repository.createModule({ name: '旧模组', pairs: [{ pc: '阿伦', pl: '小夏' }] })
-    const second = repository.createModule({ name: '新模组', pairs: [{ pc: '林恩', pl: '长风' }] })
+    const first = repository.createModule({ name: '旧模组', playStatus: 'not_started', pairs: [{ pc: '阿伦', pl: '小夏' }] })
+    const second = repository.createModule({ name: '新模组', playStatus: 'not_started', pairs: [{ pc: '林恩', pl: '长风' }] })
     const character = repository.createCharacter({ edition: 6, moduleId: first.id, name: '阿伦' })
 
     repository.moveCharacter(character.id, second.id, 'retain-name')
@@ -49,7 +49,7 @@ describe('character persistence', () => {
   })
 
   it('leaves the roster alone when a card is deleted', () => {
-    const module = repository.createModule({ name: '长夜', pairs: [{ pc: '林恩', pl: '小夏' }] })
+    const module = repository.createModule({ name: '长夜', playStatus: 'not_started', pairs: [{ pc: '林恩', pl: '小夏' }] })
     const character = repository.createCharacter({ edition: 7, moduleId: module.id, name: '林恩' })
 
     repository.deleteCharacter(character.id)
@@ -58,8 +58,8 @@ describe('character persistence', () => {
   })
 
   it('links one card to several modules without touching their rosters', () => {
-    const first = repository.createModule({ name: '甲模组' })
-    const second = repository.createModule({ name: '乙模组' })
+    const first = repository.createModule({ name: '甲模组', playStatus: 'not_started' })
+    const second = repository.createModule({ name: '乙模组', playStatus: 'not_started' })
     const character = repository.createCharacter({
       edition: 7,
       moduleId: first.id,

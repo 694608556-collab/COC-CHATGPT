@@ -20,7 +20,7 @@ afterEach(() => database.close())
 
 describe('note persistence', () => {
   it('creates, lists, edits and deletes notes', () => {
-    const module = repository.createModule({ name: '长夜' })
+    const module = repository.createModule({ name: '长夜', playStatus: 'not_started' })
     const note = repository.createNote({ moduleName: module.name, content: '第一行\n第二行' })
     expect(note.content).toBe('第一行\n第二行')
     expect(note.noteDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)

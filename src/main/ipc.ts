@@ -4,6 +4,7 @@ import path from 'node:path'
 import { z } from 'zod'
 import type { ApiResult } from '../shared/api'
 import { AppError, serializeError } from '../shared/errors'
+import { inspectArchiveDirectory } from './archive-path'
 import type { AppRepository } from './repository'
 import type { SeaLogService } from './sea-log-service'
 import type { FileService } from './file-service'
@@ -31,8 +32,11 @@ const noteImageUpload = z.object({
     .refine((value) => value.byteLength > 0 && value.byteLength <= 25 * 1024 * 1024)
 })
 
+const modulePlayStatus = z.enum(['finished', 'running', 'not_started'])
 const moduleInput = z.object({
   name: z.string().max(200),
+  // 0.6.3 起跑团状态必填：界面不预选，用户必须明确选择
+  playStatus: modulePlayStatus,
   kps: z.array(text).max(100).optional(),
   pairs: z.array(pair).max(500).optional()
 })
@@ -390,6 +394,16 @@ export function registerIpc(
     }),
     ({ token, selections }) => characterFileService.commitImport(token, selections)
   )
+  register('files:archive-status', empty, () =>
+    inspectArchiveDirectory(repository.getSettings().archiveDirectory)
+  )
+  register('files:archive-default', empty, () => {
+    // 恢复成当前登录用户的“文档\COC跑团记录”。换过 Windows 账户后，
+    // 老设置里可能残留别的用户目录（如 C:\Users\Administrator），写不进去。
+    const fallback = path.join(app.getPath('documents'), 'COC跑团记录')
+    repository.updateSettings({ archiveDirectory: fallback })
+    return fallback
+  })
   register('files:choose-archive-directory', empty, async () => {
     const options: Electron.OpenDialogOptions = {
       title: '选择下载归档位置',

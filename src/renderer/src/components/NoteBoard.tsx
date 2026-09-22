@@ -206,34 +206,38 @@ export function NoteBoard({
         </article>
       )}
 
-      {notes.map((note) => (
-        <article className="note-card" key={note.id}>
-          <header className="note-card-head">
-            <span className="note-module">{note.moduleName || '未关联模组'}</span>
-            <span className="note-date">{note.noteDate}</span>
-          </header>
-          <button
-            className="note-card-main"
-            aria-label={`编辑闲记 ${note.noteDate}`}
-            onClick={() => setDraft(toDraft(note))}
-          >
-            <span className="note-content">{note.content || '（空白闲记）'}</span>
-            {note.images.length > 0 && (
-              <span className="note-thumbs">
-                {note.images.slice(0, 3).map((image) => (
-                  <img key={image.path} src={mediaUrl(image)} alt={image.name} />
-                ))}
-                {note.images.length > 3 && <span className="note-more">+{note.images.length - 3}</span>}
-              </span>
-            )}
-          </button>
-          <footer className="note-card-actions">
-            <button className="text-button danger" onClick={() => requestDelete(toDraft(note))}>
-              删除
+      {/* 正在编辑的那条不再重复渲染成卡片：0.6.3 之前它会被原样再画一遍，
+          看起来像旁边多出一个“修改前版本”。 */}
+      {notes
+        .filter((note) => note.id !== draft?.id)
+        .map((note) => (
+          <article className="note-card" key={note.id}>
+            <header className="note-card-head">
+              <span className="note-module">{note.moduleName || '未关联模组'}</span>
+              <span className="note-date">{note.noteDate}</span>
+            </header>
+            <button
+              className="note-card-main"
+              aria-label={`编辑闲记 ${note.noteDate}`}
+              onClick={() => setDraft(toDraft(note))}
+            >
+              <span className="note-content">{note.content || '（空白闲记）'}</span>
+              {note.images.length > 0 && (
+                <span className="note-thumbs">
+                  {note.images.slice(0, 3).map((image) => (
+                    <img key={image.path} src={mediaUrl(image)} alt={image.name} />
+                  ))}
+                  {note.images.length > 3 && <span className="note-more">+{note.images.length - 3}</span>}
+                </span>
+              )}
             </button>
-          </footer>
-        </article>
-      ))}
+            <footer className="note-card-actions">
+              <button className="text-button danger" onClick={() => requestDelete(toDraft(note))}>
+                删除
+              </button>
+            </footer>
+          </article>
+        ))}
         </div>
       )}
 

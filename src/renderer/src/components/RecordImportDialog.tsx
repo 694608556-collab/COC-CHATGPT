@@ -15,6 +15,8 @@ export interface ImportOutcome {
   records: number
   updated: number
   skipped: number
+  /** 本次新建的模组名，用来提示用户去确认跑团状态 */
+  newModules: string[]
 }
 
 export function RecordImportDialog({
@@ -67,10 +69,14 @@ export function RecordImportDialog({
       }
       const result = await onImport(valid)
       setDone(true)
-      setMessage(
+      const summary =
         `已读取 ${workbook.SheetNames.length} 个工作表；新增 ${result.records} 场，覆盖更新 ${result.updated} 场，` +
-          `新增 ${result.modules} 个模组，跳过 ${result.skipped + invalid.length} 行。`
-      )
+        `新增 ${result.modules} 个模组，跳过 ${result.skipped + invalid.length} 行。`
+      // 新模组的状态可能来自表格，也可能是留空后的默认值，提示用户去确认一下
+      const statusHint = result.newModules.length
+        ? `新建模组：${result.newModules.join('、')}。请确认跑团状态是否正确（表格未填写时按“未开始”处理）。`
+        : ''
+      setMessage(statusHint ? `${summary}\n${statusHint}` : summary)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '导入失败')
     } finally {
@@ -94,6 +100,7 @@ export function RecordImportDialog({
             <tbody>
               <tr>
                 <td>暗影循迹</td>
+                <td>进行中</td>
                 <td>第一场</td>
                 <td>https://log.weizaima.com/?key=...</td>
                 <td>阿默</td>
@@ -111,8 +118,12 @@ export function RecordImportDialog({
           PC/PL 必须按列成对填写：PC1/PL1、PC2/PL2、PC3/PL3；KP 填在 KP1 列，没有对应人员的格子留空。
         </p>
         <p className="dialog-note">
-          状态、跑团日期、最近抓取时间三列由软件导出时自动记录，空白模板无需填写。重新导入时，跑团日期会原样带回；
-          链接状态一律重置为“待检测”，需要重新检测才能抓取正文。
+          跑团状态可填“未开始 / 进行中 / 已完成”，留空按“未开始”处理；只对本次新建的模组生效，
+          不会改动软件里已有的模组。
+        </p>
+        <p className="dialog-note">
+          链接状态、跑团日期、最近抓取时间三列由软件导出时自动记录，空白模板无需填写。重新导入时，
+          跑团日期会原样带回；链接状态一律重置为“待检测”，需要重新检测才能抓取正文。
         </p>
         <div className="dialog-actions">
           <button className="secondary" onClick={downloadXlsxTemplate}>

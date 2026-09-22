@@ -22,7 +22,7 @@ beforeEach(() => {
 afterEach(() => database.close())
 
 function seed(): { moduleId: string; recordId: string } {
-  const module = repository.createModule({ name: '暗影循迹' })
+  const module = repository.createModule({ name: '暗影循迹', playStatus: 'not_started' })
   const record = repository.createRecord({ moduleId: module.id, manualContent: '不可重新抓取的正文' })
   repository.createCharacter({ edition: 7, moduleId: module.id, name: '林恩' })
   return { moduleId: module.id, recordId: record.id }
@@ -85,7 +85,7 @@ describe('backup, preview, restore and safe cleanup', () => {
     expect(first).toMatchObject({ format: 'json' })
     expect(first?.path).toContain(path.join('data', 'auto-backups'))
 
-    repository.createModule({ name: 'Auto Module' })
+    repository.createModule({ name: 'Auto Module', playStatus: 'not_started' })
     const second = await service.createAutomaticBackup()
     const dir = path.join(directory, 'data', 'auto-backups')
     const files = fs.readdirSync(dir).filter((file) => file.endsWith('.json'))

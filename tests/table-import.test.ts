@@ -27,6 +27,7 @@ describe('table import templates', () => {
     expect(rows[0]).toEqual([...TABLE_TEMPLATE_HEADERS])
     expect(TABLE_TEMPLATE_HEADERS).toEqual([
       '模组名',
+      '跑团状态',
       '场次名',
       '海豹链接',
       'KP1',
@@ -40,10 +41,15 @@ describe('table import templates', () => {
     const notes = rows.slice(2).map((row) => String(row[0] ?? '')).join('\n')
     expect(notes).toContain('填写说明')
     expect(notes).toContain('PC1/PL1')
+    // 0.6.3：说明里要交代跑团状态怎么填、以及它只影响新建模组
+    expect(notes).toContain('跑团状态可填')
+    expect(notes).toContain('只对本次新建的模组生效')
     // the template itself must parse without importing the note rows
     const parsed = parseImportWorkbook(workbook)
     expect(parsed).toHaveLength(1)
     expect(validateTableImportRow(parsed[0]!)).toBeUndefined()
+    // 示例行写了“进行中”，应当被解析出来
+    expect(parsed[0]!.playStatus).toBe('running')
   })
 
   it('ships a CSV blank template with the same headers and note lines', () => {
@@ -62,8 +68,8 @@ describe('table import parsing', () => {
   it('reads KP/PC/PL columns by their numbered positions', () => {
     const rows = sheetRows([
       [...TABLE_TEMPLATE_HEADERS],
-      ['暗影循迹', '第一场', 'https://log.weizaima.com/?key=one', '阿默', '艾伦', '李四', '夏恩', '王五', '', ''],
-      ['暗影循迹', '第二场', 'https://log.weizaima.com/?key=two', '阿默', '艾伦', '李四', '', '', '孤星', '']
+      ['暗影循迹', '进行中', '第一场', 'https://log.weizaima.com/?key=one', '阿默', '艾伦', '李四', '夏恩', '王五', '', ''],
+      ['暗影循迹', '进行中', '第二场', 'https://log.weizaima.com/?key=two', '阿默', '艾伦', '李四', '', '', '孤星', '']
     ])
     expect(rows).toHaveLength(2)
     expect(rows[0]!.kps).toEqual(['阿默'])
@@ -75,6 +81,35 @@ describe('table import parsing', () => {
       { pc: '艾伦', pl: '李四' },
       { pc: '孤星', pl: '' }
     ])
+    // 跑团状态从新增的列读出来
+    expect(rows[0]!.playStatus).toBe('running')
+  })
+
+  it('accepts both the Chinese labels and the raw enum values for play status', () => {
+    const header = ['模组名', '跑团状态', '场次名', '海豹链接']
+    const rows = sheetRows([
+      header,
+      ['甲团', '未开始', '第一场', 'https://log.weizaima.com/?key=a'],
+      ['乙团', '已完成', '第一场', 'https://log.weizaima.com/?key=b'],
+      ['丙团', 'finished', '第一场', 'https://log.weizaima.com/?key=c'],
+      ['丁团', '随便写的', '第一场', 'https://log.weizaima.com/?key=d'],
+      ['戊团', '', '第一场', 'https://log.weizaima.com/?key=e']
+    ])
+    expect(rows[0]!.playStatus).toBe('not_started')
+    expect(rows[1]!.playStatus).toBe('finished')
+    expect(rows[2]!.playStatus).toBe('finished')
+    // 认不出来或留空时不写死，交给导入逻辑落默认值
+    expect(rows[3]!.playStatus).toBeUndefined()
+    expect(rows[4]!.playStatus).toBeUndefined()
+  })
+
+  it('still reads a play status from a template without the new column', () => {
+    // 旧模板没有“跑团状态”列，解析不应报错，只是没有状态
+    const rows = sheetRows([
+      ['模组名', '场次名', '海豹链接'],
+      ['暗影循迹', '第一场', 'https://log.weizaima.com/?key=one']
+    ])
+    expect(rows[0]!.playStatus).toBeUndefined()
   })
 
   it('still supports the legacy free-text participants column', () => {
@@ -88,7 +123,7 @@ describe('table import parsing', () => {
 
   it('captures status, play date and fetched time from exported files', () => {
     const rows = sheetRows([
-      ['模组名', '场次名', '海豹链接', '状态', '跑团日期', '最近抓取时间', 'KP1'],
+      ['模组名', '场次名', '海豹链接', '链接状态', '跑团日期', '最近抓取时间', 'KP1'],
       [
         '暗影循迹',
         '暗影循迹第 1 场',
@@ -109,10 +144,29 @@ describe('table import parsing', () => {
     })
   })
 
+  it('still understands the pre-0.6.3 “状态” header as the link status', () => {
+    // 旧导出的表用的是“状态”，必须继续当成链接状态读，不能当跑团状态
+    const rows = sheetRows([
+      ['模组名', '场次名', '海豹链接', '状态'],
+      ['暗影循迹', '第一场', 'https://log.weizaima.com/?key=one', 'valid']
+    ])
+    expect(rows[0]!.status).toBe('valid')
+    expect(rows[0]!.playStatus).toBeUndefined()
+  })
+
+  it('tells the link status and the play status apart when both columns exist', () => {
+    const rows = sheetRows([
+      ['模组名', '跑团状态', '场次名', '海豹链接', '链接状态'],
+      ['暗影循迹', '已完成', '第一场', 'https://log.weizaima.com/?key=one', 'valid']
+    ])
+    expect(rows[0]!.playStatus).toBe('finished')
+    expect(rows[0]!.status).toBe('valid')
+  })
+
   it('reports invalid rows without throwing', () => {
     const [row] = sheetRows([
       [...TABLE_TEMPLATE_HEADERS],
-      ['', '', 'not-a-url', '', '', '', '', '', '', '']
+      ['', '', '', 'not-a-url', '', '', '', '', '', '', '']
     ])
     expect(validateTableImportRow(row!)).toContain('模组')
   })
@@ -157,6 +211,7 @@ describe('exported workbook round-trip', () => {
       {
         id: 'm1',
         name: '铸形骸',
+        playStatus: 'running',
         kps: ['空竹轻靡'],
         pairs: [
           { pc: '温煦', pl: '长风' },

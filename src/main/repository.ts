@@ -5,6 +5,7 @@ import type {
   AppSnapshot,
   ArchiveEntry,
   CharacterData,
+  ModulePlayStatus,
   NoteImage,
   NoteRecord,
   ModuleRecord,
@@ -73,6 +74,8 @@ function rowToModule(row: Record<string, unknown>): ModuleRecord {
   return {
     id: String(row.id),
     name: String(row.name),
+    // 老库由 v4 迁移补列，理论上不会为空；仍兜底成 not_started 以免界面崩掉
+    playStatus: normalizePlayStatus(row.play_status),
     kps: parseJson(row.kps_json, []),
     pairs: parseJson(row.pairs_json, []),
     order: Number(row.sort_order),
@@ -80,6 +83,18 @@ function rowToModule(row: Record<string, unknown>): ModuleRecord {
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   }
+}
+
+function normalizePlayStatus(value: unknown): ModulePlayStatus {
+  return value === 'finished' || value === 'running' || value === 'not_started'
+    ? value
+    : 'not_started'
+}
+
+/** 跑团状态是必选项：界面强制用户选择，后端再挡一道，避免写入非法值。 */
+function assertPlayStatus(value: unknown): ModulePlayStatus {
+  if (value === 'finished' || value === 'running' || value === 'not_started') return value
+  throw new Error('请选择跑团状态')
 }
 
 function rowToRecord(row: Record<string, unknown>): SessionRecord {
@@ -196,9 +211,15 @@ export class AppRepository {
     return next
   }
 
-  createModule(input: { name: string; kps?: string[]; pairs?: ParticipantPair[] }): ModuleRecord {
+  createModule(input: {
+    name: string
+    playStatus: ModulePlayStatus
+    kps?: string[]
+    pairs?: ParticipantPair[]
+  }): ModuleRecord {
     const name = input.name.trim()
     if (!name) throw new Error('模组名不能为空')
+    const playStatus = assertPlayStatus(input.playStatus)
     const existing = this.connection.prepare('SELECT id FROM modules WHERE lower(name) = lower(?)').get(name)
     if (existing) throw new Error('已有同名模组')
     const id = randomUUID()
@@ -212,10 +233,13 @@ export class AppRepository {
     )
     this.database.transaction(() => {
       this.connection
-        .prepare('INSERT INTO modules VALUES (?, ?, ?, ?, ?, 0, ?, ?)')
+        .prepare(
+          'INSERT INTO modules (id,name,play_status,kps_json,pairs_json,sort_order,collapsed,created_at,updated_at) VALUES (?,?,?,?,?,?,0,?,?)'
+        )
         .run(
           id,
           name,
+          playStatus,
           JSON.stringify(cleanKps(input.kps ?? [])),
           JSON.stringify(cleanPairs(input.pairs ?? [])),
           order,
@@ -229,19 +253,30 @@ export class AppRepository {
 
   updateModule(
     id: string,
-    patch: { name?: string; kps?: string[]; pairs?: ParticipantPair[]; collapsed?: boolean }
+    patch: {
+      name?: string
+      playStatus?: ModulePlayStatus
+      kps?: string[]
+      pairs?: ParticipantPair[]
+      collapsed?: boolean
+    }
   ): ModuleRecord {
     const current = this.getModule(id)
     const name = patch.name === undefined ? current.name : patch.name.trim()
     if (!name) throw new Error('模组名不能为空')
+    const playStatus =
+      patch.playStatus === undefined ? current.playStatus : assertPlayStatus(patch.playStatus)
     const duplicate = this.connection
       .prepare('SELECT id FROM modules WHERE lower(name) = lower(?) AND id <> ?')
       .get(name, id)
     if (duplicate) throw new Error('已有同名模组')
     this.connection
-      .prepare('UPDATE modules SET name=?, kps_json=?, pairs_json=?, collapsed=?, updated_at=? WHERE id=?')
+      .prepare(
+        'UPDATE modules SET name=?, play_status=?, kps_json=?, pairs_json=?, collapsed=?, updated_at=? WHERE id=?'
+      )
       .run(
         name,
+        playStatus,
         JSON.stringify(patch.kps ? cleanKps(patch.kps) : current.kps),
         JSON.stringify(patch.pairs ? cleanPairs(patch.pairs) : current.pairs),
         patch.collapsed === undefined ? Number(current.collapsed) : Number(patch.collapsed),
@@ -680,10 +715,14 @@ export class AppRepository {
       )
       for (const module of snapshot.modules) {
         this.connection
-          .prepare('INSERT INTO modules VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          .prepare(
+            'INSERT INTO modules (id,name,play_status,kps_json,pairs_json,sort_order,collapsed,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)'
+          )
           .run(
             module.id,
             module.name,
+            // 旧备份没有这个字段，恢复时统一落到 not_started
+            normalizePlayStatus(module.playStatus),
             JSON.stringify(cleanKps(module.kps)),
             JSON.stringify(cleanPairs(module.pairs)),
             module.order,

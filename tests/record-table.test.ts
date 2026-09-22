@@ -21,6 +21,7 @@ const snapshot: AppSnapshot = {
     {
       id: 'm1',
       name: '暗影循迹',
+      playStatus: 'running',
       kps: ['阿默'],
       pairs: [{ pc: '林恩', pl: '小夏' }],
       order: 0,
@@ -31,6 +32,7 @@ const snapshot: AppSnapshot = {
     {
       id: 'm2',
       name: '雾中来客',
+      playStatus: 'finished',
       kps: ['北川'],
       pairs: [],
       order: 1,

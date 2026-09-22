@@ -59,6 +59,8 @@ const api: CocApi = {
     chooseNoteImage: () => invoke('files:choose-note-image'),
     pasteNoteImage: (input) => invoke('files:paste-note-image', input),
     chooseArchiveDirectory: () => invoke('files:choose-archive-directory'),
+    archiveStatus: () => invoke('files:archive-status'),
+    archiveDefault: () => invoke('files:archive-default'),
     openDirectory: (kind, moduleId) => invoke('files:open-directory', { kind, moduleId }),
     showItem: (targetPath: string) => invoke('files:show-item', { targetPath })
   },

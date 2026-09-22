@@ -3,6 +3,7 @@ import type {
   AppSnapshot,
   ArchiveEntry,
   CharacterData,
+  ModulePlayStatus,
   ModuleRecord,
   NoteImage,
   NoteRecord,
@@ -89,10 +90,21 @@ export interface CocApi {
     version(): Promise<string>
   }
   modules: {
-    create(input: { name: string; kps?: string[]; pairs?: ParticipantPair[] }): Promise<ModuleRecord>
+    create(input: {
+      name: string
+      playStatus: ModulePlayStatus
+      kps?: string[]
+      pairs?: ParticipantPair[]
+    }): Promise<ModuleRecord>
     update(
       id: string,
-      patch: { name?: string; kps?: string[]; pairs?: ParticipantPair[]; collapsed?: boolean }
+      patch: {
+        name?: string
+        playStatus?: ModulePlayStatus
+        kps?: string[]
+        pairs?: ParticipantPair[]
+        collapsed?: boolean
+      }
     ): Promise<ModuleRecord>
     delete(id: string): Promise<void>
     move(id: string, direction: -1 | 1): Promise<void>
@@ -182,6 +194,8 @@ export interface CocApi {
     chooseNoteImage(): Promise<NoteImage[]>
     pasteNoteImage(input: { name: string; bytes: Uint8Array }): Promise<NoteImage>
     chooseArchiveDirectory(): Promise<string | undefined>
+    archiveStatus(): Promise<{ ok: boolean; reason?: string }>
+    archiveDefault(): Promise<string>
     openDirectory(kind: 'archive' | 'data' | 'logs' | 'module', moduleId?: string): Promise<void>
     showItem(targetPath: string): Promise<void>
   }

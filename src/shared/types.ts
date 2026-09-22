@@ -1,6 +1,30 @@
 export type RecordStatus = 'pending' | 'valid' | 'invalid' | 'fetch_failed' | 'manual'
 export type Edition = 6 | 7
 
+/** 模组的跑团进度，用于在模组列表里一眼看出这个团跑到哪了。 */
+export type ModulePlayStatus = 'finished' | 'running' | 'not_started'
+
+export const MODULE_PLAY_STATUS_LABELS: Record<ModulePlayStatus, string> = {
+  finished: '已完成',
+  running: '进行中',
+  not_started: '未开始'
+}
+
+export const MODULE_PLAY_STATUSES: ModulePlayStatus[] = ['not_started', 'running', 'finished']
+
+/**
+ * 表格里既可能写中文标签（进行中）也可能写英文枚举值（running），两者都认。
+ * 认不出来或留空时返回 undefined，由调用方决定默认值。
+ */
+export function parseModulePlayStatus(value: unknown): ModulePlayStatus | undefined {
+  if (typeof value !== 'string') return undefined
+  const text = value.trim()
+  if (!text) return undefined
+  if (text === 'finished' || text === 'running' || text === 'not_started') return text
+  const matched = MODULE_PLAY_STATUSES.find((status) => MODULE_PLAY_STATUS_LABELS[status] === text)
+  return matched
+}
+
 export interface ParticipantPair {
   pc: string
   pl: string
@@ -10,6 +34,7 @@ export interface ParticipantPair {
 export interface ModuleRecord {
   id: string
   name: string
+  playStatus: ModulePlayStatus
   kps: string[]
   pairs: ParticipantPair[]
   order: number

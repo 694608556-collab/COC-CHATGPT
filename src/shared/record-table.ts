@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx'
-import type { AppSnapshot, ModuleRecord, SessionRecord } from './types'
+import { MODULE_PLAY_STATUS_LABELS, type AppSnapshot, type ModuleRecord, type SessionRecord } from './types'
 import type { WorkbookGrid } from './table-grid'
 
 export interface ExportedTableFile {
@@ -39,9 +39,11 @@ function rowsForModule(module: ModuleRecord, records: SessionRecord[]): Array<Re
   return records.map((record) => {
     const row: Record<string, string> = {
       模组名: module.name,
+      跑团状态: MODULE_PLAY_STATUS_LABELS[module.playStatus],
       场次名: record.name,
       海豹链接: record.link ?? '',
-      状态: record.status,
+      // 0.6.3 起改叫“链接状态”，避免和“跑团状态”混淆；导入时两个名字都认
+      链接状态: record.status,
       跑团日期: record.playDate ?? '',
       最近抓取时间: record.fetchedAt ?? ''
     }

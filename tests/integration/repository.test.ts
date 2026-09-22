@@ -23,6 +23,7 @@ describe('SQLite repository', () => {
     expect(database.integrityCheck()).toBe('ok')
     repository.createModule({
       name: '暗影循迹',
+      playStatus: 'not_started',
       kps: [' 阿默 ', ''],
       pairs: [
         { pc: '林恩', pl: '小夏' },
@@ -41,7 +42,7 @@ describe('SQLite repository', () => {
   })
 
   it('keeps existing session names and numbers after deletion and sorting', () => {
-    const module = repository.createModule({ name: '无尽食欲' })
+    const module = repository.createModule({ name: '无尽食欲', playStatus: 'not_started' })
     const first = repository.createRecord({ moduleId: module.id })
     const second = repository.createRecord({ moduleId: module.id })
     repository.deleteRecord(second.id)
@@ -56,7 +57,7 @@ describe('SQLite repository', () => {
   })
 
   it('resets probe state so an imported link must be checked again', () => {
-    const module = repository.createModule({ name: '模组' })
+    const module = repository.createModule({ name: '模组', playStatus: 'not_started' })
     const record = repository.createRecord({
       moduleId: module.id,
       link: 'https://log.weizaima.com/?key=one'
@@ -81,7 +82,7 @@ describe('SQLite repository', () => {
   })
 
   it('never resets a manual-content session when importing', () => {
-    const module = repository.createModule({ name: '模组' })
+    const module = repository.createModule({ name: '模组', playStatus: 'not_started' })
     const record = repository.createRecord({ moduleId: module.id, manualContent: '本地正文' })
     const reset = repository.resetRecordProbeState(record.id)
     expect(reset.status).toBe('manual')
@@ -89,8 +90,8 @@ describe('SQLite repository', () => {
   })
 
   it('persists collapse, ordering, theme and manual content', () => {
-    const first = repository.createModule({ name: '模组甲' })
-    const second = repository.createModule({ name: '模组乙' })
+    const first = repository.createModule({ name: '模组甲', playStatus: 'not_started' })
+    const second = repository.createModule({ name: '模组乙', playStatus: 'not_started' })
     repository.moveModule(second.id, -1)
     repository.updateModule(first.id, { collapsed: true })
     repository.createRecord({ moduleId: first.id, manualContent: '本地正文', playDate: '2025-03-08' })
@@ -107,7 +108,7 @@ describe('SQLite repository', () => {
   })
 
   it('resets online status when a link changes and keeps old cache isolated', () => {
-    const module = repository.createModule({ name: '模组' })
+    const module = repository.createModule({ name: '模组', playStatus: 'not_started' })
     const record = repository.createRecord({ moduleId: module.id, link: 'https://log.weizaima.com/?key=one' })
     repository.updateRecord(record.id, {
       status: 'valid',
@@ -121,8 +122,8 @@ describe('SQLite repository', () => {
   })
 
   it('finds duplicate sea links inside one module and ignores the edited record itself', () => {
-    const firstModule = repository.createModule({ name: '\u6a21\u7ec4\u4e00' })
-    const secondModule = repository.createModule({ name: '\u6a21\u7ec4\u4e8c' })
+    const firstModule = repository.createModule({ name: '\u6a21\u7ec4\u4e00', playStatus: 'not_started' })
+    const secondModule = repository.createModule({ name: '\u6a21\u7ec4\u4e8c', playStatus: 'not_started' })
     const first = repository.createRecord({
       moduleId: firstModule.id,
       link: 'https://log.weizaima.com/?key=dup#111111'

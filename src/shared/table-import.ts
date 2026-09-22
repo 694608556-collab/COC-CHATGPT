@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx'
-import type { ParticipantPair } from './types'
+import { parseModulePlayStatus, type ModulePlayStatus, type ParticipantPair } from './types'
 
 // 空白模板默认提供 1 位 KP、3 对 PC/PL 的位置
 export const TABLE_TEMPLATE_KP_COUNT = 1
@@ -7,6 +7,7 @@ export const TABLE_TEMPLATE_PAIR_COUNT = 3
 
 export const TABLE_TEMPLATE_HEADERS = [
   '模组名',
+  '跑团状态',
   '场次名',
   '海豹链接',
   'KP1',
@@ -18,8 +19,9 @@ export const TABLE_TEMPLATE_HEADERS = [
   'PL3'
 ] as const
 
-// 仅出现在导出文件、空白模板不提供的三列；导入导出再导入时需要原样带回
-export const TABLE_EXPORT_ONLY_HEADERS = ['状态', '跑团日期', '最近抓取时间'] as const
+// 仅出现在导出文件、空白模板不提供的三列；导入导出再导入时需要原样带回。
+// “链接状态”是 0.6.3 起对旧“状态”列的新叫法，用来和“跑团状态”区分开。
+export const TABLE_EXPORT_ONLY_HEADERS = ['链接状态', '跑团日期', '最近抓取时间'] as const
 
 export interface TableImportRow {
   sheet: string
@@ -28,6 +30,8 @@ export interface TableImportRow {
   link: string
   kps: string[]
   pairs: ParticipantPair[]
+  /** 表格里填写的跑团状态；留空或无法识别时为 undefined */
+  playStatus?: ModulePlayStatus
   status?: string
   playDate?: string
   fetchedAt?: string
@@ -49,7 +53,10 @@ function text(value: RawCell): string {
 const moduleAliases = ['模组名', '模组名称', '模组', '团名', 'module']
 const sessionAliases = ['场次名', '场次', '场次名称', '名称', 'session']
 const linkAliases = ['海豹链接', '日志链接', '链接', '地址', '网址', 'url', 'link']
-const statusAliases = ['状态', 'status']
+// 链接检测状态；0.6.3 起导出为“链接状态”，旧的“状态”继续兼容
+const statusAliases = ['链接状态', '状态', 'status']
+// 跑团进度，与上面的链接状态是两回事
+const playStatusAliases = ['跑团状态', '模组状态', 'playstatus', 'play_status']
 const dateAliases = ['跑团日期', '日期', 'date']
 const fetchedAtAliases = ['最近抓取时间', '抓取时间', 'fetchedat']
 const legacyParticipantAliases = ['参与者', '参与人', '玩家', 'participants']
@@ -64,6 +71,7 @@ interface SheetColumnMap {
   session: number
   link: number
   status?: number
+  playStatus?: number
   playDate?: number
   fetchedAt?: number
   legacyParticipants?: number
@@ -96,6 +104,8 @@ function mapColumns(header: RawCell[]): SheetColumnMap {
     if (map.module < 0 && matchAlias(label, moduleAliases)) map.module = index
     else if (map.session < 0 && matchAlias(label, sessionAliases)) map.session = index
     else if (map.link < 0 && matchAlias(label, linkAliases)) map.link = index
+    // “跑团状态”必须排在“状态”前面判断，否则会被链接状态那一支先吃掉
+    else if (map.playStatus === undefined && matchAlias(label, playStatusAliases)) map.playStatus = index
     else if (map.status === undefined && matchAlias(label, statusAliases)) map.status = index
     else if (map.playDate === undefined && matchAlias(label, dateAliases)) map.playDate = index
     else if (map.fetchedAt === undefined && matchAlias(label, fetchedAtAliases)) map.fetchedAt = index
@@ -159,6 +169,10 @@ export function parseImportSheet(sheetName: string, rows: RawCell[][]): TableImp
     if (!moduleName && !sessionName && !link) continue
     const participants = participantsFromRow(values, columnMap)
     const status = columnMap.status !== undefined ? text(values[columnMap.status]) : ''
+    const playStatus =
+      columnMap.playStatus !== undefined
+        ? parseModulePlayStatus(text(values[columnMap.playStatus]))
+        : undefined
     const playDate = columnMap.playDate !== undefined ? text(values[columnMap.playDate]) : ''
     const fetchedAt = columnMap.fetchedAt !== undefined ? text(values[columnMap.fetchedAt]) : ''
     result.push({
@@ -168,6 +182,7 @@ export function parseImportSheet(sheetName: string, rows: RawCell[][]): TableImp
       link,
       kps: participants.kps,
       pairs: participants.pairs,
+      ...(playStatus ? { playStatus } : {}),
       ...(status && validStatuses.has(status) ? { status } : {}),
       ...(playDate ? { playDate } : {}),
       ...(fetchedAt && /^\d{4}-\d{2}-\d{2}T/.test(fetchedAt) ? { fetchedAt } : {})
@@ -243,20 +258,23 @@ const templateNotes = [
   '填写说明：',
   '1. 每行一场；PC/PL 必须按列成对填写：PC1/PL1、PC2/PL2、PC3/PL3，没有对应人员的格子留空。',
   '2. KP 填在 KP1 列；人员更多时按 KP2、PC4/PL4 的规律自行加列。',
-  '3. 状态、跑团日期、最近抓取时间由软件导出时自动记录，空白模板无需填写。',
-  '4. 每个模组可使用一个独立工作表，工作表名称建议与模组名一致。',
-  '5. 导入前请删除示例行。'
+  '3. 跑团状态可填：未开始、进行中、已完成（留空按“未开始”处理）。同一个模组的多行填一次即可。',
+  '4. 链接状态、跑团日期、最近抓取时间由软件导出时自动记录，空白模板无需填写。',
+  '5. 导入时链接状态一律重置为“待检测”，需要重新检测才能抓取正文。',
+  '6. 跑团状态只对本次新建的模组生效，不会改动软件里已有的模组。',
+  '7. 每个模组可使用一个独立工作表，工作表名称建议与模组名一致。',
+  '8. 导入前请删除示例行。'
 ]
 
 export function buildTableImportTemplateCsv(): string {
-  const example = ['暗影循迹', '第一场', 'https://log.weizaima.com/?key=...', '阿默', '艾伦', '李四', '夏恩', '王五', '', '']
+  const example = ['暗影循迹', '进行中', '第一场', 'https://log.weizaima.com/?key=...', '阿默', '艾伦', '李四', '夏恩', '王五', '', '']
   const lines = [TABLE_TEMPLATE_HEADERS.join(','), example.join(','), '', ...templateNotes.map((line) => `# ${line}`)]
   return '\uFEFF' + lines.join('\r\n') + '\r\n'
 }
 
 export function buildTableImportTemplateXlsx(): Uint8Array {
   const workbook = XLSX.utils.book_new()
-  const example = ['暗影循迹', '第一场', 'https://log.weizaima.com/?key=...', '阿默', '艾伦', '李四', '夏恩', '王五', '', '']
+  const example = ['暗影循迹', '进行中', '第一场', 'https://log.weizaima.com/?key=...', '阿默', '艾伦', '李四', '夏恩', '王五', '', '']
   const aoa: RawCell[][] = [
     [...TABLE_TEMPLATE_HEADERS],
     example,

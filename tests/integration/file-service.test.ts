@@ -37,7 +37,7 @@ afterEach(() => database.close())
 
 describe('safe local export', () => {
   it('exports UTF-8 text, sanitizes names, avoids overwriting and registers each real file', async () => {
-    const module = repository.createModule({ name: '暗影:循迹?' })
+    const module = repository.createModule({ name: '暗影:循迹?', playStatus: 'not_started' })
     const record = repository.createRecord({
       moduleId: module.id,
       name: '第一/场',
@@ -53,7 +53,7 @@ describe('safe local export', () => {
   })
 
   it('creates DOCX locally and registers its hash only after success', async () => {
-    const module = repository.createModule({ name: '模组' })
+    const module = repository.createModule({ name: '模组', playStatus: 'not_started' })
     const record = repository.createRecord({ moduleId: module.id, manualContent: '正文' })
     const entry = await new FileService(repository, async () => Buffer.from('%PDF-test')).exportRecord(
       record.id,
@@ -64,7 +64,7 @@ describe('safe local export', () => {
   })
 
   it('removes invalid temporary PDF output and does not register it', async () => {
-    const module = repository.createModule({ name: '模组' })
+    const module = repository.createModule({ name: '模组', playStatus: 'not_started' })
     const record = repository.createRecord({ moduleId: module.id, manualContent: '正文' })
     const service = new FileService(repository, async () => Buffer.from('broken'))
     await expect(service.exportRecord(record.id, 'pdf')).rejects.toThrow('文件生成失败')
@@ -73,8 +73,8 @@ describe('safe local export', () => {
   })
 
   it('combines only one module in current order and reports unusable sessions', async () => {
-    const module = repository.createModule({ name: '长团' })
-    const other = repository.createModule({ name: '另一个模组' })
+    const module = repository.createModule({ name: '长团', playStatus: 'not_started' })
+    const other = repository.createModule({ name: '另一个模组', playStatus: 'not_started' })
     const first = repository.createRecord({ moduleId: module.id, name: '第一场', manualContent: '内容一' })
     const missing = repository.createRecord({
       moduleId: module.id,
@@ -100,7 +100,7 @@ describe('safe local export', () => {
   })
 
   it('exports probed SeaLog content through filters, formats, batch export and combined output', async () => {
-    const module = repository.createModule({ name: '\u6d77\u8c79\u957f\u56e2' })
+    const module = repository.createModule({ name: '\u6d77\u8c79\u957f\u56e2', playStatus: 'not_started' })
     repository.updateSettings({
       filterPreset: {
         hideDiceCommands: true,
@@ -217,7 +217,7 @@ describe('safe local export', () => {
   })
 
   it('generates all six single-record outputs and registers traceable files', async () => {
-    const module = repository.createModule({ name: '\u516d\u79cd\u8f93\u51fa' })
+    const module = repository.createModule({ name: '\u516d\u79cd\u8f93\u51fa', playStatus: 'not_started' })
     const record = repository.createRecord({
       moduleId: module.id,
       name: '\u539f\u59cb\u573a',

@@ -23,8 +23,8 @@ afterEach(() => database.close())
 
 describe('table export service', () => {
   it('writes multiple modules to separate XLSX worksheets', async () => {
-    const first = repository.createModule({ name: '模组甲' })
-    const second = repository.createModule({ name: '模组乙' })
+    const first = repository.createModule({ name: '模组甲', playStatus: 'not_started' })
+    const second = repository.createModule({ name: '模组乙', playStatus: 'not_started' })
     repository.createRecord({ moduleId: first.id, manualContent: '甲' })
     repository.createRecord({ moduleId: second.id, manualContent: '乙' })
 
@@ -37,8 +37,8 @@ describe('table export service', () => {
   })
 
   it('packages multi-module CSV output as a ZIP and respects selection', async () => {
-    const first = repository.createModule({ name: '甲/组' })
-    const second = repository.createModule({ name: '乙组' })
+    const first = repository.createModule({ name: '甲/组', playStatus: 'not_started' })
+    const second = repository.createModule({ name: '乙组', playStatus: 'not_started' })
     const firstRecord = repository.createRecord({ moduleId: first.id, manualContent: '甲' })
     repository.createRecord({ moduleId: second.id, manualContent: '乙' })
     const service = new TableExportService(repository)

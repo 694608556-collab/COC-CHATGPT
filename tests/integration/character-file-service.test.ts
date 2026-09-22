@@ -24,7 +24,7 @@ afterEach(() => database.close())
 
 describe('character files', () => {
   it('exports XLSX and print-ready PDF into the required character directory', async () => {
-    const module = repository.createModule({ name: '暗影/循迹' })
+    const module = repository.createModule({ name: '暗影/循迹', playStatus: 'not_started' })
     const character = repository.createCharacter({ edition: 7, moduleId: module.id, name: '艾伦' })
     const xlsx = await service.exportCharacter(character.id, 'xlsx')
     const pdf = await service.exportCharacter(character.id, 'pdf')

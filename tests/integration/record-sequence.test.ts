@@ -19,7 +19,7 @@ afterEach(() => database.close())
 
 describe('explicit session sequence numbers', () => {
   it('fills a number gap left by a deleted session', () => {
-    const module = repository.createModule({ name: '无尽食欲' })
+    const module = repository.createModule({ name: '无尽食欲', playStatus: 'not_started' })
     repository.createRecord({ moduleId: module.id })
     const second = repository.createRecord({ moduleId: module.id })
     repository.createRecord({ moduleId: module.id })
@@ -36,7 +36,7 @@ describe('explicit session sequence numbers', () => {
   })
 
   it('keeps the default continuation when no explicit number is given', () => {
-    const module = repository.createModule({ name: '模组' })
+    const module = repository.createModule({ name: '模组', playStatus: 'not_started' })
     const first = repository.createRecord({ moduleId: module.id })
     const jumped = repository.createRecord({ moduleId: module.id, sequenceNo: 5 })
     const next = repository.createRecord({ moduleId: module.id })
@@ -44,7 +44,7 @@ describe('explicit session sequence numbers', () => {
   })
 
   it('rejects a sequence number already in use', () => {
-    const module = repository.createModule({ name: '模组' })
+    const module = repository.createModule({ name: '模组', playStatus: 'not_started' })
     repository.createRecord({ moduleId: module.id })
     expect(() => repository.createRecord({ moduleId: module.id, sequenceNo: 1 })).toThrow(
       '第 1 场已存在'
@@ -52,7 +52,7 @@ describe('explicit session sequence numbers', () => {
   })
 
   it('rejects non-positive, non-integer and over-limit numbers', () => {
-    const module = repository.createModule({ name: '模组' })
+    const module = repository.createModule({ name: '模组', playStatus: 'not_started' })
     expect(() => repository.createRecord({ moduleId: module.id, sequenceNo: 0 })).toThrow('大于 0')
     expect(() => repository.createRecord({ moduleId: module.id, sequenceNo: -2 })).toThrow('大于 0')
     expect(() => repository.createRecord({ moduleId: module.id, sequenceNo: 1.5 })).toThrow('大于 0')
@@ -60,8 +60,8 @@ describe('explicit session sequence numbers', () => {
   })
 
   it('keeps sequence numbers independent between modules', () => {
-    const moduleA = repository.createModule({ name: '模组甲' })
-    const moduleB = repository.createModule({ name: '模组乙' })
+    const moduleA = repository.createModule({ name: '模组甲', playStatus: 'not_started' })
+    const moduleB = repository.createModule({ name: '模组乙', playStatus: 'not_started' })
     const recordA = repository.createRecord({ moduleId: moduleA.id, sequenceNo: 1 })
     const recordB = repository.createRecord({ moduleId: moduleB.id, sequenceNo: 1 })
     expect(recordA.sequenceNo).toBe(1)
@@ -71,7 +71,7 @@ describe('explicit session sequence numbers', () => {
   })
 
   it('raises the stored maximum and keeps auto names on a later default create', () => {
-    const module = repository.createModule({ name: '暗影循迹' })
+    const module = repository.createModule({ name: '暗影循迹', playStatus: 'not_started' })
     repository.createRecord({ moduleId: module.id })
     const high = repository.createRecord({ moduleId: module.id, sequenceNo: 9, name: '特殊团' })
     expect(high.name).toBe('特殊团')
@@ -83,7 +83,7 @@ describe('explicit session sequence numbers', () => {
   // 0.6.2 回归：加到第 16 场后把末尾几场全删掉，只剩第 8 场。
   // 旧实现读取只增不减的历史最大值，新增场次会凭空跳到第 17 场。
   it('continues from the last surviving session after trailing deletions', () => {
-    const module = repository.createModule({ name: '暗影循迹' })
+    const module = repository.createModule({ name: '暗影循迹', playStatus: 'not_started' })
     const created = []
     for (let index = 0; index < 16; index += 1) {
       created.push(repository.createRecord({ moduleId: module.id }))
@@ -105,7 +105,7 @@ describe('explicit session sequence numbers', () => {
   // 删除末尾场次不会留下中间空缺，界面因此不会弹出编号选择窗口，
   // 这条路径完全依赖后端的默认编号，必须与界面算出的“接续最后编号”一致。
   it('agrees with the gap-free continuation shown by the picker', () => {
-    const module = repository.createModule({ name: '模组' })
+    const module = repository.createModule({ name: '模组', playStatus: 'not_started' })
     const first = repository.createRecord({ moduleId: module.id })
     const second = repository.createRecord({ moduleId: module.id })
     const third = repository.createRecord({ moduleId: module.id })

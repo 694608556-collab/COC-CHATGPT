@@ -3,7 +3,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { ParticipantPair } from '../shared/types'
 
-const SCHEMA_VERSION = 3
+const SCHEMA_VERSION = 4
 
 const MIGRATION_V1 = `
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -100,6 +100,14 @@ CREATE TABLE IF NOT EXISTS notes (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at);
+`
+
+/**
+ * 0.6.3：模组增加跑团状态。已有模组一律补成 not_started（未开始），
+ * 因为无法从历史数据推断这个团跑到哪了，交给用户自己改。
+ */
+const MIGRATION_V4 = `
+ALTER TABLE modules ADD COLUMN play_status TEXT NOT NULL DEFAULT 'not_started';
 `
 
 
@@ -200,8 +208,22 @@ export class AppDatabase {
           .run(3, new Date().toISOString())
       })
     }
+    if (currentVersion < 4) {
+      this.transaction(() => {
+        // 全新数据库由 MIGRATION_V1 建表后立即走到这里；升级库则在此补列。
+        if (!this.hasColumn('modules', 'play_status')) this.connection.exec(MIGRATION_V4)
+        this.connection
+          .prepare('INSERT OR REPLACE INTO schema_meta (id, version, migrated_at) VALUES (1, ?, ?)')
+          .run(4, new Date().toISOString())
+      })
+    }
     const integrity = this.integrityCheck()
     if (integrity !== 'ok') throw new Error(`数据库完整性检查失败：${integrity}`)
+  }
+
+  private hasColumn(table: string, column: string): boolean {
+    const rows = this.connection.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: string }>
+    return rows.some((row) => String(row.name) === column)
   }
 
   integrityCheck(): string {

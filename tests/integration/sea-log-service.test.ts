@@ -31,7 +31,7 @@ afterEach(() => database.close())
 
 describe('SeaLogService', () => {
   it('fetches, parses, caches and protects a manual date', async () => {
-    const module = repository.createModule({ name: '模组' })
+    const module = repository.createModule({ name: '模组', playStatus: 'not_started' })
     const record = repository.createRecord({
       moduleId: module.id,
       link: 'https://log.weizaima.com/?key=valid',
@@ -46,7 +46,7 @@ describe('SeaLogService', () => {
   })
 
   it('distinguishes invalid links from transient failures', async () => {
-    const module = repository.createModule({ name: '模组' })
+    const module = repository.createModule({ name: '模组', playStatus: 'not_started' })
     const invalid = repository.createRecord({
       moduleId: module.id,
       link: 'https://log.weizaima.com/?key=missing'
@@ -70,7 +70,7 @@ describe('SeaLogService', () => {
   })
 
   it('inflates current SealDice compressed payloads', async () => {
-    const module = repository.createModule({ name: 'module' })
+    const module = repository.createModule({ name: 'module', playStatus: 'not_started' })
     const record = repository.createRecord({
       moduleId: module.id,
       link: 'https://log.weizaima.com/?key=packed'
@@ -91,7 +91,7 @@ describe('SeaLogService', () => {
     expect(result.rawContent?.messages[0]?.text).toBe('start')
   })
   it('accepts net fetch responses without a final url', async () => {
-    const module = repository.createModule({ name: 'module' })
+    const module = repository.createModule({ name: 'module', playStatus: 'not_started' })
     const record = repository.createRecord({
       moduleId: module.id,
       link: 'https://log.weizaima.com/?key=electron'
@@ -111,7 +111,7 @@ describe('SeaLogService', () => {
     expect(result.status).toBe('valid')
   })
   it('keeps successful content after a network failure and isolates it after URL changes', async () => {
-    const module = repository.createModule({ name: '模组' })
+    const module = repository.createModule({ name: '模组', playStatus: 'not_started' })
     const record = repository.createRecord({
       moduleId: module.id,
       link: 'https://log.weizaima.com/?key=one'

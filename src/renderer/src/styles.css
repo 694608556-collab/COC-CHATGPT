@@ -1086,6 +1086,23 @@ th {
   line-height: 1.6;
 }
 
+/* 导入结果分两段（汇总 + 跑团状态提醒），保留换行 */
+.dialog-result {
+  white-space: pre-line;
+}
+
+/* 归档目录失效时的醒目提示 */
+.archive-warning {
+  margin: 0;
+  padding: 8px 10px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .template-preview {
   overflow: auto;
   border: 1px solid var(--line);
@@ -2574,4 +2591,172 @@ grid-row:6;
   color: var(--danger);
   font-size: 12px;
   font-weight: 650;
+}
+
+/* ============ 0.6.3 跑团状态 ============ */
+/* 模组名与跑团状态并排；状态标签的字号字体与“模组名”完全一致 */
+.module-head-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 15px;
+}
+
+.module-head-fields > label,
+.field-label-text {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+/* 点选控件：尺寸与模组名输入框一致，只是内容变成三个状态 */
+.play-status-picker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  min-height: 34px;
+}
+
+.play-status-option {
+  min-height: 34px;
+  padding: 7px 10px;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.play-status-option:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+
+.play-status-option.selected {
+  color: var(--text);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  font-weight: 650;
+}
+
+/* 模组列表里的状态徽章，和“N 场”同一套观感 */
+.play-status-badge {
+  flex: none;
+  padding: 3px 7px;
+  border-radius: 99px;
+  background: var(--panel2);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.play-status-badge.play-status-running {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+.play-status-badge.play-status-finished {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+
+/* ============ 0.6.3 全模组正文搜索 ============ */
+.participants .module-search {
+  flex: none;
+  width: 220px;
+  min-height: 30px;
+  margin-left: auto;
+  padding: 5px 10px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.participants .module-search:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.module-search-results {
+  padding: 10px 50px 14px;
+  background: var(--panel2);
+  border-top: 1px solid var(--line);
+}
+
+.module-search-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.module-search-results ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.module-search-hit {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 10px;
+  color: var(--text);
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.module-search-hit:hover {
+  border-color: var(--accent);
+}
+
+.module-search-hit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.module-search-count {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.module-search-excerpt {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.module-search-excerpt mark {
+  padding: 0 2px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--warning) 35%, transparent);
+  border-radius: 3px;
+}
+
+/* ============ 0.6.3 闲记卡片加高 ============ */
+/* 卡片高度翻倍，同时放宽正文行数，否则高度加了文字仍被截断 */
+.note-card {
+  min-height: 400px;
+}
+
+.note-content {
+  -webkit-line-clamp: 10;
 }

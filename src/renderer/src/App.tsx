@@ -9,13 +9,17 @@ import { NoteBoard } from './components/NoteBoard'
 import { FolderIcon, PencilIcon, PlusIcon, SolidTriangleIcon, XIcon } from './components/Icons'
 import { mergeImportedParticipants, type TableImportRow } from '../../shared/table-import'
 import { applyLogFilters } from '../../shared/log-filter'
+import { searchModuleRecords, type ModuleSearchHit } from '../../shared/record-search'
 import { skillFinal } from '../../shared/coc-rules'
 import type { BackupPreviewApi } from '../../shared/api'
 import {
   DEFAULT_FILTER_PRESET,
+  MODULE_PLAY_STATUSES,
+  MODULE_PLAY_STATUS_LABELS,
   type AppSnapshot,
   type CharacterData,
   type FilterPreset,
+  type ModulePlayStatus,
   type ModuleRecord,
   type ParticipantPair,
   type SessionRecord
@@ -36,6 +40,8 @@ const pageMeta: Record<Page, { title: string; subtitle: (snapshot: AppSnapshot) 
 interface ModuleDraft {
   id?: string
   name: string
+  /** 新建时不预选，用户必须明确选择才能保存 */
+  playStatus?: ModulePlayStatus
   kps: string[]
   pairs: ParticipantPair[]
 }
@@ -391,15 +397,38 @@ function ModuleEditor({
   return (
     <Modal title={draft.id ? '编辑模组' : '新建模组'} onClose={onCancel}>
       <div className="form-grid">
-        <label>
-          模组名
-          <input
-            autoFocus
-            value={draft.name}
-            onChange={(event) => onChange({ ...draft, name: event.target.value })}
-            placeholder="例如：暗影循迹"
-          />
-        </label>
+        <div className="module-head-fields">
+          <label>
+            模组名
+            <input
+              autoFocus
+              value={draft.name}
+              onChange={(event) => onChange({ ...draft, name: event.target.value })}
+              placeholder="例如：暗影循迹"
+            />
+          </label>
+          <div className="field">
+            <span className="field-label-text">跑团状态</span>
+            <div className="play-status-picker" role="radiogroup" aria-label="跑团状态">
+              {MODULE_PLAY_STATUSES.map((status) => (
+                <button
+                  type="button"
+                  key={status}
+                  role="radio"
+                  aria-checked={draft.playStatus === status}
+                  className={
+                    draft.playStatus === status
+                      ? `play-status-option selected play-status-${status}`
+                      : `play-status-option play-status-${status}`
+                  }
+                  onClick={() => onChange({ ...draft, playStatus: status })}
+                >
+                  {MODULE_PLAY_STATUS_LABELS[status]}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
         <div className="participant-editor">
           <div className="field-label">KP（守密人）</div>
           {draft.kps.map((kp, index) => (
@@ -796,6 +825,7 @@ export default function App(): React.JSX.Element {
   const [message, setMessage] = useState<string>()
   const [messageClosing, setMessageClosing] = useState(false)
   const [moduleDraft, setModuleDraft] = useState<ModuleDraft>()
+  const [moduleSearch, setModuleSearch] = useState<Record<string, string>>({})
   const [recordDraft, setRecordDraft] = useState<RecordDraft>()
   const [sequencePicker, setSequencePicker] = useState<SequencePickerState>()
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -809,6 +839,7 @@ export default function App(): React.JSX.Element {
   const [restorePreview, setRestorePreview] = useState<BackupPreviewApi>()
   const [clearDataOpen, setClearDataOpen] = useState(false)
   const [cacheInfo, setCacheInfo] = useState<{ bytes: number; files: number }>({ bytes: 0, files: 0 })
+  const [archiveStatus, setArchiveStatus] = useState<{ ok: boolean; reason?: string }>()
 
   const refresh = async (): Promise<void> => {
     const value = await window.coc.app.snapshot()
@@ -816,7 +847,24 @@ export default function App(): React.JSX.Element {
     setAppVersion(await window.coc.app.version())
     document.documentElement.dataset.theme = value.settings.theme
     setCacheInfo(await window.coc.backup.cacheStats())
+    // 归档目录可能因为换过 Windows 账户而失效，先探一次好让设置页给出提示
+    try {
+      setArchiveStatus(await window.coc.files.archiveStatus())
+    } catch {
+      setArchiveStatus(undefined)
+    }
     setLoading(false)
+  }
+
+  // 全模组正文搜索：按模组当前输入的关键词，在该模组所有场次正文里查找
+  const moduleSearchHits = (module: ModuleRecord): ModuleSearchHit[] => {
+    const query = moduleSearch[module.id]?.trim()
+    if (!query) return []
+    return searchModuleRecords(
+      snapshot.records.filter((record) => record.moduleId === module.id),
+      query,
+      snapshot.settings.filterPreset
+    )
   }
 
   useEffect(() => {
@@ -949,7 +997,21 @@ export default function App(): React.JSX.Element {
 
   const saveModule = async (): Promise<void> => {
     if (!moduleDraft) return
-    const input = { name: moduleDraft.name, kps: moduleDraft.kps, pairs: moduleDraft.pairs }
+    if (!moduleDraft.name.trim()) {
+      setMessage('请填写模组名')
+      return
+    }
+    // 跑团状态是必选项：新建时不预选，必须明确选一个
+    if (!moduleDraft.playStatus) {
+      setMessage('请选择跑团状态')
+      return
+    }
+    const input = {
+      name: moduleDraft.name,
+      playStatus: moduleDraft.playStatus,
+      kps: moduleDraft.kps,
+      pairs: moduleDraft.pairs
+    }
     await run(
       () =>
         moduleDraft.id ? window.coc.modules.update(moduleDraft.id, input) : window.coc.modules.create(input),
@@ -1049,8 +1111,16 @@ export default function App(): React.JSX.Element {
 
   const importTableRows = async (
     rows: TableImportRow[]
-  ): Promise<{ modules: number; records: number; updated: number; skipped: number }> => {
+  ): Promise<{ modules: number; records: number; updated: number; skipped: number; newModules: string[] }> => {
     const known = new Map(snapshot.modules.map((module) => [module.name.toLowerCase(), module]))
+    // 状态是模组级的，表格里却每行都有；先扫一遍，任一行为该模组填了状态就采用，
+    // 避免“状态填在第二行、模组却在第一行就建好了”导致漏读。
+    const playStatusByModule = new Map<string, ModulePlayStatus>()
+    for (const row of rows) {
+      const key = row.moduleName.toLowerCase()
+      if (row.playStatus && !playStatusByModule.has(key)) playStatusByModule.set(key, row.playStatus)
+    }
+    const newModules: string[] = []
     let createdModules = 0
     let createdRecords = 0
     let updatedRecords = 0
@@ -1060,14 +1130,19 @@ export default function App(): React.JSX.Element {
       let module = known.get(key)
       const incoming = { kps: row.kps, pairs: row.pairs }
       if (!module) {
+        // 表格填了就用表格的，没填才落到“未开始”
         module = await window.coc.modules.create({
           name: row.moduleName,
+          playStatus: playStatusByModule.get(key) ?? 'not_started',
           kps: incoming.kps,
           pairs: incoming.pairs
         })
         createdModules += 1
+        newModules.push(module.name)
         known.set(key, module)
       } else if (incoming.kps.length || incoming.pairs.length) {
+        // 已有模组不采信表格里的跑团状态：那是用户自己的判断，
+        // 不该被一张可能过期的表格覆盖（与链接状态同样的取舍）。
         const merged = mergeImportedParticipants({ kps: module.kps, pairs: module.pairs }, incoming)
         module = await window.coc.modules.update(module.id, merged)
         known.set(key, module)
@@ -1102,7 +1177,8 @@ export default function App(): React.JSX.Element {
       modules: createdModules,
       records: createdRecords,
       updated: updatedRecords,
-      skipped
+      skipped,
+      newModules
     }
   }
   const createCharacter = async (): Promise<void> => {
@@ -1280,6 +1356,7 @@ export default function App(): React.JSX.Element {
                                 setModuleDraft({
                                   id: module.id,
                                   name: module.name,
+                                  playStatus: module.playStatus,
                                   kps: module.kps.length ? module.kps : [''],
                                   pairs: module.pairs
                                 })
@@ -1297,6 +1374,9 @@ export default function App(): React.JSX.Element {
                               <FolderIcon />
                             </button>
                             <span className="count-badge">{records.length} 场</span>
+                            <span className={`play-status-badge play-status-${module.playStatus}`}>
+                              {MODULE_PLAY_STATUS_LABELS[module.playStatus]}
+                            </span>
                             <div className="module-actions">
                               <label className="select-all">
                                 <input
@@ -1369,6 +1449,7 @@ export default function App(): React.JSX.Element {
                                     setModuleDraft({
                                       id: module.id,
                                       name: module.name,
+                                      playStatus: module.playStatus,
                                       kps: module.kps.length ? module.kps : [''],
                                       pairs: module.pairs
                                     })
@@ -1383,7 +1464,68 @@ export default function App(): React.JSX.Element {
                                     .map((pair) => `${pair.pc || '未填写'} / ${pair.pl || '未填写'}`)
                                     .join('；') || '未填写'}
                                 </span>
+                                <input
+                                  className="module-search"
+                                  type="search"
+                                  aria-label={`在模组“${module.name}”的全部场次正文内搜索`}
+                                  placeholder="全模组正文搜索"
+                                  value={moduleSearch[module.id] ?? ''}
+                                  onChange={(event) =>
+                                    setModuleSearch((current) => ({
+                                      ...current,
+                                      [module.id]: event.target.value
+                                    }))
+                                  }
+                                />
                               </div>
+                              {moduleSearchHits(module).length > 0 && (
+                                <div className="module-search-results">
+                                  <div className="module-search-head">
+                                    在“{module.name}”中找到 {moduleSearchHits(module).length} 场匹配
+                                    <button
+                                      className="text-button"
+                                      onClick={() =>
+                                        setModuleSearch((current) => ({ ...current, [module.id]: '' }))
+                                      }
+                                    >
+                                      清除
+                                    </button>
+                                  </div>
+                                  <ul>
+                                    {moduleSearchHits(module).map((hit) => (
+                                      <li key={hit.recordId}>
+                                        <button
+                                          className="module-search-hit"
+                                          onClick={() => setDetailRecordId(hit.recordId)}
+                                        >
+                                          <span className="module-search-hit-head">
+                                            <strong>{hit.recordName}</strong>
+                                            <span className="module-search-count">{hit.matches} 处</span>
+                                          </span>
+                                          <span className="module-search-excerpt">
+                                            {hit.excerptLength > 0 ? (
+                                              <>
+                                                {hit.excerpt.slice(0, hit.excerptStart)}
+                                                <mark>
+                                                  {hit.excerpt.slice(
+                                                    hit.excerptStart,
+                                                    hit.excerptStart + hit.excerptLength
+                                                  )}
+                                                </mark>
+                                                {hit.excerpt.slice(
+                                                  hit.excerptStart + hit.excerptLength
+                                                )}
+                                              </>
+                                            ) : (
+                                              hit.excerpt
+                                            )}
+                                          </span>
+                                        </button>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
                               {records.length ? (
                                 <table>
                                   <thead>
@@ -1659,6 +1801,12 @@ export default function App(): React.JSX.Element {
                 <section className="settings-card">
                   <h2>下载归档位置</h2>
                   <p className="path-text">{snapshot.settings.archiveDirectory}</p>
+                  {archiveStatus && !archiveStatus.ok && (
+                    <p className="archive-warning">
+                      此目录当前无法写入{archiveStatus.reason ? `（${archiveStatus.reason}）` : ''}
+                      ，下载、合成与导出会失败。请点“更改位置”重新选择，或点“恢复默认位置”。
+                    </p>
+                  )}
                   <p className="muted">新下载和导出的文件会写入此目录；应用只管理已登记文件。</p>
                   <div className="header-actions">
                     <button
@@ -1674,6 +1822,22 @@ export default function App(): React.JSX.Element {
                       }
                     >
                       更改位置
+                    </button>
+                    <button
+                      className="secondary"
+                      onClick={() =>
+                        void (async () => {
+                          try {
+                            const fallback = await window.coc.files.archiveDefault()
+                            await refresh()
+                            setMessage(`归档位置已恢复为：${fallback}`)
+                          } catch (error) {
+                            setMessage(error instanceof Error ? error.message : '无法恢复默认位置')
+                          }
+                        })()
+                      }
+                    >
+                      恢复默认位置
                     </button>
                     <button
                       className="secondary"

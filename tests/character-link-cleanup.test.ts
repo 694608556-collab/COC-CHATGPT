@@ -56,6 +56,36 @@ describe('module roster cleanup', () => {
     expect(JSON.parse(String(rows[0]?.pairs_json))).toEqual([
       { pc: '陆桉阳', pl: '烟蓑雨涨' }
     ])
-    expect(CURRENT_SCHEMA_VERSION).toBe(3)
+    // 版本号跟随常量，避免每次加迁移都要改这里
+    expect(CURRENT_SCHEMA_VERSION).toBe(4)
+  })
+
+  it('backfills the play status for modules created before 0.6.3', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'coc-play-status-'))
+    const file = path.join(directory, 'coc.sqlite')
+    const initial = new AppDatabase(file)
+    initial.initialize()
+    initial.close()
+
+    // 0.6.2 及更早的库没有 play_status 列
+    const raw = new DatabaseSync(file)
+    const stamp = '2026-01-01T00:00:00.000Z'
+    raw
+      .prepare(
+        'INSERT INTO modules (id,name,kps_json,pairs_json,sort_order,collapsed,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)'
+      )
+      .run('m1', '铸形骸', '[]', '[]', 0, 0, stamp, stamp)
+    raw.prepare('UPDATE schema_meta SET version = 3').run()
+    raw.close()
+
+    const upgraded = new AppDatabase(file)
+    upgraded.initialize()
+    const row = upgraded.connection
+      .prepare('SELECT play_status FROM modules WHERE id = ?')
+      .get('m1') as { play_status?: string } | undefined
+    upgraded.close()
+
+    // 老模组一律补成未开始，交给用户自己改
+    expect(row?.play_status).toBe('not_started')
   })
 })
