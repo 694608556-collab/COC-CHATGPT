@@ -52,6 +52,33 @@ export function NoteBoard({
   const [draft, setDraft] = useState<NoteDraft>()
   const [busy, setBusy] = useState(false)
   const [confirmOptions, setConfirmOptions] = useState<ConfirmOptions>()
+  // 双击图片后放大的原图查看器
+  const [zoomed, setZoomed] = useState<NoteImage>()
+  const [zoomedSize, setZoomedSize] = useState<{ width: number; height: number }>()
+  const [actualSize, setActualSize] = useState(false)
+
+  const closeZoom = (): void => {
+    setZoomed(undefined)
+    setZoomedSize(undefined)
+    setActualSize(false)
+  }
+
+  const openZoom = (image: NoteImage): void => {
+    setZoomed(image)
+    setZoomedSize(undefined)
+    setActualSize(false)
+  }
+
+  // Esc 关闭查看器。用 document 级键盘监听，而不是给元素挂按键处理器，
+  // 免得干扰编辑框里 Enter 换行的既有行为。
+  useEffect(() => {
+    if (!zoomed) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') closeZoom()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [zoomed])
 
   useEffect(() => {
     if (!creating) return
@@ -175,7 +202,12 @@ export function NoteBoard({
               <div className="note-image-list">
                 {draft.images.map((image) => (
                   <div className="note-image-item" key={image.path}>
-                    <img src={mediaUrl(image)} alt={image.name} />
+                    <img
+                      src={mediaUrl(image)}
+                      alt={image.name}
+                      title="双击查看原图"
+                      onDoubleClick={() => openZoom(image)}
+                    />
                     <button
                       className="icon-button neutral-delete"
                       aria-label={`删除图片 ${image.name}`}
@@ -225,7 +257,18 @@ export function NoteBoard({
               {note.images.length > 0 && (
                 <span className="note-thumbs">
                   {note.images.slice(0, 3).map((image) => (
-                    <img key={image.path} src={mediaUrl(image)} alt={image.name} />
+                    <img
+                      key={image.path}
+                      src={mediaUrl(image)}
+                      alt={image.name}
+                      title="双击查看原图"
+                      onDoubleClick={(event) => {
+                        // 预览图在“点开编辑”的按钮里，双击要看图而不是进编辑
+                        event.stopPropagation()
+                        event.preventDefault()
+                        openZoom(image)
+                      }}
+                    />
                   ))}
                   {note.images.length > 3 && <span className="note-more">+{note.images.length - 3}</span>}
                 </span>
@@ -243,6 +286,49 @@ export function NoteBoard({
 
       {confirmOptions && (
         <ConfirmDialog options={confirmOptions} onClose={() => setConfirmOptions(undefined)} />
+      )}
+
+      {/* 双击图片后的原图查看器。默认按窗口大小等比铺满（小图不放大到糊），
+          点“原始尺寸”切到 1:1 像素，方便看截图细节。 */}
+      {zoomed && (
+        <div
+          className="image-viewer"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`查看图片 ${zoomed.name}`}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeZoom()
+          }}
+        >
+          <header className="image-viewer-head">
+            <span className="image-viewer-name" title={zoomed.name}>
+              {zoomed.name}
+            </span>
+            <span className="image-viewer-size">
+              {zoomedSize ? `${zoomedSize.width} × ${zoomedSize.height}` : ''}
+            </span>
+            <button
+              className="secondary"
+              disabled={!zoomedSize}
+              onClick={() => setActualSize((current) => !current)}
+            >
+              {actualSize ? '适应窗口' : '原始尺寸'}
+            </button>
+            <button className="icon-button module-remove" aria-label="关闭图片查看" onClick={closeZoom}>
+              <XIcon />
+            </button>
+          </header>
+          <div className={actualSize ? 'image-viewer-body actual' : 'image-viewer-body'}>
+            <img
+              src={mediaUrl(zoomed)}
+              alt={zoomed.name}
+              onLoad={(event) => {
+                const element = event.currentTarget
+                setZoomedSize({ width: element.naturalWidth, height: element.naturalHeight })
+              }}
+            />
+          </div>
+        </div>
       )}
     </>
   )

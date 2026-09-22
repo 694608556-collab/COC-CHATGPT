@@ -1419,7 +1419,9 @@ export default function App(): React.JSX.Element {
                                 ↓
                               </button>
                               <button
-                                className="text-button danger"
+                                className="icon-button module-remove"
+                                aria-label={`删除模组 ${module.name}`}
+                                title="删除模组"
                                 onClick={() =>
                                   setConfirmOptions({
                                     title: '删除模组',
@@ -1434,7 +1436,7 @@ export default function App(): React.JSX.Element {
                                   })
                                 }
                               >
-                                删除
+                                <XIcon />
                               </button>
                             </div>
                           </header>
@@ -1640,7 +1642,9 @@ export default function App(): React.JSX.Element {
                                               编辑
                                             </button>
                                             <button
-                                              className="text-button danger"
+                                              className="icon-button module-remove"
+                                              aria-label={`删除场次 ${record.name}`}
+                                              title="删除场次"
                                               onClick={() =>
                                                 setConfirmOptions({
                                                   title: '删除场次',
@@ -1661,7 +1665,7 @@ export default function App(): React.JSX.Element {
                                                 })
                                               }
                                             >
-                                              删除
+                                              <XIcon />
                                             </button>
                                           </div>
                                         </td>
@@ -1716,10 +1720,12 @@ export default function App(): React.JSX.Element {
                         </button>
                         <div className="character-card-actions">
                           <button
-                            className="text-button danger"
+                            className="icon-button module-remove"
+                            aria-label={`删除角色卡 ${character.basic.name || '未命名调查员'}`}
+                            title="删除角色卡"
                             onClick={() => requestDeleteCharacter(character)}
                           >
-                            删除
+                            <XIcon />
                           </button>
                         </div>
                       </article>
