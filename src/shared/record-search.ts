@@ -86,6 +86,54 @@ function collapseWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
 }
 
+export interface RecordMatch {
+  /** 命中所在的第几条消息（用于点击定位） */
+  messageIndex: number
+  /** 该消息的标题（时间 + 说话人），列表里当小标题 */
+  header: string
+  /** 关键词前后的原文摘要 */
+  excerpt: string
+  /** 摘要中关键词的起始偏移与长度，供界面高亮 */
+  excerptStart: number
+  excerptLength: number
+}
+
+/**
+ * 在当前场次的正文里逐条查找关键词，返回可直接渲染成结果列表的条目。
+ * 与模组搜索的摘要算法保持一致：前后各截 SEARCH_EXCERPT_PADDING 个字符，
+ * 压缩空白后再定位关键词。
+ *
+ * 命中按“第几条消息”组织，所以每条消息只会出现一次，
+ * 不会出现同一个关键词在一条消息里被拆成多行结果的情况。
+ */
+export function searchRecordMessages(
+  messages: Array<{ header: string; text: string }>,
+  query: string
+): RecordMatch[] {
+  const needle = query.trim().toLocaleLowerCase()
+  if (!needle) return []
+  const results: RecordMatch[] = []
+  messages.forEach((message, messageIndex) => {
+    const source = [message.header, message.text].filter(Boolean).join('\n')
+    if (!source) return
+    const at = source.toLocaleLowerCase().indexOf(needle)
+    if (at < 0) return
+    const from = Math.max(0, at - SEARCH_EXCERPT_PADDING)
+    const to = Math.min(source.length, at + needle.length + SEARCH_EXCERPT_PADDING)
+    const excerpt = collapseWhitespace(source.slice(from, to))
+    const hitAt = excerpt.toLocaleLowerCase().indexOf(needle)
+    results.push({
+      messageIndex,
+      header: message.header,
+      excerpt,
+      // 关键词被压缩后的位置；找不到时退回片段开头，界面按无高亮处理
+      excerptStart: hitAt < 0 ? 0 : hitAt,
+      excerptLength: hitAt < 0 ? 0 : needle.length
+    })
+  })
+  return results
+}
+
 /**
  * 在一个模组的所有场次正文里搜索关键词。
  * 没有正文的场次（链接未检测）自然不会命中。

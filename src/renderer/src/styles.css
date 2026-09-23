@@ -320,15 +320,15 @@ body,
 }
 .detail-search {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
   padding: 14px 20px;
   border-bottom: 1px solid var(--line);
 }
-/* 0.6.5：搜索框独占一行铺满弹窗宽度；命中数与上/下一处按钮放到下面一行，
-   免得按钮挤占输入框的宽度。 */
+/* 搜索框恢复成单行：输入框占满剩余宽度，命中数固定在右侧 */
 .detail-search input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 9px 10px;
   color: var(--text);
   background: var(--panel);
@@ -336,45 +336,88 @@ body,
   border-radius: 8px;
 }
 .detail-search span {
+  flex: none;
+  width: 45px;
   color: var(--muted);
   font-size: 12px;
 }
 
-.detail-search-tools {
+/* 搜索结果列表：与模组正文搜索保持同一套观感
+   （关键词高亮 + 一小段原文摘要 + 点击定位） */
+.detail-search-results {
+  padding: 10px 20px 14px;
+  background: var(--panel2);
+  border-bottom: 1px solid var(--line);
+  /* 结果多时自己滚动，鼠标滚轮即可查看 */
+  max-height: 30vh;
+  overflow-y: auto;
+}
+
+.detail-search-results-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
 }
 
-/* 命中数靠左，上/下一处按钮靠右 */
-.detail-search .detail-search-count {
-  margin-right: auto;
-  font-variant-numeric: tabular-nums;
-}
-
-.detail-search .detail-search-step {
-  flex: none;
-  width: 30px;
-  min-width: 30px;
-  height: 30px;
-  min-height: 30px;
+.detail-search-results ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
   padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  list-style: none;
 }
 
-/* 正文里的搜索高亮：全部命中淡黄，当前那一处加重并带描边 */
-.log-preview mark {
+.detail-search-hit {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 10px;
+  color: var(--text);
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.detail-search-hit:hover {
+  border-color: var(--accent);
+}
+
+.detail-search-hit.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.detail-search-hit-head {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.detail-search-hit-excerpt {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* 正文里的搜索高亮：与模组搜索结果的 mark 完全一致 */
+.log-preview mark,
+.detail-search-hit-excerpt mark {
   padding: 0 2px;
   color: var(--text);
-  background: color-mix(in srgb, var(--warning) 30%, transparent);
+  background: color-mix(in srgb, var(--warning) 35%, transparent);
   border-radius: 3px;
 }
 
-.log-preview mark.match-active {
-  background: color-mix(in srgb, var(--warning) 65%, transparent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 45%, transparent);
+/* 从结果列表点进来的那条，正文里对应消息给个左边框提示 */
+.log-preview article[data-message-index] {
+  scroll-margin: 12px;
 }
 .log-preview {
   max-height: 55vh;

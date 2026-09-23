@@ -6,18 +6,16 @@ import { ConfirmDialog, type ConfirmOptions } from './components/ConfirmDialog'
 import { RecordImportDialog } from './components/RecordImportDialog'
 import appIcon from './assets/app-icon.png'
 import { NoteBoard } from './components/NoteBoard'
-import {
-  ArrowDownIcon,
-  ArrowUpIcon,
-  FolderIcon,
-  PencilIcon,
-  PlusIcon,
-  SolidTriangleIcon,
-  XIcon
-} from './components/Icons'
+import { FolderIcon, PencilIcon, PlusIcon, SolidTriangleIcon, XIcon } from './components/Icons'
 import { mergeImportedParticipants, type TableImportRow } from '../../shared/table-import'
 import { applyLogFilters } from '../../shared/log-filter'
-import { countMatches, searchModuleRecords, splitByMatches, type ModuleSearchHit } from '../../shared/record-search'
+import {
+  countMatches,
+  searchModuleRecords,
+  searchRecordMessages,
+  splitByMatches,
+  type ModuleSearchHit
+} from '../../shared/record-search'
 import { skillFinal } from '../../shared/coc-rules'
 import type { BackupPreviewApi } from '../../shared/api'
 import {
@@ -769,48 +767,50 @@ function FilterEditor({
 function RecordDetail({
   record,
   preset,
+  initialQuery = '',
   onClose
 }: {
   record: SessionRecord
   preset: FilterPreset
+  /** 从模组搜索点进来时带过来的关键词，省得再输一遍 */
+  initialQuery?: string
   onClose(): void
 }): React.JSX.Element {
-  const [query, setQuery] = useState('')
-  // 当前停在第几处命中（从 0 开始）。换关键词时归零，避免下标越界。
-  const [activeMatch, setActiveMatch] = useState(0)
+  const [query, setQuery] = useState(initialQuery)
+  // 点击某条结果后，把对应那条消息滚到可视区
+  const [activeMessage, setActiveMessage] = useState<number>()
   const previewRef = useRef<HTMLDivElement>(null)
   const messages = record.rawContent ? applyLogFilters(record.rawContent, preset) : []
-  const source =
-    record.manualContent || messages.map((message) => `${message.header}\n${message.text}`).join('\n\n')
-  const matches = countMatches(source, query)
+  const matches = countMatches(
+    record.manualContent || messages.map((message) => `${message.header}\n${message.text}`).join('\n\n'),
+    query
+  )
+  // 结果列表与模组搜索保持一致：关键词高亮 + 前后一小段原文摘要
+  const results = searchRecordMessages(
+    record.manualContent
+      ? [{ header: '手动记录', text: record.manualContent }]
+      : messages.map((message) => ({ header: message.header, text: message.text })),
+    query
+  )
 
+  // 换关键词后重新开始定位
   useEffect(() => {
-    setActiveMatch(0)
+    setActiveMessage(undefined)
   }, [query])
 
-  // 当前命中滚动到可视区。依赖 activeMatch，所以点“下一处”也会跟着走。
   useEffect(() => {
+    if (activeMessage === undefined) return
     const container = previewRef.current
-    if (!container || !matches) return
-    const target = container.querySelector('.match-active')
+    if (!container) return
+    const target = container.querySelector(`[data-message-index="${activeMessage}"]`)
     if (target instanceof HTMLElement) target.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  }, [activeMatch, matches, query])
+  }, [activeMessage])
 
-  const step = (delta: number): void => {
-    if (!matches) return
-    setActiveMatch((current) => (current + delta + matches) % matches)
-  }
-
-  // 把一段文本渲染成带高亮的片段；命中片段按序号决定是否“当前命中”。
+  // 把一段文本渲染成带高亮的片段
   const highlight = (text: string): React.ReactNode =>
     splitByMatches(text, query).map((segment, segmentIndex) =>
       segment.match ? (
-        <mark
-          key={segmentIndex}
-          className={segment.index === activeMatch ? 'match-active' : undefined}
-        >
-          {segment.text}
-        </mark>
+        <mark key={segmentIndex}>{segment.text}</mark>
       ) : (
         <span key={segmentIndex}>{segment.text}</span>
       )
@@ -831,42 +831,53 @@ function RecordDetail({
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              step(event.shiftKey ? -1 : 1)
-            }
-          }}
           placeholder="在当前场次正文内搜索"
         />
-        <div className="detail-search-tools">
-          <span className="detail-search-count">{query ? `${matches} 处` : ''}</span>
-          <button
-            className="secondary detail-search-step"
-            disabled={!matches}
-            aria-label="上一处"
-            title="上一处（Shift+Enter）"
-            onClick={() => step(-1)}
-          >
-            <ArrowUpIcon />
-          </button>
-          <button
-            className="secondary detail-search-step"
-            disabled={!matches}
-            aria-label="下一处"
-            title="下一处（Enter）"
-            onClick={() => step(1)}
-          >
-            <ArrowDownIcon />
-          </button>
-        </div>
+        <span>{query ? `${matches} 处` : ''}</span>
       </div>
+      {query && results.length > 0 && (
+        <div className="detail-search-results">
+          <div className="detail-search-results-head">
+            找到 {results.length} 条相关记录
+            <button className="text-button" onClick={() => setQuery('')}>
+              清除
+            </button>
+          </div>
+          <ul>
+            {results.map((hit) => (
+              <li key={hit.messageIndex}>
+                <button
+                  className={
+                    hit.messageIndex === activeMessage ? 'detail-search-hit active' : 'detail-search-hit'
+                  }
+                  onClick={() => setActiveMessage(hit.messageIndex)}
+                >
+                  <span className="detail-search-hit-head">{hit.header || '（无标题）'}</span>
+                  <span className="detail-search-hit-excerpt">
+                    {hit.excerptLength > 0 ? (
+                      <>
+                        {hit.excerpt.slice(0, hit.excerptStart)}
+                        <mark>
+                          {hit.excerpt.slice(hit.excerptStart, hit.excerptStart + hit.excerptLength)}
+                        </mark>
+                        {hit.excerpt.slice(hit.excerptStart + hit.excerptLength)}
+                      </>
+                    ) : (
+                      hit.excerpt
+                    )}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="log-preview" ref={previewRef}>
         {record.manualContent ? (
-          <p>{highlight(record.manualContent)}</p>
+          <p data-message-index={0}>{highlight(record.manualContent)}</p>
         ) : messages.length ? (
-          messages.map((message) => (
-            <article key={message.id}>
+          messages.map((message, messageIndex) => (
+            <article key={message.id} data-message-index={messageIndex}>
               <strong>{highlight(message.header)}</strong>
               <p>{highlight(message.text)}</p>
               {message.images.map((image) => (
@@ -903,6 +914,8 @@ export default function App(): React.JSX.Element {
   const [tableImportOpen, setTableImportOpen] = useState(false)
   const [batchCheckOpen, setBatchCheckOpen] = useState(false)
   const [detailRecordId, setDetailRecordId] = useState<string>()
+  // 从模组搜索点进场次时带过去的搜索词，详情页会直接高亮出来
+  const [detailQuery, setDetailQuery] = useState('')
   const [exportAction, setExportAction] = useState<ExportAction>()
   const [characterId, setCharacterId] = useState<string>()
   const [backupChoiceOpen, setBackupChoiceOpen] = useState(false)
@@ -1568,7 +1581,11 @@ export default function App(): React.JSX.Element {
                                       <li key={hit.recordId}>
                                         <button
                                           className="module-search-hit"
-                                          onClick={() => setDetailRecordId(hit.recordId)}
+                                          onClick={() => {
+                                            // 把模组搜索用的关键词带进详情页，打开即高亮到那一处
+                                            setDetailQuery(moduleSearch[module.id] ?? '')
+                                            setDetailRecordId(hit.recordId)
+                                          }}
                                         >
                                           <span className="module-search-hit-head">
                                             <strong>{hit.recordName}</strong>
@@ -2010,7 +2027,11 @@ export default function App(): React.JSX.Element {
             <RecordDetail
               record={record}
               preset={snapshot.settings.filterPreset}
-              onClose={() => setDetailRecordId(undefined)}
+              initialQuery={detailQuery}
+              onClose={() => {
+                setDetailRecordId(undefined)
+                setDetailQuery('')
+              }}
             />
           ) : null
         })()}

@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { countMatches, splitByMatches } from '../src/shared/record-search'
+import { countMatches, searchRecordMessages, splitByMatches } from '../src/shared/record-search'
 
 const root = path.resolve(__dirname, '..')
 const read = (rel: string): string => fs.readFileSync(path.join(root, rel), 'utf8')
@@ -55,46 +55,75 @@ describe('0.6.5 record detail search is wired to the highlighter', () => {
   const app = read('src/renderer/src/App.tsx')
   const styles = read('src/renderer/src/styles.css')
 
-  it('renders highlights and a current-hit marker instead of only a count', () => {
+  it('renders highlights and a result list instead of only a count', () => {
     expect(app).toContain('splitByMatches')
     expect(app).toContain('countMatches')
-    expect(app).toContain('match-active')
+    expect(app).toContain('searchRecordMessages')
     expect(app).toContain('<mark')
+    expect(app).toContain('detail-search-hit')
   })
 
-  it('offers previous and next buttons plus keyboard stepping', () => {
-    expect(app).toContain('aria-label="上一处"')
-    expect(app).toContain('aria-label="下一处"')
-    expect(app).toContain("event.key === 'Enter'")
-    // Shift+回车往回跳
-    expect(app).toContain('event.shiftKey ? -1 : 1')
+  it('lists one entry per matching message with an excerpt and a header', () => {
+    // 与模组正文搜索一致：每条结果给出小标题 + 关键词前后摘要
+    expect(app).toContain('detail-search-hit-head')
+    expect(app).toContain('detail-search-hit-excerpt')
+    expect(app).toContain('excerptStart')
+    expect(app).toContain('excerptLength')
   })
 
-  it('scrolls the current hit into view', () => {
+  it('jumps to the matching message when a result is clicked', () => {
+    expect(app).toContain('setActiveMessage(hit.messageIndex)')
+    expect(app).toContain('data-message-index')
     expect(app).toContain('scrollIntoView')
     expect(app).toContain('previewRef')
   })
 
-  it('keeps every hit highlighted and makes the current one stand out', () => {
-    const rule = styles.slice(styles.indexOf('.log-preview mark {'))
-    expect(rule).toContain('background')
-    expect(styles).toContain('.log-preview mark.match-active')
+  it('carries the module-search keyword into the detail dialog', () => {
+    expect(app).toContain('setDetailQuery')
+    expect(app).toContain('initialQuery')
   })
 
-  it('gives the search box the full dialog width', () => {
-    // 输入框独占一行铺满；命中数与上/下一处按钮挪到下面一行，不再挤占输入框
+  it('has no previous/next buttons any more', () => {
+    // 0.6.5 初版加了上下按钮，实际很丑也不好用，改为结果列表
+    expect(app).not.toContain('aria-label="上一处"')
+    expect(app).not.toContain('aria-label="下一处"')
+    expect(app).not.toContain('detail-search-tools')
+    expect(app).not.toContain('match-active')
+  })
+
+  it('keeps the search box on one line again', () => {
     const inputRule = styles.slice(
       styles.indexOf('.detail-search input {'),
       styles.indexOf('.detail-search span {')
     )
-    expect(inputRule).toContain('width: 100%')
-    expect(inputRule).not.toContain('flex: 1')
-    const searchRule = styles.slice(
-      styles.indexOf('.detail-search {'),
-      styles.indexOf('.detail-search input {')
+    expect(inputRule).toContain('flex: 1')
+    expect(inputRule).not.toContain('width: 100%')
+    // 命中数回到输入框右侧
+    const countRule = styles.slice(
+      styles.indexOf('.detail-search span {'),
+      styles.indexOf('.detail-search-results {')
     )
-    expect(searchRule).toContain('flex-direction: column')
-    expect(app).toContain('className="detail-search-tools"')
+    expect(countRule).toContain('flex: none')
+    expect(countRule).toContain('width: 45px')
+    expect(styles).not.toContain('.detail-search-tools')
+  })
+
+  it('uses the same highlight style as the module search results', () => {
+    // 两处 mark 共用同一条规则，保证观感一致
+    expect(styles).toContain('.log-preview mark,')
+    expect(styles).toContain('.detail-search-hit-excerpt mark {')
+    expect(styles).not.toContain('.match-active')
+    const moduleMark = styles.slice(styles.indexOf('.module-search-excerpt mark {'))
+    expect(moduleMark).toContain('color-mix(in srgb, var(--warning) 35%, transparent)')
+  })
+
+  it('lets the result list scroll with the mouse wheel', () => {
+    const rule = styles.slice(
+      styles.indexOf('.detail-search-results {'),
+      styles.indexOf('.detail-search-results-head {')
+    )
+    expect(rule).toContain('max-height')
+    expect(rule).toContain('overflow-y: auto')
   })
 
   it('drops the horizontal scrollbar from the log preview', () => {
@@ -107,5 +136,45 @@ describe('0.6.5 record detail search is wired to the highlighter', () => {
     // 长串必须能断行，否则内容仍会被裁掉看不全
     expect(rule).toContain('overflow-wrap: anywhere')
     expect(rule).toContain('word-break: break-word')
+  })
+})
+
+describe('0.6.5 per-message search results', () => {
+  const messages = [
+    { header: '12:32 浮士德', text: '记录已经开始了。' },
+    { header: '12:37 kp', text: '你们在食堂吃早餐，然后出发。' },
+    { header: '12:40 陆桉阳', text: '早餐不错。' },
+    { header: '12:45 kp', text: '早餐后继续调查。' }
+  ]
+
+  it('returns one entry per matching message', () => {
+    const results = searchRecordMessages(messages, '早餐')
+    expect(results.map((r) => r.messageIndex)).toEqual([1, 2, 3])
+    expect(results[0]?.header).toBe('12:37 kp')
+  })
+
+  it('keeps the excerpt around the keyword with its position', () => {
+    const [first] = searchRecordMessages(messages, '早餐')
+    expect(first?.excerpt).toContain('早餐')
+    expect(first?.excerptLength).toBe(2)
+    expect(first?.excerpt.slice(first.excerptStart, first.excerptStart + first.excerptLength)).toBe('早餐')
+  })
+
+  it('returns nothing for an empty or missing keyword', () => {
+    expect(searchRecordMessages(messages, '')).toEqual([])
+    expect(searchRecordMessages(messages, '   ')).toEqual([])
+    expect(searchRecordMessages(messages, '找不到的词')).toEqual([])
+  })
+
+  it('does not split a message that contains the keyword several times', () => {
+    // 一条消息里出现多次也只给一条结果，避免列表里刷出一堆重复项
+    const results = searchRecordMessages([{ header: 'x', text: '早餐早餐早餐' }], '早餐')
+    expect(results).toHaveLength(1)
+  })
+
+  it('matches case-insensitively', () => {
+    const results = searchRecordMessages([{ header: 'KP', text: 'Keep going' }], 'kp')
+    expect(results).toHaveLength(1)
+    expect(results[0]?.excerpt).toContain('KP')
   })
 })
