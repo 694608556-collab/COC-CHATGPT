@@ -253,6 +253,9 @@ export function registerIpc(
   register('records:reset-probe', z.object({ id }), ({ id: recordId }) =>
     repository.resetRecordProbeState(recordId)
   )
+  register('records:realign-sequences', z.object({ moduleId: id }), ({ moduleId }) =>
+    repository.realignModuleSequences(moduleId)
+  )
 
   register(
     'characters:create',

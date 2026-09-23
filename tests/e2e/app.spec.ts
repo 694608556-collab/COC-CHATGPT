@@ -106,6 +106,8 @@ test('real desktop shell persists data and isolates Node', async () => {
     await preset.getByRole('button', { name: '取消' }).click()
     await page.getByRole('button', { name: '+ 新建模组' }).click()
     await page.getByLabel('模组名').fill('暗影循迹')
+    // 0.6.3 起跑团状态是必选项，不选无法保存
+    await page.getByRole('radio', { name: '进行中' }).click()
     await page
       .getByRole('textbox', {
         name: 'KP1',
@@ -143,7 +145,9 @@ test('real desktop shell persists data and isolates Node', async () => {
     await page.getByLabel('手动记录正文').fill('雨落在窗上。')
     await page.getByLabel('跑团日期').fill('2025-03-08')
     await page.getByRole('button', { name: '保存场次' }).click()
-    await expect(page.getByRole('button', { name: '暗影循迹第 1 场' })).toBeVisible()
+    // exact 匹配：场次行的删除按钮 aria-label 是“删除场次 暗影循迹第 1 场”，
+    // 非精确匹配会同时命中它而触发 strict mode 冲突
+    await expect(page.getByRole('button', { name: '暗影循迹第 1 场', exact: true })).toBeVisible()
     await page.getByRole('button', { name: '导入表格' }).click()
     const importDialog = page.getByRole('dialog', { name: '导入表格' })
     await expect(importDialog).toContainText('PC1/PL1')
@@ -203,7 +207,8 @@ test('real desktop shell persists data and isolates Node', async () => {
 
     await page.getByLabel('力量').fill('57')
     await page.getByRole('button', { name: '保存', exact: true }).click()
-    await expect(page.getByRole('button', { name: /林恩/ })).toBeVisible()
+    // 卡片删除按钮的 aria-label 是“删除角色卡 林恩”，用卡片主体类名定位避免歧义
+    await expect(page.locator('.character-card-main').first()).toContainText('林恩')
 
     // creating a card must not append a PC row to its module roster
     await page.getByRole('button', { name: '跑团记录汇总' }).click()
@@ -290,7 +295,7 @@ test('real desktop shell persists data and isolates Node', async () => {
     await expect(page.getByRole('button', { name: '暗影循迹', exact: true })).toBeVisible()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
     await page.getByRole('button', { name: '调查员角色卡' }).click()
-    await expect(page.getByRole('button', { name: /林恩/ })).toBeVisible()
+    await expect(page.locator('.character-card-main').first()).toContainText('林恩')
   } finally {
     await application.close().catch(() => undefined)
   }

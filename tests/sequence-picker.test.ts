@@ -36,7 +36,8 @@ describe('0.6.0 sequence number picker', () => {
   })
 
   it('prefills the session name and forwards the chosen number on create only', () => {
-    expect(app).toContain('`${module.name}第 ${sequenceNo} 场`')
+    // 0.6.6 起名称统一由 sessionNameFor 生成，保证能被编号解析器读回来
+    expect(app).toContain('sessionNameFor(module.name, sequenceNo)')
     expect(app).toContain('recordDraft.sequenceNo !== undefined ? { sequenceNo: recordDraft.sequenceNo }')
     // the update branch must never send a sequence number
     const updateBranch = app.slice(

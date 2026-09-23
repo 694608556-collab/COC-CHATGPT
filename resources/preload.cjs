@@ -33,7 +33,8 @@ contextBridge.exposeInMainWorld('coc', {
     findDuplicate: (moduleId, link, excludingId) =>
       invoke('records:duplicate', { moduleId, link, excludingId }),
     probe: (id) => invoke('records:probe', { id }),
-    resetProbe: (id) => invoke('records:reset-probe', { id })
+    resetProbe: (id) => invoke('records:reset-probe', { id }),
+    realignSequences: (moduleId) => invoke('records:realign-sequences', { moduleId })
   },
   characters: {
     create: (input) => invoke('characters:create', input),

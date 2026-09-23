@@ -20,8 +20,12 @@ describe('0.6.2 session numbering and import probe reset', () => {
       repository.indexOf('默认接续现存场次的最大编号'),
       repository.indexOf('const nextMaximum')
     )
-    expect(branch).toContain('sequenceNo = largestUsed + 1')
+    expect(branch).toContain('const largestUsed = usedRows.reduce')
+    expect(branch).toContain('largestUsed + 1')
     expect(branch).not.toContain('Math.max(storedMaximum, largestUsed)')
+    // 0.6.6 起名称里的“第 N 场”优先；没有名称编号时仍回落到接续最大编号
+    expect(branch).toContain('sessionNumberFromName(input.name)')
+    expect(branch).toContain('named !== undefined && !usedNumbers.has(named)')
   })
 
   it('keeps the gap picker contract untouched', () => {

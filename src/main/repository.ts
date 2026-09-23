@@ -16,6 +16,8 @@ import type {
 import { DEFAULT_FILTER_PRESET } from '../shared/types'
 import { parseDateFromText, parseSeaLogUrl } from '../shared/sea-log'
 import { calculateDerived, convertCharacterEdition, createEmptyCharacter } from '../shared/coc-rules'
+import { sessionNameFor, sessionNumberFromName } from '../shared/session-number'
+import { realignRecordSequences } from './database'
 import type { AppDatabase } from './database'
 
 function now(): string {
@@ -324,6 +326,11 @@ export class AppRepository {
         .prepare('SELECT sequence_no FROM records WHERE module_id = ?')
         .all(input.moduleId) as Array<{ sequence_no: number }>
       const usedNumbers = new Set(usedRows.map((row) => Number(row.sequence_no)))
+      // 默认接续现存场次的最大编号。0.6.2 起不再参考 module_sequences 的历史最大值：
+      // 删除末尾场次不会留下空缺，界面不会弹出编号选择窗口，历史最大值会让编号
+      // 凭空跳到“第 17 场”这类从未存在过的号段。删除场次造成的中间空缺仍由界面
+      // 提示用户主动选择是否填补。
+      const largestUsed = usedRows.reduce((value, row) => Math.max(value, Number(row.sequence_no)), 0)
       let sequenceNo: number
       if (input.sequenceNo !== undefined && input.sequenceNo !== null) {
         const requested = Number(input.sequenceNo)
@@ -334,15 +341,12 @@ export class AppRepository {
           throw new Error(`第 ${requested} 场已存在，请选择其他编号`)
         sequenceNo = requested
       } else {
-        // 默认接续现存场次的最大编号。0.6.2 起不再参考 module_sequences 的历史最大值：
-        // 删除末尾场次不会留下空缺，界面不会弹出编号选择窗口，历史最大值会让编号
-        // 凭空跳到“第 17 场”这类从未存在过的号段。删除场次造成的中间空缺仍由界面
-        // 提示用户主动选择是否填补。
-        const largestUsed = usedRows.reduce(
-          (value, row) => Math.max(value, Number(row.sequence_no)),
-          0
-        )
-        sequenceNo = largestUsed + 1
+        // 0.6.6：名称里的“第 N 场”优先于“接续最大编号”。导入表格带进来的场次名
+        // 已经写明了它是第几场，编号必须跟着名称走，否则名称连续、编号却有空洞，
+        // 界面就会误判“编号缺失”并弹出选择窗口。名称没写编号（用户自己起的名）
+        // 或该编号已被占用时，才退回接续最大编号。
+        const named = sessionNumberFromName(input.name)
+        sequenceNo = named !== undefined && !usedNumbers.has(named) ? named : largestUsed + 1
       }
       const nextMaximum = Math.max(storedMaximum, sequenceNo)
       this.connection
@@ -366,7 +370,7 @@ export class AppRepository {
       const playDate = input.playDate || parsedDate
       const dateSource = input.playDate ? 'manual' : parsedDate ? 'parsed' : 'none'
       const fetchedAt = input.fetchedAt?.trim() || undefined
-      const name = input.name?.trim() || `${module.name}第 ${sequenceNo} 场`
+      const name = input.name?.trim() || sessionNameFor(module.name, sequenceNo)
       this.connection
         .prepare(
           `INSERT INTO records (id,module_id,name,sequence_no,link,source_type,status,play_date,date_source,fetched_at,manual_content,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
@@ -389,6 +393,17 @@ export class AppRepository {
         )
       return this.getRecord(id)
     })
+  }
+
+  /**
+   * 同一模组内该编号是否已被别的场次占用。改名推导编号时用来避让，
+   * 编号是模组内唯一的，撞号时宁可保留原编号也不能写重复值。
+   */
+  private sequenceNumberTaken(moduleId: string, sequenceNo: number, excludingId: string): boolean {
+    const row = this.connection
+      .prepare('SELECT 1 AS found FROM records WHERE module_id=? AND sequence_no=? AND id<>? LIMIT 1')
+      .get(moduleId, sequenceNo, excludingId) as { found?: number } | undefined
+    return Boolean(row?.found)
   }
 
   updateRecord(
@@ -418,12 +433,22 @@ export class AppRepository {
     const sourceType = manualContent ? 'manual' : current.sourceType
     const status = manualContent ? 'manual' : linkChanged ? 'pending' : (patch.status ?? current.status)
     const rawContent = patch.rawContent === undefined ? current.rawContent : patch.rawContent
+    const name = patch.name?.trim() || current.name
+    // 0.6.6：改名时编号跟着名称里的“第 N 场”走。导入表格按“场次名”重排编号后，
+    // 若只改名称不改编号，两者就会分家，界面随即误判“编号缺失”。名称里没有编号、
+    // 或该编号已被同一模组的其他场次占用时，保持原编号不动。
+    const named = patch.name === undefined ? undefined : sessionNumberFromName(name)
+    const sequenceNo =
+      named !== undefined && named !== current.sequenceNo && !this.sequenceNumberTaken(current.moduleId, named, id)
+        ? named
+        : current.sequenceNo
     this.connection
       .prepare(
-        `UPDATE records SET name=?,link=?,source_type=?,status=?,previous_status=?,play_date=?,date_source=?,fetched_at=?,raw_json=?,manual_content=?,cache_source_url=?,last_error=?,updated_at=? WHERE id=?`
+        `UPDATE records SET name=?,sequence_no=?,link=?,source_type=?,status=?,previous_status=?,play_date=?,date_source=?,fetched_at=?,raw_json=?,manual_content=?,cache_source_url=?,last_error=?,updated_at=? WHERE id=?`
       )
       .run(
-        patch.name?.trim() || current.name,
+        name,
+        sequenceNo,
         link ?? null,
         sourceType,
         status,
@@ -465,6 +490,17 @@ export class AppRepository {
       )
       .run(now(), id)
     return this.getRecord(id)
+  }
+
+  /**
+   * 0.6.6：导入表格后统一校正一次编号。
+   *
+   * 导入是按行逐条改名改号的，遇到“两场编号互换”这类情况，逐条处理时目标编号
+   * 还被对方占着，谁都动不了。整批改完再统一重排一次就能正确换过来。
+   */
+  realignModuleSequences(moduleId: string): number {
+    this.getModule(moduleId)
+    return this.database.transaction(() => realignRecordSequences(this.connection, moduleId))
   }
 
   deleteRecord(id: string): void {

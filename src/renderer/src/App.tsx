@@ -8,6 +8,7 @@ import appIcon from './assets/app-icon.png'
 import { NoteBoard } from './components/NoteBoard'
 import { FolderIcon, PencilIcon, PlusIcon, SolidTriangleIcon, XIcon } from './components/Icons'
 import { mergeImportedParticipants, type TableImportRow } from '../../shared/table-import'
+import { sessionNameFor, sessionNumberFromName } from '../../shared/session-number'
 import { applyLogFilters } from '../../shared/log-filter'
 import {
   countMatches,
@@ -1158,7 +1159,7 @@ export default function App(): React.JSX.Element {
   const openRecordEditor = (module: ModuleRecord, sequenceNo?: number): void => {
     setRecordDraft({
       moduleId: module.id,
-      name: sequenceNo !== undefined ? `${module.name}第 ${sequenceNo} 场` : '',
+      name: sequenceNo !== undefined ? sessionNameFor(module.name, sequenceNo) : '',
       link: '',
       playDate: '',
       manualContent: '',
@@ -1166,11 +1167,13 @@ export default function App(): React.JSX.Element {
     })
   }
 
-  // 添加场次：编号连续时直接打开编辑器；存在空缺（如删除过场次）时先让用户选择编号
+  // 添加场次：编号连续时直接打开编辑器；存在空缺（如删除过场次）时先让用户选择编号。
+  // 0.6.6 起编号以场次名里的“第 N 场”为准，这里同样按名称取号，避免出现
+  // “名称连续、编号却有空洞”的假空缺（导入表格重排过场次名时会出现）。
   const requestAddRecord = (module: ModuleRecord): void => {
     const used = snapshot.records
       .filter((record) => record.moduleId === module.id)
-      .map((record) => record.sequenceNo)
+      .map((record) => sessionNumberFromName(record.name) ?? record.sequenceNo)
     const maximum = used.length ? Math.max(...used) : 0
     const usedSet = new Set(used)
     const gaps: number[] = []
@@ -1217,6 +1220,7 @@ export default function App(): React.JSX.Element {
       if (row.playStatus && !playStatusByModule.has(key)) playStatusByModule.set(key, row.playStatus)
     }
     const newModules: string[] = []
+    const touchedModuleIds = new Set<string>()
     let createdModules = 0
     let createdRecords = 0
     let updatedRecords = 0
@@ -1244,6 +1248,7 @@ export default function App(): React.JSX.Element {
         known.set(key, module)
       }
       const duplicate = await window.coc.records.findDuplicate(module.id, row.link)
+      touchedModuleIds.add(module.id)
       if (duplicate) {
         // 导出表再导入：用表内信息覆盖更新已存在场次。
         // 0.6.2 起导入不再采信表格里的历史状态，链接一律回到“待检测”，
@@ -1266,6 +1271,16 @@ export default function App(): React.JSX.Element {
         createdRecords += 1
       } catch {
         skipped += 1
+      }
+    }
+    // 0.6.6：整批导完再统一校正一次编号。逐条改名改号时，两场编号互换这类情况
+    // 会因为目标编号还被对方占着而谁都动不了；整批重排才能正确换过来。
+    for (const moduleId of touchedModuleIds) {
+      try {
+        await window.coc.records.realignSequences(moduleId)
+      } catch {
+        // 校正失败不该让整次导入算失败：场次与名称已经写进去了，
+        // 编号留待用户下次改名或升级迁移时再对齐。
       }
     }
     await refresh()
