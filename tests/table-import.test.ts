@@ -201,6 +201,7 @@ describe('exported workbook round-trip', () => {
     notes: [],
     importMappings: [],
     archiveEntries: [],
+    resources: [],
     settings: {
       theme: 'light',
       archiveDirectory: 'C:\\archive',

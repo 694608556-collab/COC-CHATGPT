@@ -174,6 +174,47 @@ export interface NoteRecord {
   updatedAt: string
 }
 
+/**
+ * 模组资料的类型。
+ *
+ * - mindmap：EdrawMind 导图（.emmx），可解析出矢量预览与大纲文字
+ * - link：网页链接（Notion 等），只存地址，点击用浏览器打开
+ * - file：其他本地文件（PDF/Word/图片等），点击用系统默认程序打开
+ */
+export type ModuleResourceKind = 'mindmap' | 'link' | 'file'
+
+export const MODULE_RESOURCE_KIND_LABELS: Record<ModuleResourceKind, string> = {
+  mindmap: '思维导图',
+  link: '链接',
+  file: '文件'
+}
+
+export const MODULE_RESOURCE_KINDS: ModuleResourceKind[] = ['mindmap', 'link', 'file']
+
+/**
+ * 挂在模组下的一条资料。
+ *
+ * 软件只记路径、不复制文件：原文件改了立刻生效，但被移走时链接会失效，
+ * 界面据此提示「文件找不到了」并让用户重新指定。
+ *
+ * 0.7.0 起 moduleId 可省略：资料允许不归属任何模组。
+ */
+export interface ModuleResource {
+  id: string
+  /** 省略表示未归属任何模组 */
+  moduleId?: string
+  kind: ModuleResourceKind
+  title: string
+  /** 本地文件的绝对路径；link 类型为空 */
+  path?: string
+  /** link 类型的网址 */
+  url?: string
+  note?: string
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
 export interface ArchiveEntry {
   id: string
   ownerType: 'record' | 'module' | 'character' | 'backup'
@@ -195,6 +236,14 @@ export interface AppSettings {
     interval: 'idle' | 'daily' | 'weekly'
     retention: number
   }
+  /**
+   * 在「资料汇总」页被移除的模组分组。
+   *
+   * 分组是从模组列表实时算出来的，不记一笔的话删掉后一刷新又回来。
+   * 这里只影响资料汇总页的显示：模组本身、场次、角色卡都不受影响。
+   * 若之后又给这个模组添加资料，分组会自动重新出现（新资料总得有地方放）。
+   */
+  hiddenResourceModules?: string[]
   windowState?: {
     x?: number
     y?: number
@@ -209,6 +258,7 @@ export interface SettingsPatch {
   archiveDirectory?: string
   filterPreset?: Partial<FilterPreset>
   autoBackup?: Partial<AppSettings['autoBackup']>
+  hiddenResourceModules?: string[]
   windowState?: AppSettings['windowState']
 }
 
@@ -222,4 +272,5 @@ export interface AppSnapshot {
   settings: AppSettings
   importMappings: unknown[]
   archiveEntries: ArchiveEntry[]
+  resources: ModuleResource[]
 }

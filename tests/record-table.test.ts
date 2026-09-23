@@ -11,6 +11,7 @@ const snapshot: AppSnapshot = {
   notes: [],
   importMappings: [],
   archiveEntries: [],
+  resources: [],
   settings: {
     theme: 'light',
     archiveDirectory: 'C:\\archive',

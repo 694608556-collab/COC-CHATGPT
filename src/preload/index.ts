@@ -46,6 +46,23 @@ const api: CocApi = {
     update: (id, patch) => invoke('notes:update', { id, patch }),
     delete: (id) => invoke('notes:delete', { id })
   },
+  resources: {
+    create: (input) => invoke('resources:create', input),
+    update: (id, patch) => invoke('resources:update', { id, ...patch }),
+    delete: (id) => invoke('resources:delete', { id }),
+    move: (id, targetIndex) => invoke('resources:move', { id, targetIndex }),
+    removeGroup: (moduleId) => invoke('resources:remove-group', { moduleId }),
+    setModule: (id, moduleId) => invoke('resources:set-module', { id, moduleId }),
+    chooseFiles: (kind) => invoke('resources:choose-files', { kind }),
+    readMindmap: (targetPath) => invoke('resources:read-mindmap', { targetPath }),
+    readImage: (targetPath) => invoke('resources:read-image', { targetPath }),
+    chooseReplacement: (id) => invoke('resources:choose-replacement', { id }),
+    relink: (id, path, title) => invoke('resources:relink', { id, path, title }),
+    exportOutline: (targetPath, title) => invoke('resources:export-outline', { targetPath, title }),
+    fileIcons: (paths) => invoke('resources:file-icons', { paths }),
+    open: (id) => invoke('resources:open', { id }),
+    checkPaths: (paths) => invoke('resources:check-paths', { paths })
+  },
   settings: { update: (patch) => invoke('settings:update', patch) },
   files: {
     exportRecord: (id, format) => invoke('files:export-record', { id, format }),

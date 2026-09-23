@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite'
 import type { ParticipantPair } from '../shared/types'
 import { sessionNumberFromName } from '../shared/session-number'
 
-const SCHEMA_VERSION = 5
+const SCHEMA_VERSION = 7
 
 const MIGRATION_V1 = `
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -109,6 +109,54 @@ CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at);
  */
 const MIGRATION_V4 = `
 ALTER TABLE modules ADD COLUMN play_status TEXT NOT NULL DEFAULT 'not_started';
+`
+
+/**
+ * 0.6.8：模组资料汇总（EdrawMind 导图、Notion 链接、其他本地文件）。
+ *
+ * 只登记路径、不复制文件，所以表里存的是 path/url 而不是内容。
+ */
+const MIGRATION_V6 = `
+CREATE TABLE IF NOT EXISTS module_resources (
+  id TEXT PRIMARY KEY,
+  module_id TEXT NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  path TEXT,
+  url TEXT,
+  note TEXT,
+  sort_order INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_resources_module ON module_resources(module_id, sort_order);
+`
+
+/**
+ * 0.7.0：资料可以不归属任何模组（module_id 允许为空）。
+ *
+ * SQLite 不能直接去掉列的 NOT NULL，只能重建表再搬数据。
+ * 外键仍保留 ON DELETE CASCADE：module_id 为 NULL 时不会匹配任何模组，
+ * 所以未归属的资料不会因为删模组被连带删掉——这正是想要的行为。
+ */
+const MIGRATION_V7 = `
+CREATE TABLE IF NOT EXISTS module_resources_v7 (
+  id TEXT PRIMARY KEY,
+  module_id TEXT REFERENCES modules(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  path TEXT,
+  url TEXT,
+  note TEXT,
+  sort_order INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+INSERT OR IGNORE INTO module_resources_v7 (id,module_id,kind,title,path,url,note,sort_order,created_at,updated_at)
+  SELECT id,module_id,kind,title,path,url,note,sort_order,created_at,updated_at FROM module_resources;
+DROP TABLE module_resources;
+ALTER TABLE module_resources_v7 RENAME TO module_resources;
+CREATE INDEX IF NOT EXISTS idx_resources_module ON module_resources(module_id, sort_order);
 `
 
 /**
@@ -293,6 +341,22 @@ export class AppDatabase {
         this.connection
           .prepare('INSERT OR REPLACE INTO schema_meta (id, version, migrated_at) VALUES (1, ?, ?)')
           .run(5, new Date().toISOString())
+      })
+    }
+    if (currentVersion < 6) {
+      this.transaction(() => {
+        this.connection.exec(MIGRATION_V6)
+        this.connection
+          .prepare('INSERT OR REPLACE INTO schema_meta (id, version, migrated_at) VALUES (1, ?, ?)')
+          .run(6, new Date().toISOString())
+      })
+    }
+    if (currentVersion < 7) {
+      this.transaction(() => {
+        this.connection.exec(MIGRATION_V7)
+        this.connection
+          .prepare('INSERT OR REPLACE INTO schema_meta (id, version, migrated_at) VALUES (1, ?, ?)')
+          .run(7, new Date().toISOString())
       })
     }
     const integrity = this.integrityCheck()

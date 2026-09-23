@@ -59,7 +59,8 @@ describe('0.6.3 module play status', () => {
   })
 
   it('migrates older databases to schema v4 and backfills not_started', () => {
-    expect(database).toContain('const SCHEMA_VERSION = 5')
+    // 只断言 v4 这一步还在；版本号本身会随迁移递增，不写死
+    expect(database).toMatch(/const SCHEMA_VERSION = \d+/)
     expect(database).toContain("ALTER TABLE modules ADD COLUMN play_status TEXT NOT NULL DEFAULT 'not_started'")
     expect(database).toContain('if (currentVersion < 4)')
   })

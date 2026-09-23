@@ -6,6 +6,8 @@ import type {
   ArchiveEntry,
   CharacterData,
   ModulePlayStatus,
+  ModuleResource,
+  ModuleResourceKind,
   NoteImage,
   NoteRecord,
   ModuleRecord,
@@ -14,6 +16,7 @@ import type {
   SettingsPatch
 } from '../shared/types'
 import { DEFAULT_FILTER_PRESET } from '../shared/types'
+import { AppError } from '../shared/errors'
 import { parseDateFromText, parseSeaLogUrl } from '../shared/sea-log'
 import { calculateDerived, convertCharacterEdition, createEmptyCharacter } from '../shared/coc-rules'
 import { sessionNameFor, sessionNumberFromName } from '../shared/session-number'
@@ -67,6 +70,30 @@ function rowToNote(row: Record<string, unknown>): NoteRecord {
     content: String(row.content ?? ''),
     images: parseJson<NoteImage[]>(row.images_json, []),
     noteDate: String(row.note_date),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  }
+}
+
+const RESOURCE_KINDS: ModuleResourceKind[] = ['mindmap', 'link', 'file']
+
+/** 老库或备份里可能出现未知 kind，兜底成 file 免得界面拿到非法值 */
+function normalizeResourceKind(value: unknown): ModuleResourceKind {
+  const text = String(value ?? '')
+  return (RESOURCE_KINDS as string[]).includes(text) ? (text as ModuleResourceKind) : 'file'
+}
+
+function rowToResource(row: Record<string, unknown>): ModuleResource {
+  return {
+    id: String(row.id),
+    // 0.7.0 起允许为空：未归属任何模组的资料
+    moduleId: row.module_id ? String(row.module_id) : undefined,
+    kind: normalizeResourceKind(row.kind),
+    title: String(row.title ?? ''),
+    path: row.path ? String(row.path) : undefined,
+    url: row.url ? String(row.url) : undefined,
+    note: row.note ? String(row.note) : undefined,
+    sortOrder: Number(row.sort_order ?? 0),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   }
@@ -175,6 +202,7 @@ export class AppRepository {
         }
       })
     const notes = this.listNotes()
+    const resources = this.listResources()
     const importMappings = this.connection
       .prepare('SELECT data_json FROM import_mappings ORDER BY created_at')
       .all()
@@ -188,7 +216,8 @@ export class AppRepository {
       notes,
       settings: this.getSettings(),
       importMappings,
-      archiveEntries
+      archiveEntries,
+      resources
     }
   }
 
@@ -211,6 +240,26 @@ export class AppRepository {
       .prepare('UPDATE settings SET data_json = ?, updated_at = ? WHERE id = 1')
       .run(JSON.stringify(next), now())
     return next
+  }
+
+  /**
+   * 0.7.0：把一个模组分组从「资料汇总」页移除。
+   *
+   * 只记一条「已移除」标记，不动模组本身——场次、角色卡、跑团记录页全都不受影响。
+   * 之所以要记，是因为分组是从模组列表实时算出来的，不记的话刷新后又会冒出来。
+   */
+  hideResourceGroup(moduleId: string): AppSettings {
+    const current = this.getSettings()
+    const hidden = new Set(current.hiddenResourceModules ?? [])
+    hidden.add(moduleId)
+    return this.updateSettings({ hiddenResourceModules: [...hidden] })
+  }
+
+  /** 0.7.0：把资料归属到这个模组时，取消它的「已移除」标记，让分组重新出现。 */
+  showResourceGroup(moduleId: string): AppSettings {
+    const current = this.getSettings()
+    const hidden = (current.hiddenResourceModules ?? []).filter((id) => id !== moduleId)
+    return this.updateSettings({ hiddenResourceModules: hidden })
   }
 
   createModule(input: {
@@ -739,6 +788,165 @@ export class AppRepository {
     this.connection.prepare('DELETE FROM notes WHERE id = ?').run(id)
   }
 
+  // ============ 0.6.8 模组资料汇总 ============
+
+  /**
+   * 列出资料。
+   *
+   * - 不传参数：全部
+   * - 传模组 id：该模组的
+   * - 传 undefined 且显式说明要未归属：用 listUnassignedResources()
+   */
+  listResources(moduleId?: string): ModuleResource[] {
+    const rows = moduleId
+      ? this.connection
+          .prepare('SELECT * FROM module_resources WHERE module_id = ? ORDER BY sort_order')
+          .all(moduleId)
+      : this.connection
+          .prepare('SELECT * FROM module_resources ORDER BY module_id, sort_order')
+          .all()
+    return rows.map((row) => rowToResource(row as Record<string, unknown>))
+  }
+
+  /** 0.7.0：未归属任何模组的资料 */
+  listUnassignedResources(): ModuleResource[] {
+    return (
+      this.connection
+        .prepare('SELECT * FROM module_resources WHERE module_id IS NULL ORDER BY sort_order')
+        .all() as Array<Record<string, unknown>>
+    ).map((row) => rowToResource(row))
+  }
+
+  findResource(id: string): ModuleResource {
+    const row = this.connection.prepare('SELECT * FROM module_resources WHERE id = ?').get(id)
+    if (!row) throw new AppError('RESOURCE_MISSING', 'DATA', '这条资料不存在。')
+    return rowToResource(row as Record<string, unknown>)
+  }
+
+  /**
+   * 取某个归属下一条可用的排序号（末尾 + 1）。
+   * moduleId 为 undefined 时算「未归属」那一组，两组各自独立编号。
+   */
+  private nextResourceOrder(moduleId: string | undefined): number {
+    const row = (
+      moduleId
+        ? this.connection
+            .prepare(
+              'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM module_resources WHERE module_id = ?'
+            )
+            .get(moduleId)
+        : this.connection
+            .prepare(
+              'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM module_resources WHERE module_id IS NULL'
+            )
+            .get()
+    ) as { next?: number } | undefined
+    return Number(row?.next ?? 0)
+  }
+
+  createResource(input: {
+    moduleId?: string
+    kind: ModuleResourceKind
+    title?: string
+    path?: string
+    url?: string
+    note?: string
+  }): ModuleResource {
+    // 归属是可选的：给了模组就校验它存在（外键虽然会拦，但先查一次能给出更清楚的提示）
+    const moduleId = input.moduleId?.trim() || undefined
+    if (moduleId) this.getModule(moduleId)
+    // 又给这个模组加资料了 → 取消它在资料汇总页的「已移除」标记，
+    // 否则新资料会无处可去（分组不显示）
+    if (moduleId && (this.getSettings().hiddenResourceModules ?? []).includes(moduleId)) {
+      this.showResourceGroup(moduleId)
+    }
+    const id = randomUUID()
+    const timestamp = now()
+    // 排序在「同一归属」内独立编号；未归属的那批共用一个序列
+    const order = this.nextResourceOrder(moduleId)
+    this.connection
+      .prepare(
+        'INSERT INTO module_resources (id,module_id,kind,title,path,url,note,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)'
+      )
+      .run(
+        id,
+        moduleId ?? null,
+        input.kind,
+        input.title?.trim() ?? '',
+        input.path?.trim() || null,
+        input.url?.trim() || null,
+        input.note?.trim() || null,
+        order,
+        timestamp,
+        timestamp
+      )
+    return this.findResource(id)
+  }
+
+  updateResource(
+    id: string,
+    patch: { title?: string; path?: string; url?: string; note?: string }
+  ): ModuleResource {
+    const current = this.findResource(id)
+    this.connection
+      .prepare('UPDATE module_resources SET title=?, path=?, url=?, note=?, updated_at=? WHERE id=?')
+      .run(
+        patch.title === undefined ? current.title : patch.title.trim(),
+        patch.path === undefined ? (current.path ?? null) : patch.path.trim() || null,
+        patch.url === undefined ? (current.url ?? null) : patch.url.trim() || null,
+        patch.note === undefined ? (current.note ?? null) : patch.note.trim() || null,
+        now(),
+        id
+      )
+    return this.findResource(id)
+  }
+
+  deleteResource(id: string): void {
+    this.connection.prepare('DELETE FROM module_resources WHERE id = ?').run(id)
+  }
+
+  /** 同一归属内调整资料顺序，索引从 0 开始 */
+  moveResource(id: string, targetIndex: number): void {
+    const current = this.findResource(id)
+    const siblings = this.listResources(current.moduleId)
+    const from = siblings.findIndex((item) => item.id === id)
+    if (from < 0) return
+    const to = Math.max(0, Math.min(siblings.length - 1, targetIndex))
+    if (from === to) return
+    const reordered = [...siblings]
+    const [moved] = reordered.splice(from, 1)
+    reordered.splice(to, 0, moved!)
+    const statement = this.connection.prepare(
+      'UPDATE module_resources SET sort_order = ?, updated_at = ? WHERE id = ?'
+    )
+    const timestamp = now()
+    this.database.transaction(() => {
+      reordered.forEach((item, index) => statement.run(index, timestamp, item.id))
+    })
+  }
+
+  /**
+   * 0.7.0：改资料的归属模组。
+   *
+   * 传 undefined 表示「不属于任何模组」。移动后按新归属重新排到末尾，
+   * 避免和原归属的序号撞在一起。
+   */
+  setResourceModule(id: string, moduleId: string | undefined): ModuleResource {
+    const current = this.findResource(id)
+    const target = moduleId?.trim() || undefined
+    if (target) this.getModule(target)
+    if (current.moduleId === target) return current
+    // 把资料拖到某个被移除的分组 → 让那个分组重新出现
+    if (target && (this.getSettings().hiddenResourceModules ?? []).includes(target)) {
+      this.showResourceGroup(target)
+    }
+    const order = this.nextResourceOrder(target)
+    this.connection
+      .prepare('UPDATE module_resources SET module_id = ?, sort_order = ?, updated_at = ? WHERE id = ?')
+      .run(target ?? null, order, now(), id)
+    return this.findResource(id)
+  }
+
   replaceFromBackup(
     snapshot: AppSnapshot,
     options: { restoreSettings: boolean; archiveDirectory: string }
@@ -747,7 +955,7 @@ export class AppRepository {
       throw new Error('备份版本不受支持')
     this.database.transaction(() => {
       this.connection.exec(
-        'DELETE FROM records; DELETE FROM characters; DELETE FROM notes; DELETE FROM module_sequences; DELETE FROM modules; DELETE FROM import_mappings; DELETE FROM archive_entries;'
+        'DELETE FROM records; DELETE FROM characters; DELETE FROM notes; DELETE FROM module_resources; DELETE FROM module_sequences; DELETE FROM modules; DELETE FROM import_mappings; DELETE FROM archive_entries;'
       )
       for (const module of snapshot.modules) {
         this.connection
@@ -828,6 +1036,29 @@ export class AppRepository {
             note.updatedAt
           )
       }
+      for (const resource of snapshot.resources ?? []) {
+        // 未归属的资料照常恢复；有归属但模组已不在备份里的则跳过，
+        // 否则外键会拦下整批恢复
+        const moduleId = resource.moduleId || undefined
+        if (moduleId && !this.connection.prepare('SELECT 1 AS found FROM modules WHERE id = ?').get(moduleId))
+          continue
+        this.connection
+          .prepare(
+            'INSERT INTO module_resources (id,module_id,kind,title,path,url,note,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)'
+          )
+          .run(
+            resource.id,
+            moduleId ?? null,
+            normalizeResourceKind(resource.kind),
+            resource.title ?? '',
+            resource.path ?? null,
+            resource.url ?? null,
+            resource.note ?? null,
+            resource.sortOrder ?? 0,
+            resource.createdAt ?? now(),
+            resource.updatedAt ?? now()
+          )
+      }
       for (const mapping of snapshot.importMappings) {
         this.connection
           .prepare('INSERT INTO import_mappings (id,data_json,created_at) VALUES (?,?,?)')
@@ -862,7 +1093,7 @@ export class AppRepository {
   clearBusinessData(options: { resetSettings: boolean; clearMappings: boolean }): void {
     this.database.transaction(() => {
       this.connection.exec(
-        'DELETE FROM records; DELETE FROM characters; DELETE FROM notes; DELETE FROM module_sequences; DELETE FROM modules; DELETE FROM archive_entries;'
+        'DELETE FROM records; DELETE FROM characters; DELETE FROM notes; DELETE FROM module_resources; DELETE FROM module_sequences; DELETE FROM modules; DELETE FROM archive_entries;'
       )
       if (options.clearMappings) this.connection.exec('DELETE FROM import_mappings;')
       if (options.resetSettings)

@@ -5,6 +5,8 @@ import type {
   CharacterData,
   ModulePlayStatus,
   ModuleRecord,
+  ModuleResource,
+  ModuleResourceKind,
   NoteImage,
   NoteRecord,
   ParticipantPair,
@@ -17,6 +19,27 @@ import type { CharacterField } from './character-template'
 export type ApiResult<T> = { ok: true; value: T } | { ok: false; error: SerializedAppError }
 export type RecordExportFormat = 'raw' | 'doc' | 'dialogue-doc' | 'docx' | 'txt' | 'pdf'
 export type CombinedExportFormat = 'txt' | 'docx' | 'pdf'
+
+/** 导图的一个画布：矢量 SVG 与统计信息 */
+export interface MindmapPageApi {
+  name: string
+  title: string
+  width: number
+  height: number
+  svg: string
+  textCount: number
+  /** 该画布的全部节点文字，供查看器内的节点搜索使用 */
+  texts: string[]
+}
+
+export interface MindmapPreviewApi {
+  /** html = EdrawMind 网页导出（图形完整）；emmx = 源文件解析 */
+  format: 'html' | 'emmx'
+  modifiedAt?: string
+  /** 带层级的全部节点文字，供搜索、大纲展示与导出 */
+  outline: Array<{ text: string; depth: number }>
+  pages: MindmapPageApi[]
+}
 
 export interface BatchExportResult {
   id: string
@@ -169,6 +192,43 @@ export interface CocApi {
       }
     ): Promise<NoteRecord>
     delete(id: string): Promise<void>
+  }
+  resources: {
+    create(input: {
+      moduleId?: string
+      kind: ModuleResourceKind
+      title?: string
+      path?: string
+      url?: string
+      note?: string
+    }): Promise<ModuleResource>
+    update(
+      id: string,
+      patch: { title?: string; path?: string; url?: string; note?: string }
+    ): Promise<ModuleResource>
+    delete(id: string): Promise<void>
+    move(id: string, targetIndex: number): Promise<void>
+    /** 把一个模组分组从资料汇总页移除（只影响该页显示，不动模组本身） */
+    removeGroup(moduleId: string): Promise<AppSettings>
+    /** 改归属模组；传 undefined 表示不属于任何模组 */
+    setModule(id: string, moduleId: string | undefined): Promise<ModuleResource>
+    /** 打开系统的文件选择框；导图与普通文件都用它 */
+    chooseFiles(kind: ModuleResourceKind): Promise<Array<{ path: string; title: string }>>
+    /** 读取导图并转成矢量 SVG 与层级大纲；只读，不改动原文件 */
+    readMindmap(targetPath: string): Promise<MindmapPreviewApi>
+    /** 读取任意本地图片为 data URL，供资料缩略图使用 */
+    readImage(targetPath: string): Promise<string>
+    /** 让用户重新选一个文件来更新这条资料；取消时返回 undefined */
+    chooseReplacement(id: string): Promise<{ path: string; title: string } | undefined>
+    /** 把资料指向新的文件 */
+    relink(id: string, path: string, title?: string): Promise<ModuleResource>
+    /** 把大纲导出成 markdown，返回文件路径 */
+    exportOutline(targetPath: string, title: string): Promise<string>
+    /** 取文件的系统真实图标（data URL）；读不到的位置为 undefined */
+    fileIcons(paths: string[]): Promise<Array<string | undefined>>
+    /** 用系统默认程序打开：导图交给 EdrawMind，链接交给浏览器 */
+    open(id: string): Promise<void>
+    checkPaths(paths: string[]): Promise<boolean[]>
   }
   settings: {
     update(patch: SettingsPatch): Promise<AppSettings>

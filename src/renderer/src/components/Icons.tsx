@@ -64,6 +64,19 @@ export function PlusIcon({
   )
 }
 
+/** 更新：环形箭头，用于「重新指定这个资料对应的文件」 */
+export function RefreshIcon({
+  size = 16,
+  className
+}: IconProps): React.JSX.Element {
+  return (
+    <svg {...base(size, className)}>
+      <path d="M20 11a8 8 0 1 0-.6 3" />
+      <path d="M20 4.5V11h-6.5" />
+    </svg>
+  )
+}
+
 export function XIcon({
   size = 16,
   className

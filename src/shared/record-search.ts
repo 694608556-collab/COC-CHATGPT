@@ -197,3 +197,49 @@ export function searchModuleRecords(
   }
   return hits.sort((a, b) => b.matches - a.matches)
 }
+
+/** 导图大纲里的命中：按「命中了哪些节点」组织，而不是按字符位置 */
+export interface OutlineSearchHit {
+  resourceId: string
+  resourceTitle: string
+  /** 命中关键词的节点数 */
+  matches: number
+  /** 命中的节点文字（最多 5 条，供结果列表展示） */
+  lines: string[]
+}
+
+/**
+ * 在导图大纲（或任何按行组织的文字）里搜索关键词。
+ *
+ * 与场次正文搜索分开，因为两者的「一处命中」含义不同：
+ * 正文按字符计数，大纲按「命中了几个节点」计数——用户想看的是
+ * 「这张导图里有哪几个节点提到了这个词」，而不是字符偏移。
+ */
+export function searchOutline(
+  entries: Array<{ resourceId: string; resourceTitle: string; lines: string[] }>,
+  query: string,
+  maxLines = 5
+): OutlineSearchHit[] {
+  const needle = query.trim().toLocaleLowerCase()
+  if (!needle) return []
+  const hits: OutlineSearchHit[] = []
+  for (const entry of entries) {
+    const matched: string[] = []
+    let count = 0
+    for (const line of entry.lines) {
+      if (!line) continue
+      if (countOccurrences(line.toLocaleLowerCase(), needle) > 0) {
+        count += 1
+        if (matched.length < maxLines) matched.push(line)
+      }
+    }
+    if (!count) continue
+    hits.push({
+      resourceId: entry.resourceId,
+      resourceTitle: entry.resourceTitle,
+      matches: count,
+      lines: matched
+    })
+  }
+  return hits.sort((a, b) => b.matches - a.matches)
+}

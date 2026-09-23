@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { AppDatabase, realignRecordSequences } from '../src/main/database'
+import { AppDatabase, CURRENT_SCHEMA_VERSION, realignRecordSequences } from '../src/main/database'
 import { AppRepository } from '../src/main/repository'
 import { sessionNameFor, sessionNumberFromName } from '../src/shared/session-number'
 
@@ -241,7 +241,8 @@ describe('0.6.6 session number follows the session name', () => {
   describe('schema v5 migration', () => {
     it('is wired into the upgrade path', () => {
       const databaseSource = read('src/main/database.ts')
-      expect(databaseSource).toContain('const SCHEMA_VERSION = 5')
+      // 版本号会随迁移递增，不写死；只确认 v5 这一步还在
+      expect(databaseSource).toMatch(/const SCHEMA_VERSION = \d+/)
       expect(databaseSource).toContain('if (currentVersion < 5)')
       expect(databaseSource).toContain('realignRecordSequences(this.connection)')
     })
@@ -290,7 +291,7 @@ describe('0.6.6 session number follows the session name', () => {
         '铸形骸第 3 场',
         '铸形骸第 4 场'
       ])
-      expect(version).toBe(5)
+      expect(version).toBe(CURRENT_SCHEMA_VERSION)
     })
   })
 

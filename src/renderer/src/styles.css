@@ -3020,3 +3020,459 @@ grid-row:6;
 .note-thumbs img {
   cursor: zoom-in;
 }
+
+/* ============ 0.7.0 资料汇总 ============ */
+.resource-groups {
+  display: grid;
+  gap: 14px;
+}
+
+/* 每个模组一组，样式与跑团记录页的模组卡片一致 */
+.resource-group {
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+/* 未归属的那组用虚线边框区分，视觉上比模组组轻一点 */
+.resource-group.unassigned {
+  border-style: dashed;
+  background: var(--panel2);
+}
+
+.resource-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.resource-group-name {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.resource-group-empty {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+/* 桌面图标式的网格：缩略图 + 名称 */
+.resource-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.resource-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: default;
+  user-select: none;
+}
+
+.resource-tile:hover {
+  background: var(--panel2);
+  border-color: var(--line);
+}
+
+/* 拖拽中的卡片淡一点，落点分组高亮 */
+.resource-tile[draggable='true'] {
+  cursor: grab;
+}
+
+.resource-group.drop-target {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.resource-tile.missing {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
+.resource-tile-preview {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 64px;
+}
+
+/* 系统真实图标（docx 显示 Word 图标、pdf 显示 PDF 图标） */
+.resource-tile-icon {
+  max-width: 48px;
+  max-height: 48px;
+}
+
+/* 图片缩略图，和闲记里的图片同一套 coc-media 协议 */
+.resource-tile-image {
+  max-width: 100%;
+  max-height: 64px;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.resource-tile-fallback {
+  font-size: 34px;
+  line-height: 1;
+  color: var(--muted);
+}
+
+/* 链接图标：用软件自己的线条图标，不再是黑白 emoji（0.6.8 的观感问题） */
+.resource-tile-link {
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+}
+
+/* 缩略图/图标统一在同一个方框里居中，格子不会互相交叠 */
+.resource-tile-preview > * {
+  display: block;
+}
+
+.resource-tile-name {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.resource-tile-missing {
+  color: var(--danger);
+  font-size: 11px;
+}
+
+/* 操作按钮悬停才出现，平时保持桌面图标那样干净 */
+.resource-tile-actions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.resource-tile:hover .resource-tile-actions,
+.resource-tile:focus-within .resource-tile-actions {
+  opacity: 1;
+}
+
+.resource-tile-actions .icon-button {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  background: var(--panel);
+}
+
+.resource-draft {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.resource-draft-kind {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.resource-field {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.resource-field input,
+.resource-field select {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  color: var(--text);
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+}
+
+/* 0.7.0：下拉不再用浏览器默认外观（灰块 + 系统字体），
+   改成和其他输入框一致的观感，并自带一个细箭头 */
+.resource-field select {
+  appearance: none;
+  padding-right: 30px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23545b66' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  cursor: pointer;
+}
+
+.resource-field select:hover {
+  border-color: var(--muted);
+}
+
+:root[data-theme='dark'] .resource-field select {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239aa3b2' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+.resource-file-field {
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.resource-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.resource-draft-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ---- 导图查看器 ---- */
+.mindmap-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 18px 18px;
+  background: color-mix(in srgb, #000 72%, transparent);
+  /* 标题栏设了 app-region: drag，是 Electron 在原生层拦的拖拽区，
+     浮层不声明 no-drag 的话点击会被当成拖动窗口吃掉（0.6.5 踩过）。 */
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+.mindmap-viewer-head,
+.mindmap-viewer-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.mindmap-viewer-head {
+  color: #fff;
+}
+
+.mindmap-viewer-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.mindmap-viewer-meta {
+  flex: none;
+  color: color-mix(in srgb, #fff 65%, transparent);
+  font-size: 12px;
+}
+
+.mindmap-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+/* 查看器头部在深色蒙层上，按钮必须自带深色底：
+   套用浅色主题的 .secondary 会变成白底白字，完全看不见（0.6.8 的故障）。 */
+.mindmap-tab,
+.mindmap-action,
+.mindmap-page {
+  padding: 4px 10px;
+  min-height: 28px;
+  color: #fff;
+  background: color-mix(in srgb, #fff 18%, transparent);
+  border: 1px solid color-mix(in srgb, #fff 24%, transparent);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  /* 不换行、不被压缩：「下一个」这类短按钮曾被挤成两行 */
+  white-space: nowrap;
+  flex: none;
+}
+
+/* 缩放百分比：固定宽度，数字从 100% 变 112% 时不再推挤搜索框 */
+.mindmap-zoom {
+  flex: none;
+  min-width: 52px;
+  text-align: center;
+  color: color-mix(in srgb, #fff 80%, transparent);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mindmap-tab:hover,
+.mindmap-action:hover,
+.mindmap-page:hover {
+  background: color-mix(in srgb, #fff 28%, transparent);
+}
+
+.mindmap-tab.active,
+.mindmap-page.active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.mindmap-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 关闭键与工具条按钮统一成同一套外观（0.6.8 里一大一小、风格不一致） */
+.mindmap-close {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  color: #fff;
+  background: color-mix(in srgb, #fff 18%, transparent);
+  border: 1px solid color-mix(in srgb, #fff 24%, transparent);
+}
+
+.mindmap-close:hover {
+  color: #fff;
+  background: color-mix(in srgb, #fff 28%, transparent);
+  border-color: color-mix(in srgb, #fff 40%, transparent);
+}
+
+/* 节点搜索框：占满剩余宽度，命中数固定在右侧 */
+.mindmap-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.mindmap-search-input {
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 10px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.mindmap-search-count {
+  flex: none;
+  color: color-mix(in srgb, #fff 75%, transparent);
+  font-size: 12px;
+}
+
+/* 命中列表：结果多时自身滚动 */
+.mindmap-hits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: none;
+  max-height: 76px;
+  overflow: auto;
+}
+
+.mindmap-hit {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 9px;
+  color: #fff;
+  background: color-mix(in srgb, #fff 14%, transparent);
+  border: 1px solid color-mix(in srgb, #fff 20%, transparent);
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mindmap-hit.active {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.mindmap-pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: none;
+  justify-content: center;
+}
+
+.mindmap-viewer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background: #fff;
+  border-radius: 8px;
+  padding: 12px;
+  cursor: grab;
+}
+
+.mindmap-viewer-body.panning {
+  cursor: grabbing;
+}
+
+/* 图形区不参与层叠竞争：按钮的边框不会印到画布上 */
+.mindmap-canvas {
+  position: relative;
+  z-index: 0;
+}
+
+/* SVG 按容器尺寸铺满；缩放由外层容器的宽高驱动，矢量图放多大都不糊 */
+.mindmap-canvas svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* 大纲标签页：按层级缩进 */
+.outline-view {
+  background: var(--panel);
+}
+
+.mindmap-outline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mindmap-outline-line {
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.mindmap-outline-line:hover {
+  background: var(--panel2);
+}

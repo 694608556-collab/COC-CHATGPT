@@ -57,7 +57,7 @@ describe('module roster cleanup', () => {
       { pc: '陆桉阳', pl: '烟蓑雨涨' }
     ])
     // 版本号跟随常量，避免每次加迁移都要改这里
-    expect(CURRENT_SCHEMA_VERSION).toBe(5)
+    expect(CURRENT_SCHEMA_VERSION).toBeGreaterThanOrEqual(5)
   })
 
   it('backfills the play status for modules created before 0.6.3', () => {

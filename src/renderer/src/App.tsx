@@ -6,6 +6,7 @@ import { ConfirmDialog, type ConfirmOptions } from './components/ConfirmDialog'
 import { RecordImportDialog } from './components/RecordImportDialog'
 import appIcon from './assets/app-icon.png'
 import { NoteBoard } from './components/NoteBoard'
+import { ResourcesPage } from './components/ResourcesPage'
 import {
   CloseIcon,
   FolderIcon,
@@ -23,9 +24,11 @@ import { applyLogFilters } from '../../shared/log-filter'
 import {
   countMatches,
   searchModuleRecords,
+  searchOutline,
   searchRecordMessages,
   splitByMatches,
-  type ModuleSearchHit
+  type ModuleSearchHit,
+  type OutlineSearchHit
 } from '../../shared/record-search'
 import { skillFinal } from '../../shared/coc-rules'
 import type { BackupPreviewApi } from '../../shared/api'
@@ -38,11 +41,12 @@ import {
   type FilterPreset,
   type ModulePlayStatus,
   type ModuleRecord,
+  type ModuleResourceKind,
   type ParticipantPair,
   type SessionRecord
 } from '../../shared/types'
 
-type Page = 'records' | 'characters' | 'notes' | 'settings'
+type Page = 'records' | 'characters' | 'resources' | 'notes' | 'settings'
 
 const pageMeta: Record<Page, { title: string; subtitle: (snapshot: AppSnapshot) => string }> = {
   records: {
@@ -50,6 +54,15 @@ const pageMeta: Record<Page, { title: string; subtitle: (snapshot: AppSnapshot) 
     subtitle: (snapshot) => `模组 ${snapshot.modules.length} · 场次 ${snapshot.records.length}`
   },
   characters: { title: '调查员角色卡', subtitle: (snapshot) => `角色 ${snapshot.characters.length}` },
+  resources: {
+    title: '资料汇总',
+    subtitle: (snapshot) => {
+      const mindmaps = snapshot.resources.filter((item) => item.kind === 'mindmap').length
+      const links = snapshot.resources.filter((item) => item.kind === 'link').length
+      const files = snapshot.resources.filter((item) => item.kind === 'file').length
+      return `导图 ${mindmaps} · 链接 ${links} · 文件 ${files}`
+    }
+  },
   notes: { title: '跑团闲记', subtitle: (snapshot) => `闲记 ${snapshot.notes.length}` },
   settings: { title: '数据与设置', subtitle: () => '全部数据仅保存在本机' }
 }
@@ -320,6 +333,7 @@ const emptySnapshot: AppSnapshot = {
   records: [],
   characters: [],
   notes: [],
+  resources: [],
   settings: {
     theme: 'light',
     archiveDirectory: '',
@@ -933,6 +947,9 @@ export default function App(): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<AppSnapshot>(emptySnapshot)
   const [appVersion, setAppVersion] = useState('')
   const [noteCreating, setNoteCreating] = useState(false)
+  // 资料汇总页的「+ 导图/链接/文件」按钮在页头，而表单在页面组件里，
+  // 用这个值把「要新建哪种资料」传过去（与闲记的 creating 同一套做法）
+  const [resourceCreating, setResourceCreating] = useState<ModuleResourceKind | undefined>()
   const [loading, setLoading] = useState(true)
   const [windowMaximized, setWindowMaximized] = useState(false)
   const [confirmOptions, setConfirmOptions] = useState<ConfirmOptions>()
@@ -940,6 +957,9 @@ export default function App(): React.JSX.Element {
   const [messageClosing, setMessageClosing] = useState(false)
   const [moduleDraft, setModuleDraft] = useState<ModuleDraft>()
   const [moduleSearch, setModuleSearch] = useState<Record<string, string>>({})
+  // 导图大纲缓存：resourceId → 该导图的全部节点文字。
+  // 读 .emmx 是异步的，而搜索是同步渲染的，所以先装好再搜。
+  const [outlineCache, setOutlineCache] = useState<Record<string, string[]>>({})
   const [recordDraft, setRecordDraft] = useState<RecordDraft>()
   const [sequencePicker, setSequencePicker] = useState<SequencePickerState>()
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -984,12 +1004,62 @@ export default function App(): React.JSX.Element {
     )
   }
 
+  // 导图大纲的命中。大纲要先读 .emmx 才能拿到，而搜索是同步渲染的，
+  // 所以用 outlineCache 预先装好（见下面的 useEffect）。
+  const moduleOutlineHits = (module: ModuleRecord): OutlineSearchHit[] => {
+    const query = moduleSearch[module.id]?.trim()
+    if (!query) return []
+    const entries = snapshot.resources
+      .filter((resource) => resource.moduleId === module.id && resource.kind === 'mindmap')
+      .map((resource) => ({
+        resourceId: resource.id,
+        resourceTitle: resource.title || resource.path || '未命名导图',
+        lines: outlineCache[resource.id] ?? []
+      }))
+      .filter((entry) => entry.lines.length > 0)
+    return searchOutline(entries, query)
+  }
+
   useEffect(() => {
     void refresh().catch((error: unknown) => {
       setMessage(error instanceof Error ? error.message : '无法读取本地数据')
       setLoading(false)
     })
   }, [])
+
+  /**
+   * 预读导图大纲，供全模组搜索使用。
+   *
+   * 只读不写，读失败（文件被移走、格式不对）就跳过——搜索少一份来源，
+   * 但不该因此报错打断界面。
+   */
+  useEffect(() => {
+    const mindmaps = snapshot.resources.filter(
+      (resource) => resource.kind === 'mindmap' && resource.path
+    )
+    if (!mindmaps.length) {
+      setOutlineCache({})
+      return
+    }
+    let cancelled = false
+    void Promise.all(
+      mindmaps.map(async (resource) => {
+        try {
+          const data = await window.coc.resources.readMindmap(resource.path!)
+          return [resource.id, data.outline] as const
+        } catch {
+          return [resource.id, [] as string[]] as const
+        }
+      })
+    ).then((entries) => {
+      if (cancelled) return
+      setOutlineCache(Object.fromEntries(entries))
+    })
+    return () => {
+      cancelled = true
+    }
+    // 路径或 id 变化时重读；用串做依赖避免数组每次渲染都触发
+  }, [snapshot.resources.map((resource) => `${resource.id}:${resource.path ?? ''}`).join('|')])
 
   useEffect(() => {
     if (!message) {
@@ -1362,14 +1432,22 @@ export default function App(): React.JSX.Element {
       <div className="workspace">
         <nav className="sidebar" aria-label="主导航">
 
-          {(['records', 'characters', 'notes', 'settings'] as const).map((item) => (
+          {(['records', 'characters', 'resources', 'notes', 'settings'] as const).map((item) => (
             <button
               className={page === item ? 'nav-item active' : 'nav-item'}
               key={item}
               onClick={() => setPage(item)}
             >
               <span className="nav-dot" />
-              {{ records: '跑团记录汇总', characters: '调查员角色卡', notes: '跑团闲记', settings: '数据与设置' }[item]}
+              {
+                {
+                  records: '跑团记录汇总',
+                  characters: '调查员角色卡',
+                  resources: '资料汇总',
+                  notes: '跑团闲记',
+                  settings: '数据与设置'
+                }[item]
+              }
             </button>
           ))}
           <div className="privacy-note">
@@ -1405,6 +1483,19 @@ export default function App(): React.JSX.Element {
                 <button className="primary" onClick={() => setNoteCreating(true)}>
                   + 新建闲记
                 </button>
+              )}
+              {page === 'resources' && (
+                <>
+                  <button className="primary" onClick={() => setResourceCreating('mindmap')}>
+                    + 导图
+                  </button>
+                  <button className="primary" onClick={() => setResourceCreating('link')}>
+                    + 链接
+                  </button>
+                  <button className="primary" onClick={() => setResourceCreating('file')}>
+                    + 文件
+                  </button>
+                </>
               )}
             </div>
           </header>
@@ -1611,10 +1702,19 @@ export default function App(): React.JSX.Element {
                                   }
                                 />
                               </div>
-                              {moduleSearchHits(module).length > 0 && (
+                              {(moduleSearchHits(module).length > 0 ||
+                                moduleOutlineHits(module).length > 0) && (
                                 <div className="module-search-results">
                                   <div className="module-search-head">
-                                    在“{module.name}”中找到 {moduleSearchHits(module).length} 场匹配
+                                    在“{module.name}”中找到{' '}
+                                    {moduleSearchHits(module).length > 0 &&
+                                      `${moduleSearchHits(module).length} 场正文`}
+                                    {moduleSearchHits(module).length > 0 &&
+                                      moduleOutlineHits(module).length > 0 &&
+                                      '、'}
+                                    {moduleOutlineHits(module).length > 0 &&
+                                      `${moduleOutlineHits(module).length} 份导图`}
+                                    匹配
                                     <button
                                       className="text-button"
                                       onClick={() =>
@@ -1660,6 +1760,30 @@ export default function App(): React.JSX.Element {
                                             )}
                                           </span>
                                         </button>
+                                      </li>
+                                    ))}
+                                    {/* 0.6.8：导图大纲的命中。按「命中了哪几个节点」展示，
+                                        点「预览」直接打开那张导图。 */}
+                                    {moduleOutlineHits(module).map((hit) => (
+                                      <li key={hit.resourceId}>
+                                        <div className="module-search-hit outline-hit">
+                                          <span className="module-search-hit-head">
+                                            <strong>{hit.resourceTitle}</strong>
+                                            <span className="resource-kind resource-kind-mindmap">
+                                              导图
+                                            </span>
+                                            <span className="module-search-count">
+                                              {hit.matches} 个节点
+                                            </span>
+                                          </span>
+                                          <span className="module-search-excerpt">
+                                            {hit.lines.map((line) => (
+                                              <span key={line} className="outline-line">
+                                                {line}
+                                              </span>
+                                            ))}
+                                          </span>
+                                        </div>
                                       </li>
                                     ))}
                                   </ul>
@@ -1823,6 +1947,16 @@ export default function App(): React.JSX.Element {
                   </div>
                 )}
               </>
+            ) : page === 'resources' ? (
+              <ResourcesPage
+                modules={snapshot.modules}
+                resources={snapshot.resources}
+                hiddenModules={snapshot.settings.hiddenResourceModules ?? []}
+                creating={resourceCreating}
+                onCreatingHandled={() => setResourceCreating(undefined)}
+                onChanged={refresh}
+                onNotice={setMessage}
+              />
             ) : page === 'characters' ? (
               snapshot.characters.length ? (
                 <div className="character-grid">
