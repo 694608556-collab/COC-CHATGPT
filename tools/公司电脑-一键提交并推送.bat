@@ -4,7 +4,8 @@ title COC跑团记录簿 - 提交并推送到 GitHub
 setlocal
 
 set "TARGET=%~1"
-if "%TARGET%"=="" set "TARGET=C:\coc-dev\COC-CHATGPT"
+rem 默认操作本脚本所在的仓库（tools 的上一级），换电脑或改文件夹名都不用再改脚本。
+if "%TARGET%"=="" for %%I in ("%~dp0..") do set "TARGET=%%~fI"
 
 if not exist "%TARGET%\.git" (
   echo.

@@ -4,9 +4,10 @@ title COC跑团记录簿 - 同步最新源码并启动开发
 setlocal
 
 set "REPO=https://github.com/694608556-collab/COC-CHATGPT.git"
-set "BRANCH=v0.5.7"
+set "BRANCH=v0.6.3"
 set "TARGET=%~1"
-if "%TARGET%"=="" set "TARGET=C:\coc-dev\COC-CHATGPT"
+rem 默认操作本脚本所在的仓库（tools 的上一级），换电脑或改文件夹名都不用再改脚本。
+if "%TARGET%"=="" for %%I in ("%~dp0..") do set "TARGET=%%~fI"
 
 where git >nul 2>nul
 if errorlevel 1 (

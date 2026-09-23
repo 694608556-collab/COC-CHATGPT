@@ -4,7 +4,8 @@ title COC跑团记录簿 - 跑测试并打包安装包
 setlocal
 
 set "TARGET=%~1"
-if "%TARGET%"=="" set "TARGET=C:\coc-dev\COC-CHATGPT"
+rem 默认操作本脚本所在的仓库（tools 的上一级），换电脑或改文件夹名都不用再改脚本。
+if "%TARGET%"=="" for %%I in ("%~dp0..") do set "TARGET=%%~fI"
 
 if not exist "%TARGET%\package.json" (
   echo.
@@ -16,17 +17,22 @@ if not exist "%TARGET%\package.json" (
 )
 
 cd /d "%TARGET%"
-echo 1/3 安装依赖...
+echo 1/4 安装依赖...
 call pnpm install
 if errorlevel 1 goto fail
 
 echo.
-echo 2/3 运行全部测试...
+echo 2/4 先构建一次（测试要读 out 目录里的构建产物）...
+call pnpm build
+if errorlevel 1 goto fail
+
+echo.
+echo 3/4 运行全部测试...
 call pnpm test
 if errorlevel 1 goto fail
 
 echo.
-echo 3/3 打包安装包，这一步比较慢，请耐心等...
+echo 4/4 打包安装包，这一步比较慢，请耐心等...
 call pnpm package:setup
 if errorlevel 1 goto fail
 

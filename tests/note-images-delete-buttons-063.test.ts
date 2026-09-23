@@ -5,9 +5,17 @@ import { describe, expect, it } from 'vitest'
 const root = path.resolve(__dirname, '..')
 const read = (rel: string): string => fs.readFileSync(path.join(root, rel), 'utf8')
 
+// out/ 是构建产物，且被 .gitignore 忽略：刚 clone 下来的机器上还没有这个目录。
+// 这里不能直接 read()，否则整个测试文件会以 ENOENT 崩掉，pnpm test 在没 build 过的
+// 机器上根本跑不起来（一键跑测试并打包.bat 就是先 test 后 build）。
+const readBuilt = (rel: string): string | null => {
+  const target = path.join(root, rel)
+  return fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : null
+}
+
 describe('0.6.3 note images actually render', () => {
   const sourceHtml = read('src/renderer/index.html')
-  const builtHtml = read('out/renderer/index.html')
+  const builtHtml = readBuilt('out/renderer/index.html')
   const board = read('src/renderer/src/components/NoteBoard.tsx')
   const styles = read('src/renderer/src/styles.css')
   const main = read('src/main/index.ts')
@@ -15,7 +23,8 @@ describe('0.6.3 note images actually render', () => {
   it('allows the coc-media scheme through the content security policy', () => {
     // 闲记图片走 coc-media:// 自定义协议。0.6.3 之前 CSP 只写了
     // img-src 'self' data:，浏览器直接拦掉，界面只剩一个碎图标加文件名。
-    for (const html of [sourceHtml, builtHtml]) {
+    // 源码必须始终正确；构建产物只在已经 build 过时一并校验。
+    for (const html of [sourceHtml, builtHtml].filter((x): x is string => x !== null)) {
       const csp = html.slice(html.indexOf('Content-Security-Policy'))
       const imgSrc = csp.slice(csp.indexOf('img-src'), csp.indexOf(';', csp.indexOf('img-src')))
       expect(imgSrc).toContain('coc-media:')
