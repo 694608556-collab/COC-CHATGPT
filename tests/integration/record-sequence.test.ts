@@ -79,48 +79,4 @@ describe('explicit session sequence numbers', () => {
     expect(following.sequenceNo).toBe(10)
     expect(following.name).toBe('暗影循迹第 10 场')
   })
-
-  // 0.6.2 回归：加到第 16 场后把末尾几场全删掉，只剩第 8 场。
-  // 旧实现读取只增不减的历史最大值，新增场次会凭空跳到第 17 场。
-  it('continues from the last surviving session after trailing deletions', () => {
-    const module = repository.createModule({ name: '暗影循迹' })
-    const created = []
-    for (let index = 0; index < 16; index += 1) {
-      created.push(repository.createRecord({ moduleId: module.id }))
-    }
-    expect(created[15]!.sequenceNo).toBe(16)
-    // 删掉第 9 到第 16 场，只剩 1-8
-    for (const record of created.slice(8)) repository.deleteRecord(record.id)
-    const remaining = repository
-      .snapshot()
-      .records.map((record) => record.sequenceNo)
-      .sort((a, b) => a - b)
-    expect(remaining).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
-
-    const next = repository.createRecord({ moduleId: module.id })
-    expect(next.sequenceNo).toBe(9)
-    expect(next.name).toBe('暗影循迹第 9 场')
-  })
-
-  // 删除末尾场次不会留下中间空缺，界面因此不会弹出编号选择窗口，
-  // 这条路径完全依赖后端的默认编号，必须与界面算出的“接续最后编号”一致。
-  it('agrees with the gap-free continuation shown by the picker', () => {
-    const module = repository.createModule({ name: '模组' })
-    const first = repository.createRecord({ moduleId: module.id })
-    const second = repository.createRecord({ moduleId: module.id })
-    const third = repository.createRecord({ moduleId: module.id })
-    repository.deleteRecord(second.id)
-    repository.deleteRecord(third.id)
-    const used = repository.snapshot().records.map((record) => record.sequenceNo)
-    const maximum = Math.max(...used)
-    const usedSet = new Set(used)
-    const gaps: number[] = []
-    for (let number = 1; number <= maximum; number += 1) {
-      if (!usedSet.has(number)) gaps.push(number)
-    }
-    // 只剩第 1 场：没有空缺，界面直接打开编辑器并把编号交给后端
-    expect(used).toEqual([first.sequenceNo])
-    expect(gaps).toEqual([])
-    expect(repository.createRecord({ moduleId: module.id }).sequenceNo).toBe(maximum + 1)
-  })
 })

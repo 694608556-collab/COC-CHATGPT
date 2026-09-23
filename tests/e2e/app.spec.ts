@@ -45,7 +45,6 @@ test('real desktop shell persists data and isolates Node', async () => {
     // 由真人实机验收，不用像素拖拽断言，避免 DPI 缩放导致的随机失败。
     const resizeInfo = await application.evaluate(async ({ BrowserWindow }) => {
       const win = BrowserWindow.getAllWindows()[0]
-      if (!win) throw new Error('没有可用的应用窗口')
       const before = win.getBounds()
       const resizable = win.isResizable()
       const maximizable = win.isMaximizable()
@@ -58,8 +57,8 @@ test('real desktop shell persists data and isolates Node', async () => {
     })
     expect(resizeInfo.resizable).toBe(true)
     expect(resizeInfo.maximizable).toBe(true)
-    expect(Math.abs(resizeInfo.medium[0]! - 1400)).toBeLessThanOrEqual(8)
-    expect(Math.abs(resizeInfo.medium[1]! - 900)).toBeLessThanOrEqual(8)
+    expect(Math.abs(resizeInfo.medium[0] - 1400)).toBeLessThanOrEqual(8)
+    expect(Math.abs(resizeInfo.medium[1] - 900)).toBeLessThanOrEqual(8)
     expect(resizeInfo.clamped[0]).toBeGreaterThanOrEqual(960)
     expect(resizeInfo.clamped[1]).toBeGreaterThanOrEqual(640)
     await page.waitForTimeout(300)

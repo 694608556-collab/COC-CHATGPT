@@ -30,8 +30,7 @@ const api: CocApi = {
     move: (id, direction) => invoke('records:move', { id, direction }),
     findDuplicate: (moduleId, link, excludingId) =>
       invoke('records:duplicate', { moduleId, link, excludingId }),
-    probe: (id) => invoke('records:probe', { id }),
-    resetProbe: (id) => invoke('records:reset-probe', { id })
+    probe: (id) => invoke('records:probe', { id })
   },
   characters: {
     create: (input) => invoke('characters:create', input),

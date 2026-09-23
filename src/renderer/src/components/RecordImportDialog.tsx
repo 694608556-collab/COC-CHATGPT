@@ -111,8 +111,7 @@ export function RecordImportDialog({
           PC/PL 必须按列成对填写：PC1/PL1、PC2/PL2、PC3/PL3；KP 填在 KP1 列，没有对应人员的格子留空。
         </p>
         <p className="dialog-note">
-          状态、跑团日期、最近抓取时间三列由软件导出时自动记录，空白模板无需填写。重新导入时，跑团日期会原样带回；
-          链接状态一律重置为“待检测”，需要重新检测才能抓取正文。
+          状态、跑团日期、最近抓取时间三列由软件导出时自动记录，空白模板无需填写；把导出的表格重新导入时会自动带回这些信息。
         </p>
         <div className="dialog-actions">
           <button className="secondary" onClick={downloadXlsxTemplate}>

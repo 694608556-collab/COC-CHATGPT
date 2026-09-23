@@ -172,7 +172,6 @@ const automaticBackupChannels = new Set([
   'records:delete',
   'records:move',
   'records:probe',
-  'records:reset-probe',
   'characters:create',
   'characters:update',
   'characters:convert',
@@ -246,9 +245,6 @@ export function registerIpc(
     ({ moduleId, link, excludingId }) => repository.findDuplicateLink(moduleId, link, excludingId)
   )
   register('records:probe', z.object({ id }), ({ id: recordId }) => seaLogService.probe(recordId))
-  register('records:reset-probe', z.object({ id }), ({ id: recordId }) =>
-    repository.resetRecordProbeState(recordId)
-  )
 
   register(
     'characters:create',

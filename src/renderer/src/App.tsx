@@ -1074,14 +1074,13 @@ export default function App(): React.JSX.Element {
       }
       const duplicate = await window.coc.records.findDuplicate(module.id, row.link)
       if (duplicate) {
-        // 导出表再导入：用表内信息覆盖更新已存在场次。
-        // 0.6.2 起导入不再采信表格里的历史状态，链接一律回到“待检测”，
-        // 并清空已抓取的正文与抓取时间，强制重新检测后才能拿到正文。
+        // 导出表再导入：用表内信息覆盖更新已存在场次
         await window.coc.records.update(duplicate.id, {
           name: row.sessionName,
-          ...(row.playDate ? { playDate: row.playDate, dateSource: 'manual' as const } : {})
+          ...(row.status ? { status: row.status as SessionRecord['status'] } : {}),
+          ...(row.playDate ? { playDate: row.playDate, dateSource: 'manual' as const } : {}),
+          ...(row.fetchedAt ? { fetchedAt: row.fetchedAt } : {})
         })
-        await window.coc.records.resetProbe(duplicate.id)
         updatedRecords += 1
         continue
       }
@@ -1090,7 +1089,9 @@ export default function App(): React.JSX.Element {
           moduleId: module.id,
           name: row.sessionName,
           link: row.link,
-          ...(row.playDate ? { playDate: row.playDate } : {})
+          ...(row.status ? { status: row.status as SessionRecord['status'] } : {}),
+          ...(row.playDate ? { playDate: row.playDate } : {}),
+          ...(row.fetchedAt ? { fetchedAt: row.fetchedAt } : {})
         })
         createdRecords += 1
       } catch {

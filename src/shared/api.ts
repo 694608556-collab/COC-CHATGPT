@@ -121,7 +121,6 @@ export interface CocApi {
     move(id: string, direction: -1 | 1): Promise<void>
     findDuplicate(moduleId: string, link: string, excludingId?: string): Promise<SessionRecord | undefined>
     probe(id: string): Promise<SessionRecord>
-    resetProbe(id: string): Promise<SessionRecord>
   }
   characters: {
     create(input: {
