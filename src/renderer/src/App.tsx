@@ -768,17 +768,20 @@ function RecordDetail({
   record,
   preset,
   initialQuery = '',
+  initialMessageIndex,
   onClose
 }: {
   record: SessionRecord
   preset: FilterPreset
   /** 从模组搜索点进来时带过来的关键词，省得再输一遍 */
   initialQuery?: string
+  /** 从模组搜索点进来时，首次命中所在的消息序号 */
+  initialMessageIndex?: number
   onClose(): void
 }): React.JSX.Element {
   const [query, setQuery] = useState(initialQuery)
-  // 点击某条结果后，把对应那条消息滚到可视区
-  const [activeMessage, setActiveMessage] = useState<number>()
+  // 点击某条结果后，把对应那条消息滚到可视区；从模组搜索进来时直接用带过来的那条
+  const [activeMessage, setActiveMessage] = useState<number | undefined>(initialMessageIndex)
   const previewRef = useRef<HTMLDivElement>(null)
   const messages = record.rawContent ? applyLogFilters(record.rawContent, preset) : []
   const matches = countMatches(
@@ -793,8 +796,13 @@ function RecordDetail({
     query
   )
 
-  // 换关键词后重新开始定位
+  // 用户改动关键词后，之前定位的那条就不再适用，重新开始
+  const firstRun = useRef(true)
   useEffect(() => {
+    if (firstRun.current) {
+      firstRun.current = false
+      return
+    }
     setActiveMessage(undefined)
   }, [query])
 
@@ -877,7 +885,11 @@ function RecordDetail({
           <p data-message-index={0}>{highlight(record.manualContent)}</p>
         ) : messages.length ? (
           messages.map((message, messageIndex) => (
-            <article key={message.id} data-message-index={messageIndex}>
+            <article
+              key={message.id}
+              data-message-index={messageIndex}
+              className={messageIndex === activeMessage ? 'message-active' : undefined}
+            >
               <strong>{highlight(message.header)}</strong>
               <p>{highlight(message.text)}</p>
               {message.images.map((image) => (
@@ -914,8 +926,9 @@ export default function App(): React.JSX.Element {
   const [tableImportOpen, setTableImportOpen] = useState(false)
   const [batchCheckOpen, setBatchCheckOpen] = useState(false)
   const [detailRecordId, setDetailRecordId] = useState<string>()
-  // 从模组搜索点进场次时带过去的搜索词，详情页会直接高亮出来
+  // 从模组搜索点进场次时带过去的搜索词与首次命中位置，详情页会直接高亮并标出那条
   const [detailQuery, setDetailQuery] = useState('')
+  const [detailMessageIndex, setDetailMessageIndex] = useState<number>()
   const [exportAction, setExportAction] = useState<ExportAction>()
   const [characterId, setCharacterId] = useState<string>()
   const [backupChoiceOpen, setBackupChoiceOpen] = useState(false)
@@ -1582,8 +1595,10 @@ export default function App(): React.JSX.Element {
                                         <button
                                           className="module-search-hit"
                                           onClick={() => {
-                                            // 把模组搜索用的关键词带进详情页，打开即高亮到那一处
+                                            // 把模组搜索的关键词与命中位置带进详情页，
+                                            // 打开即高亮并标出那条消息
                                             setDetailQuery(moduleSearch[module.id] ?? '')
+                                            setDetailMessageIndex(hit.messageIndex)
                                             setDetailRecordId(hit.recordId)
                                           }}
                                         >
@@ -2028,9 +2043,11 @@ export default function App(): React.JSX.Element {
               record={record}
               preset={snapshot.settings.filterPreset}
               initialQuery={detailQuery}
+              initialMessageIndex={detailMessageIndex}
               onClose={() => {
                 setDetailRecordId(undefined)
                 setDetailQuery('')
+                setDetailMessageIndex(undefined)
               }}
             />
           ) : null

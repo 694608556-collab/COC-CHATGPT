@@ -12,6 +12,8 @@ export interface ModuleSearchHit {
   /** 摘要中关键词的起始偏移，供界面高亮 */
   excerptStart: number
   excerptLength: number
+  /** 首次命中落在第几条消息（手动内容的场次恒为 0），供点进详情后定位 */
+  messageIndex: number
 }
 
 export const SEARCH_EXCERPT_PADDING = 28
@@ -23,6 +25,29 @@ export function recordPlainText(record: SessionRecord, preset: FilterPreset): st
   return applyLogFilters(record.rawContent, preset)
     .map((message) => `${message.header}\n${message.text}`)
     .join('\n\n')
+}
+
+/**
+ * 把「整段正文里的字符偏移」换算成「第几条消息」。
+ * 拼接方式必须与 recordPlainText 完全一致（每条 `${header}\n${text}`，中间隔两个换行），
+ * 否则点进详情后会定位到错误的那条。
+ */
+function messageIndexForOffset(
+  record: SessionRecord,
+  preset: FilterPreset,
+  offset: number
+): number {
+  // 手动内容在 recordPlainText 里就是整段文本，只对应一条消息
+  if (record.manualContent) return 0
+  if (!record.rawContent) return 0
+  const messages = applyLogFilters(record.rawContent, preset)
+  let cursor = 0
+  for (let index = 0; index < messages.length; index += 1) {
+    const part = `${messages[index]!.header}\n${messages[index]!.text}`
+    if (offset < cursor + part.length) return index
+    cursor += part.length + 2
+  }
+  return Math.max(0, messages.length - 1)
 }
 
 function countOccurrences(haystack: string, needle: string): number {
@@ -165,7 +190,9 @@ export function searchModuleRecords(
       excerpt,
       // 关键词被压缩后的位置；找不到时退回片段开头，界面按无高亮处理
       excerptStart: hitAt < 0 ? 0 : hitAt,
-      excerptLength: hitAt < 0 ? 0 : needle.length
+      excerptLength: hitAt < 0 ? 0 : needle.length,
+      // 首次命中在第几条消息：点进详情后据此滚动并标出那一条
+      messageIndex: messageIndexForOffset(record, preset, at)
     })
   }
   return hits.sort((a, b) => b.matches - a.matches)

@@ -1,7 +1,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { countMatches, searchRecordMessages, splitByMatches } from '../src/shared/record-search'
+import {
+  countMatches,
+  searchModuleRecords,
+  searchRecordMessages,
+  splitByMatches
+} from '../src/shared/record-search'
+import { DEFAULT_FILTER_PRESET, type SessionRecord } from '../src/shared/types'
 
 const root = path.resolve(__dirname, '..')
 const read = (rel: string): string => fs.readFileSync(path.join(root, rel), 'utf8')
@@ -176,5 +182,101 @@ describe('0.6.5 per-message search results', () => {
     const results = searchRecordMessages([{ header: 'KP', text: 'Keep going' }], 'kp')
     expect(results).toHaveLength(1)
     expect(results[0]?.excerpt).toContain('KP')
+  })
+})
+
+describe('0.6.5 jumping from module search into the right message', () => {
+  const styles = read('src/renderer/src/styles.css')
+  const app = read('src/renderer/src/App.tsx')
+
+  function logRecord(texts: Array<{ header: string; text: string }>): SessionRecord {
+    return {
+      id: 'r1',
+      moduleId: 'm1',
+      name: '第 1 场',
+      sequenceNo: 1,
+      sourceType: 'online',
+      status: 'valid',
+      dateSource: 'none',
+      order: 0,
+      createdAt: '',
+      updatedAt: '',
+      rawContent: {
+        parserVersion: 1,
+        messages: texts.map((t, i) => ({
+          id: `m${i}`,
+          order: i,
+          displayName: t.header,
+          header: t.header,
+          text: t.text,
+          type: 'text' as const,
+          isDiceCommand: false,
+          isOffTopic: false,
+          images: []
+        }))
+      }
+    } as SessionRecord
+  }
+
+  it('reports which message the first hit falls in', () => {
+    const record = logRecord([
+      { header: '12:32 浮士德', text: '记录已经开始了。' },
+      { header: '12:37 kp', text: '你们吃早餐然后出发。' },
+      { header: '12:40 陆桉阳', text: '早餐不错。' }
+    ])
+    const [hit] = searchModuleRecords([record], '早餐', DEFAULT_FILTER_PRESET)
+    // 首次命中在第 2 条消息（下标 1），不是第 0 条
+    expect(hit?.messageIndex).toBe(1)
+  })
+
+  it('picks the last message when the hit is at the very end', () => {
+    const record = logRecord([
+      { header: 'a', text: '无关内容' },
+      { header: 'b', text: '无关内容' },
+      { header: 'c', text: '结尾出现暗号' }
+    ])
+    const [hit] = searchModuleRecords([record], '暗号', DEFAULT_FILTER_PRESET)
+    expect(hit?.messageIndex).toBe(2)
+  })
+
+  it('treats manual content as a single message', () => {
+    const record = { ...logRecord([]), manualContent: '手写的走廊描述' } as SessionRecord
+    const [hit] = searchModuleRecords([record], '走廊', DEFAULT_FILTER_PRESET)
+    expect(hit?.messageIndex).toBe(0)
+  })
+
+  it('maps every message correctly, not just the first', () => {
+    // 逐条验证偏移换算：每条消息都单独搜一次，命中的下标必须与它自己的位置一致
+    const texts = [
+      { header: '12:00 a', text: '第一条 标记' },
+      { header: '12:10 b', text: '第二条 标记' },
+      { header: '12:20 c', text: '第三条 标记' },
+      { header: '12:30 d', text: '第四条 标记' }
+    ]
+    for (let index = 0; index < texts.length; index += 1) {
+      // 只让第 index 条含关键词，其余用不同词，确保命中的就是这一条
+      const record = logRecord(
+        texts.map((t, i) => ({ header: t.header, text: i === index ? `第${i}条 目标词` : `第${i}条 别的` }))
+      )
+      const [hit] = searchModuleRecords([record], '目标词', DEFAULT_FILTER_PRESET)
+      expect(hit?.messageIndex).toBe(index)
+    }
+  })
+
+  it('passes the index through to the detail dialog and marks that message', () => {
+    expect(app).toContain('setDetailMessageIndex(hit.messageIndex)')
+    expect(app).toContain('initialMessageIndex')
+    expect(app).toContain("className={messageIndex === activeMessage ? 'message-active' : undefined}")
+  })
+
+  it('draws a marker on the located message', () => {
+    const rule = styles.slice(styles.indexOf('.log-preview article.message-active {'))
+    expect(rule).toContain('border-left: 3px solid var(--accent)')
+    expect(rule).toContain('background: var(--accent-soft)')
+  })
+
+  it('does not clear the incoming keyword on first render', () => {
+    // 从模组搜索带词进来时不能被“换词就重置”的逻辑立刻清掉
+    expect(app).toContain('firstRun')
   })
 })

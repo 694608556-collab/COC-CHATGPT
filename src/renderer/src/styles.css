@@ -419,6 +419,15 @@ body,
 .log-preview article[data-message-index] {
   scroll-margin: 12px;
 }
+
+/* 当前定位到的那条消息：左侧竖线 + 淡淡底色，与结果列表的选中态呼应 */
+.log-preview article.message-active {
+  margin-left: -10px;
+  padding-left: 10px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: 0 6px 6px 0;
+}
 .log-preview {
   max-height: 55vh;
   /* 0.6.5：正文只纵向滚动。此前是 overflow:auto + pre-wrap，超长不换行的内容
