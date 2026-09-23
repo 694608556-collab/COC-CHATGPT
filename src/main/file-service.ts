@@ -77,17 +77,32 @@ export class FileService {
     const temporary = `${destination}.${process.pid}.tmp`
     try {
       const session = [{ record, log }]
+      // 0.6.5：单份导出一律不带模组封面（模组名 + KP + PC/PL），封面只留给合成文件。
+      const noCover = { cover: false }
       if (format === 'raw') fs.writeFileSync(temporary, renderRawLogJson(log), 'utf8')
       else if (format === 'txt')
         fs.writeFileSync(temporary, renderLogText(log, settings.filterPreset), 'utf8')
       else if (format === 'doc')
-        fs.writeFileSync(temporary, renderWordHtml(module, session, settings.filterPreset, true), 'utf8')
+        fs.writeFileSync(
+          temporary,
+          renderWordHtml(module, session, settings.filterPreset, true, noCover),
+          'utf8'
+        )
       else if (format === 'dialogue-doc')
-        fs.writeFileSync(temporary, renderWordHtml(module, session, settings.filterPreset, false), 'utf8')
+        fs.writeFileSync(
+          temporary,
+          renderWordHtml(module, session, settings.filterPreset, false, noCover),
+          'utf8'
+        )
       else if (format === 'docx')
-        fs.writeFileSync(temporary, await createCombinedDocx(module, session, settings.filterPreset))
+        fs.writeFileSync(
+          temporary,
+          await createCombinedDocx(module, session, settings.filterPreset, noCover)
+        )
       else {
-        const pdf = await this.pdfPrinter(renderCombinedHtml(module, session, settings.filterPreset))
+        const pdf = await this.pdfPrinter(
+          renderCombinedHtml(module, session, settings.filterPreset, noCover)
+        )
         if (pdf.subarray(0, 4).toString() !== '%PDF') throw new Error('PDF 文件头无效')
         fs.writeFileSync(temporary, pdf)
       }

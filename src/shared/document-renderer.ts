@@ -29,7 +29,8 @@ export function renderLogText(log: NormalizedLog, preset: FilterPreset): string 
 export function renderCombinedText(
   module: Pick<ModuleRecord, 'name' | 'kps' | 'pairs'>,
   sessions: RenderableSession[],
-  preset: FilterPreset
+  preset: FilterPreset,
+  options: { cover?: boolean } = {}
 ): string {
   const people = [
     `模组：${module.name}`,
@@ -40,13 +41,11 @@ export function renderCombinedText(
   ]
   // 场次连排，不再用分页符；场次之间用明显的分隔线，便于确认场次边界。
   const divider = '\n\n────────────────────────────────────────\n\n'
-  return [
-    people.join('\n'),
-    ...sessions.map(
-      ({ record, log }) =>
-        `${record.name} · ${record.playDate || '日期未知'}\n\n${renderLogText(log, preset)}`
-    )
-  ].join(divider)
+  // 0.6.5：单份导出不再带模组封面，封面只留给合成文件。
+  const body = sessions.map(
+    ({ record, log }) => `${record.name} · ${record.playDate || '日期未知'}\n\n${renderLogText(log, preset)}`
+  )
+  return (options.cover === false ? body : [people.join('\n'), ...body]).join(divider)
 }
 
 export function renderRawLogJson(log: NormalizedLog): string {
@@ -56,7 +55,8 @@ export function renderRawLogJson(log: NormalizedLog): string {
 export function renderCombinedHtml(
   module: Pick<ModuleRecord, 'name' | 'kps' | 'pairs'>,
   sessions: RenderableSession[],
-  preset: FilterPreset
+  preset: FilterPreset,
+  options: { cover?: boolean } = {}
 ): string {
   const participantRows = module.pairs
     .map(
@@ -75,14 +75,20 @@ export function renderCombinedHtml(
       return `<section class="session"><h1>${escapeHtml(record.name)} · ${escapeHtml(record.playDate || '日期未知')}</h1>${messages}</section>`
     })
     .join('')
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>@page{size:A4;margin:18mm}body{font-family:"Microsoft YaHei","Segoe UI",sans-serif;color:#171717;font-size:11pt;line-height:1.65}.cover{page-break-after:always}.session+.session{border-top:2px solid #8a8a8a;margin-top:22px;padding-top:14px}h1{font-size:20pt}.meta{font-weight:700;margin-top:12px}.message{white-space:normal}.image{color:#666;font-size:9pt}.dark{background:#171a21;color:#eee}</style></head><body class="${preset.darkDisplay ? 'dark' : ''}"><section class="cover"><h1>${escapeHtml(module.name)}</h1><p>KP：${escapeHtml(module.kps.join('、') || '未填写')}</p>${participantRows}</section>${sections}</body></html>`
+  // 0.6.5：单份导出不再带模组封面，封面只留给合成文件。
+  const cover =
+    options.cover === false
+      ? ''
+      : `<section class="cover"><h1>${escapeHtml(module.name)}</h1><p>KP：${escapeHtml(module.kps.join('、') || '未填写')}</p>${participantRows}</section>`
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>@page{size:A4;margin:18mm}body{font-family:"Microsoft YaHei","Segoe UI",sans-serif;color:#171717;font-size:11pt;line-height:1.65}.cover{page-break-after:always}.session+.session{border-top:2px solid #8a8a8a;margin-top:22px;padding-top:14px}h1{font-size:20pt}.meta{font-weight:700;margin-top:12px}.message{white-space:normal}.image{color:#666;font-size:9pt}.dark{background:#171a21;color:#eee}</style></head><body class="${preset.darkDisplay ? 'dark' : ''}">${cover}${sections}</body></html>`
 }
 
 export function renderWordHtml(
   module: Pick<ModuleRecord, 'name' | 'kps' | 'pairs'>,
   sessions: RenderableSession[],
   preset: FilterPreset,
-  includeImages: boolean
+  includeImages: boolean,
+  options: { cover?: boolean } = {}
 ): string {
   const participantRows = module.pairs
     .map(
@@ -138,16 +144,22 @@ export function renderWordHtml(
       )
     })
     .join('')
+  // 0.6.5：单份导出不再带模组封面，封面只留给合成文件。
+  const cover =
+    options.cover === false
+      ? ''
+      : '<h1>' +
+        escapeHtml(module.name) +
+        '</h1><p>KP:' +
+        escapeHtml(module.kps.join(', ') || '\u672a\u586b\u5199') +
+        '</p>' +
+        participantRows
   return (
     '<!doctype html><html><head><meta charset="utf-8">' +
     '<style>body{font-family:"Microsoft YaHei","Segoe UI",sans-serif;font-size:11pt;line-height:1.65}' +
     '.meta{font-weight:700;margin-top:12px}.image{color:#666;font-size:9pt}img{max-width:100%}</style>' +
-    '</head><body><h1>' +
-    escapeHtml(module.name) +
-    '</h1><p>KP:' +
-    escapeHtml(module.kps.join(', ') || '\u672a\u586b\u5199') +
-    '</p>' +
-    participantRows +
+    '</head><body>' +
+    cover +
     sections +
     '</body></html>'
   )
@@ -156,26 +168,31 @@ export function renderWordHtml(
 export async function createCombinedDocx(
   module: Pick<ModuleRecord, 'name' | 'kps' | 'pairs'>,
   sessions: RenderableSession[],
-  preset: FilterPreset
+  preset: FilterPreset,
+  options: { cover?: boolean } = {}
 ): Promise<Buffer> {
-  const children: Paragraph[] = [
-    new Paragraph({ text: module.name, heading: HeadingLevel.TITLE }),
-    new Paragraph({ text: `KP：${module.kps.join('、') || '未填写'}` }),
-    ...module.pairs.map(
-      (pair, index) =>
-        new Paragraph({
-          text: `PC${index + 1}：${pair.pc || '未填写'}\u3000PL${index + 1}：${pair.pl || '未填写'}`
-        })
-    )
-  ]
+  // 0.6.5：单份导出不再带模组封面，封面只留给合成文件。
+  const withCover = options.cover !== false
+  const children: Paragraph[] = withCover
+    ? [
+        new Paragraph({ text: module.name, heading: HeadingLevel.TITLE }),
+        new Paragraph({ text: `KP：${module.kps.join('、') || '未填写'}` }),
+        ...module.pairs.map(
+          (pair, index) =>
+            new Paragraph({
+              text: `PC${index + 1}：${pair.pc || '未填写'}\u3000PL${index + 1}：${pair.pl || '未填写'}`
+            })
+        )
+      ]
+    : []
   for (const [sessionIndex, session] of sessions.entries()) {
     if (sessionIndex === 0) {
-      // 第一场从封面后的新一页开始；之后的场次连排，只插分割线，不再另起页。
+      // 有封面时第一场另起一页；没有封面时它就是文档开头，不能再插分页符。
       children.push(
         new Paragraph({
           text: `${session.record.name} · ${session.record.playDate || '日期未知'}`,
           heading: HeadingLevel.HEADING_1,
-          pageBreakBefore: true
+          ...(withCover ? { pageBreakBefore: true } : {})
         })
       )
     } else {

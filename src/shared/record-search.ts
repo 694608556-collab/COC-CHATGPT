@@ -36,6 +36,52 @@ function countOccurrences(haystack: string, needle: string): number {
   return count
 }
 
+/** 关键词命中次数。界面上的「N 处」和正文高亮都用它，保证两处数字一致。 */
+export function countMatches(text: string, query: string): number {
+  const needle = query.trim().toLocaleLowerCase()
+  if (!needle) return 0
+  // 只关心个数，不关心偏移，所以可以放心用小写副本
+  return countOccurrences(text.toLocaleLowerCase(), needle)
+}
+
+export interface TextSegment {
+  text: string
+  /** 是否命中关键词 */
+  match: boolean
+  /** 命中片段是第几处（从 0 开始）；非命中片段为 -1 */
+  index: number
+}
+
+/**
+ * 按关键词把一段文本切成「命中 / 非命中」片段，供界面高亮。
+ * 每个命中片段带全局序号，界面据此实现“跳到第 N 处”。
+ *
+ * 切分依赖偏移量，所以必须保证小写副本与原文逐字符等长：
+ * 个别语言（例如土耳其语的 İ）转小写会改变长度，一旦错位就会切坏正文。
+ * 遇到这种文本就不高亮，宁可少个效果也不能显示错内容。
+ */
+export function splitByMatches(text: string, query: string): TextSegment[] {
+  const plain: TextSegment[] = [{ text, match: false, index: -1 }]
+  const needle = query.trim().toLocaleLowerCase()
+  if (!needle) return plain
+  const lower = text.toLocaleLowerCase()
+  if (lower.length !== text.length) return plain
+  const segments: TextSegment[] = []
+  let cursor = 0
+  let index = 0
+  let at = lower.indexOf(needle)
+  while (at !== -1) {
+    if (at > cursor) segments.push({ text: text.slice(cursor, at), match: false, index: -1 })
+    segments.push({ text: text.slice(at, at + needle.length), match: true, index })
+    index += 1
+    cursor = at + needle.length
+    at = lower.indexOf(needle, cursor)
+  }
+  if (!segments.length) return plain
+  if (cursor < text.length) segments.push({ text: text.slice(cursor), match: false, index: -1 })
+  return segments
+}
+
 function collapseWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
 }

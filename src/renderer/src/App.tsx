@@ -1,15 +1,23 @@
 
 import { CharacterEditor } from './components/CharacterEditor'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BatchCheckDialog } from './components/BatchCheckDialog'
 import { ConfirmDialog, type ConfirmOptions } from './components/ConfirmDialog'
 import { RecordImportDialog } from './components/RecordImportDialog'
 import appIcon from './assets/app-icon.png'
 import { NoteBoard } from './components/NoteBoard'
-import { FolderIcon, PencilIcon, PlusIcon, SolidTriangleIcon, XIcon } from './components/Icons'
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  FolderIcon,
+  PencilIcon,
+  PlusIcon,
+  SolidTriangleIcon,
+  XIcon
+} from './components/Icons'
 import { mergeImportedParticipants, type TableImportRow } from '../../shared/table-import'
 import { applyLogFilters } from '../../shared/log-filter'
-import { searchModuleRecords, type ModuleSearchHit } from '../../shared/record-search'
+import { countMatches, searchModuleRecords, splitByMatches, type ModuleSearchHit } from '../../shared/record-search'
 import { skillFinal } from '../../shared/coc-rules'
 import type { BackupPreviewApi } from '../../shared/api'
 import {
@@ -768,10 +776,46 @@ function RecordDetail({
   onClose(): void
 }): React.JSX.Element {
   const [query, setQuery] = useState('')
+  // 当前停在第几处命中（从 0 开始）。换关键词时归零，避免下标越界。
+  const [activeMatch, setActiveMatch] = useState(0)
+  const previewRef = useRef<HTMLDivElement>(null)
   const messages = record.rawContent ? applyLogFilters(record.rawContent, preset) : []
   const source =
     record.manualContent || messages.map((message) => `${message.header}\n${message.text}`).join('\n\n')
-  const matches = query ? source.toLocaleLowerCase().split(query.toLocaleLowerCase()).length - 1 : 0
+  const matches = countMatches(source, query)
+
+  useEffect(() => {
+    setActiveMatch(0)
+  }, [query])
+
+  // 当前命中滚动到可视区。依赖 activeMatch，所以点“下一处”也会跟着走。
+  useEffect(() => {
+    const container = previewRef.current
+    if (!container || !matches) return
+    const target = container.querySelector('.match-active')
+    if (target instanceof HTMLElement) target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [activeMatch, matches, query])
+
+  const step = (delta: number): void => {
+    if (!matches) return
+    setActiveMatch((current) => (current + delta + matches) % matches)
+  }
+
+  // 把一段文本渲染成带高亮的片段；命中片段按序号决定是否“当前命中”。
+  const highlight = (text: string): React.ReactNode =>
+    splitByMatches(text, query).map((segment, segmentIndex) =>
+      segment.match ? (
+        <mark
+          key={segmentIndex}
+          className={segment.index === activeMatch ? 'match-active' : undefined}
+        >
+          {segment.text}
+        </mark>
+      ) : (
+        <span key={segmentIndex}>{segment.text}</span>
+      )
+    )
+
   return (
     <Modal title={record.name} onClose={onClose}>
       <div className="detail-meta">
@@ -787,18 +831,44 @@ function RecordDetail({
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              step(event.shiftKey ? -1 : 1)
+            }
+          }}
           placeholder="在当前场次正文内搜索"
         />
-        <span>{query ? `${matches} 处` : ''}</span>
+        <div className="detail-search-tools">
+          <span className="detail-search-count">{query ? `${matches} 处` : ''}</span>
+          <button
+            className="secondary detail-search-step"
+            disabled={!matches}
+            aria-label="上一处"
+            title="上一处（Shift+Enter）"
+            onClick={() => step(-1)}
+          >
+            <ArrowUpIcon />
+          </button>
+          <button
+            className="secondary detail-search-step"
+            disabled={!matches}
+            aria-label="下一处"
+            title="下一处（Enter）"
+            onClick={() => step(1)}
+          >
+            <ArrowDownIcon />
+          </button>
+        </div>
       </div>
-      <div className="log-preview">
+      <div className="log-preview" ref={previewRef}>
         {record.manualContent ? (
-          <p>{record.manualContent}</p>
+          <p>{highlight(record.manualContent)}</p>
         ) : messages.length ? (
           messages.map((message) => (
             <article key={message.id}>
-              <strong>{message.header}</strong>
-              <p>{message.text}</p>
+              <strong>{highlight(message.header)}</strong>
+              <p>{highlight(message.text)}</p>
               {message.images.map((image) => (
                 <span className="image-reference" key={image.url}>
                   [图片] {image.url}

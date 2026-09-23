@@ -320,13 +320,15 @@ body,
 }
 .detail-search {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 8px;
   padding: 14px 20px;
   border-bottom: 1px solid var(--line);
 }
+/* 0.6.5：搜索框独占一行铺满弹窗宽度；命中数与上/下一处按钮放到下面一行，
+   免得按钮挤占输入框的宽度。 */
 .detail-search input {
-  flex: 1;
+  width: 100%;
   padding: 9px 10px;
   color: var(--text);
   background: var(--panel);
@@ -334,15 +336,57 @@ body,
   border-radius: 8px;
 }
 .detail-search span {
-  width: 45px;
   color: var(--muted);
   font-size: 12px;
 }
+
+.detail-search-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 命中数靠左，上/下一处按钮靠右 */
+.detail-search .detail-search-count {
+  margin-right: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-search .detail-search-step {
+  flex: none;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 正文里的搜索高亮：全部命中淡黄，当前那一处加重并带描边 */
+.log-preview mark {
+  padding: 0 2px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--warning) 30%, transparent);
+  border-radius: 3px;
+}
+
+.log-preview mark.match-active {
+  background: color-mix(in srgb, var(--warning) 65%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 45%, transparent);
+}
 .log-preview {
   max-height: 55vh;
-  overflow: auto;
+  /* 0.6.5：正文只纵向滚动。此前是 overflow:auto + pre-wrap，超长不换行的内容
+     （长链接、D100=50/55 这类连续串）会撑出横向滚动条，把左侧文字顶出可视区。
+     现在横向裁掉，并让长串强制断行。 */
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 8px 20px 24px;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .log-preview article {
   padding: 12px 0;
@@ -2793,6 +2837,12 @@ grid-row:6;
   gap: 10px;
   padding: 14px 18px 18px;
   background: color-mix(in srgb, #000 72%, transparent);
+  /* 0.6.5：查看器盖住了窗口顶部那条 46px 的标题栏，而标题栏设了 app-region: drag。
+     拖拽区是 Electron 在原生层拦截的，浮层抢不回鼠标事件，导致右上角的按钮
+     要点很多次、或把鼠标挪到右上角（窗口控制按钮的 no-drag 区域）才生效。
+     这里整块声明 no-drag，把点击还给按钮。 */
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
 }
 
 .image-viewer-head {
@@ -2819,8 +2869,46 @@ grid-row:6;
 }
 
 /* 尺寸按钮靠右，关闭键留在最右 */
+/* 0.6.5：头部整体是白字（color:#fff），而 .secondary 的背景是 var(--panel)，
+   浅色模式下 --panel 正是 #ffffff，于是白字白底完全看不见。
+   这里在深色蒙层上给按钮一个固定的深色外观，两种主题下都清晰。
+   同时把两个按钮统一成 30px 高，不再一大一小。 */
+.image-viewer-head .secondary,
+.image-viewer-head .icon-button {
+  height: 30px;
+  min-height: 30px;
+  padding: 0 12px;
+  color: #f2f3f5;
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
+.image-viewer-head .icon-button {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+}
+
+.image-viewer-head .secondary:hover,
+.image-viewer-head .icon-button:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.28);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.image-viewer-head .secondary:disabled {
+  color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .image-viewer-head .secondary {
   margin-left: auto;
+}
+
+.image-viewer-head .module-remove svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 1.5;
 }
 
 .image-viewer-body {
