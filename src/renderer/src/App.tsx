@@ -6,7 +6,17 @@ import { ConfirmDialog, type ConfirmOptions } from './components/ConfirmDialog'
 import { RecordImportDialog } from './components/RecordImportDialog'
 import appIcon from './assets/app-icon.png'
 import { NoteBoard } from './components/NoteBoard'
-import { FolderIcon, PencilIcon, PlusIcon, SolidTriangleIcon, XIcon } from './components/Icons'
+import {
+  CloseIcon,
+  FolderIcon,
+  MaximizeIcon,
+  MinimizeIcon,
+  PencilIcon,
+  PlusIcon,
+  RestoreIcon,
+  SolidTriangleIcon,
+  XIcon
+} from './components/Icons'
 import { mergeImportedParticipants, type TableImportRow } from '../../shared/table-import'
 import { sessionNameFor, sessionNumberFromName } from '../../shared/session-number'
 import { applyLogFilters } from '../../shared/log-filter'
@@ -329,27 +339,37 @@ const emptySnapshot: AppSnapshot = {
   archiveEntries: []
 }
 
-function WindowControls(): React.JSX.Element {
+/**
+ * Windows 10 风格标题栏控件：三个 46×46 的矩形按钮，图标是 10×10 细线，
+ * 悬停时背景变浅灰、关闭键变红。0.6.6 及更早是 macOS 风格的三色圆点。
+ */
+function WindowControls({ maximized }: { maximized: boolean }): React.JSX.Element {
   return (
     <div className="window-controls" aria-label="窗口控制">
       <button
-        className="minimize"
+        className="caption-button minimize"
         aria-label="最小化"
         title="最小化"
         onClick={() => void window.coc.window.minimize()}
-      />
+      >
+        <MinimizeIcon />
+      </button>
       <button
-        className="maximize"
-        aria-label="最大化或还原"
-        title="最大化或还原"
+        className="caption-button maximize"
+        aria-label={maximized ? '还原' : '最大化'}
+        title={maximized ? '还原' : '最大化'}
         onClick={() => void window.coc.window.toggleMaximize()}
-      />
+      >
+        {maximized ? <RestoreIcon /> : <MaximizeIcon />}
+      </button>
       <button
-        className="close"
+        className="caption-button close"
         aria-label="关闭"
         title="关闭"
         onClick={() => void window.coc.window.close()}
-      />
+      >
+        <CloseIcon />
+      </button>
     </div>
   )
 }
@@ -1337,7 +1357,7 @@ export default function App(): React.JSX.Element {
           <img className="app-icon" src={appIcon} alt="" />
           COC 跑团记录簿
         </span>
-        <WindowControls />
+        <WindowControls maximized={windowMaximized} />
       </header>
       <div className="workspace">
         <nav className="sidebar" aria-label="主导航">

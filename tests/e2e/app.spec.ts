@@ -73,9 +73,10 @@ test('real desktop shell persists data and isolates Node', async () => {
     expect(loadedFonts).toContain('SF Pro Text')
     expect(loadedFonts).toContain('SF Pro Display')
     expect(loadedFonts).toContain('PingFang SC')
+    // Windows 10 标题栏高度
     expect(
       await page.locator('.titlebar').evaluate((element) => element.getBoundingClientRect().height)
-    ).toBeCloseTo(46, 1)
+    ).toBeCloseTo(32, 1)
     await expect(page.locator('.window-controls button')).toHaveCount(3)
     const titleIcon = page.locator('.app-icon')
     await expect(titleIcon).toBeVisible()

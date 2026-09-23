@@ -96,3 +96,63 @@ export function ArrowDownIcon({
     </svg>
   )
 }
+
+/**
+ * Windows 10 标题栏控件图标。
+ *
+ * 这几个刻意不共用 base()：Win10 的字形是 10×10、1px 细线、平头端点，
+ * 坐标落在半像素上才够锐利；base() 的 24 格画布配 1.8 描边和圆头端点
+ * 会明显偏粗、偏圆，看着就不像系统控件了。
+ */
+function caption(size: number, className?: string) {
+  return {
+    width: size,
+    height: size,
+    viewBox: '0 0 10 10',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1,
+    strokeLinecap: 'butt' as const,
+    strokeLinejoin: 'miter' as const,
+    shapeRendering: 'crispEdges' as const,
+    className,
+    'aria-hidden': true
+  }
+}
+
+/** 最小化：一条居中的横线 */
+export function MinimizeIcon({ size = 10, className }: IconProps): React.JSX.Element {
+  return (
+    <svg {...caption(size, className)}>
+      <path d="M0 5.5h10" />
+    </svg>
+  )
+}
+
+/** 最大化：一个 10×10 的方框 */
+export function MaximizeIcon({ size = 10, className }: IconProps): React.JSX.Element {
+  return (
+    <svg {...caption(size, className)}>
+      <path d="M0.5 0.5h9v9h-9z" />
+    </svg>
+  )
+}
+
+/** 还原：两个错位叠放的方框（最大化状态下显示） */
+export function RestoreIcon({ size = 10, className }: IconProps): React.JSX.Element {
+  return (
+    <svg {...caption(size, className)}>
+      <path d="M2.5 0.5h7v7" />
+      <path d="M0.5 2.5h7v7h-7z" />
+    </svg>
+  )
+}
+
+/** 关闭：一个 10×10 的叉 */
+export function CloseIcon({ size = 10, className }: IconProps): React.JSX.Element {
+  return (
+    <svg {...caption(size, className)}>
+      <path d="M0 0l10 10M10 0L0 10" />
+    </svg>
+  )
+}

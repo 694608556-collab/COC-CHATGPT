@@ -2,6 +2,9 @@
   font-size: 13px;
   font-family:
     'SF Pro Text', 'SF Pro Display', 'PingFang SC', 'Segoe UI', sans-serif;
+  /* Windows 10 标题栏高度。窗口控件、标题栏、以及下方内容区的高度都取自这里，
+     改一处即可整体生效（0.6.7 之前是 46px，散在四个地方各写一遍）。 */
+  --titlebar-height: 32px;
   --bg: #e6e8ec;
   --panel: #ffffff;
   --panel2: #eef0f4;
@@ -98,11 +101,12 @@ body,
   box-shadow: none;
 }
 .titlebar {
-  height: 46px;
+  height: var(--titlebar-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 18px;
+  /* 右侧不留内边距：Win10 的窗口控件要贴着窗口右上角 */
+  padding: 0 0 0 18px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   app-region: drag;
@@ -122,33 +126,55 @@ body,
   height: 18px;
   border-radius: 5px;
 }
+/* Windows 10 风格窗口控件：46×32 的矩形按钮平铺在标题栏右端，无间距无圆角。
+   0.6.6 及更早是 macOS 风格的三色圆点（14px 圆形，带 10px 间隙）。 */
 .window-controls {
   display: flex;
-  gap: 10px;
+  gap: 0;
+  flex: none;
+  align-self: stretch;
   app-region: no-drag;
 }
-.window-controls button {
-  width: 14px;
-  height: 14px;
+.caption-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  min-width: 46px;
+  /* 高度跟着标题栏走，按钮正好铺满 */
+  height: var(--titlebar-height);
+  min-height: var(--titlebar-height);
   padding: 0;
+  color: var(--text);
+  background: transparent;
   border: 0;
-  border-radius: 50%;
-  cursor: pointer;
+  border-radius: 0;
+  cursor: default;
+  transition: background-color 120ms ease;
 }
-.minimize {
-  background: #f0b429;
+.caption-button:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
 }
-.maximize {
-  background: #35a86a;
+.caption-button:active {
+  background: color-mix(in srgb, var(--text) 16%, transparent);
 }
-.close {
-  background: #e14b3f;
+/* 关闭键悬停变红底白字，与 Win10 一致 */
+.caption-button.close:hover {
+  color: #fff;
+  background: #e81123;
+}
+.caption-button.close:active {
+  color: #fff;
+  background: #f1707a;
+}
+.caption-button svg {
+  display: block;
 }
 
 .workspace {
   display: grid;
   grid-template-columns: 184px minmax(0, 1fr);
-  height: calc(100vh - 46px);
+  height: calc(100vh - var(--titlebar-height));
 }
 .sidebar {
   display: flex;
@@ -2359,7 +2385,7 @@ grid-row:6;
 .titlebar { -webkit-app-region: drag; }
 .window-controls,
 .window-controls button { -webkit-app-region: no-drag; }
-.workspace { height: calc(100% - 46px); min-height: 0; grid-template-rows: minmax(0, 1fr); }
+.workspace { height: calc(100% - var(--titlebar-height)); min-height: 0; grid-template-rows: minmax(0, 1fr); }
 .sidebar { min-height: 0; overflow: visible; }
 .privacy-note { min-height: 138px; box-sizing: border-box; flex-shrink: 0; padding-bottom: 8px; }
 .nav-item { min-height: 44px; font-size: 16px; line-height: 1.35; }
@@ -2889,7 +2915,7 @@ grid-row:6;
   gap: 10px;
   padding: 14px 18px 18px;
   background: color-mix(in srgb, #000 72%, transparent);
-  /* 0.6.5：查看器盖住了窗口顶部那条 46px 的标题栏，而标题栏设了 app-region: drag。
+  /* 0.6.5：查看器盖住了窗口顶部那条标题栏，而标题栏设了 app-region: drag。
      拖拽区是 Electron 在原生层拦截的，浮层抢不回鼠标事件，导致右上角的按钮
      要点很多次、或把鼠标挪到右上角（窗口控制按钮的 no-drag 区域）才生效。
      这里整块声明 no-drag，把点击还给按钮。 */
