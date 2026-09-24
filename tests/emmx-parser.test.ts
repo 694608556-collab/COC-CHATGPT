@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { AppError } from '../src/shared/errors'
 import { emmxOutline, pageToSvg, parseEmmx } from '../src/shared/emmx'
+import { samplePath } from './sample-files'
 
 /** 造一个未压缩的 zip 条目（本地文件头 + 内容） */
 function zipEntry(name: string, content: Buffer): Buffer {
@@ -17,9 +18,9 @@ function zipEntry(name: string, content: Buffer): Buffer {
 
 // 真实样本来自本机的跑团资料目录；文件不在时跳过，保证别处也能跑测试。
 const SAMPLES = [
-  { path: 'E:\\COC模组\\月廻\\月廻（上）时间线.emmx', minShapes: 5 },
-  { path: 'E:\\COC模组\\龙台掠雪\\龙台掠雪.emmx', minShapes: 400, pages: 2 },
-  { path: 'F:\\3-其他内容\\跑团\\2-渊娲之海\\渊娲之海.emmx', minShapes: 150 }
+  { path: samplePath('月廻上时间线') ?? '', minShapes: 5 },
+  { path: samplePath('龙台掠雪') ?? '', minShapes: 400, pages: 2 },
+  { path: samplePath('渊娲之海') ?? '', minShapes: 150 }
 ]
 
 describe('emmx parser', () => {

@@ -1,9 +1,10 @@
 import fs from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { htmlMindmapOutline, parseMindmapHtml } from '../src/shared/mindmap-html'
+import { samplePath } from './sample-files'
 
 // 真实样本；文件不在时跳过，保证别处也能跑测试
-const REAL = 'C:\\Users\\Admin\\AppData\\Roaming\\dsh-launcher\\dsh-packs\\pack-test\\attachments\\v1\\files\\55\\559a075b75a21021c3daf0a938d806e02ca878d9a397377f7ba94ebdd6a77c01\\铸形骸，灯心性，启天命26907.html'
+const REAL = samplePath('铸形骸html')
 
 describe('0.7.0 mindmap html parser', () => {
   it('parses a minimal handcrafted export', () => {
@@ -52,8 +53,8 @@ describe('0.7.0 mindmap html parser', () => {
     expect(htmlMindmapOutline(document)).toEqual([])
   })
 
-  it.skipIf(!fs.existsSync(REAL))('parses the real multi-page export', () => {
-    const document = parseMindmapHtml(fs.readFileSync(REAL, 'utf8'))
+  it.skipIf(REAL === undefined)('parses the real multi-page export', () => {
+    const document = parseMindmapHtml(fs.readFileSync(REAL!, 'utf8'))
     // 4 个子页面
     expect(document.pages).toHaveLength(4)
     expect(document.pages.map((page) => page.id)).toEqual(['page0', 'page1', 'page2', 'page3'])

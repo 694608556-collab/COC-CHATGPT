@@ -9,13 +9,15 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { pageToSvg, parseEmmx } from '../src/shared/emmx'
 import { parseMindmapHtml } from '../src/shared/mindmap-html'
+import { samplePath } from './sample-files'
 
 const root = path.resolve(__dirname, '..')
 const read = (rel: string): string => fs.readFileSync(path.join(root, rel), 'utf8')
 
-const EMMX = 'E:\\COC模组\\龙台掠雪\\龙台掠雪.emmx'
-const CALLOUT_EMMX = 'F:\\3-其他内容\\跑团\\其他\\锈蚀纪元的夜莺不再歌唱.emmx'
-const HTML = 'C:\\Users\\Admin\\AppData\\Roaming\\dsh-launcher\\dsh-packs\\pack-test\\attachments\\v1\\files\\55\\559a075b75a21021c3daf0a938d806e02ca878d9a397377f7ba94ebdd6a77c01\\铸形骸，灯心性，启天命26907.html'
+// 两台开发机上样例的存放位置不同，按逻辑名解析；缺失时对应用例自动跳过
+const EMMX = samplePath('龙台掠雪')
+const CALLOUT_EMMX = samplePath('锈蚀纪元')
+const HTML = samplePath('铸形骸html')
 
 describe('regression checklist: previously reported issues', () => {
   const app = read('src/renderer/src/App.tsx')
@@ -78,8 +80,8 @@ describe('regression checklist: previously reported issues', () => {
     expect(emmx).toContain('readLabel')
   })
 
-  it.skipIf(!fs.existsSync(EMMX))('0.7.0 node text: uses own text box and wraps long lines', () => {
-    const document = parseEmmx(fs.readFileSync(EMMX))
+  it.skipIf(EMMX === undefined)('0.7.0 node text: uses own text box and wraps long lines', () => {
+    const document = parseEmmx(fs.readFileSync(EMMX!))
     const main = document.pages.find((item) => item.name === 'page/page.xml')!
     // 每个节点都有自己的文字区域
     expect(main.shapes.filter((shape) => shape.textBox).length).toBeGreaterThan(main.shapes.length * 0.9)
@@ -94,8 +96,8 @@ describe('regression checklist: previously reported issues', () => {
     }
   })
 
-  it.skipIf(!fs.existsSync(CALLOUT_EMMX))('0.7.0 callouts: box text is visible, not just the box', () => {
-    const document = parseEmmx(fs.readFileSync(CALLOUT_EMMX))
+  it.skipIf(CALLOUT_EMMX === undefined)('0.7.0 callouts: box text is visible, not just the box', () => {
+    const document = parseEmmx(fs.readFileSync(CALLOUT_EMMX!))
     const main = document.pages.find((item) => item.name === 'page/page.xml')!
     const texts = main.labels.flatMap((label) => label.lines)
     expect(texts.some((text) => text.includes('琉星为何会知道黑蛇相关信息'))).toBe(true)
@@ -117,8 +119,8 @@ describe('regression checklist: previously reported issues', () => {
     expect(styles).toContain('.mindmap-zoom')
   })
 
-  it.skipIf(!fs.existsSync(HTML))('0.7.0 sub-pages: real canvas names instead of 画布 N', () => {
-    const document = parseMindmapHtml(fs.readFileSync(HTML, 'utf8'))
+  it.skipIf(HTML === undefined)('0.7.0 sub-pages: real canvas names instead of 画布 N', () => {
+    const document = parseMindmapHtml(fs.readFileSync(HTML!, 'utf8'))
     expect(document.pages.map((item) => item.title)).toEqual([
       '主内容',
       '待探索调查',

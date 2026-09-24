@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import zlib from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { parseEmmx } from '../src/shared/emmx'
+import { samplePath } from './sample-files'
 
 function entries(buf: Buffer) {
   const list: Array<{ name: string; method: number; compressedSize: number; dataStart: number }> = []
@@ -24,11 +25,11 @@ function entries(buf: Buffer) {
 }
 
 const FILES = [
-  'E:\\COC模组\\龙台掠雪\\龙台掠雪.emmx',
-  'F:\\3-其他内容\\跑团\\其他\\锈蚀纪元的夜莺不再歌唱.emmx',
-  'F:\\3-其他内容\\跑团\\2-渊娲之海\\渊娲之海.emmx',
-  'E:\\COC模组\\月廻\\月廻（上）.emmx'
-]
+  samplePath('龙台掠雪'),
+  samplePath('锈蚀纪元'),
+  samplePath('渊娲之海'),
+  samplePath('月廻上')
+].filter((value): value is string => Boolean(value))
 
 describe('text coverage audit', () => {
   for (const file of FILES) {
@@ -39,13 +40,26 @@ describe('text coverage audit', () => {
       // 按「每个 Shape 的文字」为口径统计，与解析器一致：
       // 一个 Shape 里的多个 <tp> 会合并成一段（解析器就是这么做的），
       // 若按单个 <tp> 计数，同一段被拆成 5 个 <tp> 时会误判为「缺 4 段」。
+      //
+      // 另外要解码 XML 实体：文件里存的是 &quot;要离开了” ，而解析器输出的是
+      // 解码后的 "要离开了” ，不解码就会把这段误报成「缺失」。
+      const decode = (value: string): string =>
+        value
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+          .replace(/&apos;/g, "'")
+          .replace(/&#(\d+);/g, (_, code: string) => String.fromCharCode(Number(code)))
+          .replace(/&#x([0-9a-fA-F]+);/g, (_, code: string) => String.fromCharCode(parseInt(code, 16)))
+          .replace(/&amp;/g, '&')
+
       const perShape: string[] = []
       for (const page of pages) {
         const raw = buf.subarray(page.dataStart, page.dataStart + page.compressedSize)
         const xml = (page.method === 0 ? raw : zlib.inflateRawSync(raw)).toString('utf8')
         for (const shape of xml.matchAll(/<Shape\s+ID="\d+"\s+Type="[^"]+"[^>]*>([\s\S]*?)<\/Shape>/g)) {
           const text = [...shape[1]!.matchAll(/<tp\b[^>]*>([\s\S]*?)<\/tp>/g)]
-            .map((m) => m[1]!.replace(/<[^>]+>/g, '').trim())
+            .map((m) => decode(m[1]!.replace(/<[^>]+>/g, '')).trim())
             .filter(Boolean)
             .join(' ')
           if (text) perShape.push(text)

@@ -2,11 +2,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseMindmapHtml } from '../src/shared/mindmap-html'
+import { samplePath } from './sample-files'
 
 const root = path.resolve(__dirname, '..')
 const read = (rel: string): string => fs.readFileSync(path.join(root, rel), 'utf8')
 
-const REAL_HTML = 'C:\\Users\\Admin\\AppData\\Roaming\\dsh-launcher\\dsh-packs\\pack-test\\attachments\\v1\\files\\55\\559a075b75a21021c3daf0a938d806e02ca878d9a397377f7ba94ebdd6a77c01\\铸形骸，灯心性，启天命26907.html'
+const REAL_HTML = samplePath('铸形骸html')
 
 describe('0.7.0 viewer fixes', () => {
   const viewer = read('src/renderer/src/components/MindmapViewer.tsx')
@@ -39,8 +40,8 @@ describe('0.7.0 viewer fixes', () => {
     expect(document.pages.map((page) => page.title)).toEqual(['主内容', '卷宗', '画布 2'])
   })
 
-  it.skipIf(!fs.existsSync(REAL_HTML))('reads real page names from a genuine export', () => {
-    const document = parseMindmapHtml(fs.readFileSync(REAL_HTML, 'utf8'))
+  it.skipIf(REAL_HTML === undefined)('reads real page names from a genuine export', () => {
+    const document = parseMindmapHtml(fs.readFileSync(REAL_HTML!, 'utf8'))
     expect(document.pages.map((page) => page.title)).toEqual([
       '主内容',
       '待探索调查',

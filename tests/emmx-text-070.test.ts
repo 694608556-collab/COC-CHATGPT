@@ -1,9 +1,11 @@
 import fs from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { pageToSvg, parseEmmx } from '../src/shared/emmx'
+import { samplePath } from './sample-files'
 
-const REAL = 'E:\\COC模组\\龙台掠雪\\龙台掠雪.emmx'
-const hasReal = fs.existsSync(REAL)
+// 两台开发机上样例的存放位置不同，按逻辑名解析；缺失时对应用例自动跳过
+const REAL = samplePath('龙台掠雪')
+const hasReal = REAL !== undefined
 
 /**
  * 从 SVG 里取出所有 <text> 的 x/y 与内容。
@@ -26,7 +28,7 @@ function measure(text: string, size: number): number {
 
 describe('0.7.0 node text placement and wrapping', () => {
   it.skipIf(!hasReal)('uses the node own text box instead of assuming centering', () => {
-    const document = parseEmmx(fs.readFileSync(REAL))
+    const document = parseEmmx(fs.readFileSync(REAL!))
     const main = document.pages.find((page) => page.name === 'page/page.xml')!
     const withTextBox = main.shapes.filter((shape) => shape.textBox)
     // 绝大多数节点都带自己的文字框
@@ -43,7 +45,7 @@ describe('0.7.0 node text placement and wrapping', () => {
   })
 
   it.skipIf(!hasReal)('wraps long node text so it stays inside its box', () => {
-    const document = parseEmmx(fs.readFileSync(REAL))
+    const document = parseEmmx(fs.readFileSync(REAL!))
     const main = document.pages.find((page) => page.name === 'page/page.xml')!
     const svg = pageToSvg(main)
     const texts = readTexts(svg)
@@ -69,7 +71,7 @@ describe('0.7.0 node text placement and wrapping', () => {
   })
 
   it.skipIf(!hasReal)('never emits a text line wider than the whole canvas', () => {
-    const document = parseEmmx(fs.readFileSync(REAL))
+    const document = parseEmmx(fs.readFileSync(REAL!))
     const main = document.pages.find((page) => page.name === 'page/page.xml')!
     const svg = pageToSvg(main)
     const canvasWidth = main.bounds.maxX - main.bounds.minX
@@ -91,7 +93,7 @@ describe('0.7.0 node text placement and wrapping', () => {
   })
 
   it.skipIf(!hasReal)('keeps label text single-line (no wrapping for connectors)', () => {
-    const document = parseEmmx(fs.readFileSync(REAL))
+    const document = parseEmmx(fs.readFileSync(REAL!))
     const main = document.pages.find((page) => page.name === 'page/page.xml')!
     // 连线标签「疑似起过纷争，但林知松失忆后无印象」较长，应保持一行
     const longLabel = main.labels.find((label) => label.lines.some((line) => line.length > 15))
@@ -104,14 +106,14 @@ describe('0.7.0 node text placement and wrapping', () => {
 })
 
 describe('0.7.0 callout labels', () => {
-  const CALLOUT_FILE = 'F:\\3-其他内容\\跑团\\其他\\锈蚀纪元的夜莺不再歌唱.emmx'
-  const hasCallout = fs.existsSync(CALLOUT_FILE)
+  const CALLOUT_FILE = samplePath('锈蚀纪元')
+  const hasCallout = CALLOUT_FILE !== undefined
 
   it.skipIf(!hasCallout)('reads the text of every Callout box', () => {
     // Callout（标注框）自带文字，坐标相对自身框左上角。
     // 0.7.0 之前把它和 Boundary 归成一类、只画框不读文字，
     // 于是「标注框里的文字看不见，只能看见框」。
-    const document = parseEmmx(fs.readFileSync(CALLOUT_FILE))
+    const document = parseEmmx(fs.readFileSync(CALLOUT_FILE!))
     const main = document.pages.find((page) => page.name === 'page/page.xml')!
     const texts = main.labels.flatMap((label) => label.lines)
     expect(texts).toContain('琉星为何会知道黑蛇相关信息')
@@ -123,7 +125,7 @@ describe('0.7.0 callout labels', () => {
   })
 
   it.skipIf(!hasCallout)('places callout text inside its own box', () => {
-    const document = parseEmmx(fs.readFileSync(CALLOUT_FILE))
+    const document = parseEmmx(fs.readFileSync(CALLOUT_FILE!))
     const main = document.pages.find((page) => page.name === 'page/page.xml')!
     const calloutText = '琉星为何会知道黑蛇相关信息'
     const label = main.labels.find((item) => item.lines.includes(calloutText))

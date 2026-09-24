@@ -17,12 +17,14 @@ import {
   findSvgMatches,
   scrollToCenter
 } from '../src/shared/mindmap-search'
+import { samplePath } from './sample-files'
 
 const root = path.resolve(__dirname, '..')
 const read = (rel: string): string => fs.readFileSync(path.join(root, rel), 'utf8')
 
-const EMMX = 'F:\\1\\dist\\渊娲之海.emmx'
-const HTML = 'F:\\1\\dist\\铸形骸，灯心性，启天命26907.html'
+// 两台开发机上样例的存放位置不同，按逻辑名解析；缺失时对应用例自动跳过
+const EMMX = samplePath('渊娲之海')
+const HTML = samplePath('铸形骸html')
 
 describe('0.7.1 stage 2: mindmap node search', () => {
   describe('extractSvgTextRuns', () => {
@@ -147,7 +149,7 @@ describe('0.7.1 stage 2: mindmap node search', () => {
   })
 
   describe('works on real files', () => {
-    it.runIf(fs.existsSync(EMMX))('finds nodes in a parsed emmx svg', () => {
+    it.runIf(EMMX !== undefined)('finds nodes in a parsed emmx svg', () => {
       const source = read('src/shared/emmx.ts')
       expect(source).toContain('data-shape')
       const runs = extractSvgTextRuns(
@@ -157,8 +159,8 @@ describe('0.7.1 stage 2: mindmap node search', () => {
       expect(findSvgMatches(runs, '渊娲')).toHaveLength(1)
     })
 
-    it.runIf(fs.existsSync(HTML))('finds nodes in the EdrawMind html export', () => {
-      const html = fs.readFileSync(HTML, 'utf8')
+    it.runIf(HTML !== undefined)('finds nodes in the EdrawMind html export', () => {
+      const html = fs.readFileSync(HTML!, 'utf8')
       const start = html.indexOf('<svg')
       const end = html.indexOf('</svg>', start)
       const svg = html.slice(start, end)

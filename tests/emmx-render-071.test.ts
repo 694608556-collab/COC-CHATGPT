@@ -19,17 +19,15 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { pageToSvg, parseEmmx } from '../src/shared/emmx'
+import { availableSamples } from './sample-files'
 
 const root = path.resolve(__dirname, '..')
 const read = (rel: string): string => fs.readFileSync(path.join(root, rel), 'utf8')
 
-/** 真实样例（家里电脑齐全，公司电脑只有一部分，缺失即跳过） */
-const SAMPLES = [
-  'F:\\1\\dist\\渊娲之海.emmx',
-  'E:\\微信文件\\xwechat_files\\wxid_b70gzcimuk4h22_f95c\\msg\\file\\2025-07\\精神病院失踪事件.emmx',
-  'E:\\微信文件\\xwechat_files\\wxid_b70gzcimuk4h22_f95c\\msg\\file\\2025-11\\世界回归进行曲.emmx'
-]
-const available = SAMPLES.filter((file) => fs.existsSync(file))
+/** 真实样例（两台开发机的存放位置不同，按逻辑名解析；缺失即跳过） */
+const available = availableSamples(['渊娲之海', '精神病院失踪事件', '世界回归进行曲']).map(
+  (item) => item.path
+)
 
 function measure(text: string, fontSize: number): number {
   let width = 0

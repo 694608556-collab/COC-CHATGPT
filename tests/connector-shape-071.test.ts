@@ -17,16 +17,15 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseEmmx, pageToSvg } from '../src/shared/emmx'
+import { availableSamples } from './sample-files'
 
 const root = path.resolve(__dirname, '..')
 const read = (rel: string): string => fs.readFileSync(path.join(root, rel), 'utf8')
 
-const SAMPLES = [
-  'F:\\1\\dist\\渊娲之海.emmx',
-  'E:\\微信文件\\xwechat_files\\wxid_b70gzcimuk4h22_f95c\\msg\\file\\2025-07\\精神病院失踪事件.emmx',
-  'E:\\微信文件\\xwechat_files\\wxid_b70gzcimuk4h22_f95c\\msg\\file\\2025-11\\世界回归进行曲.emmx'
-]
-const available = SAMPLES.filter((file) => fs.existsSync(file))
+// 两台开发机上样例的存放位置不同，按逻辑名解析出实际路径
+const available = availableSamples(['渊娲之海', '精神病院失踪事件', '世界回归进行曲']).map(
+  (item) => item.path
+)
 
 /** 把 path 拆成「命令 + 坐标」列表 */
 function segments(d: string): Array<{ kind: string; nums: number[] }> {

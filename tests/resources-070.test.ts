@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { AppDatabase, CURRENT_SCHEMA_VERSION } from '../src/main/database'
 import { AppRepository } from '../src/main/repository'
 import { outlineToMarkdown, parseEmmx } from '../src/shared/emmx'
+import { samplePath } from './sample-files'
 
 const root = path.resolve(__dirname, '..')
 const read = (rel: string): string => fs.readFileSync(path.join(root, rel), 'utf8')
@@ -172,8 +173,8 @@ describe('0.7.0 resources may be unassigned', () => {
 })
 
 describe('0.7.0 mindmap outline and curves', () => {
-  const realFile = 'E:\\COC模组\\龙台掠雪\\龙台掠雪.emmx'
-  const hasReal = fs.existsSync(realFile)
+  const realFile = samplePath('龙台掠雪')
+  const hasReal = realFile !== undefined
 
   it('reads the hierarchy straight out of the emmx, no markdown export needed', () => {
     // 层级存在 LevelData 的 Super / SubLevel 里，据此就能生成缩进大纲
@@ -184,7 +185,7 @@ describe('0.7.0 mindmap outline and curves', () => {
   })
 
   it.skipIf(!hasReal)('builds a nested outline from a real map', () => {
-    const document = parseEmmx(fs.readFileSync(realFile))
+    const document = parseEmmx(fs.readFileSync(realFile!))
     expect(document.outline.length).toBeGreaterThan(100)
     // 必须有真正缩进过的层级，不能全平铺在第 0 层
     const deepest = document.outline.reduce((max, line) => Math.max(max, line.depth), 0)
@@ -194,7 +195,7 @@ describe('0.7.0 mindmap outline and curves', () => {
   })
 
   it.skipIf(!hasReal)('draws real curves and keeps group boxes instead of straight lines', () => {
-    const document = parseEmmx(fs.readFileSync(realFile))
+    const document = parseEmmx(fs.readFileSync(realFile!))
     const main = document.pages.find((page) => page.name === 'page/page.xml')!
     // 曲线：path 里必须出现三次贝塞尔指令
     const curves = main.paths.filter((item) => item.d.includes('C'))
@@ -205,7 +206,7 @@ describe('0.7.0 mindmap outline and curves', () => {
   })
 
   it.skipIf(!hasReal)('exports the outline as an indented markdown list', () => {
-    const document = parseEmmx(fs.readFileSync(realFile))
+    const document = parseEmmx(fs.readFileSync(realFile!))
     const markdown = outlineToMarkdown(document, '龙台掠雪')
     expect(markdown.startsWith('# 龙台掠雪')).toBe(true)
     expect(markdown).toContain('\n- ')
