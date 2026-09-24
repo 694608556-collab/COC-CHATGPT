@@ -1951,7 +1951,7 @@ export default function App(): React.JSX.Element {
               <ResourcesPage
                 modules={snapshot.modules}
                 resources={snapshot.resources}
-                hiddenModules={snapshot.settings.hiddenResourceModules ?? []}
+                hiddenGroups={snapshot.settings.hiddenResourceGroups ?? []}
                 creating={resourceCreating}
                 onCreatingHandled={() => setResourceCreating(undefined)}
                 onChanged={refresh}

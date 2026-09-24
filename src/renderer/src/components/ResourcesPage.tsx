@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { MindmapPreviewApi } from '../../../shared/api'
 import type { ModuleRecord, ModuleResource, ModuleResourceKind } from '../../../shared/types'
+import { UNASSIGNED_GROUP } from '../../../shared/types'
 import { FolderIcon, RefreshIcon, SolidTriangleIcon, XIcon } from './Icons'
 import { ConfirmDialog, type ConfirmOptions } from './ConfirmDialog'
 import { DialogShell } from './DialogShell'
@@ -19,7 +20,7 @@ import { MindmapViewer } from './MindmapViewer'
 export function ResourcesPage({
   modules,
   resources,
-  hiddenModules,
+  hiddenGroups,
   creating,
   onCreatingHandled,
   onChanged,
@@ -27,8 +28,8 @@ export function ResourcesPage({
 }: {
   modules: ModuleRecord[]
   resources: ModuleResource[]
-  /** 已在资料汇总页被移除的模组 id（只影响本页显示） */
-  hiddenModules: string[]
+  /** 已在资料汇总页被移除的分组（模组 id，以及未归属分组的哨兵） */
+  hiddenGroups: string[]
   /** 页头按下了「+ 导图/链接/文件」 */
   creating?: ModuleResourceKind
   onCreatingHandled(): void
@@ -57,9 +58,9 @@ export function ResourcesPage({
   const [dropTarget, setDropTarget] = useState<string>()
 
   // 分组：每个模组一组，未归属的单独一组放在最下面。
-  // hiddenResourceModules 里的模组已被用户从本页移除，不再显示分组。
+  // hiddenGroups 里的分组已被用户从本页移除，不再显示（含未归属分组）。
   const groups = useMemo(() => {
-    const hidden = new Set(hiddenModules)
+    const hidden = new Set(hiddenGroups)
     const byModule = modules
       .filter((module) => !hidden.has(module.id))
       .map((module) => ({
@@ -68,8 +69,8 @@ export function ResourcesPage({
         resources: resources.filter((resource) => resource.moduleId === module.id)
       }))
     const unassigned = resources.filter((resource) => !resource.moduleId)
-    return { byModule, unassigned }
-  }, [modules, resources, hiddenModules])
+    return { byModule, unassigned, unassignedHidden: hidden.has(UNASSIGNED_GROUP) }
+  }, [modules, resources, hiddenGroups])
 
   const filePaths = useMemo(
     () => resources.map((resource) => resource.path).filter((value): value is string => Boolean(value)),
@@ -312,6 +313,9 @@ export function ResourcesPage({
    *
    * 模组分组的「删除条目」只影响资料汇总页的显示：模组本身、场次、角色卡
    * 都不受影响（回到跑团记录页它照常在那儿）。
+   *
+   * 未归属分组走同一套机制，只是它的「分组条目」用 UNASSIGNED_GROUP 哨兵记录
+   * ——0.7.0 时它没有 id，删了记不下来，所以刷新后总会复活。
    */
   const removeGroup = (
     name: string,
@@ -319,6 +323,8 @@ export function ResourcesPage({
     options: { moduleId?: string; unassigned?: boolean }
   ): void => {
     const count = items.length
+    // 未归属分组用哨兵；模组分组用自己的 id
+    const groupKey = options.unassigned ? UNASSIGNED_GROUP : options.moduleId
     const clearOnly = async (): Promise<void> => {
       for (const resource of items) await window.coc.resources.delete(resource.id)
       await onChanged()
@@ -326,13 +332,14 @@ export function ResourcesPage({
     }
     const removeWithGroup = async (): Promise<void> => {
       for (const resource of items) await window.coc.resources.delete(resource.id)
-      // 模组分组还要记一笔「已从资料汇总页移除」，否则刷新后分组又会出现
-      if (options.moduleId) await window.coc.resources.removeGroup(options.moduleId)
+      // 记一笔「已从资料汇总页移除」，否则刷新后分组又会出现。
+      // 未归属分组也记，这样它才能被真正删掉。
+      if (groupKey) await window.coc.resources.removeGroup(groupKey)
       await onChanged()
       onNotice(
-        options.unassigned
-          ? `已移除未归属分组的 ${count} 条资料`
-          : `已从资料汇总移除「${name}」${count ? `及其 ${count} 条资料` : ''}`
+        count
+          ? `已移除分组「${name}」及其 ${count} 条资料（原文件未删除）`
+          : `已移除分组「${name}」（原文件未删除）`
       )
     }
 
@@ -629,29 +636,37 @@ export function ResourcesPage({
       )}
 
       {/*
-        只有「没有任何模组、也没有任何资料」时才显示空白引导页。
-        若模组还在（哪怕它下面一条资料都没有），仍然显示分组——
+        只有「没有任何分组、也没有任何资料」时才显示空白引导页。
+        若还有分组在（哪怕它下面一条资料都没有），仍然显示分组——
         否则用户删空资料后连分组都看不到，也就没法把资料拖回去。
       */}
-      {resources.length === 0 && modules.length === 0 && !draft && (
-        <div className="empty-state">
-          <h2>还没有资料</h2>
-          <p>
-            可以把 EdrawMind 导图、Notion 链接或其他文件挂到这里，编辑仍在原软件里进行。
-            资料可以归属到某个模组，也可以不归属；拖动卡片即可改归属或排序。
-          </p>
-        </div>
-      )}
+      {resources.length === 0 &&
+        groups.byModule.length === 0 &&
+        groups.unassignedHidden &&
+        !draft && (
+          <div className="empty-state">
+            <h2>还没有资料</h2>
+            <p>
+              可以把 EdrawMind 导图、Notion 链接或其他文件挂到这里，编辑仍在原软件里进行。
+              资料可以归属到某个模组，也可以不归属；拖动卡片即可改归属或排序。
+            </p>
+          </div>
+        )}
 
-      {(resources.length > 0 || modules.length > 0) && (
+      {!(
+        resources.length === 0 &&
+        groups.byModule.length === 0 &&
+        groups.unassignedHidden
+      ) && (
         <div className="resource-groups">
           {groups.byModule.map((group) =>
             renderGroup(group.key, group.name, group.resources, {
               module: modules.find((module) => module.id === group.key)
             })
           )}
-          {/* 未归属的放最下面 */}
-          {renderGroup('__unassigned__', '未归属模组', groups.unassigned, { unassigned: true })}
+          {/* 未归属的放最下面；它被删掉后同样不再显示，直到又有资料变成未归属 */}
+          {!groups.unassignedHidden &&
+            renderGroup(UNASSIGNED_GROUP, '未归属模组', groups.unassigned, { unassigned: true })}
         </div>
       )}
 

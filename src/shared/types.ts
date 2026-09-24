@@ -237,11 +237,21 @@ export interface AppSettings {
     retention: number
   }
   /**
-   * 在「资料汇总」页被移除的模组分组。
+   * 在「资料汇总」页被移除的分组。
    *
    * 分组是从模组列表实时算出来的，不记一笔的话删掉后一刷新又回来。
    * 这里只影响资料汇总页的显示：模组本身、场次、角色卡都不受影响。
-   * 若之后又给这个模组添加资料，分组会自动重新出现（新资料总得有地方放）。
+   * 若之后又给这个分组添加资料，分组会自动重新出现（新资料总得有地方放）。
+   *
+   * 0.7.1：除了模组 id，还可以放 UNASSIGNED_GROUP 这个哨兵，用来记住
+   * 「未归属模组」分组也被删掉了——它没有模组 id，0.7.0 因此删不掉。
+   */
+  hiddenResourceGroups?: string[]
+  /**
+   * 0.7.0 的字段名（当时只能存模组 id）。
+   *
+   * 保留是为了兼容旧数据：读取时会把这里的值合并进 hiddenResourceGroups，
+   * 否则升级后用户此前删掉的分组会全部复活。
    */
   hiddenResourceModules?: string[]
   windowState?: {
@@ -253,11 +263,21 @@ export interface AppSettings {
   }
 }
 
+/**
+ * 「未归属模组」分组的哨兵标记。
+ *
+ * 未归属分组没有模组 id，但用户同样可以把它整个删掉；用这个固定值占一个位置，
+ * 就能和模组分组共用同一份隐藏列表与同一套增删逻辑。
+ * 取值刻意不是 uuid 的形状，避免与真实模组 id 相撞。
+ */
+export const UNASSIGNED_GROUP = '__unassigned__'
+
 export interface SettingsPatch {
   theme?: AppSettings['theme']
   archiveDirectory?: string
   filterPreset?: Partial<FilterPreset>
   autoBackup?: Partial<AppSettings['autoBackup']>
+  hiddenResourceGroups?: string[]
   hiddenResourceModules?: string[]
   windowState?: AppSettings['windowState']
 }

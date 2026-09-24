@@ -50,8 +50,10 @@ describe('0.7.0 clearing the unassigned group', () => {
     expect(block).toContain('只清空资料')
     expect(block).toContain('连分组一起删')
     expect(block).toContain('secondaryAction')
-    // 模组分组才会记「已从本页移除」；未归属分组是虚拟的，删资料即可
-    expect(block).toContain('if (options.moduleId) await window.coc.resources.removeGroup(options.moduleId)')
+    // 0.7.1：两种分组都要记「已从本页移除」——未归属分组用 UNASSIGNED_GROUP 哨兵，
+    // 0.7.0 时它没有 id、记不下来，所以删完刷新又复活
+    expect(block).toContain('const groupKey = options.unassigned ? UNASSIGNED_GROUP : options.moduleId')
+    expect(block).toContain('if (groupKey) await window.coc.resources.removeGroup(groupKey)')
   })
 
   it('removes every unassigned entry without touching the files', () => {
@@ -75,10 +77,12 @@ describe('0.7.0 clearing the unassigned group', () => {
 
   it('falls back to the blank guide only when nothing is left at all', () => {
     const page = read('src/renderer/src/components/ResourcesPage.tsx')
-    // 空白引导页的条件：既没有资料，也没有模组
-    expect(page).toContain('resources.length === 0 && modules.length === 0 && !draft')
-    // 只要还有模组就继续显示分组，用户才能把资料拖回去
-    expect(page).toContain('(resources.length > 0 || modules.length > 0)')
+    // 0.7.1：空白引导页的条件是「没有资料、没有可见的模组分组、未归属分组也被删了」。
+    // 只要还有分组在（哪怕它下面一条资料都没有）就继续显示分组，
+    // 用户才能把资料拖回去。
+    expect(page).toContain('groups.byModule.length === 0')
+    expect(page).toContain('groups.unassignedHidden')
+    expect(page).toContain('!groups.unassignedHidden &&')
   })
 
   it('reaches the blank state after clearing everything', () => {

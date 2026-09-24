@@ -15,7 +15,7 @@ import type {
   SessionRecord,
   SettingsPatch
 } from '../shared/types'
-import { DEFAULT_FILTER_PRESET } from '../shared/types'
+import { DEFAULT_FILTER_PRESET, UNASSIGNED_GROUP } from '../shared/types'
 import { AppError } from '../shared/errors'
 import { parseDateFromText, parseSeaLogUrl } from '../shared/sea-log'
 import { calculateDerived, convertCharacterEdition, createEmptyCharacter } from '../shared/coc-rules'
@@ -225,7 +225,17 @@ export class AppRepository {
     const row = this.connection.prepare('SELECT data_json FROM settings WHERE id = 1').get() as
       | { data_json?: string }
       | undefined
-    return parseJson(row?.data_json, defaultSettings(this.fallbackArchiveDirectory))
+    const settings = parseJson(row?.data_json, defaultSettings(this.fallbackArchiveDirectory))
+    /**
+     * 0.7.0 用 hiddenResourceModules 存「已移除的分组」，0.7.1 改名为
+     * hiddenResourceGroups（因为未归属分组没有模组 id，也要能记进来）。
+     * 读取时把旧字段合并过来，否则升级后用户此前删掉的分组会全部复活。
+     */
+    const merged = new Set([
+      ...(settings.hiddenResourceGroups ?? []),
+      ...(settings.hiddenResourceModules ?? [])
+    ])
+    return { ...settings, hiddenResourceGroups: [...merged] }
   }
 
   updateSettings(patch: SettingsPatch): AppSettings {
@@ -243,23 +253,26 @@ export class AppRepository {
   }
 
   /**
-   * 0.7.0：把一个模组分组从「资料汇总」页移除。
+   * 0.7.0：把一个分组从「资料汇总」页移除。
    *
    * 只记一条「已移除」标记，不动模组本身——场次、角色卡、跑团记录页全都不受影响。
    * 之所以要记，是因为分组是从模组列表实时算出来的，不记的话刷新后又会冒出来。
+   *
+   * 0.7.1：除了模组 id，也接受 UNASSIGNED_GROUP 哨兵，这样「未归属模组」
+   * 分组同样能被真正删掉（0.7.0 时它没有 id，删了记不下来，刷新即复活）。
    */
   hideResourceGroup(moduleId: string): AppSettings {
     const current = this.getSettings()
-    const hidden = new Set(current.hiddenResourceModules ?? [])
+    const hidden = new Set(current.hiddenResourceGroups ?? [])
     hidden.add(moduleId)
-    return this.updateSettings({ hiddenResourceModules: [...hidden] })
+    return this.updateSettings({ hiddenResourceGroups: [...hidden] })
   }
 
-  /** 0.7.0：把资料归属到这个模组时，取消它的「已移除」标记，让分组重新出现。 */
+  /** 0.7.0：把资料归属到这个分组时，取消它的「已移除」标记，让分组重新出现。 */
   showResourceGroup(moduleId: string): AppSettings {
     const current = this.getSettings()
-    const hidden = (current.hiddenResourceModules ?? []).filter((id) => id !== moduleId)
-    return this.updateSettings({ hiddenResourceModules: hidden })
+    const hidden = (current.hiddenResourceGroups ?? []).filter((id) => id !== moduleId)
+    return this.updateSettings({ hiddenResourceGroups: hidden })
   }
 
   createModule(input: {
@@ -855,10 +868,11 @@ export class AppRepository {
     // 归属是可选的：给了模组就校验它存在（外键虽然会拦，但先查一次能给出更清楚的提示）
     const moduleId = input.moduleId?.trim() || undefined
     if (moduleId) this.getModule(moduleId)
-    // 又给这个模组加资料了 → 取消它在资料汇总页的「已移除」标记，
-    // 否则新资料会无处可去（分组不显示）
-    if (moduleId && (this.getSettings().hiddenResourceModules ?? []).includes(moduleId)) {
-      this.showResourceGroup(moduleId)
+    // 又往这个分组加资料了 → 取消它的「已移除」标记，否则新资料会无处可去
+    // （分组不显示）。未归属的资料同理要让「未归属模组」分组回来。
+    const groupKey = moduleId ?? UNASSIGNED_GROUP
+    if ((this.getSettings().hiddenResourceGroups ?? []).includes(groupKey)) {
+      this.showResourceGroup(groupKey)
     }
     const id = randomUUID()
     const timestamp = now()
@@ -937,8 +951,10 @@ export class AppRepository {
     if (target) this.getModule(target)
     if (current.moduleId === target) return current
     // 把资料拖到某个被移除的分组 → 让那个分组重新出现
-    if (target && (this.getSettings().hiddenResourceModules ?? []).includes(target)) {
-      this.showResourceGroup(target)
+    // （拖到「未归属」时 target 是 undefined，对应 UNASSIGNED_GROUP 哨兵）
+    const groupKey = target ?? UNASSIGNED_GROUP
+    if ((this.getSettings().hiddenResourceGroups ?? []).includes(groupKey)) {
+      this.showResourceGroup(groupKey)
     }
     const order = this.nextResourceOrder(target)
     this.connection

@@ -502,12 +502,18 @@ export function registerIpc(
   )
 
   /**
-   * 0.7.0：把一个模组分组从「资料汇总」页移除。
+   * 0.7.0：把一个分组从「资料汇总」页移除。
    *
    * 只影响这个页面的显示：模组本身、场次、角色卡都不受影响。
+   *
+   * 0.7.1：这里不能用 id（uuid）校验——「未归属模组」分组没有模组 id，
+   * 它用 UNASSIGNED_GROUP 哨兵来记。用 uuid 校验会把哨兵挡在门外，
+   * 界面只看到「输入内容不完整或格式不正确」，分组也就删不掉。
    */
-  register('resources:remove-group', z.object({ moduleId: id }), ({ moduleId }) =>
-    repository.hideResourceGroup(moduleId)
+  register(
+    'resources:remove-group',
+    z.object({ moduleId: z.string().min(1).max(120) }),
+    ({ moduleId }) => repository.hideResourceGroup(moduleId)
   )
 
   /** 选一个或多个文件，返回路径与建议标题；导图、文件都用它 */

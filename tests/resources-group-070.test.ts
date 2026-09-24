@@ -63,7 +63,7 @@ describe('0.7.0 removing a resource group', () => {
     repository.hideResourceGroup(module.id)
 
     // 资料汇总页：分组被标记为已移除
-    expect(repository.getSettings().hiddenResourceModules).toContain(module.id)
+    expect(repository.getSettings().hiddenResourceGroups).toContain(module.id)
     expect(repository.listResources(module.id)).toHaveLength(0)
 
     // 但模组本身、场次都还在（跑团记录页不受影响）
@@ -76,11 +76,11 @@ describe('0.7.0 removing a resource group', () => {
     const repository = createRepository()
     const module = repository.createModule({ name: '甲团', playStatus: 'running' })
     repository.hideResourceGroup(module.id)
-    expect(repository.getSettings().hiddenResourceModules).toContain(module.id)
+    expect(repository.getSettings().hiddenResourceGroups).toContain(module.id)
 
     // 又给这个模组加资料 → 自动取消移除标记，分组重新出现
     repository.createResource({ moduleId: module.id, kind: 'file', title: '新资料', path: 'new.pdf' })
-    expect(repository.getSettings().hiddenResourceModules).not.toContain(module.id)
+    expect(repository.getSettings().hiddenResourceGroups).not.toContain(module.id)
     expect(repository.listResources(module.id)).toHaveLength(1)
   })
 
@@ -91,7 +91,7 @@ describe('0.7.0 removing a resource group', () => {
     repository.hideResourceGroup(module.id)
 
     repository.setResourceModule(orphan.id, module.id)
-    expect(repository.getSettings().hiddenResourceModules).not.toContain(module.id)
+    expect(repository.getSettings().hiddenResourceGroups).not.toContain(module.id)
   })
 
   it('"clear only" keeps the group and removes just the resources', () => {
@@ -107,7 +107,7 @@ describe('0.7.0 removing a resource group', () => {
 
     expect(repository.listResources(module.id)).toHaveLength(0)
     // 分组仍在（没有被标记移除）
-    expect(repository.getSettings().hiddenResourceModules ?? []).not.toContain(module.id)
+    expect(repository.getSettings().hiddenResourceGroups ?? []).not.toContain(module.id)
   })
 
   it('reaches the blank page only when nothing is visible at all', () => {
@@ -121,7 +121,7 @@ describe('0.7.0 removing a resource group', () => {
     repository.hideResourceGroup(module.id)
 
     const snapshot = repository.snapshot()
-    const hidden = new Set(snapshot.settings.hiddenResourceModules ?? [])
+    const hidden = new Set(snapshot.settings.hiddenResourceGroups ?? [])
     const visibleGroups = snapshot.modules.filter((item) => !hidden.has(item.id))
     // 界面的空状态条件：没有可见分组 + 没有资料
     expect(visibleGroups).toHaveLength(0)
@@ -133,10 +133,10 @@ describe('0.7.0 removing a resource group', () => {
     const module = repository.createModule({ name: '甲团', playStatus: 'running' })
     repository.hideResourceGroup(module.id)
     // 重新读一次设置，确认写进了库
-    expect(repository.getSettings().hiddenResourceModules).toEqual([module.id])
+    expect(repository.getSettings().hiddenResourceGroups).toEqual([module.id])
     // 重复移除不产生重复项
     repository.hideResourceGroup(module.id)
-    expect(repository.getSettings().hiddenResourceModules).toEqual([module.id])
+    expect(repository.getSettings().hiddenResourceGroups).toEqual([module.id])
   })
 
   it('exposes the channel through ipc and both preloads', () => {
