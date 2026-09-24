@@ -73,9 +73,15 @@ describe('0.7.1 fix: resources page never goes blank while resources exist', () 
     const module = repository.createModule({ name: '铸形骸', playStatus: 'running' })
     repository.createResource({ moduleId: module.id, kind: 'file', title: '跑团记录', path: 'a.pdf' })
     repository.createResource({ moduleId: module.id, kind: 'mindmap', title: '导图', path: 'b.emmx' })
-    // 用户先删了模组分组，又删了未归属分组
-    repository.hideResourceGroup(module.id)
-    repository.hideResourceGroup(UNASSIGNED_GROUP)
+
+    /**
+     * 造出「分组既有资料、又被标记为已移除」的不一致状态。
+     *
+     * 0.7.2 起 hideResourceGroup 会拒绝给有资料的分组打标记（那正是
+     * 「拖空后分组消失」的根因），所以这里直接写设置来模拟历史遗留数据
+     * ——它可能来自备份恢复、或直接改过数据库。
+     */
+    repository.updateSettings({ hiddenResourceGroups: [module.id, UNASSIGNED_GROUP] })
 
     const hidden = repository.getSettings().hiddenResourceGroups ?? []
     expect(hidden).toContain(module.id)
@@ -97,13 +103,16 @@ describe('0.7.1 fix: resources page never goes blank while resources exist', () 
     const module = repository.createModule({ name: '甲团', playStatus: 'running' })
     repository.hideResourceGroup(module.id)
     const modules = [{ id: module.id, name: module.name }]
-    const hidden = repository.getSettings().hiddenResourceGroups ?? []
 
     // 空分组 → 隐藏
-    expect(computeGroups(modules, [], hidden).byModule).toHaveLength(0)
+    expect(computeGroups(modules, [], repository.getSettings().hiddenResourceGroups ?? []).byModule).toHaveLength(0)
 
-    // 一旦有资料 → 重新出现（hideResourceGroup 的注释里承诺过这一点）
+    // 一旦有资料 → 重新出现。
+    // 0.7.2 起更强：有资料的分组根本不允许被标记（hideResourceGroup 直接拒绝），
+    // 所以标记在加资料之前就已经不存在，标记与资料不可能同时存在。
     repository.createResource({ moduleId: module.id, kind: 'file', title: 'x', path: 'x.pdf' })
+    const hidden = repository.getSettings().hiddenResourceGroups ?? []
+    expect(hidden).not.toContain(module.id)
     const withResource = repository.listResources(module.id).map((r) => ({ moduleId: r.moduleId }))
     expect(computeGroups(modules, withResource, hidden).byModule).toHaveLength(1)
   })

@@ -167,6 +167,58 @@ export class AppRepository {
   ) {
     this.connection = database.connection
     this.ensureSettings()
+    // 老库、从备份恢复的库、或被外部工具改过的库，都可能留下「分组既有资料
+    // 又被标记为已移除」这种不一致状态。启动时纠正一次，否则那个分组是
+    // 「靠例外规则才显示」的，资料一被拖走就会突然消失。
+    this.reconcileResourceGroups()
+  }
+
+  /**
+   * 0.7.2：纠正「分组既有资料、又被标记为已移除」的不一致状态。
+   *
+   * 背景（用户反馈）：把 A 分组的资料全部拖到 B 分组后，A 分组直接消失了。
+   * 根因是两条规则打架——0.7.1 起「已移除」标记只对空分组生效，有资料的分组
+   * 靠例外规则显示；而 A 身上还留着旧的已移除标记，于是它是「靠例外才显示」的，
+   * 资料一被拖走，例外失效，分组立刻消失。
+   *
+   * 规则：一个分组只要有资料，就说明用户还在用它，其「已移除」标记应当被
+   * 永久清掉；此后即使资料被拖空，它也照常作为空分组显示。
+   * 真正空着的分组仍保留标记，否则用户删掉的分组会自己冒出来。
+   *
+   * 同时清掉指向「已不存在的模组」的标记，避免列表里堆积无效项。
+   */
+  reconcileResourceGroups(): AppSettings {
+    const current = this.getSettings()
+    const hidden = current.hiddenResourceGroups ?? []
+    if (!hidden.length) return current
+    const known = new Set(
+      this.connection
+        .prepare('SELECT id FROM modules')
+        .all()
+        .map((row) => String((row as Record<string, unknown>).id))
+    )
+    // 仍有资料的模组分组
+    const occupied = new Set(
+      this.connection
+        .prepare('SELECT DISTINCT module_id FROM module_resources WHERE module_id IS NOT NULL')
+        .all()
+        .map((row) => String((row as Record<string, unknown>).module_id))
+    )
+    const hasUnassigned = Boolean(
+      this.connection
+        .prepare('SELECT 1 AS present FROM module_resources WHERE module_id IS NULL LIMIT 1')
+        .get()
+    )
+    const next = hidden.filter((key) => {
+      // 指向已不存在的模组 → 清掉
+      if (key !== UNASSIGNED_GROUP && !known.has(key)) return false
+      // 未归属分组：有未归属资料就清掉标记
+      if (key === UNASSIGNED_GROUP) return !hasUnassigned
+      // 模组分组：有资料就清掉标记
+      return !occupied.has(key)
+    })
+    if (next.length === hidden.length) return current
+    return this.updateSettings({ hiddenResourceGroups: next })
   }
 
   snapshot(): AppSnapshot {
@@ -260,12 +312,36 @@ export class AppRepository {
    *
    * 0.7.1：除了模组 id，也接受 UNASSIGNED_GROUP 哨兵，这样「未归属模组」
    * 分组同样能被真正删掉（0.7.0 时它没有 id，删了记不下来，刷新即复活）。
+   *
+   * 0.7.2：分组还有资料时【拒绝】记标记。
+   *
+   * 背景（用户反馈「把 A 的资料全拖到 B 后，A 条目直接消失了」）：
+   * 界面上的「连分组一起删」是先删资料再记标记，所以正常操作不会留下
+   * 「有资料还被标记」的状态。但数据可能来自备份恢复或直接改库，
+   * 这种不一致状态下的分组是「靠例外规则才显示」的，资料一被拖走就会
+   * 突然消失。这里从源头拒绝，配合构造函数的 reconcile 一起兜住。
    */
   hideResourceGroup(moduleId: string): AppSettings {
     const current = this.getSettings()
+    // 还有资料的分组不允许被标记为已移除：否则它只是「靠例外显示」，
+    // 资料一被拖走就会凭空消失。
+    if (this.groupHasResources(moduleId)) return current
     const hidden = new Set(current.hiddenResourceGroups ?? [])
     hidden.add(moduleId)
     return this.updateSettings({ hiddenResourceGroups: [...hidden] })
+  }
+
+  /** 某个分组名下是否还有资料（未归属分组用 UNASSIGNED_GROUP 判断） */
+  private groupHasResources(groupKey: string): boolean {
+    const row =
+      groupKey === UNASSIGNED_GROUP
+        ? this.connection
+            .prepare('SELECT 1 AS present FROM module_resources WHERE module_id IS NULL LIMIT 1')
+            .get()
+        : this.connection
+            .prepare('SELECT 1 AS present FROM module_resources WHERE module_id = ? LIMIT 1')
+            .get(groupKey)
+    return Boolean(row)
   }
 
   /** 0.7.0：把资料归属到这个分组时，取消它的「已移除」标记，让分组重新出现。 */
