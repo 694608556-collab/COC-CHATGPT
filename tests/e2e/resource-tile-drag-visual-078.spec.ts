@@ -268,4 +268,86 @@ test.describe('0.7.8 dragging a tile shows only the icon and the name', () => {
     await app.close()
     fs.rmSync(root, { recursive: true, force: true })
   })
+
+  /**
+   * 0.7.9：拖拽落点提示不能是「整块底色」。
+   *
+   * 用户反馈「拖拽资料仍然会出现底色块，有的时候有有的时候没有」。
+   * 那个色块不是卡片，是**整个分组**：落点高亮给分组铺了一层 --accent-soft
+   * （实测 1642×214 像素的淡紫色块）。改成只描边。
+   */
+  test('the drop target is outlined, not painted with a background', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'coc-079-drop-'))
+    const dataDir = path.join(root, 'data')
+    fs.mkdirSync(dataDir, { recursive: true })
+    seed(path.join(dataDir, 'coc.sqlite'))
+
+    const app = await launch(root)
+    const window = await app.firstWindow()
+    await window.waitForLoadState('domcontentloaded')
+    await window.getByRole('button', { name: '资料汇总' }).click()
+    await expect(window.locator('.resource-groups')).toBeVisible({ timeout: 15000 })
+    await window.waitForTimeout(400)
+
+    // 拖起来并停在本组内，触发落点高亮
+    const box = (await window.locator('.resource-tile').first().boundingBox())!
+    await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await window.mouse.down()
+    await window.mouse.move(box.x + box.width / 2 + 8, box.y + box.height / 2 + 8, { steps: 4 })
+    await window.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2 + 10, { steps: 8 })
+    await window.waitForTimeout(400)
+
+    const result = await window.evaluate(() => {
+      const group = document.querySelector('.resource-group.drop-target')
+      if (!group) return { found: false as const }
+      const cs = getComputedStyle(group)
+      const r = group.getBoundingClientRect()
+      return {
+        found: true as const,
+        background: cs.backgroundColor,
+        boxShadow: cs.boxShadow,
+        borderColor: cs.borderTopColor,
+        size: `${Math.round(r.width)}x${Math.round(r.height)}`
+      }
+    })
+
+    console.log('落点分组:', JSON.stringify(result))
+    expect(result.found, '拖动时应出现落点高亮').toBe(true)
+    if (result.found) {
+      // 关键：不能铺底色（那就是用户看到的「整块底色块」）
+      expect(
+        result.background === 'rgba(0, 0, 0, 0)' || result.background === 'transparent',
+        `落点分组不该铺底色，实际 ${result.background}`
+      ).toBe(true)
+      // 但要有可见的提示（描边）
+      expect(result.boxShadow, '落点应有描边提示').not.toBe('none')
+    }
+
+    // 顺带确认：拖拽中页面里没有任何「大块」的高亮色
+    const bigColored = await window.evaluate(() => {
+      const out: string[] = []
+      for (const el of document.querySelectorAll('*')) {
+        const cs = getComputedStyle(el)
+        const bg = cs.backgroundColor
+        if (!bg || bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') continue
+        const r = el.getBoundingClientRect()
+        // 只看「又大又像色块」的：面积超过 5 万像素
+        if (r.width * r.height > 50_000) {
+          out.push(
+            `${el.tagName}.${typeof el.className === 'string' ? el.className.split(' ')[0] : ''} ${bg}`
+          )
+        }
+      }
+      return out
+    })
+    console.log('拖拽中的大块背景:', JSON.stringify(bigColored))
+    // 只允许页面/面板本来就有的底色，不该出现高亮色（--accent-soft）
+    for (const item of bigColored) {
+      expect(item, `不该出现高亮色块: ${item}`).not.toContain('rgba(109, 69, 245')
+    }
+
+    await window.mouse.up()
+    await app.close()
+    fs.rmSync(root, { recursive: true, force: true })
+  })
 })

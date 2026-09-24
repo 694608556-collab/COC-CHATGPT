@@ -31,7 +31,7 @@ import {
   type OutlineSearchHit
 } from '../../shared/record-search'
 import { skillFinal } from '../../shared/coc-rules'
-import type { BackupPreviewApi } from '../../shared/api'
+import type { BackupPreviewApi, MindmapPreviewApi } from '../../shared/api'
 import {
   DEFAULT_FILTER_PRESET,
   MODULE_PLAY_STATUSES,
@@ -957,9 +957,17 @@ export default function App(): React.JSX.Element {
   const [messageClosing, setMessageClosing] = useState(false)
   const [moduleDraft, setModuleDraft] = useState<ModuleDraft>()
   const [moduleSearch, setModuleSearch] = useState<Record<string, string>>({})
-  // 导图大纲缓存：resourceId → 该导图的全部节点文字。
-  // 读 .emmx 是异步的，而搜索是同步渲染的，所以先装好再搜。
-  const [outlineCache, setOutlineCache] = useState<Record<string, string[]>>({})
+  /*
+   * 导图大纲缓存：resourceId → 该导图的全部大纲行。
+   *
+   * 读导图是异步的，而搜索是同步渲染的，所以先装好再搜。
+   *
+   * 0.7.9：类型此前错写成 string[]，而 IPC 返回的是 { text, depth }[]。
+   * 类型写错让下面 moduleOutlineHits 里「把对象当字符串用」的 bug 通过了
+   * 类型检查，运行时抛 line.toLocaleLowerCase is not a function，
+   * React 随即卸载整棵组件树——用户看到的就是白屏死机。这里按真实结构声明。
+   */
+  const [outlineCache, setOutlineCache] = useState<Record<string, MindmapPreviewApi['outline']>>({})
   const [recordDraft, setRecordDraft] = useState<RecordDraft>()
   const [sequencePicker, setSequencePicker] = useState<SequencePickerState>()
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -1004,7 +1012,7 @@ export default function App(): React.JSX.Element {
     )
   }
 
-  // 导图大纲的命中。大纲要先读 .emmx 才能拿到，而搜索是同步渲染的，
+  // 导图大纲的命中。大纲要先读导图才能拿到，而搜索是同步渲染的，
   // 所以用 outlineCache 预先装好（见下面的 useEffect）。
   const moduleOutlineHits = (module: ModuleRecord): OutlineSearchHit[] => {
     const query = moduleSearch[module.id]?.trim()
@@ -1014,7 +1022,17 @@ export default function App(): React.JSX.Element {
       .map((resource) => ({
         resourceId: resource.id,
         resourceTitle: resource.title || resource.path || '未命名导图',
-        lines: outlineCache[resource.id] ?? []
+        /*
+         * outline 的元素是 { text, depth }，不是字符串。
+         *
+         * 0.7.9：这里此前直接把对象数组当成字符串数组传下去，searchOutline 里
+         * 调 line.toLocaleLowerCase() 抛「不是函数」，React 渲染异常会把整棵
+         * 组件树卸载——用户看到的就是「输入任意字符应用直接白屏死机」。
+         * 只取 text；顺带用 filter 兜住 undefined，避免坏数据再次炸掉整页。
+         */
+        lines: (outlineCache[resource.id] ?? [])
+          .map((line) => line?.text)
+          .filter((text): text is string => typeof text === 'string' && text.length > 0)
       }))
       .filter((entry) => entry.lines.length > 0)
     return searchOutline(entries, query)

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.9 - 2026-09-25
+
+- 修复**全模组正文搜索一输入字符就白屏死机**的问题（严重）。用户反馈「跑团记录页面，全模组正文搜索框，输入任意字符会导致应用死机，只能强行退出」。
+  - 用真实运行的应用 + 用户的数据库复现，抓到了渲染进程的报错：
+    ```
+    TypeError: line.toLocaleLowerCase is not a function
+        at searchOutline → moduleOutlineHits → App
+    ```
+    渲染时抛异常，React 会**卸载整棵组件树**——页面 `innerText` 长度变成 0，用户看到的就是「死机/白屏」。实测：输入第一个字符正常，输入第二个字符就卡住。
+  - 根因是**类型不一致**：IPC 的 `resources:read-mindmap` 返回 `outline: Array<{ text, depth }>`（对象数组），而 `App.tsx` 里 `outlineCache` 声明成了 `Record<string, string[]>`，于是把对象数组直接当字符串数组传给了 `searchOutline`。**类型写错让这个 bug 通过了类型检查**，只有运行时才炸。
+  - 修法：按真实结构声明类型（`MindmapPreviewApi['outline']`），搜索前取 `.text`；并加一道 `filter` 兜住非字符串，避免以后再出现「一个字段不对就整页白屏」。现在 TypeScript 能拦住这类写法了。
+- 修复**拖拽资料时出现的整块底色块**的问题。用户反馈「拖拽资料仍然会出现底色块，有的时候有有的时候没有，出现比较频繁」。
+  - 上一版把**卡片**的底色去掉了，但那个色块其实**不是卡片，是整个分组**：落点高亮给分组铺了一层 `--accent-soft`，实测是 **1642×214 像素**的淡紫色块（`rgba(109, 69, 245, 0.12)`），拖动时非常显眼。
+  - 改成只加内描边（`box-shadow: inset`），不铺任何底色。用内描边而不是加粗边框，是因为加粗边框会改变盒模型、让分组在拖动时跳动。
+- 新增测试：`tests/outline-search-crash-079.test.ts`（5 条，含「把对象当字符串传就会崩」的复现）、`tests/e2e/module-search-freeze-079.spec.ts`（2 条，在真实应用里输入关键词并断言页面没变空白、渲染进程无报错、导图命中确实产出）、`tests/e2e/resource-tile-drag-visual-078.spec.ts` 增加落点底色用例。
+- 反向验证：把「取 .text」改回「对象当字符串」→ 单元 1 条 + e2e 2 条失败，且 e2e 精确复现「页面变空白」；把落点改回铺底色 → e2e 实测 `background: rgba(109, 69, 245, 0.12)` 并失败。
+
 ## 0.7.8 - 2026-09-25
 
 - 修复**网页导出（HTML）的导图文字没有用应用字体**的问题。用户反馈「html 格式文件打开后，字体需要默认为应用字体」。
