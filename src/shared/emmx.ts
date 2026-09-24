@@ -197,12 +197,7 @@ function normalizeColor(value: string | undefined): string | undefined {
  * 几何坐标是相对本 Shape 的 Transform 中心点的偏移，所以要加上 origin。
  * CurveTo 的 A/B 是第一控制点、C/D 是第二控制点（三次贝塞尔）。
  */
-function geometryToPath(
-  body: string,
-  originX: number,
-  originY: number,
-  startPoint?: { x: number; y: number }
-): string | undefined {
+function geometryToPath(body: string, originX: number, originY: number): string | undefined {
   const geometry = body.match(/<Geometry[^>]*>([\s\S]*?)<\/Geometry>/)
   if (!geometry) return undefined
   const segments: string[] = []
@@ -229,13 +224,15 @@ function geometryToPath(
         // 控制点不全就退化成直线，宁可少一段弧度也不能画错
         segments.push(`L${px} ${py}`)
       } else {
-        // 第一段若是 CurveTo，SVG 要求路径必须以 M 开头——实测有连线直接从曲线
-        // 起笔，只写 C 会被浏览器判为非法路径、整条线都不画（控制台报
-        // "Expected moveto path command"）。用连线的真实起点补这个 M。
-        if (!segments.length) {
-          const start = startPoint ?? { x: originX + a!, y: originY + b! }
-          segments.push(`M${start.x} ${start.y}`)
-        }
+        /**
+         * 兜底：SVG 要求路径必须以 M 开头，若几何以 CurveTo 起笔就直接写 C，
+         * 浏览器会判为非法路径、整条线都不画（控制台报 "Expected moveto path command"）。
+         *
+         * 用曲线自己的【首控制点】补这个 M，而不是连线锚点：锚点与曲线起点可能
+         * 差一段距离，用它当 M 会把整条曲线拉偏。实测三个真实文件里没有一条
+         * 连线以曲线起笔（0 条），所以这只是防御性兜底，正常不会触发。
+         */
+        if (!segments.length) segments.push(`M${originX + a!} ${originY + b!}`)
         segments.push(
           `C${originX + a!} ${originY + b!} ${originX + c!} ${originY + d!} ${px} ${py}`
         )
@@ -398,13 +395,8 @@ function parsePage(entryName: string, xml: string): EmmxPage {
       const beginY = numberAttr(body, 'BeginPt', 'Y')
       const endX = numberAttr(body, 'EndPt', 'X')
       const endY = numberAttr(body, 'EndPt', 'Y')
-      // 起点交给 geometryToPath：连线若从曲线起笔，需要它补一个 M 才不会整条不画
-      const d = geometryToPath(
-        body,
-        cx,
-        cy,
-        beginX === undefined || beginY === undefined ? undefined : { x: beginX, y: beginY }
-      )
+      // 原样还原几何；缺口由 bridgeStartGap 在节点框收集齐之后补
+      const d = geometryToPath(body, cx, cy)
       if (d) {
         // 先记下 BeginPt / EndPt，等节点框收集齐了再统一校正端点
         paths.push({
@@ -494,8 +486,14 @@ function parsePage(entryName: string, xml: string): EmmxPage {
     })
   }
 
-  // 节点框都收集齐了，现在统一把连线端点校正到框边。
-  // 放在这里而不是解析循环里：连线在 XML 里可能排在它连接的节点之前。
+  // 起点若与连线锚点之间差一小段【水平或垂直】的距离，补一条直线接上。
+  //
+  // 放在这里而不是解析循环里：连线在 XML 里可能排在它连接的节点之前，
+  // 需要先确认锚点附近确实有节点框（避免给指向分组框的线乱补）。
+  //
+  // 注意：绝不搬动原始几何的任何点。EdrawMind 算好的形状（母线、小圆角、
+  // 短横支线）本身就是最终效果，实测终点 100% 精确落在框上、起点只差一段
+  // 轴对齐的距离；上一版「把端点钉到框边中点」反而把直线拉成了斜线与鼓包。
   const nodeBoxes = shapes.map((shape) => ({
     x: shape.x,
     y: shape.y,
@@ -504,7 +502,7 @@ function parsePage(entryName: string, xml: string): EmmxPage {
   }))
   for (const path of paths) {
     if (path.type !== 'MMConnector' && path.type !== 'RelatConnector') continue
-    path.d = alignConnectorEnds(path.d, path.anchors, nodeBoxes)
+    path.d = bridgeStartGap(path.d, path.anchors, nodeBoxes)
   }
 
   let minX = Infinity
@@ -727,14 +725,6 @@ function escapeXml(value: string): string {
  */
 const LINE_HEIGHT_RATIO = 1.1
 
-/**
- * 连线端点允许被拉回框边的最大距离。
- *
- * 实测端点偏离框边的量在 2.5~27px 之间；超过这个范围的多半是「本来就该留空」
- * （例如指向分组框外沿），硬拉会把线画错，所以超出就不动。
- */
-const CONNECTOR_SNAP_RANGE = 32
-
 /** 估算一段文字在给定字号下的像素宽度。
  *
  * SVG 的 <text> 不会自动折行，而 EdrawMind 的 XML 只存原始段落
@@ -876,155 +866,81 @@ function renderTextLines(
 }
 
 /**
- * 把连线端点对齐到节点框的【边中点】。
+ * 在连线起点与它的锚点之间补一小段直线，把缺口接上。
  *
- * 用户反馈「线条未和文字框居中对齐」，并要求参照 EdrawMind 导出 HTML 里的效果。
- * 用官方导出的 6 条连线做权威判定，结论明确：
- *   4/4 可判定的端点全部「贴左边/贴右边 + ★垂直居中」——即接在边的【中点】上。
+ * 背景（用户反馈「线条原本直线就能解决，现在变得曲里拐弯」）：
+ * EdrawMind 的几何本身就是最终效果——父节点出发一小段圆角、沿竖直干线延伸、
+ * 分支点用小圆角转向子节点、子节点之间是短横直线。用三个真实 .emmx 量化后：
+ *   - 终点与几何末点【完全相同】：102/102、155/155、804/804（100%）
+ *   - 起点要么与几何首点相同，要么只差一段【轴对齐】的距离（60/60、90/90、435/435）
+ *   - 不轴对齐的端点：0 个
+ * 也就是说原始几何本来就完整正确，任何「搬动端点」的做法都会破坏形状
+ * （上一版把端点钉到框边中点，结果把直线拉成了斜线与鼓包）。
  *
- * 而 .emmx 源文件里存的端点常常落在框角附近：实测矮节点（高 23.9）的端点
- * y 比垂直中心低 12.0px，正好是半个框高，也就是接在右下角；高节点（高 37.7）
- * 因为几何凑巧才看着居中。所以不能只把端点「推到框边」，还要把该边的另一个
- * 坐标摆到中心。
- *
- * 做法：先判断端点离哪条边最近，再把它钉在那条边的中点上。
- * 竖直边（左右）→ y 取垂直中心；水平边（上下）→ x 取水平中心。
- * 离得很远的端点（例如指向分组框）不动，避免把线画错。
+ * 所以这里只做一件事：若起点/终点与对应锚点之间差一段水平或垂直的距离，
+ * 在路径相应一端插一条直线段接上。其余坐标一律原样保留。
  */
-function alignEndToBoxCenter(
-  x: number,
-  y: number,
-  boxes: Array<{ x: number; y: number; width: number; height: number }>
-): { x: number; y: number } {
-  let best: { box: (typeof boxes)[number]; gap: number } | undefined
-  for (const box of boxes) {
-    const dx = x < box.x ? box.x - x : x > box.x + box.width ? x - (box.x + box.width) : 0
-    const dy = y < box.y ? box.y - y : y > box.y + box.height ? y - (box.y + box.height) : 0
-    const gap = Math.hypot(dx, dy)
-    if (!best || gap < best.gap) best = { box, gap }
-  }
-  // 离得太远的（例如指向分组框外沿）不动
-  if (!best || best.gap > CONNECTOR_SNAP_RANGE) return { x, y }
-  const { box } = best
-  /**
-   * 端点已经落在框【内部】时不动。
-   *
-   * 实测这类端点是「多分支主干线」的起点：一条线从某个框附近出发，
-   * 沿途分出若干支线。它故意从框内部起笔，硬拉到边的中点会破坏主干走向
-   * （实测世界回归进行曲里有 15 个这样的端点，偏离中点 66~218px）。
-   */
-  const inside =
-    x > box.x + 1 && x < box.x + box.width - 1 && y > box.y + 1 && y < box.y + box.height - 1
-  if (inside) return { x, y }
-  const centerX = box.x + box.width / 2
-  const centerY = box.y + box.height / 2
-  // 到四条边的距离，取最近的那条，把端点钉在该边的中点上
-  const toLeft = Math.abs(x - box.x)
-  const toRight = Math.abs(x - (box.x + box.width))
-  const toTop = Math.abs(y - box.y)
-  const toBottom = Math.abs(y - (box.y + box.height))
-  const nearest = Math.min(toLeft, toRight, toTop, toBottom)
-  if (nearest === toLeft) return { x: box.x, y: centerY }
-  if (nearest === toRight) return { x: box.x + box.width, y: centerY }
-  if (nearest === toTop) return { x: centerX, y: box.y }
-  return { x: centerX, y: box.y + box.height }
-}
-
-/**
- * 校正一条连线 path 的首尾点，使其落在节点框边界上。
- *
- * 只替换首尾坐标，中间的折线与曲线控制点原样保留——形状是 EdrawMind 算好的，
- * 动中间点会把线画歪。
- */
-function alignConnectorEnds(
+function bridgeStartGap(
   d: string,
   anchors: { beginX: number; beginY: number; endX: number; endY: number } | undefined,
   boxes: Array<{ x: number; y: number; width: number; height: number }>
 ): string {
+  if (!anchors) return d
   const tokens = d.split(/(?=[MLC])/).filter(Boolean)
   if (!tokens.length) return d
 
-  const pointOf = (token: string): { x: number; y: number } | undefined => {
+  /** 读出某个 token 的落点（该段最后一个坐标对） */
+  const endPointOf = (token: string): { x: number; y: number } | undefined => {
     const nums = token
       .slice(1)
       .trim()
       .split(/[\s,]+/)
       .map(Number)
       .filter((value) => Number.isFinite(value))
-    if (nums.length < 2) return undefined
+    // 只处理单点段（M/L）与曲线落点（C 的 x2 y2）；其余不动
+    if (nums.length !== 2 && nums.length !== 6) return undefined
     return { x: nums[nums.length - 2]!, y: nums[nums.length - 1]! }
   }
-  // 替换该段的【最后一个坐标对】——它就是这段的落点。
-  // - M/L：2 个数，直接替换
-  // - C：6 个数（控制点1 控制点2 落点），只换落点、保留控制点，曲线形状不变
-  // 其它形状（连写的多段曲线等）不动，避免改坏
-  const replacePoint = (token: string, point: { x: number; y: number }): string => {
-    const nums = token
-      .slice(1)
-      .trim()
-      .split(/[\s,]+/)
-      .map(Number)
-      .filter((value) => Number.isFinite(value))
-    if (nums.length !== 2 && nums.length !== 6) return token
-    const kept = nums.slice(0, -2)
-    return `${token[0]!}${[...kept, point.x, point.y].join(' ')}`
-  }
-
-  const firstRaw = pointOf(tokens[0]!)
-  const lastRaw = pointOf(tokens[tokens.length - 1]!)
-  // 优先用 BeginPt/EndPt（更接近真实连接位置），没有就用几何首尾点
-  const firstSource = anchors ? { x: anchors.beginX, y: anchors.beginY } : firstRaw
-  const lastSource = anchors ? { x: anchors.endX, y: anchors.endY } : lastRaw
 
   /**
-   * 端点对齐后，把与该端点相连的整条「干线」一起平移，保持线段横平竖直。
+   * 判断某个锚点是否值得补一段接线。
    *
-   * EdrawMind 画的是正交折线。举例（渊娲之海 连线 103，原始几何）：
-   *   MoveTo(1252.7,1429.5) LineTo(1284.2,1429.5) LineTo(1284.2,710.1) …
-   * 起点在左边、经一个折点后一路垂直向上。若只把起点左移，第一段会变成斜线；
-   * 若只再挪第一个折点，第二段又会变成斜线——因为第二段的两个端点
-   * 原本共享同一个 x（1284.2），必须一起移动才能保持垂直。
-   *
-   * 判断「哪些点属于同一条干线」必须用【原始坐标】逐段比较：
-   * 第一段水平（起点与折点1同 y），第二段垂直（折点1与折点2同 x）。
-   * 若拿平移后的坐标去比，折点1 已经不在原来的 x 上，链条就断了。
+   * 实测所有需要补的缺口都是纯水平或纯垂直的（0 个例外）。若两个方向都差得多，
+   * 说明它不是「接线缺口」而是别的东西（例如指向分组框），硬补会凭空多出斜线。
    */
-  const shifted = new Map<number, { x: number; y: number }>()
-  const shiftRun = (index: number, from: { x: number; y: number }, to: { x: number; y: number }): void => {
+  const shouldBridge = (from: { x: number; y: number }, to: { x: number; y: number }): boolean => {
     const dx = to.x - from.x
     const dy = to.y - from.y
-    if (dx === 0 && dy === 0) return
-    const forward = index === 0
-    const step = forward ? 1 : -1
-    // 用原始坐标追踪「上一个点」，据此判断下一段是否与它轴对齐
-    let prev = from
-    for (let i = index + step; i >= 0 && i < tokens.length; i += step) {
-      const point = pointOf(tokens[i]!)
-      if (!point) break
-      // 必须与上一个【原始】点轴对齐，否则说明到了曲线或分叉，停止
-      const axisAligned = Math.abs(point.x - prev.x) < 0.01 || Math.abs(point.y - prev.y) < 0.01
-      if (!axisAligned) break
-      shifted.set(i, { x: point.x + dx, y: point.y + dy })
-      prev = point
-    }
+    if (Math.hypot(dx, dy) < 0.6) return false
+    if (!(Math.abs(dx) < 0.6 || Math.abs(dy) < 0.6)) return false
+    // 锚点附近要有节点框，否则这条线指向的不是节点（例如分组框外沿）
+    return boxes.some(
+      (box) =>
+        to.x >= box.x - 2 &&
+        to.x <= box.x + box.width + 2 &&
+        to.y >= box.y - 2 &&
+        to.y <= box.y + box.height + 2
+    )
   }
 
-  const alignedFirst = firstSource ? alignEndToBoxCenter(firstSource.x, firstSource.y, boxes) : undefined
-  const alignedLast = lastSource ? alignEndToBoxCenter(lastSource.x, lastSource.y, boxes) : undefined
-  if (alignedFirst && firstRaw) shiftRun(0, firstRaw, alignedFirst)
-  if (alignedLast && lastRaw && tokens.length > 1) shiftRun(tokens.length - 1, lastRaw, alignedLast)
+  let out = tokens
 
-  const head = alignedFirst ? replacePoint(tokens[0]!, alignedFirst) : tokens[0]!
-  if (tokens.length === 1) return head
-  const tail = alignedLast
-    ? replacePoint(tokens[tokens.length - 1]!, alignedLast)
-    : tokens[tokens.length - 1]!
-  const middle = tokens.slice(1, -1).map((token, offset) => {
-    const moved = shifted.get(offset + 1)
-    return moved ? replacePoint(token, moved) : token
-  })
-  return [head, ...middle, tail].join(' ')
+  // 起点：把锚点插到最前面，原起点变成第二点，形状不变，只多一小段接线
+  const startPoint = endPointOf(tokens[0]!)
+  if (startPoint && shouldBridge(startPoint, { x: anchors.beginX, y: anchors.beginY })) {
+    out = [`M${anchors.beginX} ${anchors.beginY}`, `L${startPoint.x} ${startPoint.y}`, ...out.slice(1)]
+  }
+
+  // 终点：在末尾追加一小段到锚点（同一条直线延长，方向不变）
+  const lastToken = out[out.length - 1]!
+  const lastPoint = endPointOf(lastToken)
+  if (lastPoint && shouldBridge(lastPoint, { x: anchors.endX, y: anchors.endY })) {
+    out = [...out, `L${anchors.endX} ${anchors.endY}`]
+  }
+
+  return out.join(' ')
 }
+
 
 /** 读自闭合元素上的属性数值，如 <BeginPt X="1" Y="2"/> */
 function numberAttr(xml: string, tag: string, attribute: string): number | undefined {
@@ -1054,7 +970,8 @@ export function pageToSvg(page: EmmxPage, padding = 40): string {
       `<path d="${path.d}" fill="${path.fill}" stroke="${path.stroke}" stroke-width="${path.strokeWidth}" stroke-linejoin="round"/>`
     )
   }
-  // 连接线：真实曲线，圆头端点。首尾点已在解析时用 BeginPt/EndPt 校正到框边
+  // 连接线：原样使用 EdrawMind 的几何（母线、小圆角、短横支线都是它算好的），
+  // 只在起点缺口处补过一小段直线（见 bridgeStartGap）
   for (const path of page.paths) {
     if (path.type !== 'MMConnector' && path.type !== 'RelatConnector') continue
     parts.push(

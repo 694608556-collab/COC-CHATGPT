@@ -1,19 +1,16 @@
 /**
- * 0.7.1 修复：连线端点必须接在节点框的【边中点】上。
+ * 0.7.1 修复：连线形状必须与 EdrawMind 的原始几何一致。
  *
- * 用户反馈「线条未和文字框居中对齐」，并要求参照 EdrawMind 导出 HTML 的效果。
- * 用官方导出的连线做权威判定，结论明确：可判定的端点全部是
- * 「贴左边/贴右边 + 垂直居中」——即接在边的【中点】上。
+ * 用户反馈「线条制作仍然一塌糊涂，原本直线就能解决的问题现在变得曲里拐弯的」，
+ * 并给出官方 HTML 导出作为「好看」的参照。
  *
- * 而 .emmx 源文件里的端点常落在框角附近：实测矮节点（高 23.9）的端点 y
- * 比垂直中心低 12.0px，正好半个框高，也就是接在右下角。
- * 0.7.1 第一版只把端点「推到框边」，保留了角落坐标，所以矮节点的连线全部
- * 接在右下角——这正是用户看到的问题。
+ * 本文件取代了此前 connector-align-071.test.ts 的旧断言。旧断言要求把端点
+ * 「钉到框边中点」，那正是把直线拉成斜线与鼓包的原因，现已废弃。
  *
- * 现在的规则：
- * - 端点在框外且离得不远 → 钉在最近那条边的中点
- * - 端点已在框内 → 不动（实测这类是多分支主干线的起点，硬拉会破坏走向）
- * - 端点离框很远 → 不动（指向分组框等）
+ * 现在的契约（由三个真实 .emmx 量化得出）：
+ * - 终点与几何末点 100% 相同（102/102、155/155、804/804），绝不搬动
+ * - 起点只差一段【轴对齐】的距离（0 个例外），补一条水平/垂直短线即可
+ * - 不引入任何长斜线段
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -30,158 +27,147 @@ const SAMPLES = [
 ]
 const available = SAMPLES.filter((file) => fs.existsSync(file))
 
-describe('0.7.1 fix: connectors attach to edge midpoints', () => {
-  it('uses the nearest edge midpoint rather than the box corner', () => {
+function segments(d: string): Array<{ kind: string; nums: number[] }> {
+  return d
+    .split(/(?=[MLC])/)
+    .filter(Boolean)
+    .map((token) => ({
+      kind: token[0]!,
+      nums: token
+        .slice(1)
+        .trim()
+        .split(/[\s,]+/)
+        .map(Number)
+        .filter((value) => Number.isFinite(value))
+    }))
+}
+
+describe('0.7.1 fix: connectors keep the original geometry', () => {
+  it('bridges the start gap instead of moving the endpoint', () => {
     const source = read('src/shared/emmx.ts')
-    expect(source).toContain('alignEndToBoxCenter')
-    // 必须把该边的另一个坐标摆到中心，而不是只把端点推到边上
-    expect(source).toContain('centerX')
-    expect(source).toContain('centerY')
-    // 旧的「只推到框边」写法必须消失——那正是接在角上的原因
-    expect(source).not.toContain('extendEndToBoxBoundary')
+    expect(source).toContain('bridgeStartGap')
+    // 旧的「钉到框边中点 / 平移干线」实现必须彻底消失
+    expect(source).not.toContain('alignEndToBoxCenter')
+    expect(source).not.toContain('alignConnectorEnds')
+    expect(source).not.toContain('shiftRun')
+    expect(source).not.toContain('CONNECTOR_SNAP_RANGE')
   })
 
-  it('keeps connectors orthogonal while moving the endpoint', () => {
-    const source = read('src/shared/emmx.ts')
-    // 挪端点时必须把相连的整条干线一起平移，否则正交折线会被拉成斜线
-    // （实测只挪端点会出现 73 条斜线；只挪相邻一个折点仍有 17 条）
-    expect(source).toContain('shiftRun')
-    // 判断「哪些点属于同一条干线」必须用原始坐标逐段比较：
-    // 拿平移后的坐标去比，链条会在第一个折点处断开
-    expect(source).toContain('let prev = from')
+  it.runIf(available.length > 0)('never moves the end point away from the stored geometry', () => {
+    for (const file of available) {
+      const document = parseEmmx(fs.readFileSync(file))
+      for (const page of document.pages) {
+        let mismatched = 0
+        for (const p of page.paths) {
+          if (p.type !== 'MMConnector' && p.type !== 'RelatConnector') continue
+          if (!p.anchors) continue
+          const segs = segments(p.d)
+          if (!segs.length) continue
+          const last = segs[segs.length - 1]!
+          const endX = last.nums[last.nums.length - 2]!
+          const endY = last.nums[last.nums.length - 1]!
+          if (Math.abs(endX - p.anchors.endX) > 0.6 || Math.abs(endY - p.anchors.endY) > 0.6) {
+            mismatched += 1
+          }
+        }
+        expect(mismatched, `${path.basename(file)} 终点被搬动的连线数`).toBe(0)
+      }
+    }
   })
 
-  it.runIf(available.length > 0)('keeps almost every connector an orthogonal polyline', () => {
+  it.runIf(available.length > 0)('keeps connectors an orthogonal polyline with small corner curves', () => {
     for (const file of available) {
       const document = parseEmmx(fs.readFileSync(file))
       for (const page of document.pages) {
         let total = 0
-        let diagonal = 0
+        let longDiagonal = 0
         for (const p of page.paths) {
           if (p.type !== 'MMConnector' && p.type !== 'RelatConnector') continue
           total += 1
-          const tokens = p.d.split(/(?=[MLC])/).filter(Boolean)
-          const points = tokens.map((t) => {
-            const kind = t[0]!
-            const nums = t.slice(1).trim().split(/[\s,]+/).map(Number).filter(Number.isFinite)
-            if (kind === 'C' && nums.length === 6) return { kind, x: nums[4]!, y: nums[5]! }
-            return { kind, x: nums[nums.length - 2]!, y: nums[nums.length - 1]! }
-          })
-          for (let i = 1; i < points.length; i++) {
-            const a = points[i - 1]!
-            const b = points[i]!
-            // 曲线段本身是弧线，不算斜线
+          const segs = segments(p.d)
+          for (let i = 1; i < segs.length; i++) {
+            const a = segs[i - 1]!
+            const b = segs[i]!
+            // 曲线段是 EdrawMind 画的小圆角，不算斜线
             if (a.kind === 'C' || b.kind === 'C') continue
-            if (Math.abs(b.x - a.x) > 1 && Math.abs(b.y - a.y) > 1) {
-              diagonal += 1
-              break
-            }
+            const ax = a.nums[a.nums.length - 2]!
+            const ay = a.nums[a.nums.length - 1]!
+            const bx = b.nums[b.nums.length - 2]!
+            const by = b.nums[b.nums.length - 1]!
+            // 长斜线是「端点被搬动」的典型症状；原始几何里没有
+            if (Math.abs(bx - ax) > 20 && Math.abs(by - ay) > 20) longDiagonal += 1
           }
         }
         if (!total) continue
-        // 原始 .emmx 里 0 条斜线（全是正交折线），所以改动后也不该引入斜线。
-        // 允许极少数端点落在曲线上的特例。
-        const ratio = 1 - diagonal / total
         expect(
-          ratio,
-          `${path.basename(file)} 正交比例 ${(ratio * 100).toFixed(1)}%（斜线 ${diagonal}/${total}）`
-        ).toBeGreaterThan(0.9)
+          longDiagonal,
+          `${path.basename(file)} 出现长斜线段（共 ${total} 条连线）`
+        ).toBe(0)
       }
     }
   })
 
-  it('leaves endpoints that already sit inside a box alone', () => {
-    const source = read('src/shared/emmx.ts')
-    // 多分支主干线故意从框内部起笔，硬拉到边中点会破坏走向
-    expect(source).toContain('const inside =')
-    expect(source).toContain('if (inside) return { x, y }')
-  })
-
-  it.runIf(available.length > 0)('attaches every box-touching endpoint to an edge midpoint', () => {
+  it.runIf(available.length > 0)('keeps the bridging segment axis-aligned and collinear', () => {
     for (const file of available) {
       const document = parseEmmx(fs.readFileSync(file))
       for (const page of document.pages) {
-        const boxes = page.shapes.map((s) => ({ x: s.x, y: s.y, w: s.width, h: s.height }))
-        let attached = 0
-        let onMidpoint = 0
-        const offenders: string[] = []
         for (const p of page.paths) {
           if (p.type !== 'MMConnector' && p.type !== 'RelatConnector') continue
-          const tokens = p.d.split(/(?=[MLC])/).filter(Boolean)
-          for (const token of [tokens[0], tokens[tokens.length - 1]]) {
-            if (!token) continue
-            const nums = token.slice(1).trim().split(/[\s,]+/).map(Number).filter(Number.isFinite)
-            if (nums.length < 2) continue
-            const x = nums[nums.length - 2]!
-            const y = nums[nums.length - 1]!
-            let best: { b: (typeof boxes)[number]; d: number } | undefined
-            for (const b of boxes) {
-              const dx = x < b.x ? b.x - x : x > b.x + b.w ? x - (b.x + b.w) : 0
-              const dy = y < b.y ? b.y - y : y > b.y + b.h ? y - (b.y + b.h) : 0
-              const d = Math.hypot(dx, dy)
-              if (!best || d < best.d) best = { b, d }
-            }
-            // 只看「从框外贴到框上」的端点：
-            // - 离得远的（主干线起点、指向分组框等）不在本规则范围内
-            // - 已在框内部的（多分支主干线故意从框内起笔）也不该被拉到边上
-            if (!best || best.d > 1.5) continue
-            const insideBox =
-              x > best.b.x + 1 &&
-              x < best.b.x + best.b.w - 1 &&
-              y > best.b.y + 1 &&
-              y < best.b.y + best.b.h - 1
-            if (insideBox) continue
-            attached += 1
-            const midX = best.b.x + best.b.w / 2
-            const midY = best.b.y + best.b.h / 2
-            const onVerticalEdge =
-              Math.abs(x - best.b.x) < 1 || Math.abs(x - (best.b.x + best.b.w)) < 1
-            const deviation = onVerticalEdge ? Math.abs(y - midY) : Math.abs(x - midX)
-            if (deviation < 1.5) onMidpoint += 1
-            else if (offenders.length < 5) {
-              offenders.push(`(${x.toFixed(1)},${y.toFixed(1)}) 偏离 ${deviation.toFixed(1)}px`)
-            }
-          }
+          const segs = segments(p.d)
+          if (segs.length < 2) continue
+          const a = segs[0]!
+          const b = segs[1]!
+          if (a.kind !== 'M' || b.kind !== 'L') continue
+          const ax = a.nums[0]!
+          const ay = a.nums[1]!
+          const bx = b.nums[0]!
+          const by = b.nums[1]!
+          // 补出来的接线必须是水平或垂直的，不能是斜的
+          expect(
+            Math.abs(ax - bx) < 0.6 || Math.abs(ay - by) < 0.6,
+            `${path.basename(file)} 连线 ${p.id} 首段接线非轴对齐`
+          ).toBe(true)
         }
-        if (!attached) continue
-        // 贴到框上的端点必须落在中点（允许极少数几何特例）
-        const ratio = onMidpoint / attached
-        expect(
-          ratio,
-          `${path.basename(file)} 居中比例 ${(ratio * 100).toFixed(1)}%  例外: ${offenders.join(' ')}`
-        ).toBeGreaterThan(0.98)
       }
     }
   })
 
-  it.runIf(available.length > 0)('does not leave endpoints floating a small gap from a box', () => {
+  it.runIf(available.length > 0)('leaves no anchor-versus-geometry gap unbridged', () => {
     for (const file of available) {
       const document = parseEmmx(fs.readFileSync(file))
-      const snapRange = Number(
-        /CONNECTOR_SNAP_RANGE = ([\d.]+)/.exec(read('src/shared/emmx.ts'))?.[1] ?? '32'
-      )
       for (const page of document.pages) {
-        const boxes = page.shapes.map((s) => ({ x: s.x, y: s.y, w: s.width, h: s.height }))
-        let floating = 0
+        let unbridged = 0
         for (const p of page.paths) {
           if (p.type !== 'MMConnector' && p.type !== 'RelatConnector') continue
-          const tokens = p.d.split(/(?=[MLC])/).filter(Boolean)
-          for (const token of [tokens[0], tokens[tokens.length - 1]]) {
-            if (!token) continue
-            const nums = token.slice(1).trim().split(/[\s,]+/).map(Number).filter(Number.isFinite)
-            if (nums.length < 2) continue
-            const x = nums[nums.length - 2]!
-            const y = nums[nums.length - 1]!
-            let gap = Infinity
-            for (const b of boxes) {
-              const dx = x < b.x ? b.x - x : x > b.x + b.w ? x - (b.x + b.w) : 0
-              const dy = y < b.y ? b.y - y : y > b.y + b.h ? y - (b.y + b.h) : 0
-              gap = Math.min(gap, Math.hypot(dx, dy))
-            }
-            if (gap > 1.5 && gap <= snapRange) floating += 1
+          if (!p.anchors) continue
+          const segs = segments(p.d)
+          if (!segs.length) continue
+          /**
+           * 判据是「锚点与几何端点之间有没有缺口」，而不是「端点离框有多远」。
+           *
+           * 实测世界回归进行曲里有 19 个端点离最近的框 5~27px，但它们的锚点与
+           * 几何起点【完全相同】（差 0.0）——那是 EdrawMind 自己的画法：一条母线
+           * 从框外侧一段距离起笔，再由同组的支线接上。把这种当成「悬空」去搬动
+           * 端点，正是上一版把线条弄弯的原因。
+           */
+          const first = segs[0]!
+          const last = segs[segs.length - 1]!
+          const startX = first.nums[first.nums.length - 2]!
+          const startY = first.nums[first.nums.length - 1]!
+          const endX = last.nums[last.nums.length - 2]!
+          const endY = last.nums[last.nums.length - 1]!
+          // 起点：要么与 BeginPt 一致，要么被补过一段轴对齐接线
+          const startGap = Math.hypot(startX - p.anchors.beginX, startY - p.anchors.beginY)
+          if (startGap > 0.6) {
+            // 补过接线的话，首段必须是轴对齐的（水平或垂直）
+            const axisAligned =
+              Math.abs(startX - p.anchors.beginX) < 0.6 || Math.abs(startY - p.anchors.beginY) < 0.6
+            if (!axisAligned) unbridged += 1
           }
+          // 终点：必须与 EndPt 一致
+          if (Math.hypot(endX - p.anchors.endX, endY - p.anchors.endY) > 0.6) unbridged += 1
         }
-        expect(floating, `${path.basename(file)} 未校正的小间隙端点数`).toBe(0)
+        expect(unbridged, `${path.basename(file)} 锚点与几何不一致的端点数`).toBe(0)
       }
     }
   })

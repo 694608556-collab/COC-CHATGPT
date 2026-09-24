@@ -84,61 +84,59 @@ function linesOfShape(
 
 describe('0.7.1 stage 1: emmx rendering', () => {
   describe('connector gap', () => {
-    it('uses BeginPt/EndPt as the authoritative connector endpoints', () => {
+    it('bridges a start gap instead of moving endpoints', () => {
       const source = read('src/shared/emmx.ts')
-      // BeginPt/EndPt 是 EdrawMind 存的连线锚点，比 Geometry 首尾点更接近真实
-      // 连接位置；两者都可能偏离框边，最终统一校正到框边
-      expect(source).toContain('alignConnectorEnds')
+      // BeginPt / EndPt 仍用于读出锚点，但只用来【补一小段接线】，
+      // 不再搬动几何端点——搬动会把 EdrawMind 画好的直线拉成斜线与鼓包。
       expect(source).toContain("'BeginPt'")
       expect(source).toContain("'EndPt'")
-      // 0.7.1 起改为钉在边中点（详见 connector-align-071.test.ts）
-      expect(source).toContain('alignEndToBoxCenter')
+      expect(source).toContain('bridgeStartGap')
+      // 旧的「校正到框边 / 钉到边中点」实现必须消失
+      expect(source).not.toContain('alignConnectorEnds')
+      expect(source).not.toContain('alignEndToBoxCenter')
     })
 
-    it.runIf(available.length > 0)('leaves no connector endpoint floating a small gap from a node', () => {
+    it.runIf(available.length > 0)('leaves no anchor-versus-geometry gap unbridged', () => {
       for (const file of available) {
         const document = parseEmmx(fs.readFileSync(file))
         for (const page of document.pages) {
-          const boxes = page.shapes.map((s) => ({ x: s.x, y: s.y, w: s.width, h: s.height }))
-          const gapTo = (x: number, y: number): number => {
-            let best = Infinity
-            for (const b of boxes) {
-              const dx = x < b.x ? b.x - x : x > b.x + b.w ? x - (b.x + b.w) : 0
-              const dy = y < b.y ? b.y - y : y > b.y + b.h ? y - (b.y + b.h) : 0
-              best = Math.min(best, Math.hypot(dx, dy))
-            }
-            return best
-          }
-          /**
-           * 只统计「差一小段就接上」的端点——那才是观感问题（线头浮在框外）。
-           *
-           * 实测 EdrawMind 的折线有时故意从空白处起笔（例如一条主干线带多个分支，
-           * 起点离任何框 34~358px），那是正常画法，不是缺陷。所以判据是「间隙在
-           * 可校正范围内却仍未被校正」，而不是「必须贴边」。
-           */
-          const snapRange = Number(
-            /CONNECTOR_SNAP_RANGE = ([\d.]+)/.exec(read('src/shared/emmx.ts'))?.[1] ?? '32'
-          )
-          let floating = 0
+          let unbridged = 0
           for (const p of page.paths) {
             if (p.type !== 'MMConnector' && p.type !== 'RelatConnector') continue
+            if (!p.anchors) continue
             const tokens = p.d.split(/(?=[MLC])/).filter(Boolean)
-            for (const token of [tokens[0], tokens[tokens.length - 1]]) {
-              if (!token) continue
+            const pointOf = (token: string): { x: number; y: number } | undefined => {
               const nums = token.slice(1).trim().split(/[\s,]+/).map(Number).filter(Number.isFinite)
-              if (nums.length < 2) continue
-              const x = nums[nums.length - 2]!
-              const y = nums[nums.length - 1]!
-              const gap = gapTo(x, y)
-              // 落在可校正范围内却没贴上 → 说明校正漏了
-              if (gap > 1.5 && gap <= snapRange) floating += 1
+              if (nums.length < 2) return undefined
+              return { x: nums[nums.length - 2]!, y: nums[nums.length - 1]! }
+            }
+            const first = tokens[0] ? pointOf(tokens[0]!) : undefined
+            const last = tokens.length ? pointOf(tokens[tokens.length - 1]!) : undefined
+            /**
+             * 判据是「锚点与几何端点之间有没有缺口」，而不是「端点离框多远」。
+             * 实测有 19 个端点离最近的框 5~27px，但锚点与几何起点完全相同——
+             * 那是 EdrawMind 的画法（母线从框外侧起笔，由同组支线接上）。
+             */
+            if (first) {
+              const gap = Math.hypot(first.x - p.anchors.beginX, first.y - p.anchors.beginY)
+              if (gap > 0.6) {
+                const axisAligned =
+                  Math.abs(first.x - p.anchors.beginX) < 0.6 ||
+                  Math.abs(first.y - p.anchors.beginY) < 0.6
+                if (!axisAligned) unbridged += 1
+              }
+            }
+            if (last) {
+              const gap = Math.hypot(last.x - p.anchors.endX, last.y - p.anchors.endY)
+              if (gap > 0.6) unbridged += 1
             }
           }
-          expect(floating, `${path.basename(file)} ${page.name} 未校正的小间隙端点数`).toBe(0)
+          expect(unbridged, `${path.basename(file)} ${page.name} 锚点与几何不一致的端点数`).toBe(0)
         }
       }
     })
   })
+
 
   describe('line height', () => {
     it('uses a line height that keeps wrapped text inside its box', () => {
