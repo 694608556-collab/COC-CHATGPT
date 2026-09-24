@@ -363,11 +363,6 @@ function readLabel(
   }
 }
 
-/** 读 <Shape ID="..."> 里的 id，用于把标签关联回它的图形 */
-function shapeIdOf(body: string): string | undefined {
-  return body.match(/<Shape\s+ID="(\d+)"/)?.[1]
-}
-
 /** 解析一个画布 */
 function parsePage(entryName: string, xml: string): EmmxPage {
   const titleMatch = xml.match(/<Page\b[^>]*\bName="([^"]*)"/)

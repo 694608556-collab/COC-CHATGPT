@@ -11,6 +11,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { CURRENT_SCHEMA_VERSION } from '../../src/main/database'
 
 const projectRoot = path.resolve(import.meta.dirname, '../..')
 const executablePath = path.join(projectRoot, 'node_modules', 'electron', 'dist', 'electron.exe')
@@ -97,8 +98,10 @@ test('0.6.6 no longer asks for a session number after an import renumbered the n
     const page = await application.firstWindow()
     await expect(page.getByText('COC 跑团记录簿').first()).toBeVisible()
 
-    // 升级到 schema v5 时应留下升级前备份
-    expect(fs.existsSync(`${databaseFile}.before-v5.bak`)).toBe(true)
+    // 升级时应留下升级前备份。
+    // 备份名带的是【当前】schema 版本，不是 0.6.6 当时的 v5——0.7.0 起
+    // SCHEMA_VERSION 已是 7，所以这里从常量取，避免下次再升版本时又写死过期。
+    expect(fs.existsSync(`${databaseFile}.before-v${CURRENT_SCHEMA_VERSION}.bak`)).toBe(true)
 
     // 编号应已按名称校正为 1-4，不再有 4-16 的假空缺
     const db = new DatabaseSync(databaseFile, { readOnly: true })
