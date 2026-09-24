@@ -301,6 +301,40 @@ function pathPoints(d: string): Array<{ x: number; y: number }> {
  *
  * 找不到文字框时返回 undefined（很多连线没有标签）。
  */
+/**
+ * 从 TextBlock 里取出文字行。
+ *
+ * 关键：**`<pp>` 才是一行（段落），`<tp>` 只是段内的文本片段**。
+ * EdrawMind 会把同一行按格式差异切成多个 tp，例如
+ *
+ *   <pp PX="1" CX="0">
+ *     <tp CX="0">应同渊娲一样，为</tp>
+ *     <tp CX="1">某个计划</tp>
+ *     <tp CX="0">的产物</tp>
+ *   </pp>
+ *
+ * 这是**一行**（"应同渊娲一样，为某种计划的产物"），不是三行。
+ * 0.7.2 及更早按 tp 收集，把它算成 3 行、需要的高度翻倍，于是文字被挤出
+ * 节点框、压到相邻节点上——用户反馈的「文字框重叠」就是这里来的。
+ *
+ * 实测「世界回归进行曲」：942 个 tp 里只有 5 个节点是「单 pp 多 tp」，
+ * 但正是这几个出现了溢出。按 pp 分组后行数正确。
+ */
+function readTextLines(textBlock: string): string[] {
+  const lines: string[] = []
+  const paragraphs = [...textBlock.matchAll(/<pp\b[^>]*>([\s\S]*?)<\/pp>/g)]
+  // 没有 <pp> 包裹时（个别老文件）退回按 tp 收集，至少不丢文字
+  const blocks = paragraphs.length ? paragraphs.map((item) => item[1]!) : [textBlock]
+  for (const block of blocks) {
+    const parts = [...block.matchAll(/<tp\b[^>]*>([\s\S]*?)<\/tp>/g)]
+      .map((tp) => decodeXmlEntities(tp[1]!.replace(/<[^>]+>/g, '')))
+      .join('')
+      .trim()
+    if (parts) lines.push(parts)
+  }
+  return lines
+}
+
 function readLabel(
   body: string,
   originX: number,
@@ -310,11 +344,7 @@ function readLabel(
 ): EmmxLabel | undefined {
   const textBlock = body.match(/<TextBlock[^>]*>([\s\S]*?)<\/TextBlock>/)
   if (!textBlock) return undefined
-  const lines: string[] = []
-  for (const tp of textBlock[1]!.matchAll(/<tp\b[^>]*>([\s\S]*?)<\/tp>/g)) {
-    const text = decodeXmlEntities(tp[1]!.replace(/<[^>]+>/g, '')).trim()
-    if (text) lines.push(text)
-  }
+  const lines = readTextLines(textBlock[1]!)
   if (!lines.length) return undefined
 
   let fontSize = 12
@@ -459,10 +489,8 @@ function parsePage(entryName: string, xml: string): EmmxPage {
         const normalized = normalizeColor(textColor?.[1])
         if (normalized) color = normalized
       }
-      for (const tp of tb.matchAll(/<tp\b[^>]*>([\s\S]*?)<\/tp>/g)) {
-        const text = decodeXmlEntities(tp[1]!.replace(/<[^>]+>/g, '')).trim()
-        if (text) lines.push(text)
-      }
+      // 按 <pp> 分段：<tp> 只是段内片段，见 readTextLines 的说明
+      lines.push(...readTextLines(tb))
     }
 
     const left = cx - width / 2
@@ -567,13 +595,8 @@ function buildOutline(xml: string): EmmxOutlineLine[] {
     const id = match[1]!
     const body = match[3]!
     const textBlock = body.match(/<TextBlock[^>]*>([\s\S]*?)<\/TextBlock>/)
-    const lines: string[] = []
-    if (textBlock) {
-      for (const tp of textBlock[1]!.matchAll(/<tp\b[^>]*>([\s\S]*?)<\/tp>/g)) {
-        const text = decodeXmlEntities(tp[1]!.replace(/<[^>]+>/g, '')).trim()
-        if (text) lines.push(text)
-      }
-    }
+    // 与图形渲染用同一套分段口径，保证大纲与画布上的行数一致
+    const lines = textBlock ? readTextLines(textBlock[1]!) : []
     const superMatch = body.match(/<Super V="(\d+)"/)
     const subMatch = body.match(/<SubLevel V="([^"]*)"/)
     nodes.set(id, {

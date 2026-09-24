@@ -38,11 +38,16 @@ describe('text coverage audit', () => {
       const pages = entries(buf).filter((e) => /^page\/page.*\.xml$/.test(e.name))
 
       // 按「每个 Shape 的文字」为口径统计，与解析器一致：
-      // 一个 Shape 里的多个 <tp> 会合并成一段（解析器就是这么做的），
-      // 若按单个 <tp> 计数，同一段被拆成 5 个 <tp> 时会误判为「缺 4 段」。
       //
-      // 另外要解码 XML 实体：文件里存的是 &quot;要离开了” ，而解析器输出的是
-      // 解码后的 "要离开了” ，不解码就会把这段误报成「缺失」。
+      // 1) **<pp> 才是一行（段落），<tp> 只是段内的文本片段**。EdrawMind 会把
+      //    同一行按格式差异切成多个 tp，例如
+      //      <pp><tp>应同渊娲一样，为</tp><tp>某个计划</tp><tp>的产物</tp></pp>
+      //    这是**一行**。所以段内 tp 用 '' 拼接、段间用 ' ' 拼接。
+      //    若按单个 <tp> 计数，上面这行会被算成 3 行，正是 0.7.3 修掉的
+      //    「文字溢出节点框、压到相邻节点上」那个 bug。
+      //
+      // 2) 要解码 XML 实体：文件里存的是 &quot;要离开了” ，而解析器输出的是
+      //    解码后的 "要离开了” ，不解码就会把这段误报成「缺失」。
       const decode = (value: string): string =>
         value
           .replace(/&lt;/g, '<')
@@ -53,16 +58,28 @@ describe('text coverage audit', () => {
           .replace(/&#x([0-9a-fA-F]+);/g, (_, code: string) => String.fromCharCode(parseInt(code, 16)))
           .replace(/&amp;/g, '&')
 
+      // 独立实现一份「按 pp 分段」的提取，刻意不复用 src 里的函数，
+      // 这样它才能真的验出解析器的口径错误。
+      const shapeLines = (body: string): string[] => {
+        const paragraphs = [...body.matchAll(/<pp\b[^>]*>([\s\S]*?)<\/pp>/g)]
+        const blocks = paragraphs.length ? paragraphs.map((m) => m[1]!) : [body]
+        return blocks
+          .map((block) =>
+            [...block.matchAll(/<tp\b[^>]*>([\s\S]*?)<\/tp>/g)]
+              .map((m) => decode(m[1]!.replace(/<[^>]+>/g, '')))
+              .join('')
+              .trim()
+          )
+          .filter(Boolean)
+      }
+
       const perShape: string[] = []
       for (const page of pages) {
         const raw = buf.subarray(page.dataStart, page.dataStart + page.compressedSize)
         const xml = (page.method === 0 ? raw : zlib.inflateRawSync(raw)).toString('utf8')
         for (const shape of xml.matchAll(/<Shape\s+ID="\d+"\s+Type="[^"]+"[^>]*>([\s\S]*?)<\/Shape>/g)) {
-          const text = [...shape[1]!.matchAll(/<tp\b[^>]*>([\s\S]*?)<\/tp>/g)]
-            .map((m) => decode(m[1]!.replace(/<[^>]+>/g, '')).trim())
-            .filter(Boolean)
-            .join(' ')
-          if (text) perShape.push(text)
+          const lines = shapeLines(shape[1]!)
+          if (lines.length) perShape.push(lines.join(' '))
         }
       }
 

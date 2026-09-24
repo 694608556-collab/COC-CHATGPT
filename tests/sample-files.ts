@@ -21,8 +21,10 @@ const CANDIDATES: Record<string, string[]> = {
     'F:\\3-其他内容\\跑团\\1-世界回归进行曲\\精神病院失踪事件.emmx'
   ],
   世界回归进行曲: [
+    'F:\\3-其他内容\\跑团\\1-世界回归进行曲\\世界回归进行曲.emmx',
     'E:\\微信文件\\xwechat_files\\wxid_b70gzcimuk4h22_f95c\\msg\\file\\2025-11\\世界回归进行曲.emmx',
-    'F:\\3-其他内容\\跑团\\1-世界回归进行曲\\世界回归进行曲.emmx'
+    // DSH 会话附件目录：处理用户上传文件时它会被复制到这里
+    'C:\\Users\\Admin\\AppData\\Roaming\\dsh-launcher\\dsh-packs\\pack-test\\attachments\\v1\\files\\f7\\f71ab15e047fbc1b8a3c94e8b2bfa86f2e6169d03f79302a6d8eb91554bba533\\世界回归进行曲.emmx'
   ],
   龙台掠雪: ['E:\\COC模组\\龙台掠雪\\龙台掠雪.emmx'],
   月廻上: ['E:\\COC模组\\月廻\\月廻（上）.emmx'],

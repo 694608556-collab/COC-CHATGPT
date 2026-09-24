@@ -1,7 +1,7 @@
 {
   "name": "coc-session-journal",
   "productName": "COC 跑团记录簿",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "author": "COC 跑团记录簿",
   "description": "本地 COC 跑团记录与调查员角色卡管理应用",
   "main": "out/main/index.js",
