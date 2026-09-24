@@ -18,6 +18,7 @@
  */
 import zlib from 'node:zlib'
 import { AppError } from './errors'
+import { mindmapMarkHref } from './mindmap-marks'
 
 /** zip 中央目录里我们关心的一条记录 */
 interface ZipEntry {
@@ -100,7 +101,36 @@ export interface EmmxPath {
 }
 
 /**
- * 浮在图形上的标签文字。
+ * 节点上的装饰图形：用户插入的图片，以及 EdrawMind 内置的星标/进度图标。
+ *
+ * 0.7.7 新增。此前这类 `<Shape Type="Image">` / `<Shape Type="Mark">` 被当成
+ * 「嵌套的附属图形」直接跳过（见 splitShapeBlocks 的说明），于是用户反馈
+ * 「原 emmx 文件中插入的图片和图标没有显示出来」。
+ *
+ * 坐标已换算成画布绝对坐标：`.emmx` 里嵌套图形的 CX/CY 是**相对父框左上角**
+ * 的偏移（实测 Mark 恒为 CX=17.5/CY=14.3，对应 EdrawMind HTML 里父节点内的
+ * `translate(9,5.8)`——因为 17.5−17/2=9、14.3−17/2=5.8）。
+ */
+export interface EmmxDecoration {
+  /** 所属节点的 id（用于随节点一起隐藏） */
+  ownerId: string
+  kind: 'image' | 'mark'
+  x: number
+  y: number
+  width: number
+  height: number
+  /**
+   * 图片：data URI（PNG 等直接内嵌，SVG 导出时不依赖外部文件）。
+   * 图标：内置图标的名字（star1/star2/star3/finished），渲染时查表。
+   */
+  href?: string
+  /** 图标名，仅 kind === 'mark' 时有值 */
+  mark?: string
+  /** 所属节点被折叠时不画 */
+  hidden?: boolean
+}
+
+/** 浮在图形上的标签文字。
  *
  * 两类来源：关系连线的说明（「意图杀害」「母女」）和分组框的标题。
  * 它们的坐标语义不同，解析时已统一换算成绝对坐标。
@@ -127,6 +157,8 @@ export interface EmmxPage {
   shapes: EmmxShape[]
   paths: EmmxPath[]
   labels: EmmxLabel[]
+  /** 节点上的图片与星标图标（0.7.7） */
+  decorations: EmmxDecoration[]
   /** 内容包围盒，用于只框住有内容的部分 */
   bounds: { minX: number; minY: number; maxX: number; maxY: number }
 }
@@ -445,11 +477,19 @@ interface ShapeBlock {
   body: string
   /** 是否嵌套在另一个 Shape 内部 */
   nested: boolean
+  /**
+   * 外层节点的 id（仅嵌套图形有值）。
+   *
+   * 0.7.7 新增：图片与星标是嵌套在节点里的装饰，坐标相对**父框左上角**，
+   * 必须知道父节点是谁才能算出绝对坐标、也才能在父节点被折叠时一起隐藏。
+   */
+  ownerId?: string
 }
 
 function splitShapeBlocks(xml: string): ShapeBlock[] {
   const found: ShapeBlock[] = []
-  const stack: Array<{ id: string; type: string; bodyStart: number; nested: boolean }> = []
+  const stack: Array<{ id: string; type: string; bodyStart: number; nested: boolean; ownerId?: string }> =
+    []
   const token = /<Shape\b[^>]*?(\/?)>|<\/Shape>/g
   let match: RegExpExecArray | null
   while ((match = token.exec(xml))) {
@@ -461,29 +501,110 @@ function splitShapeBlocks(xml: string): ShapeBlock[] {
         id: open.id,
         type: open.type,
         body: xml.slice(open.bodyStart, match.index),
-        nested: open.nested
+        nested: open.nested,
+        ...(open.ownerId === undefined ? {} : { ownerId: open.ownerId })
       })
       continue
     }
     const id = match[0].match(/\bID="(\d+)"/)?.[1] ?? ''
     const type = match[0].match(/\bType="([^"]+)"/)?.[1] ?? ''
+    // 直接外层节点就是 owner（装饰不会套两层）
+    const ownerId = stack.length > 0 ? stack[stack.length - 1]!.id : undefined
     if (match[1] === '/') {
-      found.push({ id, type, body: '', nested: stack.length > 0 })
+      found.push({
+        id,
+        type,
+        body: '',
+        nested: stack.length > 0,
+        ...(ownerId === undefined ? {} : { ownerId })
+      })
       continue
     }
-    stack.push({ id, type, bodyStart: token.lastIndex, nested: stack.length > 0 })
+    stack.push({
+      id,
+      type,
+      bodyStart: token.lastIndex,
+      nested: stack.length > 0,
+      ...(ownerId === undefined ? {} : { ownerId })
+    })
   }
   // 顶层图形按闭合顺序入列，与文件里的出现顺序一致；
   // 嵌套的那些先于父节点入列，但调用方会跳过它们，所以顶层顺序不受影响。
   return found
 }
 
+/**
+ * 读 rels 里引用的图片，转成 rId → data URI 的映射。
+ *
+ * `.emmx` 是 zip：用户插入的图片存在 `media/image1.png`，页面里用
+ * `<Shape Type="Image"><Data Res="rId1"/></Shape>` 引用，而
+ * `rels/page_rels.xml` 记录 `rId1 → ../media/image1.png`。
+ *
+ * 转成 data URI 内嵌，导出的 SVG 才是自包含的（换台电脑也能看）。
+ * 认不出的扩展名按 png 处理——EdrawMind 存的都是位图。
+ */
+function readPageMedia(buffer: Buffer, entries: ZipEntry[]): Map<string, string> {
+  const media = new Map<string, string>()
+  const relsEntry = entries.find((entry) => entry.name === 'rels/page_rels.xml')
+  if (!relsEntry) return media
+
+  let rels: string
+  try {
+    rels = readEntry(buffer, relsEntry).toString('utf8')
+  } catch {
+    // rels 坏了不该让整张导图读不出来：图片缺失比导图打不开好
+    return media
+  }
+
+  const mimeOf = (name: string): string => {
+    const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase()
+    if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg'
+    if (ext === 'gif') return 'image/gif'
+    if (ext === 'bmp') return 'image/bmp'
+    if (ext === 'webp') return 'image/webp'
+    if (ext === 'svg') return 'image/svg+xml'
+    return 'image/png'
+  }
+
+  for (const match of rels.matchAll(/<Relationship\b[^>]*>/g)) {
+    const tag = match[0]
+    const id = tag.match(/\bId="([^"]+)"/)?.[1]
+    const target = tag.match(/\bTarget="([^"]+)"/)?.[1]
+    if (!id || !target) continue
+    // Target 形如 ../media/image1.png，去掉前导的 ../ 与开头的 /
+    const normalized = target.replace(/^\.\.\//, '').replace(/^\//, '')
+    const entry = entries.find((item) => item.name === normalized)
+    if (!entry) continue
+    try {
+      const bytes = readEntry(buffer, entry)
+      if (!bytes.length) continue
+      media.set(id, `data:${mimeOf(normalized)};base64,${bytes.toString('base64')}`)
+    } catch {
+      // 单张图片读不出来就跳过它，不影响其余内容
+    }
+  }
+  return media
+}
+
 /** 解析一个画布 */
-function parsePage(entryName: string, xml: string): EmmxPage {
+function parsePage(
+  entryName: string,
+  xml: string,
+  /**
+   * rels 里 rId → data URI 的映射（0.7.7）。
+   *
+   * `.emmx` 是 zip，用户插入的图片存在 `media/*.png`，
+   * 页面里用 `<Shape Type="Image"><Data Res="rId1"/></Shape>` 引用，
+   * 而 `rels/page_rels.xml` 记录 `rId1 → ../media/image1.png`。
+   * 解析时把图片读出来转成 data URI 内嵌，SVG 导出就不依赖外部文件。
+   */
+  media: Map<string, string> = new Map()
+): EmmxPage {
   const titleMatch = xml.match(/<Page\b[^>]*\bName="([^"]*)"/)
   const shapes: EmmxShape[] = []
   const paths: EmmxPath[] = []
   const labels: EmmxLabel[] = []
+  const decorations: EmmxDecoration[] = []
 
   const blocks = splitShapeBlocks(xml)
 
@@ -660,6 +781,48 @@ function parsePage(entryName: string, xml: string): EmmxPage {
     })
   }
 
+  /**
+   * 节点上的装饰：用户插入的图片、EdrawMind 内置的星标/进度图标。
+   *
+   * 放在主循环之后：它们的坐标是**相对父框左上角**的偏移，得先知道父节点
+   * 在画布上的位置才能换算成绝对坐标（主循环里父节点可能还没解析到）。
+   */
+  const shapeById = new Map(shapes.map((shape) => [shape.id, shape]))
+  for (const block of blocks) {
+    if (!block.nested) continue
+    if (block.type !== 'Image' && block.type !== 'Mark') continue
+    const owner = block.ownerId === undefined ? undefined : shapeById.get(block.ownerId)
+    // 找不到父节点就没法定位，跳过（不画到错误的位置上）
+    if (!owner) continue
+
+    const transform = block.body.match(/<Transform>([\s\S]*?)<\/Transform>/)
+    if (!transform) continue
+    const t = transform[1]!
+    const width = numberTag(t, 'Width')
+    const height = numberTag(t, 'Height')
+    const cx = numberTag(t, 'CX')
+    const cy = numberTag(t, 'CY')
+    if (width === undefined || height === undefined || cx === undefined || cy === undefined) continue
+
+    // CX/CY 是相对父框左上角的**中心点**偏移，换算成左上角绝对坐标
+    const left = owner.x + cx - width / 2
+    const top = owner.y + cy - height / 2
+    const hidden = Boolean(owner.hidden)
+
+    if (block.type === 'Image') {
+      const res = block.body.match(/<Data\s+Res="([^"]+)"/)?.[1]
+      const href = res === undefined ? undefined : media.get(res)
+      // 图片数据读不到就不画（画个空框反而让人以为导图坏了）
+      if (!href) continue
+      decorations.push({ ownerId: owner.id, kind: 'image', x: left, y: top, width, height, href, ...(hidden ? { hidden: true } : {}) })
+      continue
+    }
+
+    const mark = block.body.match(/<MarkData\s+Name="([^"]+)"/)?.[1]
+    if (!mark) continue
+    decorations.push({ ownerId: owner.id, kind: 'mark', x: left, y: top, width, height, mark, ...(hidden ? { hidden: true } : {}) })
+  }
+
   // 起点若与连线锚点之间差一小段【水平或垂直】的距离，补一条直线接上。
   //
   // 放在这里而不是解析循环里：连线在 XML 里可能排在它连接的节点之前，
@@ -709,6 +872,12 @@ function parsePage(entryName: string, xml: string): EmmxPage {
     extend(label.x, label.y)
     extend(label.x + label.width, label.y + label.height)
   }
+  // 装饰图形同样要算进去：图片可能贴在节点框外侧，漏算会被裁掉
+  for (const decoration of decorations) {
+    if (decoration.hidden) continue
+    extend(decoration.x, decoration.y)
+    extend(decoration.x + decoration.width, decoration.y + decoration.height)
+  }
   if (!Number.isFinite(minX)) {
     minX = 0
     minY = 0
@@ -724,6 +893,7 @@ function parsePage(entryName: string, xml: string): EmmxPage {
     shapes,
     paths,
     labels,
+    decorations,
     bounds: { minX, minY, maxX, maxY }
   }
 }
@@ -838,9 +1008,11 @@ export function parseEmmx(buffer: Buffer): EmmxDocument {
 
   const pages: EmmxPage[] = []
   const outline: EmmxOutlineLine[] = []
+  // 用户插入的图片：rels 里的 rId → media 文件 → data URI
+  const media = readPageMedia(buffer, entries)
   for (const entry of pageEntries) {
     const xml = readEntry(buffer, entry).toString('utf8')
-    pages.push(parsePage(entry.name, xml))
+    pages.push(parsePage(entry.name, xml, media))
     // 多个画布时，后面的画布大纲接在后面并整体降一级，读起来像章节
     const pageOutline = buildOutline(xml)
     if (pageEntries.length > 1) {
@@ -1209,6 +1381,34 @@ export function pageToSvg(page: EmmxPage, padding = 40): string {
       nodeTop: shape.y,
       nodeHeight: shape.height
     })
+  }
+
+  // 装饰图形：用户插入的图片、节点上的星标/进度图标。
+  //
+  // 0.7.7 之前这类图形被当成「嵌套的附属图形」整批跳过，所以用户反馈
+  // 「原 emmx 文件中插入的图片和图标没有显示出来」。
+  // 画在节点文字**之后**：图片贴在节点内侧时应当盖住底色，但节点文字通常
+  // 在图标右侧，两者不重叠；EdrawMind 的 HTML 导出也是这个顺序（先图标后文字），
+  // 这里用同一顺序以免出现「文字被图盖住」。
+  for (const decoration of page.decorations) {
+    if (decoration.hidden) continue
+    if (decoration.kind === 'mark') {
+      const href = mindmapMarkHref(decoration.mark)
+      // 图标数据缺失就不画（画个空框反而像坏了）
+      if (!href) continue
+      parts.push(
+        `<image data-mark="${escapeXml(decoration.ownerId)}" x="${round2(decoration.x)}" ` +
+          `y="${round2(decoration.y)}" width="${round2(decoration.width)}" ` +
+          `height="${round2(decoration.height)}" href="${href}" xlink:href="${href}"/>`
+      )
+      continue
+    }
+    parts.push(
+      `<image data-image="${escapeXml(decoration.ownerId)}" x="${round2(decoration.x)}" ` +
+        `y="${round2(decoration.y)}" width="${round2(decoration.width)}" ` +
+        `height="${round2(decoration.height)}" href="${decoration.href}" ` +
+        `xlink:href="${decoration.href}" preserveAspectRatio="none"/>`
+    )
   }
 
   // 折叠徽标：在折叠的节点右侧画一个小圆 + 数字，和 EdrawMind 一样。

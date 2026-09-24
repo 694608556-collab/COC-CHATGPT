@@ -190,11 +190,13 @@ describe('0.7.6 wheel scrolls, Ctrl+wheel zooms', () => {
   })
 
   it('anchors the zoom on the pointer so the view does not jump', () => {
-    // 缩放后要把滚动位置调到同一比例，光标下那一点留在原地
+    // 缩放后要把滚动位置调到同一比例，光标下那一点留在原地。
+    // 0.7.7 起改由 useLayoutEffect 统一校正（见 mindmap-zoom-pan-077.test.ts），
+    // 这里只钉住「比例锚点」这件事本身还在
     expect(viewer).toContain('ratioX')
     expect(viewer).toContain('ratioY')
-    expect(viewer).toContain('node.scrollLeft = ratioX * node.scrollWidth - offsetX')
-    expect(viewer).toContain('node.scrollTop = ratioY * node.scrollHeight - offsetY')
+    expect(viewer).toMatch(/scrollLeft = anchor\.ratioX \* \w+\.scrollWidth - anchor\.offsetX/)
+    expect(viewer).toMatch(/scrollTop = anchor\.ratioY \* \w+\.scrollHeight - anchor\.offsetY/)
   })
 
   it('tells the user the new gesture in the toolbar', () => {

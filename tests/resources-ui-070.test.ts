@@ -29,8 +29,10 @@ describe('0.7.0 UI contract', () => {
 
   it('2c/2d. supports wheel zoom and drag panning', () => {
     expect(viewer).toContain('onWheel')
-    expect(viewer).toContain('onMouseDown')
-    expect(viewer).toContain('onMouseMove')
+    // 0.7.7 起拖拽改用 Pointer Events：配合 setPointerCapture 可以在指针
+    // 移出窗口后继续拖动，也顺带阻止了拖动时选中文字
+    expect(viewer).toContain('onPointerDown')
+    expect(viewer).toContain('onPointerMove')
     expect(viewer).toContain('scrollLeft')
     expect(viewer).toContain('scrollTop')
     // 拖拽时给出抓手光标

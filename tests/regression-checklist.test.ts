@@ -106,7 +106,9 @@ describe('regression checklist: previously reported issues', () => {
   it('0.7.0 viewer: centers on open, wheel zoom, drag pan, no wrapping buttons', () => {
     expect(viewer).toContain('centerView')
     expect(viewer).toContain('onWheel')
-    expect(viewer).toContain('onMouseDown')
+    // 0.7.7 起拖拽改用 Pointer Events（配合 setPointerCapture，
+    // 指针移出窗口后也能继续拖动）
+    expect(viewer).toContain('onPointerDown')
     const tools = styles.slice(styles.indexOf('.mindmap-tab,'), styles.indexOf('.mindmap-tab:hover'))
     expect(tools).toContain('white-space: nowrap')
   })

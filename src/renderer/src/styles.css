@@ -1836,6 +1836,53 @@ td {
   background: var(--accent-soft);
 }
 
+/*
+ * 自绘下拉选择框（0.7.7）。
+ *
+ * 原生 <select> 的展开列表由操作系统绘制，CSS 管不到——高亮条是系统蓝、
+ * 字体也是系统的，和应用的圆角/配色对不上。用户反馈「下拉弹窗效果和应用
+ * 整体风格不一致」就是这个原因。这里收起态做成与输入框同款的按钮，
+ * 展开态复用上面的 .combo-list，与「按名称联想」保持同一套观感。
+ */
+.select-field {
+  width: 100%;
+}
+
+.select-trigger {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  color: var(--text);
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.select-trigger:hover {
+  border-color: var(--muted);
+}
+
+.select-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.select-caret {
+  flex: none;
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  pointer-events: none;
+}
+
 /* character editor: skills are just name + points now */
 .skill-editor {
   display: grid;
@@ -3073,13 +3120,25 @@ grid-row:6;
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding: 10px 6px 8px;
+  /*
+   * 顶部留出操作按钮的位置（0.7.7）。
+   *
+   * 那排按钮是绝对定位的，此前只留了 10px 上内边距，而按钮占 24px，
+   * 于是悬停时按钮必然压住下面的文件图标/缩略图（实测重叠 18px）——
+   * 就是用户截图里「图标重叠」的样子。
+   *
+   * 这里把空间**恒定**留出来（30px = 按钮 4+24 + 2px 间隔），而不是悬停时
+   * 才撑开：悬停才改变尺寸会让卡片在鼠标进出、拖拽经过时跳动，
+   * 看起来就是「卡片宽度/大小偶尔不一样」。
+   */
+  padding: 30px 6px 8px;
   border: 1px solid transparent;
   border-radius: 8px;
   cursor: default;
   user-select: none;
 }
 
+/* 悬停与失效态只换颜色，不改尺寸：卡片大小始终一致 */
 .resource-tile:hover {
   background: var(--panel2);
   border-color: var(--line);
@@ -3155,8 +3214,14 @@ grid-row:6;
   font-size: 11px;
 }
 
-/* 操作按钮悬停才出现，平时保持桌面图标那样干净。
-   四个图标等宽平分整行，正好占满卡片顶部（0.7.1）。 */
+/*
+ * 操作按钮悬停才出现，平时保持桌面图标那样干净。
+ * 四个图标等宽平分整行，正好占满卡片顶部。
+ *
+ * 0.7.7：只淡入淡出（opacity），不用 display/visibility 切换——
+ * 那些会改变布局，鼠标扫过时卡片会跳。位置也固定在卡片自己预留的
+ * 顶部区域里（见 .resource-tile 的 padding-top），不再压住下面的图标。
+ */
 .resource-tile-actions {
   position: absolute;
   top: 4px;
@@ -3167,11 +3232,14 @@ grid-row:6;
   gap: 2px;
   opacity: 0;
   transition: opacity 120ms ease;
+  /* 隐藏时不可点，免得看不见的按钮抢走点击 */
+  pointer-events: none;
 }
 
 .resource-tile:hover .resource-tile-actions,
 .resource-tile:focus-within .resource-tile-actions {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .resource-tile-actions .icon-button {
@@ -3543,6 +3611,11 @@ grid-row:6;
   border-radius: 8px;
   padding: 12px;
   cursor: grab;
+  /* 拖动画布时不允许选中文字（0.7.7）。
+     只在 mousedown 里 preventDefault 还不够：指针移动过程中浏览器仍可能
+     发起选择，整个画布就会跟着鼠标「拉选」，用户看到的就是画面乱晃。 */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .mindmap-viewer-body.panning {

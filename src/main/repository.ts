@@ -190,7 +190,16 @@ export class AppRepository {
   reconcileResourceGroups(): AppSettings {
     const current = this.getSettings()
     const hidden = current.hiddenResourceGroups ?? []
-    if (!hidden.length) return current
+    // 0.7.7：**旧字段也必须一起清**，否则这里白清。
+    //
+    // 0.7.0 用 hiddenResourceModules 存「已移除的分组」，0.7.1 改名成
+    // hiddenResourceGroups，读取时（见 getSettings）会把旧字段合并进来，
+    // 免得升级后用户删过的分组复活。但清理逻辑此前只更新新字段：
+    // 旧字段里的条目每次读取又被合并回来，于是标记永远清不掉，
+    // 那个分组始终「靠有资料这条例外才显示」，资料一被拖空就消失
+    // ——正是用户反复反馈的「A 模组条目直接消失」。
+    const legacy = current.hiddenResourceModules ?? []
+    if (!hidden.length && !legacy.length) return current
     const known = new Set(
       this.connection
         .prepare('SELECT id FROM modules')
@@ -209,16 +218,28 @@ export class AppRepository {
         .prepare('SELECT 1 AS present FROM module_resources WHERE module_id IS NULL LIMIT 1')
         .get()
     )
-    const next = hidden.filter((key) => {
+    const keep = (key: string): boolean => {
       // 指向已不存在的模组 → 清掉
       if (key !== UNASSIGNED_GROUP && !known.has(key)) return false
       // 未归属分组：有未归属资料就清掉标记
       if (key === UNASSIGNED_GROUP) return !hasUnassigned
       // 模组分组：有资料就清掉标记
       return !occupied.has(key)
-    })
-    if (next.length === hidden.length) return current
-    return this.updateSettings({ hiddenResourceGroups: next })
+    }
+    const next = hidden.filter(keep)
+    // 旧字段同样按新规则过滤一遍：能保留的并入新字段，其余丢弃。
+    // 这样历史数据被真正收敛，而不是每次读取再合并回来。
+    const legacyKept = legacy.filter((key) => keep(key) && !next.includes(key))
+    const merged = [...next, ...legacyKept]
+    if (
+      merged.length === hidden.length &&
+      legacy.length === 0 &&
+      merged.every((key, index) => key === hidden[index])
+    ) {
+      return current
+    }
+    // 一次性把旧字段清空，避免它继续把已清除的标记带回来
+    return this.updateSettings({ hiddenResourceGroups: merged, hiddenResourceModules: [] })
   }
 
   snapshot(): AppSnapshot {
@@ -282,12 +303,28 @@ export class AppRepository {
      * 0.7.0 用 hiddenResourceModules 存「已移除的分组」，0.7.1 改名为
      * hiddenResourceGroups（因为未归属分组没有模组 id，也要能记进来）。
      * 读取时把旧字段合并过来，否则升级后用户此前删掉的分组会全部复活。
+     *
+     * 0.7.7：合并后**必须把旧字段清掉**，否则它会把已经移除的条目一次次带回来
+     * ——reconcileResourceGroups 只更新新字段，旧字段里的条目下次读取又被合并，
+     * 于是「有资料的分组」永远清不掉「已移除」标记，它只是靠例外规则显示，
+     * 资料一被拖空就消失（用户反复反馈的「A 模组条目直接消失」）。
      */
-    const merged = new Set([
-      ...(settings.hiddenResourceGroups ?? []),
-      ...(settings.hiddenResourceModules ?? [])
-    ])
-    return { ...settings, hiddenResourceGroups: [...merged] }
+    const merged = [...new Set([...(settings.hiddenResourceGroups ?? []), ...(settings.hiddenResourceModules ?? [])])]
+    const legacyStillPresent = (settings.hiddenResourceModules ?? []).length > 0
+    if (legacyStillPresent) {
+      // 顺手收敛一次：把合并结果写进新字段、清空旧字段。
+      // 之后每次读取都只走新字段，不会再被旧数据干扰。
+      const next: AppSettings = {
+        ...settings,
+        hiddenResourceGroups: merged,
+        hiddenResourceModules: []
+      }
+      this.connection
+        .prepare('UPDATE settings SET data_json = ?, updated_at = ? WHERE id = 1')
+        .run(JSON.stringify(next), now())
+      return next
+    }
+    return { ...settings, hiddenResourceGroups: merged }
   }
 
   updateSettings(patch: SettingsPatch): AppSettings {

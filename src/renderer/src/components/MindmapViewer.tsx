@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { MindmapPreviewApi } from '../../../shared/api'
 import type { ModuleRecord, ModuleResource } from '../../../shared/types'
 import { extractSvgTextRuns, findSvgMatches, scrollToCenter } from '../../../shared/mindmap-search'
@@ -110,7 +110,18 @@ export function MindmapViewer({
   // 拖拽平移：记录按下时的位置与当时的滚动偏移
   const bodyRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
-  const panRef = useRef<{ x: number; y: number; left: number; top: number } | undefined>(undefined)
+  const panRef = useRef<
+    { pointerId: number; x: number; y: number; left: number; top: number } | undefined
+  >(undefined)
+  /**
+   * 缩放前记下的光标锚点，由 useLayoutEffect 在缩放落地后消费一次。
+   *
+   * 放 ref 而不是闭包变量：快速连续缩放时，多个 wheel 事件会在同一次重渲染前
+   * 接连到达，只有最后记下的锚点配得上最后一次缩放。
+   */
+  const pendingAnchor = useRef<
+    { ratioX: number; ratioY: number; offsetX: number; offsetY: number } | undefined
+  >(undefined)
   const [panning, setPanning] = useState(false)
 
   const page = data.pages[pageIndex]
@@ -210,24 +221,26 @@ export function MindmapViewer({
       if (!el) return
 
       const rect = el.getBoundingClientRect()
-      // 光标在「整个可滚动内容」里的相对位置（0~1）
-      const ratioX = (event.clientX - rect.left + el.scrollLeft) / Math.max(1, el.scrollWidth)
-      const ratioY = (event.clientY - rect.top + el.scrollTop) / Math.max(1, el.scrollHeight)
-      const offsetX = event.clientX - rect.left
-      const offsetY = event.clientY - rect.top
+      // 光标在「整个可滚动内容」里的相对位置（0~1）。
+      //
+      // 0.7.7 修复「快速缩放时画面突跳」：这些值连同目标缩放一起记在 ref 里，
+      // 由下面那个 useLayoutEffect 在**缩放真正落地后**统一校正一次。
+      //
+      // 0.7.6 是在 setZoom 的更新函数里各自排一个 requestAnimationFrame：
+      // 快速滚动时好几个 wheel 事件会在 React 重渲染之前接连触发，每个都按
+      // **旧的** scrollWidth 算比例、又各自排一个 rAF，随后依次执行、互相覆盖，
+      // 用的还是过期比例 —— 画面就会突然跳到别处。而且在 state 更新函数里做
+      // 副作用本身就违反 React 约定（更新函数可能被调用多次）。
+      pendingAnchor.current = {
+        ratioX: (event.clientX - rect.left + el.scrollLeft) / Math.max(1, el.scrollWidth),
+        ratioY: (event.clientY - rect.top + el.scrollTop) / Math.max(1, el.scrollHeight),
+        offsetX: event.clientX - rect.left,
+        offsetY: event.clientY - rect.top
+      }
 
       setZoom((value) => {
         const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12
-        const next = Math.min(8, Math.max(0.15, value * factor))
-        if (next === value) return value
-        // 等 React 按新尺寸重排完再对齐滚动位置，否则 scrollWidth 还是旧值
-        window.requestAnimationFrame(() => {
-          const node = bodyRef.current
-          if (!node) return
-          node.scrollLeft = ratioX * node.scrollWidth - offsetX
-          node.scrollTop = ratioY * node.scrollHeight - offsetY
-        })
-        return next
+        return Math.min(8, Math.max(0.15, value * factor))
       })
     }
 
@@ -235,24 +248,73 @@ export function MindmapViewer({
     return () => body.removeEventListener('wheel', onWheel)
   }, [tab, pageIndex, page])
 
-  const onMouseDown = (event: React.MouseEvent<HTMLDivElement>): void => {
-    // 只响应左键；在滚动容器上按下即开始平移
+  /**
+   * 缩放落地后校正滚动位置，让光标下那一点留在原地。
+   *
+   * 用 useLayoutEffect 而不是 requestAnimationFrame：它在 React 把新的宽高
+   * 写进 DOM **之后**、浏览器绘制**之前**同步执行，因此
+   *  - 读到的 scrollWidth/scrollHeight 已经是新尺寸（不需要猜时机）
+   *  - 校正发生在绘制前，用户看不到中间那一帧的错位（不闪、不跳）
+   *
+   * 快速连续缩放时，每个 zoom 变化都会走一次这里；因为每次都按当次的真实
+   * 尺寸重算，多次叠加也不会累积误差。
+   */
+  useLayoutEffect(() => {
+    const body = bodyRef.current
+    const anchor = pendingAnchor.current
+    if (!body || !anchor) return
+    pendingAnchor.current = undefined
+    body.scrollLeft = anchor.ratioX * body.scrollWidth - anchor.offsetX
+    body.scrollTop = anchor.ratioY * body.scrollHeight - anchor.offsetY
+  }, [zoom])
+
+  /**
+   * 拖动画布。
+   *
+   * 0.7.7 修复用户反馈的「长按左键拖动时变成框选文字、整个画布跟着鼠标乱晃」：
+   *  1. mousedown 没有 preventDefault，浏览器同时启动了**原生文字选择**，
+   *     于是拖动变成拉选文字；
+   *  2. 鼠标移出窗口后收不到 mousemove/mouseup，拖拽就卡住不动。
+   *
+   * 改法：preventDefault 掉原生选择，并用 Pointer Events 的 setPointerCapture
+   * 把后续事件锁定在这个元素上——即使指针移出窗口，move/up 依然会送到这里。
+   */
+  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
+    // 只响应左键（触控笔/触摸的 button 也是 0）
     if (event.button !== 0) return
     const body = bodyRef.current
     if (!body) return
-    panRef.current = { x: event.clientX, y: event.clientY, left: body.scrollLeft, top: body.scrollTop }
+    // 阻止原生文字选择：不加这一句，拖动会变成拉选文字
+    event.preventDefault()
+    // 把指针捕获到当前元素，移出窗口也能继续收到事件
+    body.setPointerCapture(event.pointerId)
+    panRef.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      left: body.scrollLeft,
+      top: body.scrollTop
+    }
     setPanning(true)
   }
 
-  const onMouseMove = (event: React.MouseEvent<HTMLDivElement>): void => {
+  const onPointerMove = (event: React.PointerEvent<HTMLDivElement>): void => {
     const body = bodyRef.current
     const start = panRef.current
-    if (!body || !start) return
+    if (!body || !start || start.pointerId !== event.pointerId) return
+    // 阻止拖动过程中选中文字
+    event.preventDefault()
     body.scrollLeft = start.left - (event.clientX - start.x)
     body.scrollTop = start.top - (event.clientY - start.y)
   }
 
-  const endPan = (): void => {
+  const endPan = (event?: React.PointerEvent<HTMLDivElement>): void => {
+    const body = bodyRef.current
+    const start = panRef.current
+    if (body && start && body.hasPointerCapture(start.pointerId)) {
+      body.releasePointerCapture(start.pointerId)
+    }
+    void event
     panRef.current = undefined
     setPanning(false)
   }
@@ -430,10 +492,12 @@ export function MindmapViewer({
           <div
             className={panning ? 'mindmap-viewer-body panning' : 'mindmap-viewer-body'}
             ref={bodyRef}
-            onMouseDown={onMouseDown}
-            onMouseMove={onMouseMove}
-            onMouseUp={endPan}
-            onMouseLeave={endPan}
+            /* 用 Pointer Events 而不是 Mouse Events：配合 setPointerCapture
+               可以在指针移出窗口后继续收到 move/up，拖拽不会卡住 */
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={endPan}
+            onPointerCancel={endPan}
           >
             {page ? (
               /* SVG 由本地解析器从用户自己的导图文件生成 */

@@ -6,6 +6,7 @@ import { FolderIcon, PencilIcon, RefreshIcon, SolidTriangleIcon, XIcon } from '.
 import { ConfirmDialog, type ConfirmOptions } from './ConfirmDialog'
 import { DialogShell } from './DialogShell'
 import { MindmapViewer } from './MindmapViewer'
+import { SelectField } from './SelectField'
 
 /**
  * 资料汇总页。
@@ -695,20 +696,18 @@ export function ResourcesPage({
               </span>
             </div>
           )}
-          <label className="resource-field">
-            归属模组
-            <select
-              value={draft.moduleId}
-              onChange={(event) => setDraft({ ...draft, moduleId: event.target.value })}
-            >
-              <option value="">不归属任何模组</option>
-              {modules.map((module) => (
-                <option key={module.id} value={module.id}>
-                  {module.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          {/* 0.7.7：改用自绘下拉。原生 <select> 的展开列表由系统绘制，
+              CSS 管不到，观感与应用其余部分对不上（用户反馈过）。 */}
+          <SelectField
+            label="归属模组"
+            ariaLabel="归属模组"
+            value={draft.moduleId}
+            options={[
+              { value: '', label: '不归属任何模组' },
+              ...modules.map((module) => ({ value: module.id, label: module.name }))
+            ]}
+            onChange={(next) => setDraft({ ...draft, moduleId: next })}
+          />
           <label className="resource-field">
             标题
             <input
