@@ -62,6 +62,13 @@ export interface EmmxPath {
   fill: string
   /** 原始类型，便于调试与统计 */
   type: string
+  /**
+   * 连线的锚点（BeginPt / EndPt 的原始值）。
+   *
+   * 解析时先记下来，等整个画布的节点框都收集齐了，再统一把首尾点校正到框边
+   * ——连线在 XML 里可能排在它连接的节点之前，边解析边校正会找不到框。
+   */
+  anchors?: { beginX: number; beginY: number; endX: number; endY: number }
 }
 
 /**
@@ -71,6 +78,8 @@ export interface EmmxPath {
  * 它们的坐标语义不同，解析时已统一换算成绝对坐标。
  */
 export interface EmmxLabel {
+  /** 图形 id，渲染成 data-shape 供搜索定位 */
+  id?: string
   x: number
   y: number
   width: number
@@ -287,13 +296,14 @@ function readLabel(
   body: string,
   originX: number,
   originY: number,
-  isAbsolute = false
+  isAbsolute = false,
+  id?: string
 ): EmmxLabel | undefined {
   const textBlock = body.match(/<TextBlock[^>]*>([\s\S]*?)<\/TextBlock>/)
   if (!textBlock) return undefined
   const lines: string[] = []
   for (const tp of textBlock[1]!.matchAll(/<tp\b[^>]*>([\s\S]*?)<\/tp>/g)) {
-    const text = tp[1]!.replace(/<[^>]+>/g, '').trim()
+    const text = decodeXmlEntities(tp[1]!.replace(/<[^>]+>/g, '')).trim()
     if (text) lines.push(text)
   }
   if (!lines.length) return undefined
@@ -330,14 +340,20 @@ function readLabel(
     }
   }
   return {
+    ...(id === undefined ? {} : { id }),
     x: x - width / 2,
     y: y - height / 2,
     width: width || lines[0]!.length * fontSize * 0.6,
-    height: height || lines.length * fontSize * 1.25,
+    height: height || lines.length * fontSize * 1.1,
     lines,
     fontSize,
     color
   }
+}
+
+/** 读 <Shape ID="..."> 里的 id，用于把标签关联回它的图形 */
+function shapeIdOf(body: string): string | undefined {
+  return body.match(/<Shape\s+ID="(\d+)"/)?.[1]
 }
 
 /** 解析一个画布 */
@@ -372,14 +388,31 @@ function parsePage(entryName: string, xml: string): EmmxPage {
     // 连接线：走真实几何，曲线/折线都能还原
     if (type === 'MMConnector' || type === 'RelatConnector') {
       const d = geometryToPath(body, cx, cy)
-      if (d) paths.push({ id, d, stroke, strokeWidth, fill: 'none', type })
+      if (d) {
+        // 先记下 BeginPt / EndPt，等节点框收集齐了再统一校正端点
+        const beginX = numberAttr(body, 'BeginPt', 'X')
+        const beginY = numberAttr(body, 'BeginPt', 'Y')
+        const endX = numberAttr(body, 'EndPt', 'X')
+        const endY = numberAttr(body, 'EndPt', 'Y')
+        paths.push({
+          id,
+          d,
+          stroke,
+          strokeWidth,
+          fill: 'none',
+          type,
+          ...(beginX === undefined || beginY === undefined || endX === undefined || endY === undefined
+            ? {}
+            : { anchors: { beginX, beginY, endX, endY } })
+        })
+      }
       // 0.7.0 修复：关系连线（RelatConnector）自带标签，例如「意图杀害」「母女」「死敌」。
       // 0.6.8 把它们当普通连线，只画线、文字全丢——用户看到的「标注、概括归纳的线条
       // 都看不见」就是这个原因。
       //
       // 关键：标签的 Transform 是相对连线锚点的【偏移】，不是绝对坐标，
       // 必须叠加锚点 (cx, cy) 才能落到正确位置。
-      const label = readLabel(body, cx, cy)
+      const label = readLabel(body, cx, cy, false, id)
       if (label) labels.push(label)
       continue
     }
@@ -400,7 +433,7 @@ function parsePage(entryName: string, xml: string): EmmxPage {
       // 框宽 221.68、文字 CX 110.64 正好是居中值，说明它相对的是框而不是画布。
       // 0.7.0 之前把 Callout 和 Boundary 归成一类、只画框不读文字，
       // 于是「标注框里的文字看不见，只能看见框」。
-      const own = readLabel(body, left, top)
+      const own = readLabel(body, left, top, false, id)
       if (own) labels.push(own)
       continue
     }
@@ -422,7 +455,7 @@ function parsePage(entryName: string, xml: string): EmmxPage {
         if (normalized) color = normalized
       }
       for (const tp of tb.matchAll(/<tp\b[^>]*>([\s\S]*?)<\/tp>/g)) {
-        const text = tp[1]!.replace(/<[^>]+>/g, '').trim()
+        const text = decodeXmlEntities(tp[1]!.replace(/<[^>]+>/g, '')).trim()
         if (text) lines.push(text)
       }
     }
@@ -446,6 +479,19 @@ function parsePage(entryName: string, xml: string): EmmxPage {
       stroke,
       textBox: readTextBox(body, left, top)
     })
+  }
+
+  // 节点框都收集齐了，现在统一把连线端点校正到框边。
+  // 放在这里而不是解析循环里：连线在 XML 里可能排在它连接的节点之前。
+  const nodeBoxes = shapes.map((shape) => ({
+    x: shape.x,
+    y: shape.y,
+    width: shape.width,
+    height: shape.height
+  }))
+  for (const path of paths) {
+    if (path.type !== 'MMConnector' && path.type !== 'RelatConnector') continue
+    path.d = alignConnectorEnds(path.d, path.anchors, nodeBoxes)
   }
 
   let minX = Infinity
@@ -513,7 +559,7 @@ function buildOutline(xml: string): EmmxOutlineLine[] {
     const lines: string[] = []
     if (textBlock) {
       for (const tp of textBlock[1]!.matchAll(/<tp\b[^>]*>([\s\S]*?)<\/tp>/g)) {
-        const text = tp[1]!.replace(/<[^>]+>/g, '').trim()
+        const text = decodeXmlEntities(tp[1]!.replace(/<[^>]+>/g, '')).trim()
         if (text) lines.push(text)
       }
     }
@@ -627,6 +673,27 @@ export function parseEmmx(buffer: Buffer): EmmxDocument {
   return { pages, outline, modifiedAt }
 }
 
+/**
+ * 解码 .emmx 文字里的 XML 实体。
+ *
+ * EdrawMind 会把引号等字符存成实体（实测「3.&quot;这个故事，&quot;快乐尸体说」）。
+ * 0.7.0 直接把这些实体当普通文字，既在画面上显示出 `&quot;` 这样的字样，
+ * 又让宽度估算虚高（10 个字符的实体被当成 10 个字来量宽），于是本该放下的
+ * 长句被误判为超宽。必须先还原成真实字符，再做量宽与转义。
+ */
+function decodeXmlEntities(value: string): string {
+  return value
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec: string) => String.fromCodePoint(Number(dec)))
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    // &amp; 必须最后处理，否则 "&amp;quot;" 会被解成引号
+    .replace(/&amp;/g, '&')
+}
+
 function escapeXml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -636,7 +703,26 @@ function escapeXml(value: string): string {
 }
 
 /**
- * 估算一段文字在给定字号下的像素宽度。
+ * 行距倍数。
+ *
+ * 0.7.0 用 1.25，实测会溢出：「感受到一种病态的美学崇拜」5 段文字，
+ * 5 × 1.25 × 10 = 62.5px，而文字框高只有 55.3px，多出的 7.2px 压到下方节点上。
+ *
+ * 反推 EdrawMind 的真实行距：同一个节点的文字框高 55.3px 正好容纳 5 行，
+ * 55.3 / 5 / 10 ≈ 1.1。三个真实文件按 1.1 计算均无溢出（1.15 起开始溢出），
+ * 故取 1.1。
+ */
+const LINE_HEIGHT_RATIO = 1.1
+
+/**
+ * 连线端点允许被拉回框边的最大距离。
+ *
+ * 实测端点偏离框边的量在 2.5~27px 之间；超过这个范围的多半是「本来就该留空」
+ * （例如指向分组框外沿），硬拉会把线画错，所以超出就不动。
+ */
+const CONNECTOR_SNAP_RANGE = 32
+
+/** 估算一段文字在给定字号下的像素宽度。
  *
  * SVG 的 <text> 不会自动折行，而 EdrawMind 的 XML 只存原始段落
  * （一个 <tp> 就是一整段话），所以必须自己按框宽切分，否则长句会溢出、
@@ -660,6 +746,10 @@ function measureText(text: string, fontSize: number): number {
  */
 function wrapText(text: string, fontSize: number, maxWidth: number): string[] {
   if (maxWidth <= 0) return [text]
+  // 直接按可用宽度折行。0.7.1 曾在这里留 4% 余量，结果把 EdrawMind 本来
+  // 正好放得下的段落拆成两行（实测「感受到一种病态的美学崇拜」第 1 段
+  // 估宽 480.0、可用宽正好 480.0，卡在边界被拆开），5 段变 6 行反而溢出框高。
+  // 量宽是估算值，留余量只会引入新的溢出，不如按真实可用宽度切。
   if (measureText(text, fontSize) <= maxWidth) return [text]
 
   const lines: string[] = []
@@ -714,6 +804,25 @@ function renderTextLines(
     color: string
     /** 是否按区域宽度折行；连线标签这类小标注不折 */
     wrap?: boolean
+    /**
+     * 这段文字所属的图形 id。
+     *
+     * 写进 <text data-shape="..."> 有两个用处：一是界面上做节点搜索时能精确定位
+     * 到某个节点（并给它描边高亮）；二是测试可以据此把每一行归到正确的节点，
+     * 不必靠 x/y 区间去猜——实测相邻节点的文字框中心 x 相同、y 区间重叠，
+     * 靠坐标无法区分。
+     */
+    shapeId?: string
+    /**
+     * 节点框的垂直范围（硬边界）。
+     *
+     * 文字框有时装不下全部文字（实测「阅读相关档案会梦到」2 段需要 22px，
+     * 而文字框只有 18.4px——EdrawMind 按单行给了框高）。此时若仍以文字框
+     * 为准，文字就会压到下方节点上。节点框是真正的边界（实测同例节点框高
+     * 24.7px，装得下），所以放不下时改在节点框内垂直居中。
+     */
+    nodeTop?: number
+    nodeHeight?: number
   }
 ): void {
   const { x, y, width, height, fontSize, color } = options
@@ -723,21 +832,132 @@ function renderTextLines(
     else wrapped.push(...wrapText(line, fontSize, width))
   }
   if (!wrapped.length) return
-  const lineHeight = fontSize * 1.25
-  // 行数超过区域高度时从顶部开始排，避免第一行被裁掉
+  const lineHeight = fontSize * LINE_HEIGHT_RATIO
   const blockHeight = wrapped.length * lineHeight
+  // 垂直定位：优先在文字框内居中；文字框装不下时退到节点框内居中；
+  // 连节点框都装不下才从文字框顶部开始排（宁可轻微溢出也不裁掉第一行）
+  let areaTop = y
+  let areaHeight = height
+  if (
+    blockHeight > height &&
+    options.nodeTop !== undefined &&
+    options.nodeHeight !== undefined &&
+    blockHeight <= options.nodeHeight
+  ) {
+    areaTop = options.nodeTop
+    areaHeight = options.nodeHeight
+  }
   const startY =
-    blockHeight > height
-      ? y + fontSize * 0.95
-      : y + height / 2 - blockHeight / 2 + fontSize * 0.95
+    blockHeight > areaHeight
+      ? areaTop + fontSize * 0.95
+      : areaTop + areaHeight / 2 - blockHeight / 2 + fontSize * 0.95
+  const shapeAttr = options.shapeId ? ` data-shape="${escapeXml(options.shapeId)}"` : ''
   let baseline = startY
   for (const line of wrapped) {
     parts.push(
       `<text x="${x + width / 2}" y="${baseline}" font-family="Microsoft YaHei, sans-serif" ` +
-        `font-size="${fontSize}" fill="${color}" text-anchor="middle">${escapeXml(line)}</text>`
+        `font-size="${fontSize}" fill="${color}" text-anchor="middle"${shapeAttr}>${escapeXml(line)}</text>`
     )
     baseline += lineHeight
   }
+}
+
+/**
+ * 把连线端点延伸到最近节点框的边界上。
+ *
+ * 起因（用户反馈「连接线并未连接到框的正中间，观感不好」）：
+ * EdrawMind 的端点语义不统一，实测同一个文件里
+ * - BeginPt 有时存的是【源节点框中心】（渊娲之海：1179.5 正好是框中心）
+ * - 有时存的是【框边缘】（背景：1394.06 正好是框右边）
+ * - 而 Geometry 的首尾点又常常落在框外一小段（实测 6.5~27px 不等）
+ * 三种坐标混在一起，直接画就会出现「线头浮在框外、没接上」。
+ *
+ * 做法：端点若在框外且离得不算远，就沿最近的那条边推回边界上。
+ * 这样无论它原本是中心、边缘还是差一段，最终都精确落在框边，
+ * 视觉上一定接得上；离得很远的（指向分组框等）不动，避免画错。
+ */
+function extendEndToBoxBoundary(
+  x: number,
+  y: number,
+  boxes: Array<{ x: number; y: number; width: number; height: number }>
+): { x: number; y: number } {
+  let best: { box: (typeof boxes)[number]; gap: number } | undefined
+  for (const box of boxes) {
+    const dx = x < box.x ? box.x - x : x > box.x + box.width ? x - (box.x + box.width) : 0
+    const dy = y < box.y ? box.y - y : y > box.y + box.height ? y - (box.y + box.height) : 0
+    const gap = Math.hypot(dx, dy)
+    if (!best || gap < best.gap) best = { box, gap }
+  }
+  // 已经在框内（gap=0）或离得太远的都不动
+  if (!best || best.gap === 0 || best.gap > CONNECTOR_SNAP_RANGE) return { x, y }
+  const { box } = best
+  let nx = x
+  let ny = y
+  if (x < box.x) nx = box.x
+  else if (x > box.x + box.width) nx = box.x + box.width
+  if (y < box.y) ny = box.y
+  else if (y > box.y + box.height) ny = box.y + box.height
+  return { x: nx, y: ny }
+}
+
+/**
+ * 校正一条连线 path 的首尾点，使其落在节点框边界上。
+ *
+ * 只替换首尾坐标，中间的折线与曲线控制点原样保留——形状是 EdrawMind 算好的，
+ * 动中间点会把线画歪。
+ */
+function alignConnectorEnds(
+  d: string,
+  anchors: { beginX: number; beginY: number; endX: number; endY: number } | undefined,
+  boxes: Array<{ x: number; y: number; width: number; height: number }>
+): string {
+  const tokens = d.split(/(?=[MLC])/).filter(Boolean)
+  if (!tokens.length) return d
+
+  const pointOf = (token: string): { x: number; y: number } | undefined => {
+    const nums = token
+      .slice(1)
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number)
+      .filter((value) => Number.isFinite(value))
+    if (nums.length < 2) return undefined
+    return { x: nums[nums.length - 2]!, y: nums[nums.length - 1]! }
+  }
+  // 替换该段的【最后一个坐标对】——它就是这段的落点。
+  // - M/L：2 个数，直接替换
+  // - C：6 个数（控制点1 控制点2 落点），只换落点、保留控制点，曲线形状不变
+  // 其它形状（连写的多段曲线等）不动，避免改坏
+  const replacePoint = (token: string, point: { x: number; y: number }): string => {
+    const nums = token
+      .slice(1)
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number)
+      .filter((value) => Number.isFinite(value))
+    if (nums.length !== 2 && nums.length !== 6) return token
+    const kept = nums.slice(0, -2)
+    return `${token[0]!}${[...kept, point.x, point.y].join(' ')}`
+  }
+
+  const firstRaw = pointOf(tokens[0]!)
+  const lastRaw = pointOf(tokens[tokens.length - 1]!)
+  // 优先用 BeginPt/EndPt（更接近真实连接位置），没有就用几何首尾点
+  const firstSource = anchors ? { x: anchors.beginX, y: anchors.beginY } : firstRaw
+  const lastSource = anchors ? { x: anchors.endX, y: anchors.endY } : lastRaw
+
+  const head = firstSource ? replacePoint(tokens[0]!, extendEndToBoxBoundary(firstSource.x, firstSource.y, boxes)) : tokens[0]!
+  if (tokens.length === 1) return head
+  const tail = lastSource
+    ? replacePoint(tokens[tokens.length - 1]!, extendEndToBoxBoundary(lastSource.x, lastSource.y, boxes))
+    : tokens[tokens.length - 1]!
+  return [head, ...tokens.slice(1, -1), tail].join(' ')
+}
+
+/** 读自闭合元素上的属性数值，如 <BeginPt X="1" Y="2"/> */
+function numberAttr(xml: string, tag: string, attribute: string): number | undefined {
+  const matched = xml.match(new RegExp(`<${tag}\\b[^>]*?\\b${attribute}="(-?[\\d.]+)"`))
+  return matched ? Number(matched[1]) : undefined
 }
 
 /**
@@ -762,7 +982,7 @@ export function pageToSvg(page: EmmxPage, padding = 40): string {
       `<path d="${path.d}" fill="${path.fill}" stroke="${path.stroke}" stroke-width="${path.strokeWidth}" stroke-linejoin="round"/>`
     )
   }
-  // 连接线：真实曲线，圆头端点
+  // 连接线：真实曲线，圆头端点。首尾点已在解析时用 BeginPt/EndPt 校正到框边
   for (const path of page.paths) {
     if (path.type !== 'MMConnector' && path.type !== 'RelatConnector') continue
     parts.push(
@@ -772,8 +992,9 @@ export function pageToSvg(page: EmmxPage, padding = 40): string {
   // 节点压在最上面
   for (const shape of page.shapes) {
     const radius = Math.min(8, shape.height / 4)
+    // data-shape 供界面做节点搜索定位与高亮
     parts.push(
-      `<rect x="${shape.x}" y="${shape.y}" width="${shape.width}" height="${shape.height}" ` +
+      `<rect data-shape="${escapeXml(shape.id)}" x="${shape.x}" y="${shape.y}" width="${shape.width}" height="${shape.height}" ` +
         `rx="${radius}" ry="${radius}" fill="${shape.fill}" stroke="${shape.stroke}" stroke-width="1.2"/>`
     )
     if (!shape.lines.length) continue
@@ -791,7 +1012,10 @@ export function pageToSvg(page: EmmxPage, padding = 40): string {
       width: area.width,
       height: area.height,
       fontSize: shape.fontSize,
-      color: shape.color
+      color: shape.color,
+      shapeId: shape.id,
+      nodeTop: shape.y,
+      nodeHeight: shape.height
     })
   }
 
@@ -805,7 +1029,8 @@ export function pageToSvg(page: EmmxPage, padding = 40): string {
       height: label.height,
       fontSize: label.fontSize,
       color: label.color,
-      wrap: false
+      wrap: false,
+      ...(label.id ? { shapeId: label.id } : {})
     })
   }
   parts.push('</svg>')
