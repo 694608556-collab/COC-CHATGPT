@@ -49,6 +49,26 @@ export interface EmmxShape {
    * 取不到文字框时为 undefined，渲染方退回居中处理。
    */
   textBox?: { x: number; y: number; width: number; height: number }
+  /**
+   * 这个图形在 EdrawMind 里处于**折叠隐藏**状态，不该画出来。
+   *
+   * 0.7.5 修复：EdrawMind 折叠一个分支时，并不会删掉那些节点的坐标，只是给
+   * 它们加上 `<TogglerID>` 标记、在界面上不显示。我们此前把这些节点照常画了
+   * 出来，而它们的坐标还停在折叠前的位置上，于是压在了正常显示的节点上
+   * ——这正是用户反复反馈的「文字框重叠」的真正原因。
+   *
+   * 判定规则用 EdrawMind 自己的 HTML 导出逐节点验证过：877 个节点里
+   * 带 TogglerID 的 265 个，与导出里的 `display:none` **完全一一对应**
+   * （误判 0、漏判 0）。
+   */
+  hidden?: boolean
+  /**
+   * 这个可见节点折叠了多少个**直接**子节点，用于在它右侧画折叠徽标。
+   *
+   * 取 `<Super V="父id">` 口径统计，与 EdrawMind HTML 导出的 21 个折叠点
+   * 逐一核对一致。折叠的内容仍然完整保留在大纲里，不会丢。
+   */
+  foldedCount?: number
 }
 
 /** 一条用 SVG path 表达的线条（连接线、分组框、概括括号都用它） */
@@ -62,6 +82,14 @@ export interface EmmxPath {
   fill: string
   /** 原始类型，便于调试与统计 */
   type: string
+  /**
+   * 这条线属于被折叠的分支，不该画出来。
+   *
+   * 实测：折叠分支里的连线同样带 `<TogglerID>`，EdrawMind 的 HTML 导出里
+   * 直接不输出它们。595 条可见连线与导出逐条核对一致，且没有一条可见连线
+   * 悬空指向隐藏节点。
+   */
+  hidden?: boolean
   /**
    * 连线的锚点（BeginPt / EndPt 的原始值）。
    *
@@ -390,6 +418,66 @@ function readLabel(
   }
 }
 
+/**
+ * 按嵌套层级拆分出全部 `<Shape>`，每个都带自己完整的 XML 片段。
+ *
+ * **不能用 `<Shape ...>([\s\S]*?)</Shape>` 这种非贪婪匹配。** EdrawMind 会把
+ * 星标（Mark）、图片（Image）当作**子图形嵌在节点内部**，而且子图形排在节点
+ * 自己的 `<LevelData>` 之前。非贪婪匹配会在第一个 `</Shape>`（子图形的结束处）
+ * 截断，父节点的 `<Super>`/`<SubLevel>`/`<TogglerID>` 就全丢了。
+ *
+ * 实测「世界回归进行曲」有 23 个这样的节点（118、122、158、182、186、192、
+ * 213……），截断后果：
+ *   - 22 个节点丢了 `<Super>`，大纲里被当成根节点
+ *   - 20 个丢了 `<SubLevel>`，子节点接不回父节点
+ *   - **3 个（1565、1567、1646）丢了 `<TogglerID>`**，折叠后仍被画出来，
+ *     压在正常节点上——这正是「文字框重叠」修不干净的原因之一
+ *
+ * `nested` 为 true 的是附属图形（星标、图片）。它们的 Transform 是**相对父框
+ * 左上角**的偏移（实测 Mark 恒为 CX=17.5/CY=14.3，对应 EdrawMind HTML 里父节点
+ * 内的 `translate(9,5.8)`，17.5-17/2=9、14.3-17/2=5.8），既没有文字也没有层级，
+ * 不能当作独立节点画到画布上，调用方应跳过。
+ */
+interface ShapeBlock {
+  id: string
+  type: string
+  /** 该 Shape 自己的内容（含嵌套子图形的标签，但不含其内部） */
+  body: string
+  /** 是否嵌套在另一个 Shape 内部 */
+  nested: boolean
+}
+
+function splitShapeBlocks(xml: string): ShapeBlock[] {
+  const found: ShapeBlock[] = []
+  const stack: Array<{ id: string; type: string; bodyStart: number; nested: boolean }> = []
+  const token = /<Shape\b[^>]*?(\/?)>|<\/Shape>/g
+  let match: RegExpExecArray | null
+  while ((match = token.exec(xml))) {
+    if (match[0] === '</Shape>') {
+      const open = stack.pop()
+      // 多余的 </Shape>（文件异常）直接忽略，不影响其余图形
+      if (!open) continue
+      found.push({
+        id: open.id,
+        type: open.type,
+        body: xml.slice(open.bodyStart, match.index),
+        nested: open.nested
+      })
+      continue
+    }
+    const id = match[0].match(/\bID="(\d+)"/)?.[1] ?? ''
+    const type = match[0].match(/\bType="([^"]+)"/)?.[1] ?? ''
+    if (match[1] === '/') {
+      found.push({ id, type, body: '', nested: stack.length > 0 })
+      continue
+    }
+    stack.push({ id, type, bodyStart: token.lastIndex, nested: stack.length > 0 })
+  }
+  // 顶层图形按闭合顺序入列，与文件里的出现顺序一致；
+  // 嵌套的那些先于父节点入列，但调用方会跳过它们，所以顶层顺序不受影响。
+  return found
+}
+
 /** 解析一个画布 */
 function parsePage(entryName: string, xml: string): EmmxPage {
   const titleMatch = xml.match(/<Page\b[^>]*\bName="([^"]*)"/)
@@ -397,12 +485,34 @@ function parsePage(entryName: string, xml: string): EmmxPage {
   const paths: EmmxPath[] = []
   const labels: EmmxLabel[] = []
 
-  const shapePattern = /<Shape\s+ID="(\d+)"\s+Type="([^"]+)"[^>]*>([\s\S]*?)<\/Shape>/g
-  let match: RegExpExecArray | null
-  while ((match = shapePattern.exec(xml))) {
-    const id = match[1]!
-    const type = match[2]!
-    const body = match[3]!
+  const blocks = splitShapeBlocks(xml)
+
+  // 折叠状态：EdrawMind 用 <TogglerID> 标记「属于某个折叠分支」的图形。
+  // 判定「被折叠的父节点」还需要一步：父节点自己不能是隐藏的，否则
+  // 徽标会画在一个看不见的节点上。这里先把隐藏集合算出来。
+  const hiddenIds = new Set<string>()
+  for (const block of blocks) {
+    if (/<TogglerID V="\d+"/.test(block.body)) hiddenIds.add(block.id)
+  }
+  // 折叠徽标：每个可见节点折叠了多少个直接子节点（按 <Super> 口径）。
+  //
+  // 必须排除连线：折叠一个子节点时，它自己**和**连到它的那条线都带同一个
+  // TogglerID，而连线也有 <Super V="父id">。不排除就会把每个子节点数成两次
+  // （实测 2354 应显示 16、按不排除算是 32）。EdrawMind 显示的是子节点个数。
+  const foldedCounts = new Map<string, number>()
+  for (const block of blocks) {
+    if (block.nested) continue
+    if (block.type === 'MMConnector' || block.type === 'RelatConnector') continue
+    const superV = block.body.match(/<Super V="(\d+)"/)?.[1]
+    if (!superV || !hiddenIds.has(block.id)) continue
+    foldedCounts.set(superV, (foldedCounts.get(superV) ?? 0) + 1)
+  }
+
+  for (const block of blocks) {
+    const { id, type, body, nested } = block
+    // 嵌套的星标/图片是父节点内部的装饰，坐标相对父框左上角、也没有文字，
+    // 不能当成独立节点画（见 splitShapeBlocks 的说明）
+    if (nested) continue
 
     const transform = body.match(/<Transform>([\s\S]*?)<\/Transform>/)
     if (!transform) continue
@@ -412,6 +522,10 @@ function parsePage(entryName: string, xml: string): EmmxPage {
     const cx = numberTag(t, 'CX')
     const cy = numberTag(t, 'CY')
     if (cx === undefined || cy === undefined) continue
+
+    // 折叠分支里的图形不画：它们的坐标停在折叠前的位置，画出来就会
+    // 压在正常显示的节点上（用户反馈的「文字框重叠」）
+    const hidden = hiddenIds.has(id)
 
     const strokeWidth = numberTag(body, 'LineWeight') ?? 2
     const stroke =
@@ -436,6 +550,7 @@ function parsePage(entryName: string, xml: string): EmmxPage {
           strokeWidth,
           fill: 'none',
           type,
+          ...(hidden ? { hidden: true } : {}),
           ...(beginX === undefined || beginY === undefined || endX === undefined || endY === undefined
             ? {}
             : { anchors: { beginX, beginY, endX, endY } })
@@ -447,8 +562,11 @@ function parsePage(entryName: string, xml: string): EmmxPage {
       //
       // 关键：标签的 Transform 是相对连线锚点的【偏移】，不是绝对坐标，
       // 必须叠加锚点 (cx, cy) 才能落到正确位置。
-      const label = readLabel(body, cx, cy, false, id)
-      if (label) labels.push(label)
+      // 折叠分支里的连线连同它的说明一起隐藏，否则会留下无主的浮字。
+      if (!hidden) {
+        const label = readLabel(body, cx, cy, false, id)
+        if (label) labels.push(label)
+      }
       continue
     }
 
@@ -462,14 +580,24 @@ function parsePage(entryName: string, xml: string): EmmxPage {
         const fill = normalizeColor(
           body.match(/<FillFormat[^>]*>\s*<Color[^>]*V="(#[0-9a-fA-F]{6,8})"/)?.[1]
         )
-        paths.push({ id, d, stroke, strokeWidth, fill: fill ?? 'none', type })
+        paths.push({
+          id,
+          d,
+          stroke,
+          strokeWidth,
+          fill: fill ?? 'none',
+          type,
+          ...(hidden ? { hidden: true } : {})
+        })
       }
       // Callout（标注框）自带文字，坐标【相对自身框左上角】——实测 id=210 的
       // 框宽 221.68、文字 CX 110.64 正好是居中值，说明它相对的是框而不是画布。
       // 0.7.0 之前把 Callout 和 Boundary 归成一类、只画框不读文字，
       // 于是「标注框里的文字看不见，只能看见框」。
-      const own = readLabel(body, left, top, false, id)
-      if (own) labels.push(own)
+      if (!hidden) {
+        const own = readLabel(body, left, top, false, id)
+        if (own) labels.push(own)
+      }
       continue
     }
 
@@ -498,6 +626,7 @@ function parsePage(entryName: string, xml: string): EmmxPage {
     const fill =
       normalizeColor(body.match(/<FillFormat[^>]*>\s*<Color[^>]*V="(#[0-9a-fA-F]{6,8})"/)?.[1]) ??
       '#ffffff'
+    const foldedCount = foldedCounts.get(id)
     shapes.push({
       id,
       type,
@@ -510,7 +639,9 @@ function parsePage(entryName: string, xml: string): EmmxPage {
       color,
       fill,
       stroke,
-      textBox: readTextBox(body, left, top)
+      textBox: readTextBox(body, left, top),
+      ...(hidden ? { hidden: true } : {}),
+      ...(foldedCount ? { foldedCount } : {})
     })
   }
 
@@ -522,13 +653,21 @@ function parsePage(entryName: string, xml: string): EmmxPage {
   // 注意：绝不搬动原始几何的任何点。EdrawMind 算好的形状（母线、小圆角、
   // 短横支线）本身就是最终效果，实测终点 100% 精确落在框上、起点只差一段
   // 轴对齐的距离；上一版「把端点钉到框边中点」反而把直线拉成了斜线与鼓包。
-  const nodeBoxes = shapes.map((shape) => ({
+  // 只把**可见**的图形算进包围盒。
+  //
+  // 折叠分支的坐标可能远在画布之外（实测「世界回归进行曲」有 82 个隐藏图形
+  // 落在可见范围外，最远的到 y=9106）。若把它们算进去，画布会被撑出一大片
+  // 空白。EdrawMind 自己的 HTML 导出也是按可见内容出图（viewBox 高 8067，
+  // 与只算可见内容的 8025 + 内边距吻合）。
+  const visibleShapes = shapes.filter((shape) => !shape.hidden)
+  const visiblePaths = paths.filter((path) => !path.hidden)
+  const nodeBoxes = visibleShapes.map((shape) => ({
     x: shape.x,
     y: shape.y,
     width: shape.width,
     height: shape.height
   }))
-  for (const path of paths) {
+  for (const path of visiblePaths) {
     if (path.type !== 'MMConnector' && path.type !== 'RelatConnector') continue
     path.d = bridgeStartGap(path.d, path.anchors, nodeBoxes)
   }
@@ -543,11 +682,11 @@ function parsePage(entryName: string, xml: string): EmmxPage {
     if (y < minY) minY = y
     if (y > maxY) maxY = y
   }
-  for (const shape of shapes) {
+  for (const shape of visibleShapes) {
     extend(shape.x, shape.y)
     extend(shape.x + shape.width, shape.y + shape.height)
   }
-  for (const path of paths) {
+  for (const path of visiblePaths) {
     for (const point of pathPoints(path.d)) extend(point.x, point.y)
   }
   // 标签也要算进包围盒，否则靠边的标签会被裁掉
@@ -589,11 +728,13 @@ function buildOutline(xml: string): EmmxOutlineLine[] {
     children: string[]
   }
   const nodes = new Map<string, Node>()
-  const shapePattern = /<Shape\s+ID="(\d+)"\s+Type="([^"]+)"[^>]*>([\s\S]*?)<\/Shape>/g
-  let match: RegExpExecArray | null
-  while ((match = shapePattern.exec(xml))) {
-    const id = match[1]!
-    const body = match[3]!
+  // 用与图形渲染同一套嵌套感知拆分：非贪婪匹配会在嵌套的星标处截断，
+  // 父节点的 <Super>/<SubLevel> 随之丢失（实测 22 个节点变成假根节点、
+  // 20 个节点的子节点接不回去），大纲的层级就错了。
+  for (const block of splitShapeBlocks(xml)) {
+    // 星标/图片是父节点内部的装饰，不参与层级
+    if (block.nested) continue
+    const { id, body } = block
     const textBlock = body.match(/<TextBlock[^>]*>([\s\S]*?)<\/TextBlock>/)
     // 与图形渲染用同一套分段口径，保证大纲与画布上的行数一致
     const lines = textBlock ? readTextLines(textBlock[1]!) : []
@@ -965,6 +1106,11 @@ function bridgeStartGap(
 }
 
 
+/** 坐标保留两位小数，避免 SVG 里出现一长串浮点尾数 */
+function round2(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
 /** 读自闭合元素上的属性数值，如 <BeginPt X="1" Y="2"/> */
 function numberAttr(xml: string, tag: string, attribute: string): number | undefined {
   const matched = xml.match(new RegExp(`<${tag}\\b[^>]*?\\b${attribute}="(-?[\\d.]+)"`))
@@ -988,6 +1134,7 @@ export function pageToSvg(page: EmmxPage, padding = 40): string {
 
   // 分组框先画（在最底层），且只有带填充的才铺底色，否则会盖住里面的节点
   for (const path of page.paths) {
+    if (path.hidden) continue
     if (path.type === 'MMConnector' || path.type === 'RelatConnector') continue
     parts.push(
       `<path d="${path.d}" fill="${path.fill}" stroke="${path.stroke}" stroke-width="${path.strokeWidth}" stroke-linejoin="round"/>`
@@ -996,6 +1143,7 @@ export function pageToSvg(page: EmmxPage, padding = 40): string {
   // 连接线：原样使用 EdrawMind 的几何（母线、小圆角、短横支线都是它算好的），
   // 只在起点缺口处补过一小段直线（见 bridgeStartGap）
   for (const path of page.paths) {
+    if (path.hidden) continue
     if (path.type !== 'MMConnector' && path.type !== 'RelatConnector') continue
     parts.push(
       `<path d="${path.d}" fill="none" stroke="${path.stroke}" stroke-width="${path.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>`
@@ -1003,6 +1151,9 @@ export function pageToSvg(page: EmmxPage, padding = 40): string {
   }
   // 节点压在最上面
   for (const shape of page.shapes) {
+    // 折叠分支里的节点不画：它们的坐标停在折叠前的位置，画出来就会压在
+    // 正常显示的节点上。判定规则见 EmmxShape.hidden 的说明。
+    if (shape.hidden) continue
     const radius = Math.min(8, shape.height / 4)
     // data-shape 供界面做节点搜索定位与高亮
     parts.push(
@@ -1029,6 +1180,27 @@ export function pageToSvg(page: EmmxPage, padding = 40): string {
       nodeTop: shape.y,
       nodeHeight: shape.height
     })
+  }
+
+  // 折叠徽标：在折叠的节点右侧画一个小圆 + 数字，和 EdrawMind 一样。
+  //
+  // 没有它的话，折叠分支的节点会「凭空消失」，用户会以为内容丢了。
+  // 数字是**直接**子节点的个数（不是全部后代），与 EdrawMind 的显示一致：
+  // 拿它的 HTML 导出核对过全部 21 个折叠点，数目完全相符。
+  for (const shape of page.shapes) {
+    if (shape.hidden || !shape.foldedCount) continue
+    const r = Math.min(9, Math.max(6, shape.height / 3))
+    const cx = shape.x + shape.width + r + 3
+    const cy = shape.y + shape.height / 2
+    parts.push(
+      `<circle data-fold="${escapeXml(shape.id)}" cx="${round2(cx)}" cy="${round2(cy)}" r="${round2(r)}" ` +
+        `fill="#ffffff" stroke="${shape.stroke}" stroke-width="1"/>`,
+      // data-fold-text 标出「这是徽标数字、不是节点文字」：节点文字的行数校验
+      // （tests/emmx-lines-073.test.ts 按 <text> 数行）不标出来就会把数字算成一行
+      `<text data-fold-text="${escapeXml(shape.id)}" x="${round2(cx)}" y="${round2(cy + r * 0.36)}" ` +
+        `font-family="Microsoft YaHei, sans-serif" font-size="${round2(r * 1.25)}" ` +
+        `fill="${shape.stroke}" text-anchor="middle">${shape.foldedCount}</text>`
+    )
   }
 
   // 关系连线的说明与分组框标题：浮在最上层，不画底色。

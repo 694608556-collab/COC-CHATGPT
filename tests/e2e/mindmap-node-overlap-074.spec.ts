@@ -137,8 +137,77 @@ test.describe('0.7.4 node text stays inside its own box', () => {
 
     const { checked, overflow } = await measureOverflow(window)
     console.log(`量到 ${checked} 行文字，溢出 ${overflow.length} 处`)
-    expect(checked, '应该量到不少文字行').toBeGreaterThan(800)
+    // 0.7.5 起折叠的分支不再画出来，行数从 1000+ 降到 689（610 个可见节点）。
+    // 门槛只要保证「确实量到了整张图」，不锁死具体数字。
+    expect(checked, '应该量到不少文字行').toBeGreaterThan(600)
     expect(overflow, `有 ${overflow.length} 处文字溢出节点框：${overflow.slice(0, 5).join(' / ')}`).toEqual([])
+
+    await app.close()
+    fs.rmSync(dataDirectory, { recursive: true, force: true })
+  })
+
+  /**
+   * 0.7.5：用户报的「两个文字框压在第三个框上」。
+   *
+   * 根因是折叠分支的节点仍在按旧坐标绘制，所以这里直接在浏览器里量
+   * **可见节点框两两之间**有没有相交——这才是那个 bug 的真身，
+   * 文字溢出与否无关。
+   */
+  test('draws no two visible node boxes on top of each other', async () => {
+    const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'coc-075-overlap-'))
+    const dataDir = path.join(dataDirectory, 'data')
+    fs.mkdirSync(dataDir, { recursive: true })
+    seedDatabase(path.join(dataDir, 'coc.sqlite'), MINDMAP!)
+
+    const app = await launch(dataDirectory)
+    const window = await app.firstWindow()
+    await window.waitForLoadState('domcontentloaded')
+    await openMindmap(window)
+    await expect(window.locator('.mindmap-canvas svg').first()).toBeVisible({ timeout: 20000 })
+    await window.waitForTimeout(800)
+
+    const result = await window.evaluate(() => {
+      const svg = document.querySelector('.mindmap-canvas svg')!
+      const boxes = [...svg.querySelectorAll('rect[data-shape]')].map((rect) => ({
+        id: rect.getAttribute('data-shape')!,
+        r: rect.getBoundingClientRect()
+      }))
+      const pairs: string[] = []
+      for (let i = 0; i < boxes.length; i += 1) {
+        for (let j = i + 1; j < boxes.length; j += 1) {
+          const a = boxes[i]!.r
+          const b = boxes[j]!.r
+          const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left)
+          const oy = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
+          if (ox > 1 && oy > 1) {
+            pairs.push(`${boxes[i]!.id}×${boxes[j]!.id} 叠 ${ox.toFixed(0)}×${oy.toFixed(0)}`)
+          }
+        }
+      }
+      return { boxes: boxes.length, pairs }
+    })
+
+    console.log(`量到 ${result.boxes} 个可见节点框，重叠 ${result.pairs.length} 对`)
+    expect(result.boxes).toBeGreaterThan(500)
+    expect(result.pairs, `有 ${result.pairs.length} 对节点框重叠：${result.pairs.slice(0, 5).join(' / ')}`).toEqual([])
+
+    // 折叠的分支不该被画出来（用户截图里压住别人的那两个框）
+    const drawn = await window.evaluate(() => {
+      const svg = document.querySelector('.mindmap-canvas svg')!
+      const ids = new Set([...svg.querySelectorAll('rect[data-shape]')].map((r) => r.getAttribute('data-shape')))
+      const texts = [...svg.querySelectorAll('text')].map((t) => t.textContent || '')
+      return {
+        has1382: ids.has('1382'),
+        has1385: ids.has('1385'),
+        foldBadges: svg.querySelectorAll('[data-fold]').length,
+        hasHiddenText: texts.some((t) => t.includes('仅接受绝对实力的威吓'))
+      }
+    })
+    expect(drawn.has1382, '折叠的 1382 不该画出来').toBe(false)
+    expect(drawn.has1385, '折叠的 1385 不该画出来').toBe(false)
+    expect(drawn.hasHiddenText, '折叠的文字不该出现在画布上').toBe(false)
+    // 折叠徽标要画出来，否则内容看起来凭空消失
+    expect(drawn.foldBadges, '应有折叠徽标').toBeGreaterThan(5)
 
     await app.close()
     fs.rmSync(dataDirectory, { recursive: true, force: true })

@@ -605,8 +605,14 @@ export function registerIpc(
         width: Math.round(page.bounds.maxX - page.bounds.minX),
         height: Math.round(page.bounds.maxY - page.bounds.minY),
         svg: pageToSvg(page),
-        textCount: page.shapes.reduce((sum, shape) => sum + shape.lines.length, 0),
+        // 节点数只算画出来的那些：折叠分支里的节点不显示，算进去会让
+        // 界面上的数字与看到的内容对不上（见 emmx.ts 的 hidden 说明）
+        textCount: page.shapes.reduce(
+          (sum, shape) => sum + (shape.hidden ? 0 : shape.lines.length),
+          0
+        ),
         // 节点搜索用：普通节点文字 + 关系连线标签 + 分组框标题
+        // 这里**包含**折叠的节点——折叠只是不显示，内容不该搜不到
         texts: [
           ...page.shapes.flatMap((shape) => shape.lines),
           ...page.labels.flatMap((label) => label.lines)
