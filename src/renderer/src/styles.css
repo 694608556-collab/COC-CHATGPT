@@ -3155,12 +3155,15 @@ grid-row:6;
   font-size: 11px;
 }
 
-/* 操作按钮悬停才出现，平时保持桌面图标那样干净 */
+/* 操作按钮悬停才出现，平时保持桌面图标那样干净。
+   四个图标等宽平分整行，正好占满卡片顶部（0.7.1）。 */
 .resource-tile-actions {
   position: absolute;
   top: 4px;
   right: 4px;
-  display: flex;
+  left: 4px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 2px;
   opacity: 0;
   transition: opacity 120ms ease;
@@ -3172,11 +3175,78 @@ grid-row:6;
 }
 
 .resource-tile-actions .icon-button {
-  width: 24px;
-  min-width: 24px;
+  width: 100%;
+  min-width: 0;
   height: 24px;
   min-height: 24px;
   background: var(--panel);
+}
+
+/* 链接类资料没有本地文件，「打开文件所在位置」用占位保持四格对齐 */
+.resource-tile-actions .icon-button.is-placeholder {
+  background: transparent;
+  border-color: transparent;
+  pointer-events: none;
+}
+
+/*
+ * 应用风格的悬停提示（0.7.1）。
+ *
+ * 不用 HTML 原生 title：浏览器把它渲染成系统默认的黑底方块，字体与圆角
+ * 都和应用不一致。这里用 data-tip + ::after 自绘，样式与弹窗、按钮同一套。
+ *
+ * 定位：贴着元素的【左边缘】向下展开，而不是水平居中。
+ * 居中的写法（left:50% + translateX(-50%)）在元素靠近窗口左侧时，
+ * 提示框会有一半跑到窗口外，首几个字被直接裁掉——实测过。
+ * 左对齐向右展开则永远不会出界（提示都挂在靠左的卡片与图标上）。
+ *
+ * 只认 data-tip 属性，不额外要求 class，少一个「忘了加 class 提示就不出现」的坑。
+ */
+[data-tip] {
+  position: relative;
+}
+
+[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  /* 宽度跟着内容走，但设上限；上限足够放下最长的一条提示，避免折行 */
+  width: max-content;
+  max-width: 320px;
+  padding: 6px 10px;
+  background: #2b2f3a;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 22%);
+  pointer-events: none;
+}
+
+[data-theme='dark'] [data-tip]:hover::after {
+  background: #f1f3f7;
+  color: #1b1e26;
+}
+
+/*
+ * 悬停在卡片内的图标上时，不要再显示卡片自己的提示。
+ *
+ * 图标在卡片的 DOM 内，卡片的 :hover 同样成立，两个提示会同时冒出来叠在一起。
+ * 用 :has() 把这种情况排除掉：卡片里只要有图标被悬停，卡片的提示就不出现。
+ */
+.resource-tile[data-tip]:has(.resource-tile-actions :hover)::after {
+  content: none;
+}
+
+/* 图标自己的提示层级高于卡片提示，免得被盖住 */
+.resource-tile-actions [data-tip]:hover::after {
+  top: calc(100% + 4px);
+  z-index: 50;
 }
 
 .resource-draft {

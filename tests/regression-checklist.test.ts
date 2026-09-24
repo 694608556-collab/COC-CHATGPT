@@ -145,12 +145,18 @@ describe('regression checklist: previously reported issues', () => {
     expect(styles).toContain('.resource-group.drop-target')
   })
 
-  it('0.7.0 resources page: three hover actions including update', () => {
-    const actions = page.slice(page.indexOf('resource-tile-actions'), page.indexOf('resource-tile-actions') + 1500)
+  it('0.7.0 resources page: hover actions including update (0.7.1: four icons)', () => {
+    const actions = page.slice(page.indexOf('resource-tile-actions'), page.indexOf('const renderGroup'))
     expect(actions).toContain('RefreshIcon')
     expect(actions).toContain('<FolderIcon')
     expect(actions).toContain('<XIcon')
     expect(actions.indexOf('RefreshIcon')).toBeLessThan(actions.indexOf('<FolderIcon'))
+    // 0.7.1：新增「编辑」图标（用原程序打开），插在更新与文件夹之间
+    expect(actions).toContain('<PencilIcon')
+    expect(actions.indexOf('RefreshIcon')).toBeLessThan(actions.indexOf('<PencilIcon'))
+    expect(actions.indexOf('<PencilIcon')).toBeLessThan(actions.indexOf('<FolderIcon'))
+    // 四个图标等宽占满一行
+    expect(styles).toContain('repeat(4')
   })
 
   it('0.7.0 image thumbnails: dedicated read channel, not the notes-only protocol', () => {
@@ -164,9 +170,12 @@ describe('regression checklist: previously reported issues', () => {
     expect(page).not.toContain("'🔗'")
   })
 
-  it('0.7.0 tooltips: no black browser tooltip on the open button', () => {
+  it('0.7.0 tooltips: app-styled tooltip, never the black browser one', () => {
     expect(page).not.toContain('用原程序打开（编辑仍在原软件里进行）')
-    expect(page).toContain('title="用原程序打开"')
+    // 0.7.0 用的还是原生 title（系统黑底方块）；0.7.1 换成自绘浮层
+    expect(page).not.toContain('title="用原程序打开"')
+    expect(page).toContain('data-tip=')
+    expect(styles).toContain('[data-tip]:hover::after')
   })
 
   it('0.7.0 group deletion: same two choices everywhere, no 取消归属 middle state', () => {

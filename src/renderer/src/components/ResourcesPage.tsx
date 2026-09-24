@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { MindmapPreviewApi } from '../../../shared/api'
 import type { ModuleRecord, ModuleResource, ModuleResourceKind } from '../../../shared/types'
 import { UNASSIGNED_GROUP } from '../../../shared/types'
-import { FolderIcon, RefreshIcon, SolidTriangleIcon, XIcon } from './Icons'
+import { FolderIcon, PencilIcon, RefreshIcon, SolidTriangleIcon, XIcon } from './Icons'
 import { ConfirmDialog, type ConfirmOptions } from './ConfirmDialog'
 import { DialogShell } from './DialogShell'
 import { MindmapViewer } from './MindmapViewer'
@@ -273,6 +273,22 @@ export function ResourcesPage({
     }
   }
 
+  /**
+   * 在文件管理器里定位这条资料的原文件。
+   *
+   * 与「用源程序打开」不同：这里只打开所在文件夹并选中文件，不启动任何程序，
+   * 适合想改名、移动、复制或看看旁边还有什么文件的时候。
+   * 链接类资料没有本地文件，按钮不显示。
+   */
+  const revealInFolder = async (resource: ModuleResource): Promise<void> => {
+    if (!resource.path) return
+    try {
+      await window.coc.files.showItem(resource.path)
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : '无法打开文件所在位置')
+    }
+  }
+
   /** 更新资料：重新选一个文件，指向它 */
   const updateResource = async (resource: ModuleResource): Promise<void> => {
     try {
@@ -412,7 +428,7 @@ export function ResourcesPage({
       <div
         key={resource.id}
         className={gone ? 'resource-tile missing' : 'resource-tile'}
-        title={gone ? '文件找不到了，可能已被移动或删除' : label}
+        data-tip={gone ? '文件找不到了，可能已被移动或删除' : label}
         draggable
         onDragStart={() => setDragging(resource.id)}
         onDragEnd={() => {
@@ -449,11 +465,15 @@ export function ResourcesPage({
         </div>
         <span className="resource-tile-name">{label}</span>
         {gone && <span className="resource-tile-missing">找不到</span>}
-        {/* 悬停才出现的操作：更新 / 用原程序打开 / 移除 */}
+        {/*
+          悬停才出现的四个操作：更新 / 编辑 / 打开文件所在位置 / 移除。
+          提示走 data-tip（应用风格浮层），不用原生 title——原生 title 是
+          系统默认的黑底方块，与应用风格不搭。
+        */}
         <div className="resource-tile-actions">
           <button
             className="icon-button module-remove"
-            title="更新（重新指定这个资料对应的文件）"
+            data-tip="更新（重新指定这个资料对应的文件）"
             aria-label={`更新 ${label}`}
             onClick={(event) => {
               event.stopPropagation()
@@ -464,18 +484,34 @@ export function ResourcesPage({
           </button>
           <button
             className="icon-button module-remove"
-            title="用原程序打开"
-            aria-label={`打开 ${label}`}
+            data-tip="编辑（用原程序打开，导图交给 EdrawMind）"
+            aria-label={`编辑 ${label}`}
             onClick={(event) => {
               event.stopPropagation()
               void openInOriginalApp(resource)
             }}
           >
-            <FolderIcon />
+            <PencilIcon />
           </button>
+          {/* 链接类资料没有本地文件，没有「所在位置」可打开 */}
+          {resource.path ? (
+            <button
+              className="icon-button module-remove"
+              data-tip="打开文件所在位置"
+              aria-label={`打开 ${label} 所在位置`}
+              onClick={(event) => {
+                event.stopPropagation()
+                void revealInFolder(resource)
+              }}
+            >
+              <FolderIcon />
+            </button>
+          ) : (
+            <span className="icon-button module-remove is-placeholder" aria-hidden="true" />
+          )}
           <button
             className="icon-button module-remove"
-            title="从汇总里移除（不删除原文件）"
+            data-tip="从汇总里移除（不删除原文件）"
             aria-label={`移除 ${label}`}
             onClick={(event) => {
               event.stopPropagation()

@@ -95,9 +95,14 @@ describe('0.7.0 UI contract', () => {
     expect(icons).toContain('export function RefreshIcon')
     expect(page).toContain('chooseReplacement')
     expect(page).toContain('relink')
-    // 顺序：更新 → 打开 → 移除
-    const actions = page.slice(page.indexOf('resource-tile-actions'), page.indexOf('resource-tile-actions') + 1400)
-    expect(actions.indexOf('RefreshIcon')).toBeLessThan(actions.indexOf('<FolderIcon'))
+    // 0.7.1 起是四个图标：更新 → 编辑 → 打开文件所在位置 → 移除。
+    // 取到下一个区块为止，避免用固定字数窗口把最后一个图标切掉。
+    const actions = page.slice(
+      page.indexOf('resource-tile-actions'),
+      page.indexOf('const renderGroup')
+    )
+    expect(actions.indexOf('RefreshIcon')).toBeLessThan(actions.indexOf('<PencilIcon'))
+    expect(actions.indexOf('<PencilIcon')).toBeLessThan(actions.indexOf('<FolderIcon'))
     expect(actions.indexOf('<FolderIcon')).toBeLessThan(actions.indexOf('<XIcon'))
   })
 
@@ -113,10 +118,13 @@ describe('0.7.0 UI contract', () => {
     expect(styles).toContain('.resource-tile-link')
   })
 
-  it('7. removes the black browser tooltip', () => {
-    // 不再用 title 提示「用原程序打开（编辑仍在原软件里进行）」
+  it('7. uses app-styled tooltips instead of the black browser tooltip', () => {
+    // 0.7.0 只是把提示词改短，仍然用原生 title（系统黑底方块）；
+    // 0.7.1 改为 data-tip + 自绘浮层，样式与应用一致。
     expect(page).not.toContain('用原程序打开（编辑仍在原软件里进行）')
-    expect(page).toContain('title="用原程序打开"')
+    expect(page).not.toContain('title="用原程序打开"')
+    expect(page).toContain('data-tip="编辑（用原程序打开，导图交给 EdrawMind）"')
+    expect(styles).toContain('[data-tip]:hover::after')
   })
 
   it('8. supports html exports with sub-page switching at the bottom', () => {
