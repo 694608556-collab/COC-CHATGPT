@@ -91,7 +91,8 @@ describe('0.7.1 stage 1: emmx rendering', () => {
       expect(source).toContain('alignConnectorEnds')
       expect(source).toContain("'BeginPt'")
       expect(source).toContain("'EndPt'")
-      expect(source).toContain('extendEndToBoxBoundary')
+      // 0.7.1 起改为钉在边中点（详见 connector-align-071.test.ts）
+      expect(source).toContain('alignEndToBoxCenter')
     })
 
     it.runIf(available.length > 0)('leaves no connector endpoint floating a small gap from a node', () => {

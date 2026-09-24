@@ -57,19 +57,40 @@ export function ResourcesPage({
   const [dragging, setDragging] = useState<string>()
   const [dropTarget, setDropTarget] = useState<string>()
 
-  // 分组：每个模组一组，未归属的单独一组放在最下面。
-  // hiddenGroups 里的分组已被用户从本页移除，不再显示（含未归属分组）。
+  /**
+   * 分组：每个模组一组，未归属的单独一组放在最下面。
+   *
+   * 「已移除」标记只用来隐藏【空分组】，绝不能把还有资料的分组藏起来——
+   * 那样资料就成了看不见也拿不到的孤儿。0.7.1 曾这么干过：用户删掉模组分组与
+   * 未归属分组后，仅有的 3 条资料全在被隐藏的模组下，页面一片空白，
+   * 连添加界面都看不见了。所以这里加一道兜底：分组下有资料就一定显示。
+   *
+   * 另外把「没有归属到任何现存模组」的资料也兜住（例如模组被删、
+   * 或数据来自旧备份），放进未归属分组，保证任何一条资料都有地方显示。
+   */
   const groups = useMemo(() => {
     const hidden = new Set(hiddenGroups)
+    const knownModuleIds = new Set(modules.map((module) => module.id))
     const byModule = modules
-      .filter((module) => !hidden.has(module.id))
       .map((module) => ({
         key: module.id,
         name: module.name,
         resources: resources.filter((resource) => resource.moduleId === module.id)
       }))
-    const unassigned = resources.filter((resource) => !resource.moduleId)
-    return { byModule, unassigned, unassignedHidden: hidden.has(UNASSIGNED_GROUP) }
+      // 隐藏标记只对空分组生效；有资料的分组始终显示
+      .filter((group) => !hidden.has(group.key) || group.resources.length > 0)
+    // 未归属 = 没有归属 + 归属到一个已不存在的模组（兜底，避免资料凭空消失）
+    const unassigned = resources.filter(
+      (resource) => !resource.moduleId || !knownModuleIds.has(resource.moduleId)
+    )
+    const unassignedVisible = unassigned.length > 0 || !hidden.has(UNASSIGNED_GROUP)
+    return {
+      byModule,
+      unassigned,
+      unassignedHidden: !unassignedVisible,
+      /** 页面上实际会渲染的分组数；为 0 才显示空白引导页 */
+      visibleCount: byModule.length + (unassignedVisible ? 1 : 0)
+    }
   }, [modules, resources, hiddenGroups])
 
   const filePaths = useMemo(
@@ -672,35 +693,28 @@ export function ResourcesPage({
       )}
 
       {/*
-        只有「没有任何分组、也没有任何资料」时才显示空白引导页。
-        若还有分组在（哪怕它下面一条资料都没有），仍然显示分组——
-        否则用户删空资料后连分组都看不到，也就没法把资料拖回去。
+        空白引导页只在「一个分组都渲染不出来」时出现。
+        判断依据就是 visibleCount，与下面真正渲染的分组用同一个数——
+        两者各算各的就会出现「容器渲染了但里面空无一物」的空白页（0.7.1 的教训）。
       */}
-      {resources.length === 0 &&
-        groups.byModule.length === 0 &&
-        groups.unassignedHidden &&
-        !draft && (
-          <div className="empty-state">
-            <h2>还没有资料</h2>
-            <p>
-              可以把 EdrawMind 导图、Notion 链接或其他文件挂到这里，编辑仍在原软件里进行。
-              资料可以归属到某个模组，也可以不归属；拖动卡片即可改归属或排序。
-            </p>
-          </div>
-        )}
+      {groups.visibleCount === 0 && !draft && (
+        <div className="empty-state">
+          <h2>还没有资料</h2>
+          <p>
+            可以把 EdrawMind 导图、Notion 链接或其他文件挂到这里，编辑仍在原软件里进行。
+            资料可以归属到某个模组，也可以不归属；拖动卡片即可改归属或排序。
+          </p>
+        </div>
+      )}
 
-      {!(
-        resources.length === 0 &&
-        groups.byModule.length === 0 &&
-        groups.unassignedHidden
-      ) && (
+      {groups.visibleCount > 0 && (
         <div className="resource-groups">
           {groups.byModule.map((group) =>
             renderGroup(group.key, group.name, group.resources, {
               module: modules.find((module) => module.id === group.key)
             })
           )}
-          {/* 未归属的放最下面；它被删掉后同样不再显示，直到又有资料变成未归属 */}
+          {/* 未归属的放最下面；它被删掉后不再显示，直到又有资料变成未归属 */}
           {!groups.unassignedHidden &&
             renderGroup(UNASSIGNED_GROUP, '未归属模组', groups.unassigned, { unassigned: true })}
         </div>

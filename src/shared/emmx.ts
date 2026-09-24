@@ -876,20 +876,22 @@ function renderTextLines(
 }
 
 /**
- * 把连线端点延伸到最近节点框的边界上。
+ * 把连线端点对齐到节点框的【边中点】。
  *
- * 起因（用户反馈「连接线并未连接到框的正中间，观感不好」）：
- * EdrawMind 的端点语义不统一，实测同一个文件里
- * - BeginPt 有时存的是【源节点框中心】（渊娲之海：1179.5 正好是框中心）
- * - 有时存的是【框边缘】（背景：1394.06 正好是框右边）
- * - 而 Geometry 的首尾点又常常落在框外一小段（实测 6.5~27px 不等）
- * 三种坐标混在一起，直接画就会出现「线头浮在框外、没接上」。
+ * 用户反馈「线条未和文字框居中对齐」，并要求参照 EdrawMind 导出 HTML 里的效果。
+ * 用官方导出的 6 条连线做权威判定，结论明确：
+ *   4/4 可判定的端点全部「贴左边/贴右边 + ★垂直居中」——即接在边的【中点】上。
  *
- * 做法：端点若在框外且离得不算远，就沿最近的那条边推回边界上。
- * 这样无论它原本是中心、边缘还是差一段，最终都精确落在框边，
- * 视觉上一定接得上；离得很远的（指向分组框等）不动，避免画错。
+ * 而 .emmx 源文件里存的端点常常落在框角附近：实测矮节点（高 23.9）的端点
+ * y 比垂直中心低 12.0px，正好是半个框高，也就是接在右下角；高节点（高 37.7）
+ * 因为几何凑巧才看着居中。所以不能只把端点「推到框边」，还要把该边的另一个
+ * 坐标摆到中心。
+ *
+ * 做法：先判断端点离哪条边最近，再把它钉在那条边的中点上。
+ * 竖直边（左右）→ y 取垂直中心；水平边（上下）→ x 取水平中心。
+ * 离得很远的端点（例如指向分组框）不动，避免把线画错。
  */
-function extendEndToBoxBoundary(
+function alignEndToBoxCenter(
   x: number,
   y: number,
   boxes: Array<{ x: number; y: number; width: number; height: number }>
@@ -901,16 +903,31 @@ function extendEndToBoxBoundary(
     const gap = Math.hypot(dx, dy)
     if (!best || gap < best.gap) best = { box, gap }
   }
-  // 已经在框内（gap=0）或离得太远的都不动
-  if (!best || best.gap === 0 || best.gap > CONNECTOR_SNAP_RANGE) return { x, y }
+  // 离得太远的（例如指向分组框外沿）不动
+  if (!best || best.gap > CONNECTOR_SNAP_RANGE) return { x, y }
   const { box } = best
-  let nx = x
-  let ny = y
-  if (x < box.x) nx = box.x
-  else if (x > box.x + box.width) nx = box.x + box.width
-  if (y < box.y) ny = box.y
-  else if (y > box.y + box.height) ny = box.y + box.height
-  return { x: nx, y: ny }
+  /**
+   * 端点已经落在框【内部】时不动。
+   *
+   * 实测这类端点是「多分支主干线」的起点：一条线从某个框附近出发，
+   * 沿途分出若干支线。它故意从框内部起笔，硬拉到边的中点会破坏主干走向
+   * （实测世界回归进行曲里有 15 个这样的端点，偏离中点 66~218px）。
+   */
+  const inside =
+    x > box.x + 1 && x < box.x + box.width - 1 && y > box.y + 1 && y < box.y + box.height - 1
+  if (inside) return { x, y }
+  const centerX = box.x + box.width / 2
+  const centerY = box.y + box.height / 2
+  // 到四条边的距离，取最近的那条，把端点钉在该边的中点上
+  const toLeft = Math.abs(x - box.x)
+  const toRight = Math.abs(x - (box.x + box.width))
+  const toTop = Math.abs(y - box.y)
+  const toBottom = Math.abs(y - (box.y + box.height))
+  const nearest = Math.min(toLeft, toRight, toTop, toBottom)
+  if (nearest === toLeft) return { x: box.x, y: centerY }
+  if (nearest === toRight) return { x: box.x + box.width, y: centerY }
+  if (nearest === toTop) return { x: centerX, y: box.y }
+  return { x: centerX, y: box.y + box.height }
 }
 
 /**
@@ -959,12 +976,54 @@ function alignConnectorEnds(
   const firstSource = anchors ? { x: anchors.beginX, y: anchors.beginY } : firstRaw
   const lastSource = anchors ? { x: anchors.endX, y: anchors.endY } : lastRaw
 
-  const head = firstSource ? replacePoint(tokens[0]!, extendEndToBoxBoundary(firstSource.x, firstSource.y, boxes)) : tokens[0]!
+  /**
+   * 端点对齐后，把与该端点相连的整条「干线」一起平移，保持线段横平竖直。
+   *
+   * EdrawMind 画的是正交折线。举例（渊娲之海 连线 103，原始几何）：
+   *   MoveTo(1252.7,1429.5) LineTo(1284.2,1429.5) LineTo(1284.2,710.1) …
+   * 起点在左边、经一个折点后一路垂直向上。若只把起点左移，第一段会变成斜线；
+   * 若只再挪第一个折点，第二段又会变成斜线——因为第二段的两个端点
+   * 原本共享同一个 x（1284.2），必须一起移动才能保持垂直。
+   *
+   * 判断「哪些点属于同一条干线」必须用【原始坐标】逐段比较：
+   * 第一段水平（起点与折点1同 y），第二段垂直（折点1与折点2同 x）。
+   * 若拿平移后的坐标去比，折点1 已经不在原来的 x 上，链条就断了。
+   */
+  const shifted = new Map<number, { x: number; y: number }>()
+  const shiftRun = (index: number, from: { x: number; y: number }, to: { x: number; y: number }): void => {
+    const dx = to.x - from.x
+    const dy = to.y - from.y
+    if (dx === 0 && dy === 0) return
+    const forward = index === 0
+    const step = forward ? 1 : -1
+    // 用原始坐标追踪「上一个点」，据此判断下一段是否与它轴对齐
+    let prev = from
+    for (let i = index + step; i >= 0 && i < tokens.length; i += step) {
+      const point = pointOf(tokens[i]!)
+      if (!point) break
+      // 必须与上一个【原始】点轴对齐，否则说明到了曲线或分叉，停止
+      const axisAligned = Math.abs(point.x - prev.x) < 0.01 || Math.abs(point.y - prev.y) < 0.01
+      if (!axisAligned) break
+      shifted.set(i, { x: point.x + dx, y: point.y + dy })
+      prev = point
+    }
+  }
+
+  const alignedFirst = firstSource ? alignEndToBoxCenter(firstSource.x, firstSource.y, boxes) : undefined
+  const alignedLast = lastSource ? alignEndToBoxCenter(lastSource.x, lastSource.y, boxes) : undefined
+  if (alignedFirst && firstRaw) shiftRun(0, firstRaw, alignedFirst)
+  if (alignedLast && lastRaw && tokens.length > 1) shiftRun(tokens.length - 1, lastRaw, alignedLast)
+
+  const head = alignedFirst ? replacePoint(tokens[0]!, alignedFirst) : tokens[0]!
   if (tokens.length === 1) return head
-  const tail = lastSource
-    ? replacePoint(tokens[tokens.length - 1]!, extendEndToBoxBoundary(lastSource.x, lastSource.y, boxes))
+  const tail = alignedLast
+    ? replacePoint(tokens[tokens.length - 1]!, alignedLast)
     : tokens[tokens.length - 1]!
-  return [head, ...tokens.slice(1, -1), tail].join(' ')
+  const middle = tokens.slice(1, -1).map((token, offset) => {
+    const moved = shifted.get(offset + 1)
+    return moved ? replacePoint(token, moved) : token
+  })
+  return [head, ...middle, tail].join(' ')
 }
 
 /** 读自闭合元素上的属性数值，如 <BeginPt X="1" Y="2"/> */

@@ -77,12 +77,13 @@ describe('0.7.0 clearing the unassigned group', () => {
 
   it('falls back to the blank guide only when nothing is left at all', () => {
     const page = read('src/renderer/src/components/ResourcesPage.tsx')
-    // 0.7.1：空白引导页的条件是「没有资料、没有可见的模组分组、未归属分组也被删了」。
-    // 只要还有分组在（哪怕它下面一条资料都没有）就继续显示分组，
-    // 用户才能把资料拖回去。
-    expect(page).toContain('groups.byModule.length === 0')
-    expect(page).toContain('groups.unassignedHidden')
-    expect(page).toContain('!groups.unassignedHidden &&')
+    // 0.7.1：空白引导页与分组列表用同一个 visibleCount 判断。
+    // 两者各算各的就会出现「容器渲染了但里面空无一物」的空白页（实测过）。
+    expect(page).toContain('visibleCount')
+    expect(page).toContain('groups.visibleCount === 0 && !draft')
+    expect(page).toContain('groups.visibleCount > 0 &&')
+    // 隐藏标记只对空分组生效：有资料的分组必须始终显示
+    expect(page).toContain('!hidden.has(group.key) || group.resources.length > 0')
   })
 
   it('reaches the blank state after clearing everything', () => {
