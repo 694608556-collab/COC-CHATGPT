@@ -1,6 +1,6 @@
 @echo off
 chcp 936 >nul 2>nul
-title COC跑团记录簿 - 跑测试并打包安装包
+title COC跑团记录簿 - 跑测试并打包
 setlocal
 
 set "TARGET=%~1"
@@ -32,13 +32,15 @@ call pnpm test
 if errorlevel 1 goto fail
 
 echo.
-echo 4/4 打包安装包，这一步比较慢，请耐心等...
-call pnpm package:setup
+echo 4/4 打包，这一步比较慢，请耐心等...
+call pnpm package
 if errorlevel 1 goto fail
 
 echo.
-echo 打包完成，安装包在下面这个目录里：
-dir /b "%TARGET%\dist\*Setup.exe"
+echo 打包完成，两个文件都在下面这个目录里：
+echo   *-win-x64.exe          免安装版，双击即用，数据存在程序旁边
+echo   *-Windows-x64-Setup.exe  安装包，走安装向导，可自选安装位置
+dir /b "%TARGET%\dist\*.exe"
 echo.
 start "" "%TARGET%\dist"
 pause
