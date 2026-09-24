@@ -55,8 +55,11 @@ describe('0.7.0 UI contract', () => {
 
   it('2g. searches node text inside the current map', () => {
     expect(viewer).toContain('节点内容搜索框')
-    expect(viewer).toContain('page.texts')
     expect(viewer).toContain('mindmap-hits')
+    // 0.7.1 起搜索直接读画布 SVG：要高亮就必须知道「第几段、第几个字」，
+    // 光有一串文字（page.texts）算不出位置。仍保留 texts 供统计与其它用途。
+    expect(viewer).toContain('extractSvgTextRuns')
+    expect(viewer).toContain('findSvgMatches')
     expect(ipc).toContain('texts: page.texts')
     // emmx 的搜索也要覆盖关系连线标签与分组框标题
     expect(ipc).toContain('...page.labels.flatMap((label) => label.lines)')

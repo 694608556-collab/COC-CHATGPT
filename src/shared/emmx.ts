@@ -197,7 +197,12 @@ function normalizeColor(value: string | undefined): string | undefined {
  * 几何坐标是相对本 Shape 的 Transform 中心点的偏移，所以要加上 origin。
  * CurveTo 的 A/B 是第一控制点、C/D 是第二控制点（三次贝塞尔）。
  */
-function geometryToPath(body: string, originX: number, originY: number): string | undefined {
+function geometryToPath(
+  body: string,
+  originX: number,
+  originY: number,
+  startPoint?: { x: number; y: number }
+): string | undefined {
   const geometry = body.match(/<Geometry[^>]*>([\s\S]*?)<\/Geometry>/)
   if (!geometry) return undefined
   const segments: string[] = []
@@ -224,6 +229,13 @@ function geometryToPath(body: string, originX: number, originY: number): string 
         // 控制点不全就退化成直线，宁可少一段弧度也不能画错
         segments.push(`L${px} ${py}`)
       } else {
+        // 第一段若是 CurveTo，SVG 要求路径必须以 M 开头——实测有连线直接从曲线
+        // 起笔，只写 C 会被浏览器判为非法路径、整条线都不画（控制台报
+        // "Expected moveto path command"）。用连线的真实起点补这个 M。
+        if (!segments.length) {
+          const start = startPoint ?? { x: originX + a!, y: originY + b! }
+          segments.push(`M${start.x} ${start.y}`)
+        }
         segments.push(
           `C${originX + a!} ${originY + b!} ${originX + c!} ${originY + d!} ${px} ${py}`
         )
@@ -387,13 +399,19 @@ function parsePage(entryName: string, xml: string): EmmxPage {
 
     // 连接线：走真实几何，曲线/折线都能还原
     if (type === 'MMConnector' || type === 'RelatConnector') {
-      const d = geometryToPath(body, cx, cy)
+      const beginX = numberAttr(body, 'BeginPt', 'X')
+      const beginY = numberAttr(body, 'BeginPt', 'Y')
+      const endX = numberAttr(body, 'EndPt', 'X')
+      const endY = numberAttr(body, 'EndPt', 'Y')
+      // 起点交给 geometryToPath：连线若从曲线起笔，需要它补一个 M 才不会整条不画
+      const d = geometryToPath(
+        body,
+        cx,
+        cy,
+        beginX === undefined || beginY === undefined ? undefined : { x: beginX, y: beginY }
+      )
       if (d) {
         // 先记下 BeginPt / EndPt，等节点框收集齐了再统一校正端点
-        const beginX = numberAttr(body, 'BeginPt', 'X')
-        const beginY = numberAttr(body, 'BeginPt', 'Y')
-        const endX = numberAttr(body, 'EndPt', 'X')
-        const endY = numberAttr(body, 'EndPt', 'Y')
         paths.push({
           id,
           d,

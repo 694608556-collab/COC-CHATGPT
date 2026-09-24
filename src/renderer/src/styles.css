@@ -3419,6 +3419,31 @@ grid-row:6;
   border-color: var(--accent);
 }
 
+/* 结果列表里把命中的关键词标出来，扫一眼就知道命中的是哪个词 */
+.mindmap-hit-word {
+  background: #ffe680;
+  color: #1a1a1a;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.mindmap-hit.active .mindmap-hit-word {
+  background: #ff9f43;
+}
+
+/* 画布上的命中高亮：全部黄底，当前项橙底（对齐浏览器查找的习惯）。
+   矩形由脚本插进 SVG，用的是 SVG 用户坐标，因此缩放时与文字一起等比缩放。 */
+.mindmap-hit-mark {
+  fill: #ffe680;
+  fill-opacity: 0.85;
+  pointer-events: none;
+}
+
+.mindmap-hit-mark.current {
+  fill: #ff9f43;
+  fill-opacity: 0.95;
+}
+
 .mindmap-pages {
   display: flex;
   flex-wrap: wrap;

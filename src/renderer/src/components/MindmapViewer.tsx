@@ -1,7 +1,76 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MindmapPreviewApi } from '../../../shared/api'
 import type { ModuleRecord, ModuleResource } from '../../../shared/types'
+import { extractSvgTextRuns, findSvgMatches, scrollToCenter } from '../../../shared/mindmap-search'
 import { CloseIcon } from './Icons'
+
+/** 高亮矩形的 class，用于每次重绘前清理旧标记 */
+const HIT_MARK = 'mindmap-hit-mark'
+
+/**
+ * 把命中项画成画布上的高亮底色。
+ *
+ * 高亮矩形直接插进 SVG，用的是 SVG 自己的用户坐标（由 getStartPositionOfChar
+ * 得到），因此缩放时与文字一起等比缩放，不需要在缩放后重算——这也是「就算
+ * 找到了也没有高亮」的修法：此前只在结果列表里标了当前项，画布上没有任何标记。
+ *
+ * 矩形插在 <text> 之前，保证画在文字底下，不遮字。
+ */
+function paintHighlights(
+  canvas: HTMLElement,
+  matches: Array<{ textIndex: number; spanIndex: number; start: number; end: number }>,
+  currentIndex: number
+): void {
+  const svg = canvas.querySelector('svg')
+  if (!svg) return
+  // 先清掉上一次的高亮
+  for (const old of [...svg.querySelectorAll(`.${HIT_MARK}`)]) old.remove()
+
+  const textElements = [...svg.querySelectorAll('text')]
+  matches.forEach((match, index) => {
+    const textElement = textElements[match.textIndex]
+    if (!textElement) return
+    // 与 extractSvgTextRuns 的口径一致：有 tspan 就取 tspan，否则用 text 本身
+    const spans = [...textElement.querySelectorAll('tspan')]
+    const element = spans.length ? spans[match.spanIndex] : textElement
+    if (!element) return
+
+    let geometry: { x: number; width: number; y: number; height: number }
+    try {
+      // getStartPositionOfChar / getEndPositionOfChar 返回该元素用户坐标下的位置，
+      // 与文字实际渲染位置一致（含 tspan 自身的 x/y 偏移）
+      const start = element.getStartPositionOfChar(match.start)
+      const end = element.getEndPositionOfChar(Math.max(match.start, match.end - 1))
+      const box = element.getBBox()
+      // 底色高度取「字号 × 1.15」并围绕文字视觉中心摆放。
+      // 不能直接用 getBBox().height：那是字形的紧包围盒，不同字（有无下伸部）
+      // 高度不一，多行命中时底色会高低不齐、相邻行还会连成一片。
+      const fontSize = Number.parseFloat(getComputedStyle(element).fontSize) || 12
+      const height = fontSize * 1.15
+      const centerY = box.height ? box.y + box.height / 2 : start.y - fontSize * 0.35
+      geometry = {
+        x: start.x,
+        width: Math.max(1, end.x - start.x),
+        y: centerY - height / 2,
+        height
+      }
+    } catch {
+      // 个别浏览器对空文字段会抛错，跳过这一处高亮，不影响其它命中
+      return
+    }
+
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+    rect.setAttribute('x', String(geometry.x))
+    rect.setAttribute('y', String(geometry.y))
+    rect.setAttribute('width', String(geometry.width))
+    rect.setAttribute('height', String(geometry.height))
+    rect.setAttribute('rx', '2')
+    rect.setAttribute('class', index === currentIndex ? `${HIT_MARK} current` : HIT_MARK)
+    // 插在文字所在元素之前：画在字底下
+    const host = spans.length ? textElement : element
+    host.parentNode?.insertBefore(rect, host)
+  })
+}
 
 /**
  * 导图查看器。
@@ -14,6 +83,9 @@ import { CloseIcon } from './Icons'
  * - 顶部提供节点搜索，命中项可逐条跳转
  * - 多个子页面（HTML 导出的每个画布）在底部以按钮切换
  * - 图形区与工具条的层叠关系修正，按钮边框不再残留在画布上
+ *
+ * 0.7.1：搜索对齐浏览器查找——画布上全部命中黄底高亮、当前命中橙底高亮，
+ * 点结果把该处滚到画布正中（按实际像素计算，缩放不影响定位）。
  */
 export function MindmapViewer({
   resource,
@@ -37,6 +109,7 @@ export function MindmapViewer({
   const [hitIndex, setHitIndex] = useState(0)
   // 拖拽平移：记录按下时的位置与当时的滚动偏移
   const bodyRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLDivElement>(null)
   const panRef = useRef<{ x: number; y: number; left: number; top: number } | undefined>(undefined)
   const [panning, setPanning] = useState(false)
 
@@ -84,17 +157,29 @@ export function MindmapViewer({
     ? (modules.find((module) => module.id === resource.moduleId)?.name ?? '未知模组')
     : '未归属模组'
 
-  /** 节点搜索：在当前子页面的文字里找命中项 */
-  const hits = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    if (!needle || !page) return []
-    return page.texts.filter((text) => text.toLowerCase().includes(needle))
-  }, [query, page])
+  /**
+   * 节点搜索。
+   *
+   * 直接在画布的 SVG 上找：把每个 <text>/<tspan> 当成一个可高亮的文字段，
+   * 命中的位置精确到「第几段、第几个字」，界面据此画黄底/橙底高亮。
+   * 比 0.7.0 只列文字更接近浏览器查找的体验。
+   */
+  const runs = useMemo(() => (page ? extractSvgTextRuns(page.svg) : []), [page])
+  const hits = useMemo(() => findSvgMatches(runs, query), [runs, query])
 
   // 命中项变化时回到第一条
   useEffect(() => {
     setHitIndex(0)
   }, [query, pageIndex])
+
+  /** 画布内容变化或命中项变化时重绘高亮 */
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || tab !== 'map') return
+    // 等 React 把新的 SVG 写进 DOM 之后再画标记
+    const timer = window.setTimeout(() => paintHighlights(canvas, hits, hitIndex), 0)
+    return () => window.clearTimeout(timer)
+  }, [hits, hitIndex, tab, pageIndex, page])
 
   /** 滚轮缩放：按住 Ctrl 或直接滚都缩放，滚轮向下缩小 */
   const onWheel = (event: React.WheelEvent<HTMLDivElement>): void => {
@@ -135,15 +220,58 @@ export function MindmapViewer({
     }
   }
 
-  /** 把当前命中项滚动到可见位置 */
+  /**
+   * 跳到第 index 处命中，并把它摆到画布正中。
+   *
+   * 定位靠元素的实际像素位置（getBoundingClientRect），所以缩放多少都不影响
+   * ——放大会同时放大元素位置与尺寸，直接按像素差滚动即可。
+   */
   const gotoHit = (index: number): void => {
     setHitIndex(index)
     const body = bodyRef.current
-    if (!body || !page) return
-    // 命中项在 SVG 里的位置未知，这里按命中序号在画布上做纵向定位，
-    // 用户可用滚轮/拖拽继续找；比完全不跳转好用。
-    const ratio = hits.length > 1 ? index / (hits.length - 1) : 0
-    body.scrollTop = (body.scrollHeight - body.clientHeight) * ratio
+    const canvas = canvasRef.current
+    if (!body || !canvas) return
+    const svg = canvas.querySelector('svg')
+    const match = hits[index]
+    if (!svg || !match) return
+
+    const textElements = [...svg.querySelectorAll('text')]
+    const textElement = textElements[match.textIndex]
+    if (!textElement) return
+    const spans = [...textElement.querySelectorAll('tspan')]
+    const element = spans.length ? spans[match.spanIndex] : textElement
+    if (!element) return
+
+    let rect: DOMRect
+    try {
+      const start = element.getStartPositionOfChar(match.start)
+      const end = element.getEndPositionOfChar(Math.max(match.start, match.end - 1))
+      // 用 SVG 的坐标变换把用户坐标换算成屏幕坐标，缩放已包含在变换里
+      const matrix = element.getScreenCTM()
+      if (!matrix) return
+      const point = svg.createSVGPoint()
+      point.x = start.x
+      point.y = start.y
+      const screenStart = point.matrixTransform(matrix)
+      point.x = end.x
+      const screenEnd = point.matrixTransform(matrix)
+      rect = new DOMRect(
+        screenStart.x,
+        screenStart.y - 10,
+        Math.max(2, screenEnd.x - screenStart.x),
+        20
+      )
+    } catch {
+      return
+    }
+
+    const bodyRect = body.getBoundingClientRect()
+    const next = scrollToCenter(
+      { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      { left: bodyRect.left, top: bodyRect.top, width: bodyRect.width, height: bodyRect.height },
+      { left: body.scrollLeft, top: body.scrollTop }
+    )
+    body.scrollTo({ left: next.left, top: next.top, behavior: 'smooth' })
   }
 
   return (
@@ -230,13 +358,18 @@ export function MindmapViewer({
 
           {query.trim() && hits.length > 0 && (
             <div className="mindmap-hits">
-              {hits.slice(0, 40).map((text, index) => (
+              {hits.slice(0, 40).map((hit, index) => (
                 <button
-                  key={`${index}-${text}`}
+                  key={`${hit.textIndex}-${hit.spanIndex}-${hit.start}`}
                   className={index === hitIndex ? 'mindmap-hit active' : 'mindmap-hit'}
                   onClick={() => gotoHit(index)}
                 >
-                  {text}
+                  {/* 关键词在结果里也标出来，扫一眼就知道命中在哪 */}
+                  {hit.start > 12 && '…'}
+                  {hit.runText.slice(Math.max(0, hit.start - 12), hit.start)}
+                  <mark className="mindmap-hit-word">{hit.match}</mark>
+                  {hit.runText.slice(hit.end, hit.end + 18)}
+                  {hit.runText.length > hit.end + 18 && '…'}
                 </button>
               ))}
             </div>
@@ -255,6 +388,7 @@ export function MindmapViewer({
               /* SVG 由本地解析器从用户自己的导图文件生成 */
               <div
                 className="mindmap-canvas"
+                ref={canvasRef}
                 style={{
                   width: Math.round(page.width * zoom),
                   height: Math.round(page.height * zoom)
