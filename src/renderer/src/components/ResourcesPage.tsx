@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MindmapPreviewApi } from '../../../shared/api'
 import type { ModuleRecord, ModuleResource, ModuleResourceKind } from '../../../shared/types'
 import { UNASSIGNED_GROUP } from '../../../shared/types'
@@ -53,9 +53,19 @@ export function ResourcesPage({
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
   // 新版 EdrawMind 保存的导图读不出图形时，用对话框把原因和做法讲清楚
   const [formatNotice, setFormatNotice] = useState<{ resource: ModuleResource; message: string }>()
-  // 拖拽中的资料 id，以及当前悬停的分组（用于高亮落点）
-  const [dragging, setDragging] = useState<string>()
+  // 当前悬停的分组（用于高亮落点）
   const [dropTarget, setDropTarget] = useState<string>()
+  /**
+   * 拖拽中的资料 id。
+   *
+   * 必须用 ref 而不是 state：dragstart 到 dragover 之间 React 可能还没重渲染，
+   * 此时事件回调里读到的 state 仍是旧值（undefined），于是 onDragOver 里的
+   * `if (!dragging) return` 直接返回、没有 preventDefault，浏览器就认为
+   * 「这里不接受放置」而丢掉 drop——表现为拖了但什么都没发生
+   * （0.7.2 起 e2e 里那两个用例会随机有一个失败，就是这个竞态）。
+   * ref 是同步写入的，不受渲染时机影响。
+   */
+  const draggingRef = useRef<string | undefined>(undefined)
 
   /**
    * 分组：每个模组一组，未归属的单独一组放在最下面。
@@ -419,9 +429,17 @@ export function ResourcesPage({
   }
 
   /** 把资料拖到某个分组：改归属，并按落点顺序排进去 */
-  const dropInto = async (moduleId: string | undefined, targetIndex?: number): Promise<void> => {
-    const id = dragging
-    setDragging(undefined)
+  const dropInto = async (
+    moduleId: string | undefined,
+    targetIndex?: number,
+    /** 被拖的资料 id。优先由 drop 事件从 dataTransfer 里取（见 renderCard） */
+    draggedId?: string
+  ): Promise<void> => {
+    // 取 id 的顺序：调用方传入 → ref。
+    // 不能只依赖 ref：dragend 有可能先于 drop 触发，那时 ref 已被清空，
+    // 整个放置就静默失败了（e2e 里表现为「拖了但没反应」，且时好时坏）。
+    const id = draggedId ?? draggingRef.current
+    draggingRef.current = undefined
     setDropTarget(undefined)
     if (!id) return
     const resource = resources.find((item) => item.id === id)
@@ -451,21 +469,46 @@ export function ResourcesPage({
         className={gone ? 'resource-tile missing' : 'resource-tile'}
         data-tip={gone ? '文件找不到了，可能已被移动或删除' : label}
         draggable
-        onDragStart={() => setDragging(resource.id)}
+        onDragStart={(event) => {
+          draggingRef.current = resource.id
+          // 必须往 dataTransfer 里写点东西：Chromium 对「没有数据的拖拽」会当成
+          // 无效操作，drop 事件时有时无——表现就是拖了却没反应，而且时好时坏
+          // （0.7.2 的 e2e 用例此前会随机失败，就是这个原因）。
+          event.dataTransfer.setData('text/plain', resource.id)
+          event.dataTransfer.effectAllowed = 'move'
+        }}
         onDragEnd={() => {
-          setDragging(undefined)
+          // 只清理「自己这一张」的拖拽状态。
+          //
+          // 连续快速拖拽时，上一次的 dragend 有可能晚于下一次的 dragstart 才触发；
+          // 若无条件清空，就会把刚开始的第二次拖拽一起抹掉，表现为「第二次拖了
+          // 没反应」（0.7.2 的 e2e 用例此前会随机失败，就是这个原因）。
+          if (draggingRef.current !== resource.id) return
+          draggingRef.current = undefined
           setDropTarget(undefined)
         }}
         onDragOver={(event) => {
-          if (!dragging || dragging === resource.id) return
+          // 卡片上的落点：用于组内排序。
+          //
+          // 这个守卫其实不是承重的——父级分组的 onDragOver 已经 preventDefault，
+          // 就算这里返回，浏览器仍会接受放置（变异测试验证过：把它改成直接
+          // return，组内排序用例照样通过）。保留它是为了只在高亮「有意义的落点」
+          // 时才给出反馈，而不是整组都亮。
+          const active = draggingRef.current
+          if (!active || active === resource.id) return
           event.preventDefault()
           event.stopPropagation()
+          event.dataTransfer.dropEffect = 'move'
           setDropTarget(resource.id)
         }}
         onDrop={(event) => {
           event.preventDefault()
           event.stopPropagation()
-          if (dragging && dragging !== resource.id) void dropInto(resource.moduleId, indexInGroup)
+          // 从 dataTransfer 里取被拖的资料 id：这是浏览器保证能跨事件带过来的
+          // 数据，不依赖 React state 或 ref 的时序
+          const dragged = event.dataTransfer.getData('text/plain') || undefined
+          const active = dragged ?? draggingRef.current
+          if (active && active !== resource.id) void dropInto(resource.moduleId, indexInGroup, active)
         }}
         onDoubleClick={() => void openResource(resource)}
       >
@@ -563,14 +606,17 @@ export function ResourcesPage({
         }
         key={key}
         onDragOver={(event) => {
-          if (!dragging) return
+          if (!draggingRef.current) return
           event.preventDefault()
+          event.dataTransfer.dropEffect = 'move'
           setDropTarget(key)
         }}
         onDragLeave={() => setDropTarget((current) => (current === key ? undefined : current))}
         onDrop={(event) => {
           event.preventDefault()
-          void dropInto(options.unassigned ? undefined : options.module?.id)
+          // 同样优先用 dataTransfer 里的 id（见 renderCard 的说明）
+          const dragged = event.dataTransfer.getData('text/plain') || undefined
+          void dropInto(options.unassigned ? undefined : options.module?.id, undefined, dragged)
         }}
       >
         <header className="resource-group-head">

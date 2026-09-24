@@ -181,12 +181,59 @@ export function MindmapViewer({
     return () => window.clearTimeout(timer)
   }, [hits, hitIndex, tab, pageIndex, page])
 
-  /** 滚轮缩放：按住 Ctrl 或直接滚都缩放，滚轮向下缩小 */
-  const onWheel = (event: React.WheelEvent<HTMLDivElement>): void => {
-    event.preventDefault()
-    const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12
-    setZoom((value) => Math.min(8, Math.max(0.15, value * factor)))
-  }
+  /**
+   * 滚轮：默认上下滚动，Ctrl（或 ⌘）+ 滚轮才缩放。
+   *
+   * 0.7.6 之前是「滚轮一律缩放」，用户反馈「缩放会同时影响滚动条」。
+   * 根因有两层：
+   *  1. 逻辑上缩放改了画布尺寸、滚动位置却没跟着调，看起来就是两个一起动；
+   *  2. **React 17 起把 onWheel 注册成 passive 监听**，在它里面调用
+   *     preventDefault() 是无效的（浏览器只会在控制台警告一句），
+   *     所以「拦下滚轮、只缩放」这件事根本没生效，原生滚动照常发生。
+   *
+   * 因此这里不用 React 的 onWheel，改用 addEventListener 显式传
+   * `{ passive: false }`，preventDefault 才真的能拦住原生滚动。
+   *
+   * 缩放以鼠标位置为锚点：先记下光标在内容里的比例位置，缩放后把滚动位置
+   * 调到同一比例，光标下那一点就留在原地（否则放大后画面会跑掉）。
+   */
+  useEffect(() => {
+    const body = bodyRef.current
+    if (!body || tab !== 'map') return
+
+    const onWheel = (event: WheelEvent): void => {
+      // 没按 Ctrl/⌘ 就完全不干预，交给浏览器原生滚动
+      if (!event.ctrlKey && !event.metaKey) return
+      // 必须能拦住：否则会一边缩放一边滚动
+      event.preventDefault()
+      const el = bodyRef.current
+      if (!el) return
+
+      const rect = el.getBoundingClientRect()
+      // 光标在「整个可滚动内容」里的相对位置（0~1）
+      const ratioX = (event.clientX - rect.left + el.scrollLeft) / Math.max(1, el.scrollWidth)
+      const ratioY = (event.clientY - rect.top + el.scrollTop) / Math.max(1, el.scrollHeight)
+      const offsetX = event.clientX - rect.left
+      const offsetY = event.clientY - rect.top
+
+      setZoom((value) => {
+        const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12
+        const next = Math.min(8, Math.max(0.15, value * factor))
+        if (next === value) return value
+        // 等 React 按新尺寸重排完再对齐滚动位置，否则 scrollWidth 还是旧值
+        window.requestAnimationFrame(() => {
+          const node = bodyRef.current
+          if (!node) return
+          node.scrollLeft = ratioX * node.scrollWidth - offsetX
+          node.scrollTop = ratioY * node.scrollHeight - offsetY
+        })
+        return next
+      })
+    }
+
+    body.addEventListener('wheel', onWheel, { passive: false })
+    return () => body.removeEventListener('wheel', onWheel)
+  }, [tab, pageIndex, page])
 
   const onMouseDown = (event: React.MouseEvent<HTMLDivElement>): void => {
     // 只响应左键；在滚动容器上按下即开始平移
@@ -354,6 +401,11 @@ export function MindmapViewer({
             <button className="mindmap-action" onClick={() => setZoom(1)}>
               适应
             </button>
+            {/* 滚轮的行为变了（0.7.6 起默认滚动、Ctrl+滚轮才缩放），
+                在界面上写一句，免得用户以为缩放坏了 */}
+            <span className="mindmap-hint" title="滚轮上下滚动，按住 Ctrl 滚动可缩放">
+              Ctrl + 滚轮缩放
+            </span>
           </div>
 
           {query.trim() && hits.length > 0 && (
@@ -378,7 +430,6 @@ export function MindmapViewer({
           <div
             className={panning ? 'mindmap-viewer-body panning' : 'mindmap-viewer-body'}
             ref={bodyRef}
-            onWheel={onWheel}
             onMouseDown={onMouseDown}
             onMouseMove={onMouseMove}
             onMouseUp={endPan}

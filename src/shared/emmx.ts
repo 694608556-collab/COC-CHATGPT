@@ -577,9 +577,24 @@ function parsePage(entryName: string, xml: string): EmmxPage {
       const top = cy - height / 2
       const d = geometryToPath(body, left, top)
       if (d) {
-        const fill = normalizeColor(
-          body.match(/<FillFormat[^>]*>\s*<Color[^>]*V="(#[0-9a-fA-F]{6,8})"/)?.[1]
-        )
+        // 概括括号不填色。
+        //
+        // 0.7.6 修复：EdrawMind 的概括括号（Summary）在 <Geometry> 上写了
+        // NoFill="1"，同时 <FillFormat> 里仍留着与描边同色的绿（#ff00af54）。
+        // 此前只看 <FillFormat>，于是把括号填成了实心绿——用户看到的就是
+        // 「像在 Illustrator 里把描边误设成了填充」，一条细括号变成一坨色块。
+        //
+        // 全盘核对 44 个真实文件：74 个 Summary 全部 NoFill="1" 且 Closed="0"，
+        // EdrawMind 的 HTML 导出一律 fill="none"；而 25 个 Boundary 是
+        // Closed="1"，才真的铺底色（#e7f2e9）。所以按 NoFill / Closed 判断，
+        // 不看 <FillFormat> 有没有颜色。
+        const geometryAttrs = /<Geometry\b([^>]*)>/.exec(body)?.[1] ?? ''
+        const noFill = /\bNoFill="1"/.test(geometryAttrs)
+        const fill = noFill
+          ? undefined
+          : normalizeColor(
+              body.match(/<FillFormat[^>]*>\s*<Color[^>]*V="(#[0-9a-fA-F]{6,8})"/)?.[1]
+            )
         paths.push({
           id,
           d,
@@ -878,6 +893,18 @@ function escapeXml(value: string): string {
 }
 
 /**
+ * 导图文字用的字体栈，与界面保持一致。
+ *
+ * 0.7.6：此前写死 `Microsoft YaHei`，于是同一个程序里界面是苹方、导图却是雅黑，
+ * 中文字形与字重都对不上（用户反馈「打开 emmx 默认是微软雅黑，把字体同步为应用字体」）。
+ *
+ * 这几个字体是随程序打包的（见 renderer/src/main.tsx 的 @font-face），
+ * 不依赖系统装没装；末尾留 sans-serif 兜底。SVG 是直接注入 DOM 的，
+ * 所以界面里注册的 @font-face 对 <text> 同样生效。
+ */
+const FONT_FAMILY = "'SF Pro Text', 'SF Pro Display', 'PingFang SC', 'Segoe UI', sans-serif"
+
+/**
  * 行距倍数。
  *
  * 0.7.0 用 1.25，实测会溢出：「感受到一种病态的美学崇拜」5 段文字，
@@ -1022,7 +1049,7 @@ function renderTextLines(
   let baseline = startY
   for (const line of wrapped) {
     parts.push(
-      `<text x="${x + width / 2}" y="${baseline}" font-family="Microsoft YaHei, sans-serif" ` +
+      `<text x="${x + width / 2}" y="${baseline}" font-family="${FONT_FAMILY}" ` +
         `font-size="${fontSize}" fill="${color}" text-anchor="middle"${shapeAttr}>${escapeXml(line)}</text>`
     )
     baseline += lineHeight
@@ -1136,8 +1163,10 @@ export function pageToSvg(page: EmmxPage, padding = 40): string {
   for (const path of page.paths) {
     if (path.hidden) continue
     if (path.type === 'MMConnector' || path.type === 'RelatConnector') continue
+    // data-path-type 标出图形种类：概括括号（Summary）与分组框（Boundary）
+    // 都可能是绿描边，测试与排查时要能区分，不能只看颜色
     parts.push(
-      `<path d="${path.d}" fill="${path.fill}" stroke="${path.stroke}" stroke-width="${path.strokeWidth}" stroke-linejoin="round"/>`
+      `<path data-path-type="${escapeXml(path.type)}" d="${path.d}" fill="${path.fill}" stroke="${path.stroke}" stroke-width="${path.strokeWidth}" stroke-linejoin="round"/>`
     )
   }
   // 连接线：原样使用 EdrawMind 的几何（母线、小圆角、短横支线都是它算好的），
@@ -1146,7 +1175,7 @@ export function pageToSvg(page: EmmxPage, padding = 40): string {
     if (path.hidden) continue
     if (path.type !== 'MMConnector' && path.type !== 'RelatConnector') continue
     parts.push(
-      `<path d="${path.d}" fill="none" stroke="${path.stroke}" stroke-width="${path.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>`
+      `<path data-path-type="${escapeXml(path.type)}" d="${path.d}" fill="none" stroke="${path.stroke}" stroke-width="${path.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>`
     )
   }
   // 节点压在最上面
@@ -1198,7 +1227,7 @@ export function pageToSvg(page: EmmxPage, padding = 40): string {
       // data-fold-text 标出「这是徽标数字、不是节点文字」：节点文字的行数校验
       // （tests/emmx-lines-073.test.ts 按 <text> 数行）不标出来就会把数字算成一行
       `<text data-fold-text="${escapeXml(shape.id)}" x="${round2(cx)}" y="${round2(cy + r * 0.36)}" ` +
-        `font-family="Microsoft YaHei, sans-serif" font-size="${round2(r * 1.25)}" ` +
+        `font-family="${FONT_FAMILY}" font-size="${round2(r * 1.25)}" ` +
         `fill="${shape.stroke}" text-anchor="middle">${shape.foldedCount}</text>`
     )
   }

@@ -245,4 +245,152 @@ test.describe('0.7.4 node text stays inside its own box', () => {
     await app.close()
     fs.rmSync(dataDirectory, { recursive: true, force: true })
   })
+
+  /**
+   * 0.7.6：滚轮默认滚动，Ctrl+滚轮才缩放。
+   *
+   * 用户反馈「滚轮缩放会同时影响滚动条」。除了逻辑上没调滚动位置，还有一层
+   * 原因是 React 17 起把 onWheel 注册成 passive，里面 preventDefault 无效，
+   * 所以原生滚动根本没被拦住。这里在真实窗口里分别发普通滚轮和 Ctrl+滚轮，
+   * 量滚动位置与缩放百分比的实际变化。
+   */
+  test('plain wheel scrolls the canvas, Ctrl+wheel zooms it', async () => {
+    const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'coc-076-wheel-'))
+    const dataDir = path.join(dataDirectory, 'data')
+    fs.mkdirSync(dataDir, { recursive: true })
+    seedDatabase(path.join(dataDir, 'coc.sqlite'), MINDMAP!)
+
+    const app = await launch(dataDirectory)
+    const window = await app.firstWindow()
+    await window.waitForLoadState('domcontentloaded')
+    await openMindmap(window)
+    await expect(window.locator('.mindmap-canvas svg').first()).toBeVisible({ timeout: 20000 })
+    await window.waitForTimeout(500)
+
+    const body = window.locator('.mindmap-viewer-body')
+    const box = (await body.boundingBox())!
+    await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+
+    const readState = (): Promise<{ scrollTop: number; zoom: string }> =>
+      window.evaluate(() => {
+        const el = document.querySelector('.mindmap-viewer-body')!
+        return {
+          scrollTop: el.scrollTop,
+          zoom: document.querySelector('.mindmap-zoom')!.textContent || ''
+        }
+      })
+
+    const before = await readState()
+
+    // ---- 普通滚轮：应当滚动，不缩放 ----
+    await window.mouse.wheel(0, 300)
+    await window.waitForTimeout(300)
+    const afterScroll = await readState()
+    console.log(`普通滚轮: scrollTop ${before.scrollTop} → ${afterScroll.scrollTop}，缩放 ${before.zoom} → ${afterScroll.zoom}`)
+    expect(afterScroll.scrollTop, '普通滚轮应当滚动画布').toBeGreaterThan(before.scrollTop)
+    expect(afterScroll.zoom, '普通滚轮不应改变缩放').toBe(before.zoom)
+
+    // ---- Ctrl+滚轮：应当缩放，滚动位置不被原生滚动带偏 ----
+    await window.keyboard.down('Control')
+    await window.mouse.wheel(0, -300)
+    await window.keyboard.up('Control')
+    await window.waitForTimeout(300)
+    const afterZoom = await readState()
+    console.log(`Ctrl+滚轮: 缩放 ${afterScroll.zoom} → ${afterZoom.zoom}`)
+    expect(afterZoom.zoom, 'Ctrl+滚轮应当放大').not.toBe(afterScroll.zoom)
+    const toPercent = (text: string): number => Number.parseInt(text.replace('%', ''), 10)
+    expect(toPercent(afterZoom.zoom)).toBeGreaterThan(toPercent(afterScroll.zoom))
+
+    await app.close()
+    fs.rmSync(dataDirectory, { recursive: true, force: true })
+  })
+
+  /**
+   * 0.7.6：概括括号只描边、不填色。
+   *
+   * 根因是 <Geometry NoFill="1"> 被忽略，而 <FillFormat> 里还留着与描边同色的绿，
+   * 于是括号被填成实心色块（用户的描述是「像在 Illustrator 里把描边设成了填充」）。
+   */
+  test('strokes summary brackets instead of filling them', async () => {
+    const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'coc-076-summary-'))
+    const dataDir = path.join(dataDirectory, 'data')
+    fs.mkdirSync(dataDir, { recursive: true })
+    seedDatabase(path.join(dataDir, 'coc.sqlite'), MINDMAP!)
+
+    const app = await launch(dataDirectory)
+    const window = await app.firstWindow()
+    await window.waitForLoadState('domcontentloaded')
+    await openMindmap(window)
+    await expect(window.locator('.mindmap-canvas svg').first()).toBeVisible({ timeout: 20000 })
+    await window.waitForTimeout(500)
+
+    const result = await window.evaluate(() => {
+      const svg = document.querySelector('.mindmap-canvas svg')!
+      const paths = [...svg.querySelectorAll('path')]
+      // 按 data-path-type 区分，不能只看颜色：绿色描边既有概括括号（不填色），
+      // 也有 Floating 浮动框（绿底白字，本来就该填）
+      const summaries = paths.filter((p) => p.getAttribute('data-path-type') === 'Summary')
+      const filledSummaries = summaries.filter((p) => {
+        const fill = p.getAttribute('fill')
+        return fill !== null && fill !== 'none'
+      })
+      const boundaries = paths.filter((p) => p.getAttribute('data-path-type') === 'Boundary')
+      return {
+        summaries: summaries.length,
+        filled: filledSummaries.map((p) => p.getAttribute('fill')),
+        boundaries: boundaries.length,
+        filledBoundaries: boundaries.filter((p) => (p.getAttribute('fill') || 'none') !== 'none').length
+      }
+    })
+
+    console.log(
+      `概括括号 ${result.summaries} 条，其中被填色的 ${result.filled.length} 条；` +
+        `可见分组框 ${result.boundaries} 个（填色 ${result.filledBoundaries} 个）`
+    )
+    expect(result.summaries, '应有概括括号').toBeGreaterThan(3)
+    expect(result.filled, `概括括号不该填色：${result.filled.slice(0, 5).join(' ')}`).toEqual([])
+    // 这份导图里的分组框都处在被折叠的分支中，画布上看不到，所以只在
+    // 「确实画出来了」时要求它铺着底色（别把两种图形一起改坏）；
+    // 该不该填色本身由单元测试用构造数据覆盖
+    // （tests/emmx-summary-font-wheel-076.test.ts 的 boundary 用例）。
+    if (result.boundaries > 0) {
+      expect(result.filledBoundaries, '分组框仍应铺底色').toBe(result.boundaries)
+    }
+
+    await app.close()
+    fs.rmSync(dataDirectory, { recursive: true, force: true })
+  })
+
+  /**
+   * 0.7.6：导图文字用应用自己的字体（内置苹方 / SF Pro），不是写死的微软雅黑。
+   */
+  test('renders map text with the application font', async () => {
+    const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'coc-076-font-'))
+    const dataDir = path.join(dataDirectory, 'data')
+    fs.mkdirSync(dataDir, { recursive: true })
+    seedDatabase(path.join(dataDir, 'coc.sqlite'), MINDMAP!)
+
+    const app = await launch(dataDirectory)
+    const window = await app.firstWindow()
+    await window.waitForLoadState('domcontentloaded')
+    await openMindmap(window)
+    await expect(window.locator('.mindmap-canvas svg').first()).toBeVisible({ timeout: 20000 })
+    await window.waitForTimeout(500)
+
+    const fonts = await window.evaluate(() => {
+      const svg = document.querySelector('.mindmap-canvas svg')!
+      const families = new Set<string>()
+      for (const text of svg.querySelectorAll('text')) {
+        families.add(text.getAttribute('font-family') || '(无)')
+      }
+      return [...families]
+    })
+    console.log('导图文字字体:', JSON.stringify(fonts))
+    expect(fonts).toHaveLength(1)
+    expect(fonts[0]).not.toContain('Microsoft YaHei')
+    expect(fonts[0]).toContain('PingFang SC')
+
+    await app.close()
+    fs.rmSync(dataDirectory, { recursive: true, force: true })
+  })
 })

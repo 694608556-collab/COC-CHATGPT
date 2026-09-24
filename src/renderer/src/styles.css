@@ -3400,6 +3400,19 @@ grid-row:6;
   font-variant-numeric: tabular-nums;
 }
 
+/* 操作提示（0.7.6：滚轮默认滚动、Ctrl+滚轮缩放）。
+   只是说明文字，不抢按钮的位置，窄窗口时让它先消失。 */
+.mindmap-hint {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: color-mix(in srgb, #fff 62%, transparent);
+  font-size: 11px;
+  cursor: default;
+}
+
 .mindmap-tab:hover,
 .mindmap-action:hover,
 .mindmap-page:hover {
