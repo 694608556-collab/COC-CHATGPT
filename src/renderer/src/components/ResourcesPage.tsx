@@ -468,7 +468,13 @@ export function ResourcesPage({
       <div
         key={resource.id}
         className={gone ? 'resource-tile missing' : 'resource-tile'}
-        data-tip={gone ? '文件找不到了，可能已被移动或删除' : label}
+        /*
+         * 卡片本身不挂 data-tip。
+         *
+         * 0.7.8：此前提示跟着整张卡片的悬停走，拖动时鼠标正压在卡片上，
+         * 那个白字黑底的全名框就一直冒出来挡视线——用户明确说不需要它。
+         * 全名提示改挂在文件名外面那层包装上（见下面的 resource-tile-name-wrap）。
+         */
         draggable
         onDragStart={(event) => {
           draggingRef.current = resource.id
@@ -528,7 +534,16 @@ export function ResourcesPage({
             </span>
           )}
         </div>
-        <span className="resource-tile-name">{label}</span>
+        {/*
+          文件名：超出会省略号截断。
+          提示挂在**外面这层包装**上，而不是名字本身——名字有 `overflow: hidden`
+          用于截断，伪元素会被一起裁掉，提示根本显示不出来。
+          包装层不裁剪，提示能正常弹出；且只有悬停名字这一小块时才触发，
+          拖动时鼠标压在卡片中间不会冒出提示框（0.7.8）。
+        */}
+        <span className="resource-tile-name-wrap" data-tip={label}>
+          <span className="resource-tile-name">{label}</span>
+        </span>
         {gone && <span className="resource-tile-missing">找不到</span>}
         {/*
           悬停才出现的四个操作：更新 / 编辑 / 打开文件所在位置 / 移除。

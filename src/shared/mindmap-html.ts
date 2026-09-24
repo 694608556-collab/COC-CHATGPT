@@ -33,6 +33,37 @@ export interface HtmlMindmapDocument {
   modifiedAt?: string
 }
 
+/**
+ * 应用内置的字体栈，与界面、以及 .emmx 解析出的导图保持一致。
+ *
+ * 见 renderer/src/main.tsx 的 @font-face：这几个字体随程序打包，不依赖系统。
+ */
+const APP_FONT_STACK = "'SF Pro Text', 'SF Pro Display', 'PingFang SC', 'Segoe UI', sans-serif"
+
+/**
+ * 把 svg 内嵌 `<style>` 里的 font-family 统一换成应用字体。
+ *
+ * 0.7.8：EdrawMind 的 HTML 导出把字体写在 CSS 类里，用的却是**系统字体名**
+ * ——实测同一份文件里就有 `苹方 粗体`、`.萍方-简`（原文如此，带前导点）、
+ * `微软雅黑`、`方正黑体简体` 四种。这些名字在 Windows 上要么匹配不到、
+ * 要么落到字形不同的替代字体上，于是导图文字与界面明显不一致
+ * （用户反馈「html 格式文件打开后，字体需要默认为应用字体」）。
+ *
+ * 只替换 font-family 的值，其余声明（fill / font-size / font-weight）原样保留：
+ * 颜色和字号是用户自己在导图里设的，必须尊重。
+ */
+function applyAppFont(svg: string): string {
+  return (
+    svg
+      // CSS 形式：font-family:苹方 粗体  /  font-family: 微软雅黑;
+      .replace(/(\bfont-family\s*:\s*)([^;}]+)/gi, (_all, head: string) => `${head}${APP_FONT_STACK}`)
+      // 属性形式：font-family="苹方 粗体"（导出的 svg 目前没用，兜住以防格式变化）
+      .replace(/(\bfont-family\s*=\s*")([^"]*)(")/gi, (_all, head: string, _v: string, tail: string) =>
+        `${head}${APP_FONT_STACK}${tail}`
+      )
+  )
+}
+
 /** 从 svg 的 viewBox / width / height 里取出尺寸 */
 function readSvgSize(svg: string): { width: number; height: number } {
   const viewBox = svg.match(/viewBox="([-\d.\s]+)"/)
@@ -109,7 +140,9 @@ export function parseMindmapHtml(html: string): HtmlMindmapDocument {
     const attrs = match[1]!
     const body = match[2]!
     const id = attrs.match(/id="([^"]*)"/)?.[1] ?? `page${index}`
-    const full = `<svg${attrs}>${body}</svg>`
+    // 字体统一成应用字体：导出的 svg 用的是「苹方 粗体」「微软雅黑」这类
+    // 系统字体名，Windows 上匹配不到就会退回默认字体，与界面不一致
+    const full = applyAppFont(`<svg${attrs}>${body}</svg>`)
     const size = readSvgSize(full)
     // 尺寸为 0 的 svg 通常是图标之类，跳过
     if (!size.width || !size.height) continue

@@ -3138,10 +3138,19 @@ grid-row:6;
   user-select: none;
 }
 
-/* 悬停与失效态只换颜色，不改尺寸：卡片大小始终一致 */
+/*
+ * 悬停不铺底色、不画边框（0.7.8）。
+ *
+ * 用户反馈「拖拽时还是有整块的底色，我想要的效果是只有图标 + 文件名称，
+ * 别的杂七杂八的底色都不要」。此前悬停会给卡片铺一层 panel2 底色 + 一圈边框，
+ * 拖动时鼠标正压在卡片上，那一整块灰色就一直跟着走。
+ *
+ * 现在只保留「操作按钮淡入」这一处反馈：既看得出鼠标在哪，又不会多出一块色。
+ * 边框仍留在盒模型里（透明），只是不再上色，卡片尺寸与位置完全不变。
+ */
 .resource-tile:hover {
-  background: var(--panel2);
-  border-color: var(--line);
+  background: transparent;
+  border-color: transparent;
 }
 
 /* 拖拽中的卡片淡一点，落点分组高亮 */
@@ -3149,13 +3158,22 @@ grid-row:6;
   cursor: grab;
 }
 
+/* 拖拽中不铺任何底色：只要图标 + 文件名 */
+.resource-tile:active {
+  background: transparent;
+}
+
 .resource-group.drop-target {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
 
+/*
+ * 「文件找不到」只在文件名上标红，不再给整张卡片画一圈红框
+ * ——同样是为了「不要整块底色」（0.7.8）。
+ */
 .resource-tile.missing {
-  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  border-color: transparent;
 }
 
 .resource-tile-preview {
@@ -3200,6 +3218,12 @@ grid-row:6;
 }
 
 .resource-tile-name {
+  /*
+   * 必须显式 block：它现在位于 .resource-tile-name-wrap 里（普通块级父元素），
+   * 不再是 flex 项，就不会被 blockify —— inline 元素上 width/overflow/
+   * text-overflow 全都不生效，长标题会直接撑破卡片（0.7.8）。
+   */
+  display: block;
   width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3309,6 +3333,33 @@ grid-row:6;
  */
 .resource-tile[data-tip]:has(.resource-tile-actions :hover)::after {
   content: none;
+}
+
+/*
+ * 文件名的全名提示（0.7.8）。
+ *
+ * 名字超出会被省略号截断，鼠标停在**名字上**才显示全名。
+ *
+ * 两个要点：
+ *  1. 提示挂在名字**外面那层包装**上：名字自己有 `overflow: hidden`（截断用），
+ *     伪元素会被一起裁掉，挂在名字上提示根本显示不出来。包装层不裁剪。
+ *  2. 挂在名字这一小块而不是整张卡片上：拖动时鼠标压在卡片中间，
+ *     卡片级提示会一直跟着冒出来挡住视线——用户明确说不要那个框。
+ *  3. 向上展开：名字在卡片底部，向下会盖住下一行卡片。
+ */
+.resource-tile-name-wrap {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.resource-tile-name-wrap[data-tip]:hover::after {
+  top: auto;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 45;
 }
 
 /* 图标自己的提示层级高于卡片提示，免得被盖住 */
