@@ -3130,10 +3130,15 @@ grid-row:6;
    * 这里把空间**恒定**留出来（30px = 按钮 4+24 + 2px 间隔），而不是悬停时
    * 才撑开：悬停才改变尺寸会让卡片在鼠标进出、拖拽经过时跳动，
    * 看起来就是「卡片宽度/大小偶尔不一样」。
+   *
+   * 0.8.1：底部内边距由 8px 收到 4px。此前卡片底部比内容多出一截空白，
+   * 拖拽时那圈淡紫描边贴着卡片真实边界画，于是「看得见的内容」下方空一块，
+   * 看起来就像描边比卡片小一圈、造型对不上。收紧后描边正好箍住内容。
    */
-  padding: 30px 6px 8px;
+  padding: 30px 6px 4px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  /* 圆角收小：描边要跟着卡片的形状走，8px 在大卡片上显得过于圆润 */
+  border-radius: 6px;
   cursor: default;
   user-select: none;
 }
@@ -3172,11 +3177,13 @@ grid-row:6;
  *
  * 改成只加内描边：既明确指示「松手会放到这里」，又不产生任何色块。
  * 用内描边而不是加粗边框，是因为加粗边框会改变盒模型、让分组跳动。
+ *
+ * 0.8.1：线宽由 2px 收到 1px，与被拖卡片那圈描边同宽（用户反馈 2px 太粗）。
  */
 .resource-group.drop-target {
   border-color: var(--accent);
   background: transparent;
-  box-shadow: inset 0 0 0 2px var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 /*
@@ -3195,17 +3202,20 @@ body[data-dragging='true'] [data-tip]::after {
 }
 
 /*
- * 正在被拖的那张卡片：淡紫描边（0.8.0）。
+ * 正在被拖的那张卡片：淡紫描边（0.8.0，0.8.1 改为卡片自身的边框）。
  *
- * 用户要求「不论鼠标精准停在图标上还是周边，拖拽后的显示效果都一致」。
- * 描边用 inset box-shadow 而不是 border，避免改变盒模型让卡片跳动；
- * 颜色与落点分组一致，视觉上成套。
+ * 用户要求「不论鼠标精准停在图标上还是周边，拖拽后的显示效果都一致」，
+ * 且「紫色边框要和实际拖拽的外框造型大小一致」。
  *
- * 用卡片自己的 data-resource-id 与 body 上的拖拽标记配合选中，
- * 这样不必依赖 React state（异步），描边在 dragstart 当帧就出现。
+ * 0.8.1 改用卡片**自己的边框**上色，而不是 inset box-shadow：
+ *  - 边框本来就存在（1px 透明），上色不改变盒模型，卡片不会跳；
+ *  - 描边就是卡片的外框本身，形状（border-radius）、尺寸、位置天然完全一致，
+ *    不会出现「描边比卡片小一圈」的观感；
+ *  - 线宽与卡片边框同为 1px。此前 2px 的 inset 阴影在 Windows 常见的
+ *    125% 缩放下会渲染成 2.5 设备像素，比卡片边框粗一大截，很突兀。
  */
 body[data-dragging='true'] .resource-tile[data-dragging='true'] {
-  box-shadow: inset 0 0 0 2px var(--accent);
+  border-color: var(--accent);
   background: transparent;
 }
 

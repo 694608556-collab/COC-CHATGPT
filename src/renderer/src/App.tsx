@@ -1844,9 +1844,17 @@ export default function App(): React.JSX.Element {
                                             {record.name}
                                           </button>
                                           {record.link && (
-                                            <small className="record-link" title={record.link}>
-                                              {record.link}
-                                            </small>
+                                            /*
+                                             * 不加 title（0.8.1）。
+                                             *
+                                             * 用户反馈「鼠标停留在跑团链接时，过一会会自动
+                                             * 出现完整地址的悬停窗，这个功能在跑团记录页面
+                                             * 没有必要」——那是浏览器原生 title 提示，样式是
+                                             * 系统黑底方块，与应用风格也不一致。
+                                             * 地址文字本身仍然显示（过长会截断），需要完整
+                                             * 地址时点进详情页即可。
+                                             */
+                                            <small className="record-link">{record.link}</small>
                                           )}
                                         </td>
                                         <td>

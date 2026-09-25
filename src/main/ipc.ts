@@ -147,6 +147,141 @@ const characterData = z
   })
   .strict()
 
+/**
+ * 字段名 → 用户看得懂的中文。
+ *
+ * 校验失败时要说清「哪个字段、错在哪」，而不是笼统的「输入内容不完整或格式不正确」。
+ * 用户看到「资料 ID 无效」就知道是数据坏了，看到「标题过长（最多 300 字）」
+ * 就知道该改什么；只给一句通用提示等于没说。
+ */
+const FIELD_LABELS: Record<string, string> = {
+  id: '资料 ID',
+  moduleId: '归属模组',
+  title: '标题',
+  name: '名称',
+  path: '文件路径',
+  url: '链接地址',
+  note: '备注',
+  kind: '资料类型',
+  content: '正文',
+  targetPath: '文件路径',
+  targetIndex: '排序位置',
+  paths: '文件列表',
+  images: '图片',
+  moduleName: '模组名',
+  noteDate: '日期',
+  link: '跑团链接',
+  playStatus: '跑团状态',
+  sequenceNo: '场次编号',
+  kps: 'KP',
+  pairs: 'PC / PL',
+  format: '导出格式',
+  theme: '主题',
+  edition: '规则版本',
+  skills: '技能',
+  weapons: '武器',
+  items: '物品',
+  attrs: '基础属性',
+  derived: '派生属性',
+  basic: '基本信息',
+  background: '背景',
+  story: '经历',
+  occupation: '职业',
+  skills_json: '技能',
+  kps_json: 'KP',
+  pairs_json: 'PC / PL'
+}
+
+/** zod 的 issue → 用户看得懂的说法（zod v4 的 code 与字段名见下面的实测形状） */
+function describeIssue(issue: z.core.$ZodIssue): string {
+  const field = issue.path.length ? issue.path.map((part) => String(part)).join('.') : ''
+  const label = FIELD_LABELS[field] ?? (field || '输入内容')
+  switch (issue.code) {
+    case 'invalid_type': {
+      const detail = issue as { expected?: string; input?: unknown }
+      /*
+       * 判断「没填」还是「填错类型」。
+       *
+       * zod v4 的 issue 上**没有** input 字段（v3 有），只有英文 message，
+       * 形如 `Invalid input: expected string, received undefined`。
+       * 所以这里从 message 里取 received 那一截：是 undefined 才算「没填」，
+       * 否则是类型不对（把数字当文字传之类）。取不到就按类型不对处理——
+       * 说「格式不对」比误报「没填」更贴近事实。
+       */
+      const received =
+        detail.input !== undefined
+          ? detail.input
+          : /received\s+(\S+)/.exec(issue.message)?.[1]
+      if (received === undefined || received === 'undefined') {
+        return `${label}：缺少必填内容`
+      }
+      return `${label}：格式不对（应为${describeExpected(detail.expected)}）`
+    }
+    case 'too_small': {
+      const detail = issue as { origin?: string; minimum?: number | bigint }
+      if (detail.origin === 'string') return `${label}：不能为空`
+      return `${label}：不能小于 ${String(detail.minimum)}`
+    }
+    case 'too_big': {
+      const detail = issue as { origin?: string; maximum?: number | bigint }
+      if (detail.origin === 'string') return `${label}：内容过长，最多 ${String(detail.maximum)} 个字`
+      return `${label}：不能大于 ${String(detail.maximum)}`
+    }
+    case 'invalid_format': {
+      const format = (issue as { format?: string }).format
+      if (format === 'uuid') return `${label}：无效（数据可能已损坏）`
+      if (format === 'url') return `${label}：不是有效的网址`
+      if (format === 'email') return `${label}：不是有效的邮箱`
+      return `${label}：格式不正确`
+    }
+    case 'invalid_value': {
+      // zod v4 把枚举的候选值放在 values（v3 叫 options）
+      const detail = issue as { values?: unknown[]; options?: unknown[] }
+      const allowed = detail.values ?? detail.options
+      if (Array.isArray(allowed) && allowed.length) {
+        return `${label}：只能选 ${allowed.map((item) => String(item)).join(' / ')}`
+      }
+      return `${label}：取值不对`
+    }
+    case 'unrecognized_keys': {
+      const keys = (issue as { keys?: string[] }).keys ?? []
+      return `出现了不认识的字段：${keys.join('、')}`
+    }
+    case 'invalid_union':
+      return `${label}：格式不正确`
+    case 'not_multiple_of':
+      return `${label}：取值不对`
+    default:
+      return `${label}：${issue.message}`
+  }
+}
+
+/** zod 的 expected 类型名 → 中文 */
+function describeExpected(expected: string | undefined): string {
+  if (expected === 'string') return '文字'
+  if (expected === 'number') return '数字'
+  if (expected === 'boolean') return '是/否'
+  if (expected === 'array') return '列表'
+  if (expected === 'object') return '一组内容'
+  if (expected === 'undefined') return '留空'
+  return expected ?? '其它格式'
+}
+
+/** 把 zod 的报错整理成一句用户能照着改的提示 */
+function describeValidationError(error: z.ZodError): string {
+  const seen = new Set<string>()
+  const parts: string[] = []
+  for (const issue of error.issues) {
+    const text = describeIssue(issue)
+    // 同一个字段可能报多条，去重后更易读
+    if (seen.has(text)) continue
+    seen.add(text)
+    parts.push(text)
+    if (parts.length >= 3) break
+  }
+  return parts.length ? parts.join('；') : '输入内容不完整或格式不正确。'
+}
+
 function register<TInput, TOutput>(
   channel: string,
   schema: z.ZodType<TInput>,
@@ -161,7 +296,7 @@ function register<TInput, TOutput>(
     } catch (error) {
       const normalized =
         error instanceof z.ZodError
-          ? new AppError('VALIDATION_INPUT', 'VALIDATION', '输入内容不完整或格式不正确。')
+          ? new AppError('VALIDATION_INPUT', 'VALIDATION', describeValidationError(error))
           : error
       return { ok: false, error: serializeError(normalized) }
     }

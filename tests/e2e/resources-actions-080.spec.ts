@@ -155,6 +155,8 @@ test.describe('0.8.0 dragging looks the same wherever you grab', () => {
         tileMarked: tile.getAttribute('data-dragging'),
         tipContent: getComputedStyle(wrapEl, '::after').content,
         tileShadow: cs.boxShadow,
+        tileBorderColor: cs.borderTopColor,
+        tileBorderWidth: cs.borderTopWidth,
         tileBackground: cs.backgroundColor
       }
     })
@@ -164,8 +166,15 @@ test.describe('0.8.0 dragging looks the same wherever you grab', () => {
     expect(during.tipContent, '拖拽时提示框必须消失（否则会被拍进拖拽影像）').toBe('none')
     expect(during.bodyMarked, 'body 应有拖拽标记').toBe('true')
     expect(during.tileMarked, '被拖的卡片应有拖拽标记').toBe('true')
-    // 卡片本体：淡紫描边、无底色
-    expect(during.tileShadow, '被拖的卡片应有描边').toContain('inset')
+    /*
+     * 卡片本体的描边（0.8.1）。
+     *
+     * 改用卡片**自身的边框**上色，而不是 inset 阴影：边框本来就存在，
+     * 上色不改变盒模型，而且形状（圆角）、尺寸、位置与卡片天然完全一致
+     * ——用户反馈过 2px 的 inset 阴影「太粗，且比卡片小一圈」。
+     */
+    expect(during.tileBorderColor, '被拖的卡片边框应变成主题色').toBe('rgb(109, 69, 245)')
+    expect(during.tileShadow, '不该再用 inset 阴影（会看起来比卡片小一圈）').toBe('none')
     expect(
       during.tileBackground === 'rgba(0, 0, 0, 0)' || during.tileBackground === 'transparent',
       `被拖的卡片不该铺底色，实际 ${during.tileBackground}`

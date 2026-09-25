@@ -35,12 +35,13 @@ describe('0.8.0 dragging shows a consistent outline, never a colour block', () =
     expect(page).toContain("setAttribute('data-dragging', 'true')")
     expect(page).toContain("removeAttribute('data-dragging')")
     expect(page).toContain('data-resource-id={resource.id}')
-    // 描边样式存在，且不铺底色
+    // 描边样式存在，且不铺底色。
+    // 0.8.1 起改用卡片自身的边框上色（形状/尺寸天然与卡片一致，不会「小一圈」）
     const rule = /body\[data-dragging='true'\] \.resource-tile\[data-dragging='true'\] \{([^}]*)\}/.exec(
       styles
     )?.[1]
     expect(rule, '应有「正在拖的卡片」描边规则').toBeDefined()
-    expect(rule!).toContain('box-shadow: inset 0 0 0 2px var(--accent)')
+    expect(rule!).toContain('border-color: var(--accent)')
     expect(rule!).toContain('background: transparent')
   })
 
@@ -56,7 +57,8 @@ describe('0.8.0 dragging shows a consistent outline, never a colour block', () =
     const rule = /\.resource-group\.drop-target \{([^}]*)\}/.exec(styles)?.[1]
     expect(rule).toBeDefined()
     expect(rule!).toContain('background: transparent')
-    expect(rule!).toContain('box-shadow: inset 0 0 0 2px var(--accent)')
+    // 0.8.1：线宽收到 1px，与被拖卡片的描边同宽
+    expect(rule!).toContain('box-shadow: inset 0 0 0 1px var(--accent)')
   })
 
   it('uses inset outline instead of a border so nothing shifts', () => {
