@@ -3,9 +3,12 @@
  *
  * 用户要求：
  * - 原「文件夹」图标的功能改为「打开文件所在位置」，提示词跟着改
- * - 在「更新」与「文件夹」之间新增「编辑」图标，功能是「用源程序打开」
- *   （导图交给 EdrawMind、文档交给 Word、图片交给默认看图器）
+ * - 在「更新」与「文件夹」之间新增「编辑」图标
  * - 四个图标大小一致、正好占满卡片顶部
+ *
+ * 0.8.0 起「编辑」的含义变了：不再是「用源程序打开」，而是**修改资料信息**
+ * （标题 / 归属模组 / 备注）。「用源程序打开」保留在双击卡片上。
+ * 本文件按新含义更新断言。
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -18,8 +21,8 @@ describe('0.7.1 stage 5: four equal action icons', () => {
   it('has exactly four actions in the documented order', () => {
     const page = read('src/renderer/src/components/ResourcesPage.tsx')
     const block = page.slice(page.indexOf('resource-tile-actions'), page.indexOf('const renderGroup'))
-    // 四个动作按顺序：更新 / 编辑 / 打开文件所在位置 / 移除
-    const order = ['更新', '编辑', '打开文件所在位置', '从汇总里移除']
+    // 四个动作按顺序：更新 / 修改信息 / 打开文件所在位置 / 移除
+    const order = ['更新', '修改信息', '打开文件所在位置', '从汇总里移除']
     let cursor = -1
     for (const label of order) {
       const at = block.indexOf(label, cursor + 1)
@@ -30,11 +33,15 @@ describe('0.7.1 stage 5: four equal action icons', () => {
     expect((block.match(/data-tip=/g) ?? []).length).toBe(4)
   })
 
-  it('points the edit icon at the original application', () => {
+  it('points the edit icon at the info editor', () => {
     const page = read('src/renderer/src/components/ResourcesPage.tsx')
-    expect(page).toContain('openInOriginalApp')
+    // 0.8.0：笔 = 修改资料信息，不再是用原程序打开
+    expect(page).toContain('openEditor(resource)')
     // 编辑图标用铅笔
     expect(page).toContain('PencilIcon')
+    // 「用原程序打开」没丢，挂在双击卡片上
+    expect(page).toContain('openInOriginalApp')
+    expect(page).toMatch(/onDoubleClick=\{\(\) => void openResource\(resource\)\}/)
   })
 
   it('reveals the file in the file manager instead of opening it', () => {

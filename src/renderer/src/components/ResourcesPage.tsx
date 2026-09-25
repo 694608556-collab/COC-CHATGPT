@@ -69,6 +69,22 @@ export function ResourcesPage({
   const draggingRef = useRef<string | undefined>(undefined)
 
   /**
+   * 正在编辑信息的资料（0.8.0）。
+   *
+   * 与「添加资料」的 draft 分开：draft 是新建、只写不读；editor 是改已有资料，
+   * 打开时要先把当前值填进去。两者字段相近但语义不同，混用容易把新建变成覆盖。
+   */
+  const [editor, setEditor] = useState<{
+    id: string
+    kind: ModuleResourceKind
+    title: string
+    moduleId: string
+    note: string
+    url: string
+    path: string
+  }>()
+
+  /**
    * 分组：每个模组一组，未归属的单独一组放在最下面。
    *
    * 「已移除」标记只用来隐藏【空分组】，绝不能把还有资料的分组藏起来——
@@ -334,6 +350,81 @@ export function ResourcesPage({
     }
   }
 
+  /**
+   * 打开「信息修改」弹窗（0.8.0）。
+   *
+   * 用户要求：资料汇总里所有「笔」图标不再是「用原程序打开」，
+   * 改成修改这条资料自己的信息——标题、归属模组、备注；
+   * 链接类还能改链接地址，文件类能重新指定文件。
+   *
+   * 「用原程序打开」仍然保留在**双击卡片**上，功能没有丢。
+   */
+  const openEditor = (resource: ModuleResource): void => {
+    setEditor({
+      id: resource.id,
+      kind: resource.kind,
+      title: resource.title ?? '',
+      moduleId: resource.moduleId ?? '',
+      note: resource.note ?? '',
+      url: resource.url ?? '',
+      path: resource.path ?? ''
+    })
+  }
+
+  /** 保存信息修改 */
+  const saveEditor = async (): Promise<void> => {
+    if (!editor) return
+    // 链接类必须有地址，否则这条资料打开就没意义
+    if (editor.kind === 'link' && !editor.url.trim()) {
+      onNotice('请填写链接地址')
+      return
+    }
+    if (editor.kind !== 'link' && !editor.path.trim()) {
+      onNotice('请先选择文件')
+      return
+    }
+    setBusy(true)
+    try {
+      await window.coc.resources.update(editor.id, {
+        title: editor.title.trim(),
+        ...(editor.kind === 'link' ? { url: editor.url.trim() } : { path: editor.path.trim() }),
+        // 备注清空时传空串（后端按 trim 后的值存），保证「删掉备注」能生效
+        note: editor.note.trim()
+      })
+      // 归属单独一个接口
+      const current = resources.find((item) => item.id === editor.id)
+      const nextModuleId = editor.moduleId || undefined
+      if ((current?.moduleId ?? undefined) !== nextModuleId) {
+        await window.coc.resources.setModule(editor.id, nextModuleId)
+      }
+      setEditor(undefined)
+      await onChanged()
+      onNotice('资料信息已更新')
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : '保存失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 在信息修改弹窗里重新指定文件（只改路径，不改归属） */
+  const pickEditorFile = async (): Promise<void> => {
+    if (!editor) return
+    try {
+      const picked = await window.coc.resources.chooseReplacement(editor.id)
+      if (!picked) return
+      // 先落到库里，再更新弹窗里的显示，避免弹窗显示与库不一致
+      await window.coc.resources.relink(editor.id, picked.path, picked.title)
+      setEditor((current) =>
+        current ? { ...current, path: picked.path, title: current.title || picked.title } : current
+      )
+      await onChanged()
+      onNotice('已重新指定文件')
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : '选择文件失败')
+    }
+  }
+
   const remove = (resource: ModuleResource): void => {
     setConfirmOptions({
       title: '移除资料',
@@ -469,6 +560,12 @@ export function ResourcesPage({
         key={resource.id}
         className={gone ? 'resource-tile missing' : 'resource-tile'}
         /*
+         * data-dragging 让 CSS 能同步给「正在被拖的这张」加描边。
+         * 用 DOM 属性而不是 React state：setState 是异步的，
+         * 而浏览器在 dragstart 当帧就截图做拖拽影像了。
+         */
+        data-resource-id={resource.id}
+        /*
          * 卡片本身不挂 data-tip。
          *
          * 0.7.8：此前提示跟着整张卡片的悬停走，拖动时鼠标正压在卡片上，
@@ -478,13 +575,31 @@ export function ResourcesPage({
         draggable
         onDragStart={(event) => {
           draggingRef.current = resource.id
+          /*
+           * 拖拽一开始就**同步**标记「正在拖这张」（0.8.0）。
+           *
+           * 用户反馈「拖拽资料仍有底色块，而且取决于鼠标抓取的位置：抓图标上没
+           * 有色块，抓图标周边就有，色块宽度和黑底提示框一致」。
+           *
+           * 实测确认了机制：dragstart 那一刻浏览器会把拖拽源（这张卡片）**截图**
+           * 作为「拖拽影像」跟着鼠标走。若此刻提示框正显示着，它连同溢出卡片的
+           * 部分会被一起拍进去——提示框实测 189px 宽、向上溢出卡片 35px，
+           * 而卡片只有 106px 宽，于是那个色块又宽又高，正好和提示框一样。
+           *
+           * 抓图标正中心时提示框不显示（提示只挂在文件名上），所以看着是干净的。
+           *
+           * 必须直接改 DOM 属性：setState 是异步的，等 React 重渲染完，
+           * 浏览器早就截完图了。CSS 据此收掉提示框、给这张卡片加描边。
+           */
+          document.body.setAttribute('data-dragging', 'true')
+          ;(event.currentTarget as HTMLElement).setAttribute('data-dragging', 'true')
           // 必须往 dataTransfer 里写点东西：Chromium 对「没有数据的拖拽」会当成
           // 无效操作，drop 事件时有时无——表现就是拖了却没反应，而且时好时坏
           // （0.7.2 的 e2e 用例此前会随机失败，就是这个原因）。
           event.dataTransfer.setData('text/plain', resource.id)
           event.dataTransfer.effectAllowed = 'move'
         }}
-        onDragEnd={() => {
+        onDragEnd={(event) => {
           // 只清理「自己这一张」的拖拽状态。
           //
           // 连续快速拖拽时，上一次的 dragend 有可能晚于下一次的 dragstart 才触发；
@@ -492,6 +607,8 @@ export function ResourcesPage({
           // 没反应」（0.7.2 的 e2e 用例此前会随机失败，就是这个原因）。
           if (draggingRef.current !== resource.id) return
           draggingRef.current = undefined
+          document.body.removeAttribute('data-dragging')
+          ;(event.currentTarget as HTMLElement).removeAttribute('data-dragging')
           setDropTarget(undefined)
         }}
         onDragOver={(event) => {
@@ -564,16 +681,20 @@ export function ResourcesPage({
           </button>
           <button
             className="icon-button module-remove"
-            data-tip="编辑（用原程序打开，导图交给 EdrawMind）"
-            aria-label={`编辑 ${label}`}
+            data-tip="修改信息（标题、归属模组、备注）"
+            aria-label={`修改 ${label} 的信息`}
             onClick={(event) => {
               event.stopPropagation()
-              void openInOriginalApp(resource)
+              openEditor(resource)
             }}
           >
             <PencilIcon />
           </button>
-          {/* 链接类资料没有本地文件，没有「所在位置」可打开 */}
+          {/*
+            链接类资料没有本地文件，没有「所在位置」可打开。
+            0.8.0：保留这个图标位置（四格不错位），但显示成灰色且不可点，
+            让用户看得出「这里本来有个按钮，只是这类资料用不上」。
+          */}
           {resource.path ? (
             <button
               className="icon-button module-remove"
@@ -587,7 +708,9 @@ export function ResourcesPage({
               <FolderIcon />
             </button>
           ) : (
-            <span className="icon-button module-remove is-placeholder" aria-hidden="true" />
+            <span className="icon-button module-remove is-placeholder" aria-hidden="true">
+              <FolderIcon />
+            </span>
           )}
           <button
             className="icon-button module-remove"
@@ -695,7 +818,7 @@ export function ResourcesPage({
               链接地址
               <input
                 type="url"
-                placeholder="https://www.notion.so/..."
+                placeholder=""
                 value={draft.url}
                 onChange={(event) => setDraft({ ...draft, url: event.target.value })}
               />
@@ -793,6 +916,79 @@ export function ResourcesPage({
 
       {confirmOptions && (
         <ConfirmDialog options={confirmOptions} onClose={() => setConfirmOptions(undefined)} />
+      )}
+
+      {/*
+        信息修改弹窗（0.8.0）。
+        用户要求：「笔」图标不再是「用原程序打开」，而是改这条资料自己的信息。
+        标题 / 归属模组 / 备注三项通用；链接类多一个链接地址，文件类能重新指定文件。
+        用原程序打开仍然保留在双击卡片上。
+      */}
+      {editor && (
+        <DialogShell title="修改资料信息" onClose={() => setEditor(undefined)}>
+          <div className="dialog-body resource-editor">
+            <label className="resource-field">
+              标题
+              <input
+                type="text"
+                placeholder="留空则用文件名"
+                value={editor.title}
+                onChange={(event) => setEditor({ ...editor, title: event.target.value })}
+              />
+            </label>
+
+            {editor.kind === 'link' ? (
+              <label className="resource-field">
+                链接地址
+                <input
+                  type="url"
+                  placeholder=""
+                  value={editor.url}
+                  onChange={(event) => setEditor({ ...editor, url: event.target.value })}
+                />
+              </label>
+            ) : (
+              <div className="resource-field resource-file-field">
+                文件
+                <button className="secondary" disabled={busy} onClick={() => void pickEditorFile()}>
+                  <FolderIcon /> 重新指定
+                </button>
+                <span className="resource-path" title={editor.path}>
+                  {editor.path || '尚未选择'}
+                </span>
+              </div>
+            )}
+
+            <SelectField
+              label="归属模组"
+              ariaLabel="归属模组"
+              value={editor.moduleId}
+              options={[
+                { value: '', label: '不归属任何模组' },
+                ...modules.map((module) => ({ value: module.id, label: module.name }))
+              ]}
+              onChange={(next) => setEditor({ ...editor, moduleId: next })}
+            />
+
+            <label className="resource-field">
+              备注
+              <input
+                type="text"
+                placeholder="可选，例如这张图讲什么"
+                value={editor.note}
+                onChange={(event) => setEditor({ ...editor, note: event.target.value })}
+              />
+            </label>
+          </div>
+          <footer className="modal-actions">
+            <button className="secondary" disabled={busy} onClick={() => setEditor(undefined)}>
+              取消
+            </button>
+            <button className="primary" disabled={busy} onClick={() => void saveEditor()}>
+              保存
+            </button>
+          </footer>
+        </DialogShell>
       )}
 
       {/* 新版 EdrawMind 导图无法显示图形时的说明 */}

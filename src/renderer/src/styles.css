@@ -3170,14 +3170,43 @@ grid-row:6;
  * 那个色块**不是卡片**，是**整个分组**：此前落点高亮给分组铺了一层
  * --accent-soft（实测 1642×214 像素的淡紫色块），拖动时非常显眼。
  *
- * 改成只加粗描边：既明确指示「松手会放到这里」，又不产生任何色块。
- * 边框颜色变化不改变盒模型尺寸，分组不会因为高亮而跳动。
+ * 改成只加内描边：既明确指示「松手会放到这里」，又不产生任何色块。
+ * 用内描边而不是加粗边框，是因为加粗边框会改变盒模型、让分组跳动。
  */
 .resource-group.drop-target {
   border-color: var(--accent);
   background: transparent;
-  /* 加内描边而不是加粗边框：边框加粗会改变布局 */
   box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/*
+ * 拖拽期间：收掉所有悬停提示框（0.8.0）。
+ *
+ * dragstart 那一刻浏览器会给拖拽源**截图**作为「拖拽影像」。
+ * 若此刻提示框正显示着，它连同溢出卡片的部分会被一起拍进去，
+ * 跟着鼠标走的就是一个又宽又高的色块（实测提示框 189px 宽、
+ * 向上溢出卡片 35px，而卡片只有 106px 宽）。
+ *
+ * 用 body 属性而不是 React state：state 更新是异步的，
+ * 等重渲染完浏览器早截完图了；属性 + CSS 是同步生效的。
+ */
+body[data-dragging='true'] [data-tip]::after {
+  content: none !important;
+}
+
+/*
+ * 正在被拖的那张卡片：淡紫描边（0.8.0）。
+ *
+ * 用户要求「不论鼠标精准停在图标上还是周边，拖拽后的显示效果都一致」。
+ * 描边用 inset box-shadow 而不是 border，避免改变盒模型让卡片跳动；
+ * 颜色与落点分组一致，视觉上成套。
+ *
+ * 用卡片自己的 data-resource-id 与 body 上的拖拽标记配合选中，
+ * 这样不必依赖 React state（异步），描边在 dragstart 当帧就出现。
+ */
+body[data-dragging='true'] .resource-tile[data-dragging='true'] {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  background: transparent;
 }
 
 /*
@@ -3286,11 +3315,19 @@ grid-row:6;
   background: var(--panel);
 }
 
-/* 链接类资料没有本地文件，「打开文件所在位置」用占位保持四格对齐 */
+/*
+ * 链接类资料没有本地文件，「打开文件所在位置」用占位保持四格对齐。
+ *
+ * 0.8.0：此前占位是个全透明的空 span（图标都不显示）。用户要求
+ * 「保留文件夹图标但显示灰色，鼠标无法点击」——这样既看得出这里本该有个按钮，
+ * 又明确它用不上。
+ */
 .resource-tile-actions .icon-button.is-placeholder {
   background: transparent;
   border-color: transparent;
   pointer-events: none;
+  cursor: default;
+  opacity: 0.38;
 }
 
 /*

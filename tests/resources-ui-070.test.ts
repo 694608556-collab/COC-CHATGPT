@@ -125,7 +125,8 @@ describe('0.7.0 UI contract', () => {
     // 0.7.1 改为 data-tip + 自绘浮层，样式与应用一致。
     expect(page).not.toContain('用原程序打开（编辑仍在原软件里进行）')
     expect(page).not.toContain('title="用原程序打开"')
-    expect(page).toContain('data-tip="编辑（用原程序打开，导图交给 EdrawMind）"')
+    // 0.8.0：编辑图标改为「修改信息」，提示词跟着改
+    expect(page).toContain('data-tip="修改信息（标题、归属模组、备注）"')
     expect(styles).toContain('[data-tip]:hover::after')
   })
 
