@@ -14,7 +14,14 @@
  * 由于合成鼠标事件不会触发浏览器原生拖拽，这里用**直接派发 dragstart/dragend 事件**
  * 的方式验证「标记与样式是否同步生效」——那正是修复的着力点。
  */
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import {
+  _electron as electron,
+  expect,
+  test,
+  type ElectronApplication,
+  type Locator,
+  type Page
+} from '@playwright/test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -103,6 +110,29 @@ async function openResources(window: Page): Promise<void> {
   await window.getByRole('button', { name: '资料汇总' }).click()
   await expect(window.locator('.resource-groups')).toBeVisible({ timeout: 15000 })
   await window.waitForTimeout(400)
+}
+
+/**
+ * 悬停某张卡片，并等操作按钮**真的可点**。
+ *
+ * 不能只 `hover()` + 固定 `waitForTimeout`：按钮行未悬停时是
+ * `pointer-events: none`，此刻那个位置属于 `.resource-tile-preview`。
+ * 如果悬停态没来得及生效就点击，Playwright 的命中检测会看到
+ * `<div class="resource-tile-preview"> intercepts pointer events`，
+ * 于是重试到 30 秒超时——这正是 0.8.2 那次「按钮点不动」的真实原因
+ * （不是层叠问题，是悬停态没成立；实测未悬停时命中预览区、悬停后命中按钮）。
+ */
+async function hoverTileAndWait(window: Page, tile: Locator): Promise<void> {
+  await tile.hover()
+  await window.waitForFunction(
+    () => {
+      const hovered = document.querySelector('.resource-tile:hover')
+      const actions = hovered?.querySelector('.resource-tile-actions')
+      return actions ? getComputedStyle(actions).pointerEvents !== 'none' : false
+    },
+    undefined,
+    { timeout: 5000 }
+  )
 }
 
 test.describe('0.8.0 dragging looks the same wherever you grab', () => {
@@ -217,23 +247,37 @@ test.describe('0.8.0 resource card actions', () => {
 
     // 找到链接类那张卡（标题是「世界回归进行曲」）
     const linkTile = window.locator('.resource-tile').filter({ hasText: '世界回归进行曲' }).first()
-    await linkTile.hover()
-    await window.waitForTimeout(300)
+    await hoverTileAndWait(window, linkTile)
 
     const info = await linkTile.evaluate((tile) => {
       const placeholder = tile.querySelector('.resource-tile-actions .is-placeholder')
       if (!placeholder) return { found: false as const }
       const cs = getComputedStyle(placeholder)
       const rect = placeholder.getBoundingClientRect()
+      const svg = placeholder.querySelector('svg')
+      // 与旁边真实按钮比对：外框造型必须一致
+      const sibling = tile.querySelector('.resource-tile-actions button')
+      const siblingCs = sibling ? getComputedStyle(sibling) : null
+      const siblingRect = sibling?.getBoundingClientRect()
       return {
         found: true as const,
         tag: placeholder.tagName,
-        hasIcon: Boolean(placeholder.querySelector('svg')),
+        hasIcon: Boolean(svg),
+        // 0.8.2：整体不降透明度（否则边框一起淡掉），只让里面的图标变淡
         opacity: cs.opacity,
+        svgOpacity: svg ? getComputedStyle(svg).opacity : null,
+        borderColor: cs.borderTopColor,
+        borderWidth: cs.borderTopWidth,
+        background: cs.backgroundColor,
+        siblingBorderColor: siblingCs?.borderTopColor ?? null,
         pointerEvents: cs.pointerEvents,
         cursor: cs.cursor,
         width: Math.round(rect.width),
-        height: Math.round(rect.height)
+        height: Math.round(rect.height),
+        sameBoxAsSibling: siblingRect
+          ? Math.abs(siblingRect.width - rect.width) < 0.5 &&
+            Math.abs(siblingRect.height - rect.height) < 0.5
+          : null
       }
     })
 
@@ -242,27 +286,29 @@ test.describe('0.8.0 resource card actions', () => {
     if (info.found) {
       // 保留图标本身
       expect(info.hasIcon, '占位里应保留文件夹图标').toBe(true)
-      // 灰色 + 不可点
-      expect(Number(info.opacity), '应置灰').toBeLessThan(0.6)
+      /*
+       * 灰色 + 不可点（0.8.2）。
+       *
+       * 0.8.0 用整体 opacity 0.38 变淡，但那样连**边框**一起淡掉了，
+       * 图标光秃秃地悬在三个带框按钮中间很突兀（用户反馈「看起来也很丑」）。
+       * 现在保留边框、只让 svg 变淡。
+       */
+      expect(Number(info.svgOpacity), '图标应置灰').toBeLessThan(0.6)
       expect(info.pointerEvents, '应不可点击').toBe('none')
       expect(info.cursor, '鼠标不该是手型').toBe('default')
+      // 外框造型与真实按钮一致（用户要求「同样保留外框造型」）
+      expect(info.borderColor, '应保留可见边框').not.toBe('rgba(0, 0, 0, 0)')
+      expect(info.borderColor, '边框颜色应与其它按钮一致').toBe(info.siblingBorderColor)
+      expect(info.sameBoxAsSibling, '尺寸应与其它按钮一致').toBe(true)
+      // 只保留边框，不铺底色
+      expect(info.background, '不该铺底色').toBe('rgba(0, 0, 0, 0)')
       // 保留位置（四格对齐）
       expect(info.width, '应保留宽度以维持四格对齐').toBeGreaterThan(10)
     }
 
     // 文件类那张卡应当是**可点击**的文件夹按钮
     const fileTile = window.locator('.resource-tile').filter({ hasText: '铸形骸' }).first()
-    await fileTile.hover()
-    // 等 :hover 真的生效（按钮行由 pointer-events 控制，未悬停时是 none）
-    await window.waitForFunction(
-      () => {
-        const tile = document.querySelector('.resource-tile:hover')
-        const actions = tile?.querySelector('.resource-tile-actions')
-        return actions ? getComputedStyle(actions).pointerEvents !== 'none' : false
-      },
-      undefined,
-      { timeout: 5000 }
-    )
+    await hoverTileAndWait(window, fileTile)
     const fileFolder = await fileTile.evaluate((tile) => {
       const buttons = [...tile.querySelectorAll('.resource-tile-actions button')]
       const folder = buttons.find((b) => b.getAttribute('aria-label')?.includes('所在位置'))
@@ -294,8 +340,7 @@ test.describe('0.8.0 resource card actions', () => {
     await openResources(window)
 
     const tile = window.locator('.resource-tile').filter({ hasText: '铸形骸' }).first()
-    await tile.hover()
-    await window.waitForTimeout(300)
+    await hoverTileAndWait(window, tile)
 
     // 点「笔」
     await tile.getByRole('button', { name: /修改 .* 的信息/ }).click()
@@ -350,8 +395,7 @@ test.describe('0.8.0 resource card actions', () => {
 
     // 链接类：应能改链接地址
     const linkTile = window.locator('.resource-tile').filter({ hasText: '世界回归进行曲' }).first()
-    await linkTile.hover()
-    await window.waitForTimeout(300)
+    await hoverTileAndWait(window, linkTile)
     await linkTile.getByRole('button', { name: /修改 .* 的信息/ }).click()
     const linkDialog = window.getByRole('dialog', { name: '修改资料信息' })
     await expect(linkDialog).toBeVisible({ timeout: 10000 })
@@ -363,8 +407,7 @@ test.describe('0.8.0 resource card actions', () => {
 
     // 文件类：应能重新指定文件
     const fileTile = window.locator('.resource-tile').filter({ hasText: '铸形骸' }).first()
-    await fileTile.hover()
-    await window.waitForTimeout(300)
+    await hoverTileAndWait(window, fileTile)
     await fileTile.getByRole('button', { name: /修改 .* 的信息/ }).click()
     const fileDialog = window.getByRole('dialog', { name: '修改资料信息' })
     await expect(fileDialog).toBeVisible({ timeout: 10000 })

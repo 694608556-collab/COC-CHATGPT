@@ -108,8 +108,8 @@ async function measureTiles(window: Page): Promise<
   })
 }
 
-test.describe('0.7.7 resource tiles never overlap their own icons', () => {
-  test('the hover actions do not cover the file icon', async () => {
+test.describe('0.7.7 resource tiles keep their own icons visible', () => {
+  test('the hover actions cover only the icon top edge, never its body', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'coc-077-tile-'))
     const dataDir = path.join(root, 'data')
     fs.mkdirSync(dataDir, { recursive: true })
@@ -122,21 +122,50 @@ test.describe('0.7.7 resource tiles never overlap their own icons', () => {
     await expect(window.locator('.resource-groups')).toBeVisible({ timeout: 15000 })
     await window.waitForTimeout(400)
 
-    // 未悬停时按钮不可见
+    /*
+     * 0.8.2 起这条用例的验收标准变了。
+     *
+     * 0.7.7 的要求是「按钮完全不压住图标」，代价是顶部恒定留出 30px，
+     * 结果不悬停时头重脚轻、看起来像「顶部空缺了一块」。
+     * 用户权衡后选择：图标与名称整体上移，接受悬停时与按钮轻微重合。
+     *
+     * 所以现在的要求是：重合只能发生在图标**顶部**，且幅度有限
+     * （图标本身通常居中，压到顶部边缘不影响识别）；图标主体与名称
+     * 必须完整可见。
+     */
+    const MAX_OVERLAP = 24
+
     const idle = await measureTiles(window)
     console.log('未悬停:', JSON.stringify(idle))
     for (const tile of idle) {
-      expect(tile.overlap, `「${tile.title}」的按钮不该压住内容（未悬停）`).toBeLessThanOrEqual(0)
+      // 未悬停时按钮是透明的，重合多少都不影响观感，这里只要求不溢出卡片
+      expect(tile.overlap, `「${tile.title}」的按钮不该超出卡片顶部`).toBeLessThanOrEqual(MAX_OVERLAP)
     }
 
-    // 悬停后按钮出现，但仍不能压住内容
     await window.locator('.resource-tile').first().hover()
     await window.waitForTimeout(300)
     const hovered = await measureTiles(window)
     console.log('悬停后:', JSON.stringify(hovered))
     for (const tile of hovered) {
-      expect(tile.overlap, `「${tile.title}」的按钮不该压住内容（悬停）`).toBeLessThanOrEqual(0)
+      expect(
+        tile.overlap,
+        `「${tile.title}」的按钮压住图标 ${tile.overlap}px，超过允许的 ${MAX_OVERLAP}px`
+      ).toBeLessThanOrEqual(MAX_OVERLAP)
     }
+
+    // 名称必须完整可见：按钮只占顶部，不该压到名称
+    const nameTop = await window.evaluate(() => {
+      const tile = document.querySelector('.resource-tile')!
+      const tr = tile.getBoundingClientRect()
+      const actions = tile.querySelector('.resource-tile-actions')!.getBoundingClientRect()
+      const name = tile.querySelector('.resource-tile-name-wrap')!.getBoundingClientRect()
+      return {
+        actionsBottom: Math.round(actions.bottom - tr.top),
+        nameTop: Math.round(name.top - tr.top)
+      }
+    })
+    console.log('按钮底部 / 名称顶部:', JSON.stringify(nameTop))
+    expect(nameTop.actionsBottom, '按钮不该压住名称').toBeLessThan(nameTop.nameTop)
 
     await app.close()
     fs.rmSync(root, { recursive: true, force: true })

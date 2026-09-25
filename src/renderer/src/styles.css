@@ -3121,21 +3121,22 @@ grid-row:6;
   align-items: center;
   gap: 6px;
   /*
-   * 顶部留出操作按钮的位置（0.7.7）。
+   * 上内边距由 30px 收到 10px（0.8.2）。
    *
-   * 那排按钮是绝对定位的，此前只留了 10px 上内边距，而按钮占 24px，
-   * 于是悬停时按钮必然压住下面的文件图标/缩略图（实测重叠 18px）——
-   * 就是用户截图里「图标重叠」的样子。
+   * 那排操作按钮是绝对定位的，需要占顶部约 28px（4 + 24）。0.7.7 为了让
+   * 悬停时按钮**不压住**图标，把这块空间恒定留了出来——结果不悬停时顶部
+   * 空出 30.8px、底部只剩 4.8px，头重脚轻，看起来像「顶部空缺了一块」。
    *
-   * 这里把空间**恒定**留出来（30px = 按钮 4+24 + 2px 间隔），而不是悬停时
-   * 才撑开：悬停才改变尺寸会让卡片在鼠标进出、拖拽经过时跳动，
-   * 看起来就是「卡片宽度/大小偶尔不一样」。
+   * 用户的选择：图标与名称整体上移，接受悬停时按钮与图标轻微重合，
+   * 优先保证平时的观感。所以这里把上内边距压到 10px（图标上移约 20px），
+   * 上下留白接近均衡（10 / 6）。
    *
-   * 0.8.1：底部内边距由 8px 收到 4px。此前卡片底部比内容多出一截空白，
-   * 拖拽时那圈淡紫描边贴着卡片真实边界画，于是「看得见的内容」下方空一块，
-   * 看起来就像描边比卡片小一圈、造型对不上。收紧后描边正好箍住内容。
+   * 注意仍然**恒定**不变：悬停才改尺寸会让卡片在鼠标进出、拖拽经过时跳动，
+   * 那正是 0.7.7 修过的「卡片大小偶尔不一样」。
+   *
+   * 0.8.1：底部由 8px 收到 4px，让拖拽描边箍住内容而不是空一截。
    */
-  padding: 30px 6px 4px;
+  padding: 10px 6px 6px;
   border: 1px solid transparent;
   /* 圆角收小：描边要跟着卡片的形状走，8px 在大卡片上显得过于圆润 */
   border-radius: 6px;
@@ -3307,7 +3308,16 @@ body[data-dragging='true'] .resource-tile[data-dragging='true'] {
   gap: 2px;
   opacity: 0;
   transition: opacity 120ms ease;
-  /* 隐藏时不可点，免得看不见的按钮抢走点击 */
+  /*
+   * 未悬停时不可点：此时该位置属于下面的预览区（实测 elementFromPoint
+   * 命中的是 .resource-tile-preview）。悬停后由下面那条规则切成 auto 才点得到。
+   *
+   * 0.8.2 排查记录：图标上移后一度出现「按钮点不动」的报错
+   * （`<div class="resource-tile-preview"> intercepts pointer events`），
+   * 当时以为是层叠问题。实测否掉了——加 z-index、或把内边距改回 30px，
+   * 结果都不变；真正的原因是**悬停态还没成立就点击**。
+   * 所以修在测试侧（等 pointer-events 变 auto 再点），样式无需改动。
+   */
   pointer-events: none;
 }
 
@@ -3331,13 +3341,23 @@ body[data-dragging='true'] .resource-tile[data-dragging='true'] {
  * 0.8.0：此前占位是个全透明的空 span（图标都不显示）。用户要求
  * 「保留文件夹图标但显示灰色，鼠标无法点击」——这样既看得出这里本该有个按钮，
  * 又明确它用不上。
+ *
+ * 0.8.2：保留**边框**，只把底色去掉。0.8.0 把边框也设成透明，结果那个图标
+ * 光秃秃地悬在三个带框按钮中间，很突兀（用户反馈「看起来也很丑」）。
+ * 现在四个按钮的外框造型一致，只有这一个里面是灰的、且点不动。
  */
 .resource-tile-actions .icon-button.is-placeholder {
   background: transparent;
-  border-color: transparent;
+  border-color: var(--line);
   pointer-events: none;
   cursor: default;
-  opacity: 0.38;
+  /* 只让图标变灰：连边框一起变淡会显得外框也缺了一块 */
+  color: var(--muted);
+  opacity: 1;
+}
+
+.resource-tile-actions .icon-button.is-placeholder svg {
+  opacity: 0.45;
 }
 
 /*

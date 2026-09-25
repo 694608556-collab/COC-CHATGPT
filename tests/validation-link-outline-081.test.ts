@@ -50,11 +50,18 @@ describe('0.8.1 drag outline matches the card exactly', () => {
 
   it('has no bottom slack left on the card', () => {
     // 卡片底部此前比内容多出一截空白，描边贴着卡片边界画就显得「框小了」。
-    // 收紧到 4px 后描边正好箍住内容
+    // 0.8.1 收到 4px；0.8.2 起顶部也从 30px 收到 10px（消除「顶部空缺一块」），
+    // 底部随之定为 6px，描边仍然箍住内容。
     const rule = /\.resource-tile \{([^}]*)\}/.exec(styles)?.[1] ?? ''
     const padding = /padding:\s*([^;]+);/.exec(rule)?.[1] ?? ''
     console.log('卡片内边距:', padding.trim())
-    expect(padding).toContain('30px 6px 4px')
+    const [top, , bottom] = padding
+      .trim()
+      .split(/\s+/)
+      .map((value) => Number.parseFloat(value))
+    // 上下留白都要小，且彼此接近（详见 resource-tile-spacing-082.test.ts）
+    expect(top!, '顶部留白应已收紧').toBeLessThanOrEqual(12)
+    expect(bottom!, '底部留白应已收紧').toBeLessThanOrEqual(8)
   })
 })
 

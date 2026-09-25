@@ -94,8 +94,19 @@ describe('0.8.0 link resources get a greyed-out folder icon', () => {
     expect(rule, '应有置灰规则').toBeDefined()
     expect(rule!).toContain('pointer-events: none')
     expect(rule!).toContain('cursor: default')
-    // 变灰：用透明度或灰色前景
-    expect(rule!).toMatch(/opacity:\s*0?\.\d+/)
+    /*
+     * 变灰的方式（0.8.2）。
+     *
+     * 0.8.0 用整体 opacity 0.38 变淡，但那样连**边框**一起淡掉了，
+     * 图标光秃秃地悬在三个带框按钮中间很突兀。
+     * 0.8.2 改成保留边框（border-color: var(--line)）、只让里面的 svg 变淡。
+     */
+    expect(rule!).toContain('border-color: var(--line)')
+    expect(rule!).toContain('opacity: 1')
+    const svgRule = /\.resource-tile-actions \.icon-button\.is-placeholder svg \{([^}]*)\}/.exec(
+      styles
+    )?.[1]
+    expect(svgRule, '图标本身应变淡').toMatch(/opacity:\s*0?\.\d+/)
   })
 })
 
