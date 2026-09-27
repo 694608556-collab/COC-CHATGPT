@@ -85,9 +85,9 @@ export function ResourcesPage({
   }>()
 
   /**
-   * 分组：每个模组一组，未归属的单独一组放在最下面。
+   * 分组：有资料的模组一组，未归属的单独一组放在最下面。
    *
-   * 「已移除」标记只用来隐藏【空分组】，绝不能把还有资料的分组藏起来——
+   * 空模组不自动生成资料分组；绝不能把还有资料的分组藏起来——
    * 那样资料就成了看不见也拿不到的孤儿。0.7.1 曾这么干过：用户删掉模组分组与
    * 未归属分组后，仅有的 3 条资料全在被隐藏的模组下，页面一片空白，
    * 连添加界面都看不见了。所以这里加一道兜底：分组下有资料就一定显示。
@@ -104,8 +104,8 @@ export function ResourcesPage({
         name: module.name,
         resources: resources.filter((resource) => resource.moduleId === module.id)
       }))
-      // 隐藏标记只对空分组生效；有资料的分组始终显示
-      .filter((group) => !hidden.has(group.key) || group.resources.length > 0)
+      // 跑团汇总中新建的空模组不应自动出现在资料汇总；有资料的分组始终显示
+      .filter((group) => group.resources.length > 0)
     // 未归属 = 没有归属 + 归属到一个已不存在的模组（兜底，避免资料凭空消失）
     const unassigned = resources.filter(
       (resource) => !resource.moduleId || !knownModuleIds.has(resource.moduleId)

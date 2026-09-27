@@ -148,6 +148,37 @@ describe('0.6.3 whole-module body search', () => {
     expect(app).toContain('module-search-hit')
     expect(app).toContain('setDetailRecordId(hit.recordId)')
   })
+
+  it('provides a real clickable clear button for a non-empty module search', () => {
+    expect(app).toContain('className="module-search-box"')
+    expect(app).toContain('aria-label={`清除模组“${module.name}”的正文搜索`}')
+    expect(app).toContain("onClick={() => setModuleSearch((current) => ({ ...current, [module.id]: '' }))}")
+    expect(app).toContain('type="button"')
+  })
+
+  it('keeps the module search box aligned to the right of the participants row', () => {
+    const styles = read('src/renderer/src/styles.css')
+    const rule = styles.slice(styles.indexOf('.module-search-box {'), styles.indexOf('.module-search-box .module-search {'))
+    expect(rule).toContain('margin-left: auto')
+  })
+
+  it('limits the module-wide result panel and scrolls extra results inside it', () => {
+    const styles = read('src/renderer/src/styles.css')
+    const rule = styles.slice(
+      styles.indexOf('.module-search-results {'),
+      styles.indexOf('.module-search-head {')
+    )
+    expect(rule).toContain('max-height: 420px')
+    expect(rule).toContain('overflow-y: auto')
+  })
+
+  it('keeps inner result scrolling narrow while the page scrollbar stays wider', () => {
+    const styles = read('src/renderer/src/styles.css')
+    const resultsScrollbar = styles.match(/\.module-search-results::-webkit-scrollbar \{[^}]*\}/)?.[0] ?? ''
+    const contentScrollbar = styles.match(/\.content::-webkit-scrollbar \{[^}]*\}/)?.[0] ?? ''
+    expect(resultsScrollbar).toContain('width: 6px')
+    expect(contentScrollbar).toContain('width: 16px')
+  })
 })
 
 describe('0.6.3 note board fixes', () => {

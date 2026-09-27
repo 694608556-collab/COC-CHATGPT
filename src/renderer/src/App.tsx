@@ -391,12 +391,25 @@ function WindowControls({ maximized }: { maximized: boolean }): React.JSX.Elemen
 function Modal({
   title,
   children,
-  onClose
+  onClose,
+  roundedScroll = false
 }: {
   title: string
   children: React.ReactNode
   onClose(): void
+  roundedScroll?: boolean
 }): React.JSX.Element {
+  const content = (
+    <>
+      <header>
+        <h2>{title}</h2>
+        <button className="icon-button" aria-label="关闭对话框" onClick={onClose}>
+          ×
+        </button>
+      </header>
+      {children}
+    </>
+  )
   return (
     <div
       className="modal-backdrop"
@@ -405,14 +418,13 @@ function Modal({
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <section className="modal" role="dialog" aria-modal="true" aria-label={title}>
-        <header>
-          <h2>{title}</h2>
-          <button className="icon-button" aria-label="关闭对话框" onClick={onClose}>
-            ×
-          </button>
-        </header>
-        {children}
+      <section
+        className={roundedScroll ? 'modal modal-rounded-scroll' : 'modal'}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
+        {roundedScroll ? <div className="modal-rounded-scroll__viewport">{content}</div> : content}
       </section>
     </div>
   )
@@ -860,7 +872,7 @@ function RecordDetail({
     )
 
   return (
-    <Modal title={record.name} onClose={onClose}>
+    <Modal title={record.name} onClose={onClose} roundedScroll>
       <div className="detail-meta">
         <span>来源：{record.sourceType === 'manual' ? '手动内容' : '海豹日志'}</span>
         <span>状态：{statusLabel(record.status)}</span>
@@ -985,6 +997,7 @@ export default function App(): React.JSX.Element {
   const [clearDataOpen, setClearDataOpen] = useState(false)
   const [cacheInfo, setCacheInfo] = useState<{ bytes: number; files: number }>({ bytes: 0, files: 0 })
   const [archiveStatus, setArchiveStatus] = useState<{ ok: boolean; reason?: string }>()
+  const collapseWrites = useRef<Record<string, Promise<void>>>({})
 
   const refresh = async (): Promise<void> => {
     const value = await window.coc.app.snapshot()
@@ -1112,10 +1125,51 @@ export default function App(): React.JSX.Element {
     }
   }
 
+  // 折叠只改一个布尔值，不应等待整份快照、缓存统计和归档目录检查后才反馈。
+  // 先更新本地快照让三角按钮和内容立即变化，再按模组串行写入数据库，避免快速连点时后一次状态被前一次覆盖。
+  const toggleModuleCollapsed = (module: ModuleRecord): void => {
+    const collapsed = !module.collapsed
+    setSnapshot((current) => ({
+      ...current,
+      modules: current.modules.map((item) => (item.id === module.id ? { ...item, collapsed } : item))
+    }))
+
+    const previous = collapseWrites.current[module.id] ?? Promise.resolve()
+    const write = previous.catch(() => undefined).then(async () => {
+      try {
+        const saved = await window.coc.modules.update(module.id, { collapsed })
+        setSnapshot((current) => ({
+          ...current,
+          modules: current.modules.map((item) => (item.id === saved.id ? saved : item))
+        }))
+      } catch (error) {
+        setSnapshot((current) => ({
+          ...current,
+          modules: current.modules.map((item) =>
+            item.id === module.id ? { ...item, collapsed: !collapsed } : item
+          )
+        }))
+        setMessage(error instanceof Error ? error.message : '保存模组折叠状态失败')
+      }
+    })
+    collapseWrites.current[module.id] = write
+    void write
+  }
+
+  // 文件已经生成后，界面刷新属于附加动作；即使刷新暂时失败，也不能把成功的
+  // 下载/导出显示成失败。普通数据操作仍继续使用 run 的严格错误提示。
+  const refreshAfterFileOperation = async (): Promise<void> => {
+    try {
+      await refresh()
+    } catch {
+      // 保留文件操作已经设置的成功提示。
+    }
+  }
+
   const exportRecord = async (recordId: string, format: RecordExportFormat): Promise<void> => {
     try {
       const entry = await window.coc.files.exportRecord(recordId, format)
-      await refresh()
+      await refreshAfterFileOperation()
       setMessage(`已保存：${entry.path}`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '导出未完成')
@@ -1194,7 +1248,7 @@ export default function App(): React.JSX.Element {
           // 资源管理器打开失败不影响导出结果
         }
       }
-      await refresh()
+      await refreshAfterFileOperation()
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '导出未完成')
     }
@@ -1517,7 +1571,7 @@ export default function App(): React.JSX.Element {
               )}
             </div>
           </header>
-          <div className="content">
+          <div className={page === 'records' ? 'content records-content' : 'content'}>
             {message && (
               <div className={messageClosing ? 'notice toast-closing' : 'notice'} role="status">
                 <span>{message}</span>
@@ -1530,7 +1584,7 @@ export default function App(): React.JSX.Element {
               <div className="empty-state">正在读取本地数据…</div>
             ) : page === 'records' ? (
               <>
-                <div className="toolbar">
+                <div className="toolbar records-toolbar">
                   <button className="secondary" onClick={() => setTableImportOpen(true)}>
                     导入表格
                   </button>
@@ -1582,11 +1636,7 @@ export default function App(): React.JSX.Element {
                             <button
                               className="collapse-button"
                               aria-label={module.collapsed ? '展开模组' : '折叠模组'}
-                              onClick={() =>
-                                void run(() =>
-                                  window.coc.modules.update(module.id, { collapsed: !module.collapsed })
-                                )
-                              }
+                              onClick={() => toggleModuleCollapsed(module)}
                             >
                               <SolidTriangleIcon className={module.collapsed ? 'collapsed' : ''} />
                             </button>
@@ -1706,19 +1756,31 @@ export default function App(): React.JSX.Element {
                                     .map((pair) => `${pair.pc || '未填写'} / ${pair.pl || '未填写'}`)
                                     .join('；') || '未填写'}
                                 </span>
-                                <input
-                                  className="module-search"
-                                  type="search"
-                                  aria-label={`在模组“${module.name}”的全部场次正文内搜索`}
-                                  placeholder="全模组正文搜索"
-                                  value={moduleSearch[module.id] ?? ''}
-                                  onChange={(event) =>
-                                    setModuleSearch((current) => ({
-                                      ...current,
-                                      [module.id]: event.target.value
-                                    }))
-                                  }
-                                />
+                                <div className="module-search-box">
+                                  <input
+                                    className="module-search"
+                                    type="text"
+                                    aria-label={`在模组“${module.name}”的全部场次正文内搜索`}
+                                    placeholder="全模组正文搜索"
+                                    value={moduleSearch[module.id] ?? ''}
+                                    onChange={(event) =>
+                                      setModuleSearch((current) => ({
+                                        ...current,
+                                        [module.id]: event.target.value
+                                      }))
+                                    }
+                                  />
+                                  {(moduleSearch[module.id] ?? '') !== '' && (
+                                    <button
+                                      type="button"
+                                      className="module-search-clear"
+                                      aria-label={`清除模组“${module.name}”的正文搜索`}
+                                      onClick={() => setModuleSearch((current) => ({ ...current, [module.id]: '' }))}
+                                    >
+                                      ×
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                               {(moduleSearchHits(module).length > 0 ||
                                 moduleOutlineHits(module).length > 0) && (
@@ -1808,7 +1870,9 @@ export default function App(): React.JSX.Element {
                                 </div>
                               )}
                               {records.length ? (
-                                <table>
+                                <div className="module-records-viewport">
+                                  <div className="module-records-scroll">
+                                    <table>
                                   <thead>
                                     <tr>
                                       <th className="check-column">选择</th>
@@ -1959,7 +2023,9 @@ export default function App(): React.JSX.Element {
                                       </tr>
                                     ))}
                                   </tbody>
-                                </table>
+                                    </table>
+                                  </div>
+                                </div>
                               ) : (
                                 <div className="module-empty">
                                   暂无场次。可以添加海豹链接，或直接粘贴手动记录。
@@ -2068,6 +2134,10 @@ export default function App(): React.JSX.Element {
                     <div>
                       <strong>{snapshot.notes.length}</strong>
                       <span>闲记</span>
+                    </div>
+                    <div>
+                      <strong>{snapshot.resources.length}</strong>
+                      <span>资料</span>
                     </div>
                   </div>
                 </section>

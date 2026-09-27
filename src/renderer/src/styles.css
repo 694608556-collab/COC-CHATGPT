@@ -374,9 +374,11 @@ body,
   padding: 10px 20px 14px;
   background: var(--panel2);
   border-bottom: 1px solid var(--line);
-  /* 结果多时自己滚动，鼠标滚轮即可查看 */
-  max-height: 30vh;
+  /* 固定为约六条结果的可视高度，更多结果只在列表区域滚动。 */
+  max-height: 420px;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent;
 }
 
 .detail-search-results-head {
@@ -461,10 +463,48 @@ body,
      现在横向裁掉，并让长串强制断行。 */
   overflow-x: hidden;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent;
   padding: 8px 20px 24px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+.modal:has(.detail-search) {
+  border-radius: 15px;
+}
+.modal:has(.detail-search)::-webkit-scrollbar-track {
+  margin-block: 12px;
+  border-radius: 8px;
+  background: transparent;
+}
+.modal:has(.detail-search)::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 8px;
+  background-clip: content-box;
+}
+.detail-search-results::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.log-preview::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.detail-search-results::-webkit-scrollbar-track,
+.log-preview::-webkit-scrollbar-track {
+  background: transparent;
+}
+.detail-search-results::-webkit-scrollbar-thumb,
+.log-preview::-webkit-scrollbar-thumb {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background-clip: content-box;
+  background-color: color-mix(in srgb, var(--muted) 42%, transparent);
+}
+.detail-search-results::-webkit-scrollbar-thumb:hover,
+.log-preview::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--muted) 65%, transparent);
 }
 .log-preview article {
   padding: 12px 0;
@@ -495,8 +535,11 @@ body,
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent;
 }
+.records-content {
+  scrollbar-width: auto;
+}
 .content::-webkit-scrollbar {
-  width: 12px;
+  width: 16px;
 }
 .content::-webkit-scrollbar-track {
   background: transparent;
@@ -512,6 +555,9 @@ body,
 }
 .content::-webkit-scrollbar-thumb:active {
   background-color: var(--muted);
+}
+.records-content::-webkit-scrollbar {
+  width: 16px;
 }
 .primary,
 .secondary,
@@ -626,6 +672,60 @@ body,
   align-items: center;
   gap: 9px;
   padding: 9px 12px;
+  background: var(--panel);
+  border-radius: 12px 12px 0 0;
+}
+.module-records-scroll {
+  max-height: 690px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-radius: 0 0 12px 12px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent;
+}
+.module-records-viewport {
+  max-height: 690px;
+  overflow: hidden;
+  border-radius: 0 0 12px 12px;
+}
+.module-records-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.module-records-scroll::-webkit-scrollbar-button,
+.module-records-scroll::-webkit-scrollbar-button:single-button,
+.module-records-scroll::-webkit-scrollbar-button:vertical:decrement,
+.module-records-scroll::-webkit-scrollbar-button:vertical:increment,
+.module-records-scroll::-webkit-scrollbar-button:horizontal:decrement,
+.module-records-scroll::-webkit-scrollbar-button:horizontal:increment {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  min-width: 0;
+  min-height: 0;
+  max-width: 0;
+  max-height: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  background-image: none;
+  -webkit-appearance: none;
+}
+.module-records-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.module-records-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.module-records-scroll::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 8px;
+  background-clip: content-box;
+  background-color: color-mix(in srgb, var(--muted) 40%, transparent);
+}
+.module-records-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--muted) 65%, transparent);
 }
 .collapse-button {
   width: 30px;
@@ -791,7 +891,8 @@ th {
   border-radius: 15px;
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
 }
-.modal > header {
+.modal > header,
+.modal-rounded-scroll__viewport > header {
   position: sticky;
   top: 0;
   z-index: 1;
@@ -1142,7 +1243,7 @@ th {
 }
 .stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   margin-top: 17px;
 }
@@ -2871,11 +2972,101 @@ grid-row:6;
   outline: 3px solid color-mix(in srgb, var(--accent) 35%, transparent);
   outline-offset: 2px;
 }
+.modal.modal-rounded-scroll {
+  overflow: hidden;
+  padding: 0;
+}
+.modal-rounded-scroll__viewport {
+  max-height: calc(100vh - 70px);
+  overflow: auto;
+  border-radius: 15px;
+  scrollbar-width: auto;
+  scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent;
+}
+.modal-rounded-scroll__viewport::-webkit-scrollbar {
+  width: 16px;
+}
+.modal-rounded-scroll__viewport::-webkit-scrollbar-track {
+  margin-block: 12px;
+  border-radius: 8px;
+  background: transparent;
+}
+.modal-rounded-scroll__viewport::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 8px;
+  background-clip: content-box;
+  background-color: color-mix(in srgb, var(--muted) 40%, transparent);
+}
+.modal-rounded-scroll__viewport::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--muted) 65%, transparent);
+}
+
+.module-search-box {
+  position: relative;
+  margin-left: auto;
+  flex: none;
+  width: 220px;
+}
+
+.module-search-box .module-search {
+  width: 100%;
+  padding-right: 30px;
+}
+
+.module-search-clear {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  font-size: 18px;
+  line-height: 1;
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+.module-search-clear:hover,
+.module-search-clear:focus-visible {
+  color: var(--text);
+  background: var(--panel2);
+}
 
 .module-search-results {
   padding: 10px 50px 14px;
   background: var(--panel2);
   border-top: 1px solid var(--line);
+  /* 固定为约六条结果的可视高度，避免撑长整个模组卡片。 */
+  max-height: 420px;
+  overflow-y: auto;
+}
+.module-search-results {
+  scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent;
+}
+.module-search-results {
+  scrollbar-width: thin;
+}
+.module-search-results::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.module-search-results::-webkit-scrollbar-track {
+  background: transparent;
+}
+.module-search-results::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 8px;
+  background-clip: content-box;
+  background-color: color-mix(in srgb, var(--muted) 40%, transparent);
+}
+.module-search-results::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--muted) 65%, transparent);
 }
 
 .module-search-head {

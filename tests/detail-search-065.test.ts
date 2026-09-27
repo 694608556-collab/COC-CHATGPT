@@ -128,7 +128,7 @@ describe('0.6.5 record detail search is wired to the highlighter', () => {
       styles.indexOf('.detail-search-results {'),
       styles.indexOf('.detail-search-results-head {')
     )
-    expect(rule).toContain('max-height')
+    expect(rule).toContain('max-height: 420px')
     expect(rule).toContain('overflow-y: auto')
   })
 
@@ -142,6 +142,32 @@ describe('0.6.5 record detail search is wired to the highlighter', () => {
     // 长串必须能断行，否则内容仍会被裁掉看不全
     expect(rule).toContain('overflow-wrap: anywhere')
     expect(rule).toContain('word-break: break-word')
+  })
+
+  it('keeps the detail dialog rounded and gives inner panes narrower scrollbars', () => {
+    const modalRule = styles.slice(styles.indexOf('.modal {'), styles.indexOf('.modal > header {'))
+    expect(modalRule).toContain('overflow: auto')
+
+    const dialogRule = styles.match(/\.modal:has\(\.detail-search\) \{[^}]*\}/)?.[0] ?? ''
+    expect(dialogRule).toContain('border-radius: 15px')
+    expect(styles).toContain('.modal-rounded-scroll__viewport')
+    expect(styles).toContain('overflow: hidden')
+
+    const resultsRule = styles.slice(
+      styles.indexOf('.detail-search-results {'),
+      styles.indexOf('.detail-search-results-head {')
+    )
+    expect(resultsRule).toContain('scrollbar-width: thin')
+    expect(styles).toContain('.detail-search-results::-webkit-scrollbar {')
+    expect(styles).toContain('.log-preview::-webkit-scrollbar {')
+    expect(styles).toContain('width: 6px')
+  })
+
+  it('keeps the outer detail scrollbar inset from the rounded dialog corners', () => {
+    const detailTrack =
+      styles.match(/\.modal-rounded-scroll__viewport::-webkit-scrollbar-track \{[^}]*\}/)?.[0] ?? ''
+    expect(detailTrack).toContain('margin-block: 12px')
+    expect(detailTrack).toContain('border-radius: 8px')
   })
 })
 

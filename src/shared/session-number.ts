@@ -42,5 +42,9 @@ export function sessionNumberFromName(name: string | undefined): number | undefi
  * 否则名称与编号又会分家。
  */
 export function sessionNameFor(moduleName: string, sequenceNo: number): string {
-  return `${moduleName}第 ${sequenceNo} 场`
+  // 导出文件名已经会在场次名前拼接模组名，默认场次名称只保留编号，
+  // 避免出现“模组名 + 模组名 + 第 N 场”。保留 moduleName 参数是为了兼容
+  // 现有调用方的签名；默认名称本身不再重复显示模组名。
+  void moduleName
+  return `第 ${sequenceNo} 场`
 }

@@ -42,6 +42,10 @@ describe('0.6.6 session number follows the session name', () => {
         expect(sessionNumberFromName(sessionNameFor('铸形骸', value))).toBe(value)
       }
     })
+
+    it('keeps the module name out of the default session name', () => {
+      expect(sessionNameFor('铸形骸，灯心性，启天命', 12)).toBe('第 12 场')
+    })
   })
 
   describe('createRecord', () => {

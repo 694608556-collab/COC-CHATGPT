@@ -6,7 +6,7 @@
  * 连页头的添加界面都被挤没了。
  *
  * 设计原则（本次确立）：
- * - 「已移除」标记只用来隐藏【空分组】，有资料的分组必须始终显示
+ * - 没有资料的模组不自动生成资料分组，有资料的分组必须始终显示
  * - 空白引导页与分组列表用同一个 visibleCount 判断，不能各算各的
  * - 任何一条资料都必须能在页面上找到位置（归属到已不存在模组的资料兜进未归属）
  */
@@ -44,7 +44,7 @@ afterEach(() => {
 /**
  * 复刻界面里的分组计算（src/renderer/src/components/ResourcesPage.tsx）。
  *
- * 逻辑刻意与实现保持一致：隐藏标记只对空分组生效，且用 visibleCount
+ * 逻辑刻意与实现保持一致：空模组不生成分组，且用 visibleCount
  * 统一决定「显示分组」还是「显示空白引导页」。
  */
 function computeGroups(
@@ -59,7 +59,7 @@ function computeGroups(
       key: module.id,
       count: resources.filter((resource) => resource.moduleId === module.id).length
     }))
-    .filter((group) => !hidden.has(group.key) || group.count > 0)
+    .filter((group) => group.count > 0)
   const unassigned = resources.filter(
     (resource) => !resource.moduleId || !known.has(resource.moduleId)
   ).length
@@ -140,11 +140,16 @@ describe('0.7.1 fix: resources page never goes blank while resources exist', () 
   it('shows the blank guide only when nothing can be rendered at all', () => {
     // 没有任何模组、没有资料、未归属也被删了 → 才显示引导页
     expect(computeGroups([], [], [UNASSIGNED_GROUP]).visibleCount).toBe(0)
-    // 还有模组在（哪怕是空的）→ 显示分组。
-    // 未归属分组在没被删过时照常显示（0.7.0 起就是这个行为），所以是 2 个。
-    expect(computeGroups([{ id: 'm1', name: '甲团' }], [], []).visibleCount).toBe(2)
+    // 空模组不再自动生成资料分组；未归属分组仍照常显示，所以是 1 个。
+    expect(computeGroups([{ id: 'm1', name: '甲团' }], [], []).visibleCount).toBe(1)
     // 只剩未归属分组可显示时也要显示
     expect(computeGroups([], [], []).visibleCount).toBe(1)
+  })
+
+  it('does not render a newly created empty module as a resource group', () => {
+    const page = read('src/renderer/src/components/ResourcesPage.tsx')
+    expect(page).toContain('.filter((group) => group.resources.length > 0)')
+    expect(computeGroups([{ id: 'm1', name: '新模组' }], [], []).byModule).toHaveLength(0)
   })
 
   describe('the page uses one shared number for both branches', () => {

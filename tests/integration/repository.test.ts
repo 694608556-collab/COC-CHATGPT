@@ -50,9 +50,9 @@ describe('SQLite repository', () => {
     repository.moveRecord(third.id, -1)
     const records = repository.snapshot().records
     // 删除不会重命名或重排已有场次：第 1 场仍然叫第 1 场
-    expect(first.name).toBe('无尽食欲第 1 场')
+    expect(first.name).toBe('第 1 场')
     // 0.6.2 起新增场次接续现存场次的最大编号，末尾被删掉的编号会被重新使用
-    expect(third.name).toBe('无尽食欲第 2 场')
+    expect(third.name).toBe('第 2 场')
     expect(records.map((record) => record.sequenceNo)).toEqual([2, 1])
   })
 

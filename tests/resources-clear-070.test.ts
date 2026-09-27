@@ -82,8 +82,8 @@ describe('0.7.0 clearing the unassigned group', () => {
     expect(page).toContain('visibleCount')
     expect(page).toContain('groups.visibleCount === 0 && !draft')
     expect(page).toContain('groups.visibleCount > 0 &&')
-    // 隐藏标记只对空分组生效：有资料的分组必须始终显示
-    expect(page).toContain('!hidden.has(group.key) || group.resources.length > 0')
+    // 0.8.4：空模组不自动生成资料分组；有资料的分组才进入分组列表。
+    expect(page).toContain('.filter((group) => group.resources.length > 0)')
   })
 
   it('reaches the blank state after clearing everything', () => {

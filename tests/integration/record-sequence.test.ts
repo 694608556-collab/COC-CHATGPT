@@ -27,7 +27,7 @@ describe('explicit session sequence numbers', () => {
 
     const filled = repository.createRecord({ moduleId: module.id, sequenceNo: 2 })
     expect(filled.sequenceNo).toBe(2)
-    expect(filled.name).toBe('无尽食欲第 2 场')
+    expect(filled.name).toBe('第 2 场')
     const numbers = repository
       .snapshot()
       .records.map((record) => record.sequenceNo)
@@ -66,8 +66,8 @@ describe('explicit session sequence numbers', () => {
     const recordB = repository.createRecord({ moduleId: moduleB.id, sequenceNo: 1 })
     expect(recordA.sequenceNo).toBe(1)
     expect(recordB.sequenceNo).toBe(1)
-    expect(recordA.name).toBe('模组甲第 1 场')
-    expect(recordB.name).toBe('模组乙第 1 场')
+    expect(recordA.name).toBe('第 1 场')
+    expect(recordB.name).toBe('第 1 场')
   })
 
   it('raises the stored maximum and keeps auto names on a later default create', () => {
@@ -77,7 +77,7 @@ describe('explicit session sequence numbers', () => {
     expect(high.name).toBe('特殊团')
     const following = repository.createRecord({ moduleId: module.id })
     expect(following.sequenceNo).toBe(10)
-    expect(following.name).toBe('暗影循迹第 10 场')
+    expect(following.name).toBe('第 10 场')
   })
 
   // 0.6.2 回归：加到第 16 场后把末尾几场全删掉，只剩第 8 场。
@@ -99,7 +99,7 @@ describe('explicit session sequence numbers', () => {
 
     const next = repository.createRecord({ moduleId: module.id })
     expect(next.sequenceNo).toBe(9)
-    expect(next.name).toBe('暗影循迹第 9 场')
+    expect(next.name).toBe('第 9 场')
   })
 
   // 删除末尾场次不会留下中间空缺，界面因此不会弹出编号选择窗口，
