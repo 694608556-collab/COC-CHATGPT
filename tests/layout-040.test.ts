@@ -42,12 +42,13 @@ describe('0.4.0 layout contract', () => {
     expect(rule).toContain('font-size: 13px')
   })
 
-  it('puts the participants edit button before the KP label', () => {
-    const editIndex = app.indexOf('participants-edit')
+  it('starts the participants row with KP after removing the obsolete edit icon', () => {
+    const participantsIndex = app.indexOf('<div className="participants">')
     const kpIndex = app.indexOf('KP：{module.kps')
-    expect(editIndex).toBeGreaterThan(-1)
+    expect(app).not.toContain('participants-edit')
+    expect(participantsIndex).toBeGreaterThan(-1)
     expect(kpIndex).toBeGreaterThan(-1)
-    expect(editIndex).toBeLessThan(kpIndex)
+    expect(participantsIndex).toBeLessThan(kpIndex)
   })
 
   it('softens the active preset option and keeps its label readable', () => {

@@ -12,7 +12,6 @@ import {
   FolderIcon,
   MaximizeIcon,
   MinimizeIcon,
-  PencilIcon,
   PlusIcon,
   RestoreIcon,
   SolidTriangleIcon,
@@ -1733,22 +1732,6 @@ export default function App(): React.JSX.Element {
                           {!module.collapsed && (
                             <>
                               <div className="participants">
-                                <button
-                                  className="icon-button participants-edit"
-                                  title="编辑 KP / PC / PL"
-                                  aria-label="编辑 KP / PC / PL"
-                                  onClick={() =>
-                                    setModuleDraft({
-                                      id: module.id,
-                                      name: module.name,
-                                      playStatus: module.playStatus,
-                                      kps: module.kps.length ? module.kps : [''],
-                                      pairs: module.pairs
-                                    })
-                                  }
-                                >
-                                  <PencilIcon />
-                                </button>
                                 <span>KP：{module.kps.join('、') || '未填写'}</span>
                                 <span>
                                   PC / PL：
