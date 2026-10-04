@@ -1,0 +1,17 @@
+{
+  "name": "coc-logbook-promo-clean",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts COCLogbookPromo out/COC跑团记录簿-宣传片-1080p60.mp4 --codec=h264 --video-bitrate=15M --audio-bitrate=320k --concurrency=4",
+    "render:nobgm": "remotion render src/index.ts COCLogbookPromo out/COC跑团记录簿-宣传片-无BGM-1080p60.mp4 --codec=h264 --video-bitrate=15M --concurrency=4 --props=props-nobgm.json"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.484",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "remotion": "4.0.484"
+  }
+}
