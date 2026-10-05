@@ -16,14 +16,37 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;')
 }
 
+/**
+ * 运行日志可能来自不同平台：Windows 使用 CRLF，网页抓取与手动记录通常使用 LF。
+ * 导出前统一为 LF，随后由各格式按自己的规则写回换行，不能让 CR 字符混入正文。
+ */
+function normalizeLineBreaks(value: string): string {
+  return value.replace(/\r\n?/g, '\n')
+}
+
+function windowsLineBreaks(value: string): string {
+  return normalizeLineBreaks(value).replace(/\n/g, '\r\n')
+}
+
+function docxParagraphsForText(value: string): Paragraph[] {
+  return normalizeLineBreaks(value).split('\n').map(
+    (line) =>
+      new Paragraph({
+        children: [new TextRun({ text: line })],
+        // 保留原记录的换行节奏，同时避免每一行被 Word 拉得过开。
+        spacing: { after: 36 }
+      })
+  )
+}
+
 export function renderLogText(log: NormalizedLog, preset: FilterPreset): string {
   return applyLogFilters(log, preset)
     .map((message) => {
-      const body = [message.header, message.text].filter(Boolean).join('\n')
-      const images = message.images.map((image) => `[图片] ${image.url}`).join('\n')
-      return [body, images].filter(Boolean).join('\n')
+      const body = [message.header, windowsLineBreaks(message.text)].filter(Boolean).join('\r\n')
+      const images = message.images.map((image) => `[图片] ${image.url}`).join('\r\n')
+      return [body, images].filter(Boolean).join('\r\n')
     })
-    .join('\n\n')
+    .join('\r\n\r\n')
 }
 
 export function renderCombinedText(
@@ -40,7 +63,7 @@ export function renderCombinedText(
     )
   ]
   // 场次连排，不再用分页符；场次之间用明显的分隔线，便于确认场次边界。
-  const divider = '\n\n────────────────────────────────────────\n\n'
+  const divider = '\r\n\r\n────────────────────────────────────────\r\n\r\n'
   // 0.6.5：单份导出不再带模组封面，封面只留给合成文件。
   const body = sessions.map(
     ({ record, log }) => `${record.name} · ${record.playDate || '日期未知'}\n\n${renderLogText(log, preset)}`
@@ -69,7 +92,7 @@ export function renderCombinedHtml(
       const messages = applyLogFilters(log, preset)
         .map(
           (message) =>
-            `<article><div class="meta">${escapeHtml(message.header)}</div><div class="message">${escapeHtml(message.text).replace(/\n/g, '<br>')}</div>${message.images.map((image) => `<p class="image">[图片] ${escapeHtml(image.url)}</p>`).join('')}</article>`
+            `<article><div class="meta">${escapeHtml(message.header)}</div><div class="message">${escapeHtml(normalizeLineBreaks(message.text))}</div>${message.images.map((image) => `<p class="image">[图片] ${escapeHtml(image.url)}</p>`).join('')}</article>`
         )
         .join('')
       return `<section class="session"><h1>${escapeHtml(record.name)} · ${escapeHtml(record.playDate || '日期未知')}</h1>${messages}</section>`
@@ -80,7 +103,7 @@ export function renderCombinedHtml(
     options.cover === false
       ? ''
       : `<section class="cover"><h1>${escapeHtml(module.name)}</h1><p>KP：${escapeHtml(module.kps.join('、') || '未填写')}</p>${participantRows}</section>`
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>@page{size:A4;margin:18mm}body{font-family:"Microsoft YaHei","Segoe UI",sans-serif;color:#171717;font-size:11pt;line-height:1.65}.cover{page-break-after:always}.session+.session{border-top:2px solid #8a8a8a;margin-top:22px;padding-top:14px}h1{font-size:20pt}.meta{font-weight:700;margin-top:12px}.message{white-space:normal}.image{color:#666;font-size:9pt}.dark{background:#171a21;color:#eee}</style></head><body class="${preset.darkDisplay ? 'dark' : ''}">${cover}${sections}</body></html>`
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>@page{size:A4;margin:18mm}body{font-family:"Microsoft YaHei","Segoe UI",sans-serif;color:#171717;font-size:11pt;line-height:1.65}.cover{page-break-after:always}.session+.session{border-top:2px solid #8a8a8a;margin-top:22px;padding-top:14px}h1{font-size:20pt}.meta{font-weight:700;margin-top:12px}.message{white-space:pre-wrap}.image{color:#666;font-size:9pt}.dark{background:#171a21;color:#eee}</style></head><body class="${preset.darkDisplay ? 'dark' : ''}">${cover}${sections}</body></html>`
 }
 
 export function renderWordHtml(
@@ -126,7 +149,7 @@ export function renderWordHtml(
             '<article><div class="meta">' +
             escapeHtml(message.header) +
             '</div><div class="message">' +
-            escapeHtml(message.text).replace(/\n/g, '<br>') +
+            escapeHtml(normalizeLineBreaks(message.text)) +
             '</div>' +
             images +
             '</article>'
@@ -157,7 +180,7 @@ export function renderWordHtml(
   return (
     '<!doctype html><html><head><meta charset="utf-8">' +
     '<style>body{font-family:"Microsoft YaHei","Segoe UI",sans-serif;font-size:11pt;line-height:1.65}' +
-    '.meta{font-weight:700;margin-top:12px}.image{color:#666;font-size:9pt}img{max-width:100%}</style>' +
+    '.meta{font-weight:700;margin-top:12px}.message{white-space:pre-wrap}.image{color:#666;font-size:9pt}img{max-width:100%}</style>' +
     '</head><body>' +
     cover +
     sections +
@@ -212,7 +235,7 @@ export async function createCombinedDocx(
     }
     for (const message of applyLogFilters(session.log, preset)) {
       children.push(new Paragraph({ children: [new TextRun({ text: message.header, bold: true })] }))
-      children.push(new Paragraph({ text: message.text }))
+      children.push(...docxParagraphsForText(message.text))
       for (const image of message.images) children.push(new Paragraph({ text: `[图片] ${image.url}` }))
     }
   }
