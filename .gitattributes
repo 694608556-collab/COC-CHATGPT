@@ -1,3 +1,5 @@
 # 批处理必须保持 Windows 换行，否则公司电脑 clone 下来可能无法双击运行
 *.bat text eol=crlf
 video-20261003-clean/out/*.mp4 filter=lfs diff=lfs merge=lfs -text
+dist/COC跑团记录簿-0.8.7-Windows-x64-Setup.exe filter=lfs diff=lfs merge=lfs -text
+dist/COC跑团记录簿-0.8.7-win-x64.exe filter=lfs diff=lfs merge=lfs -text
