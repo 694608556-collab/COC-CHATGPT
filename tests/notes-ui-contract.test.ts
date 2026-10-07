@@ -27,6 +27,42 @@ describe('跑团闲记 module contract', () => {
     expect(styles).toContain('@media (max-width: 1660px)')
   })
 
+  it('makes long note cards scroll only while the card is hovered', () => {
+    const main = styles.slice(styles.indexOf('.note-card-main'))
+    expect(styles).toContain('.note-card:not(.note-card-editing)')
+    expect(styles).toContain('height: 400px')
+    expect(styles).toContain('max-height: 400px')
+    expect(styles).toContain('align-self: start')
+    expect(main).toContain('overflow-y: hidden')
+    expect(main).toContain('.note-card:hover .note-card-main')
+    expect(main).toContain('overflow-y: auto')
+    expect(main).toContain('.note-content')
+    expect(main).toContain('-webkit-line-clamp: unset')
+  })
+
+  it('uses a two-pixel custom note scrollbar instead of the system overlay scrollbar', () => {
+    const mainRule = styles.match(/\.note-card-main \{[^}]*\}/)?.[0] ?? ''
+    const noteBar = styles.match(/\.note-card-main::-webkit-scrollbar \{[^}]*\}/)?.[0] ?? ''
+    const customBar = styles.match(/\.note-scrollbar \{[^}]*\}/)?.[0] ?? ''
+
+    expect(mainRule).toContain('scrollbar-width: none')
+    expect(noteBar).toContain('width: 0')
+    expect(noteBar).toContain('display: none !important')
+    expect(styles.match(/\.note-card-main::-webkit-scrollbar \{/g)).toHaveLength(1)
+    expect(customBar).toContain('width: 2px')
+    expect(customBar).toContain('top: 12px')
+    expect(customBar).toContain('right: 0')
+    expect(customBar).toContain('pointer-events: none')
+    expect(mainRule).toContain('padding: 12px 12px 0 0')
+    expect(styles).toContain('.note-card:hover .note-scrollbar.scrollable')
+    expect(board).toContain('syncNoteScrollbar')
+    expect(board).toContain('const trackInsetTop = 12')
+    expect(board).toContain('const trackHeight = viewportHeight - trackInsetTop')
+    expect(board).toContain('className="note-scroll-area"')
+    expect(board).toContain('className="note-scrollbar"')
+    expect(board).toContain('onScroll={(event) => syncNoteScrollbar(event.currentTarget)}')
+  })
+
   it('shows the module name and the date in the card head', () => {
     expect(board).toContain('note-module')
     expect(board).toContain('note-date')

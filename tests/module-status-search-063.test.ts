@@ -190,10 +190,14 @@ describe('0.6.3 note board fixes', () => {
     expect(board).toContain('note.id !== draft?.id')
   })
 
-  it('doubles the note card height and widens the text clamp to match', () => {
-    const card = styles.slice(styles.indexOf('/* ============ 0.6.3 闲记卡片加高 ============ */'))
+  it('keeps the taller note card and scrolls long text inside it', () => {
+    const card = styles.slice(styles.indexOf('/* ============ 0.6.3 闲记卡片固定高度 ============ */'))
+    expect(styles).toContain('.note-card:not(.note-card-editing)')
+    expect(styles).toContain('height: 400px')
+    expect(styles).toContain('max-height: 400px')
     expect(card).toContain('min-height: 400px')
-    // 高度加了但行数不放宽的话，正文依旧被截断
-    expect(card).toContain('-webkit-line-clamp: 10')
+    expect(styles).toContain('.note-card:hover .note-card-main')
+    expect(styles).toContain('overflow-y: auto')
+    expect(styles).toContain('-webkit-line-clamp: unset')
   })
 })

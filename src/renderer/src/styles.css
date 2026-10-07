@@ -2690,24 +2690,63 @@ grid-row:6;
   width: 160px;
 }
 
+.note-scroll-area {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .note-card-main {
   display: grid;
   flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
   gap: 8px;
   align-content: start;
-  padding: 12px 0 0;
+  padding: 12px 12px 0 0;
   color: var(--text);
   text-align: left;
   background: transparent;
   border: 0;
   cursor: pointer;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+/* 长闲记在卡片内滚动，默认不显示滚动条；鼠标进入整张卡片后才显示。 */
+.note-card:hover .note-card-main {
+  overflow-y: auto;
+}
+
+.note-card-main::-webkit-scrollbar {
+  display: none !important;
+  width: 0;
+  height: 0;
+}
+
+.note-scrollbar {
+  position: absolute;
+  top: 12px;
+  right: 0;
+  width: 2px;
+  min-height: 24px;
+  border-radius: 2px;
+  background-color: color-mix(in srgb, var(--muted) 50%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+
+.note-card:hover .note-scrollbar.scrollable {
+  opacity: 1;
 }
 
 .note-content {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 5;
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-size: 13px;
@@ -3133,14 +3172,13 @@ grid-row:6;
   border-radius: 3px;
 }
 
-/* ============ 0.6.3 闲记卡片加高 ============ */
-/* 卡片高度翻倍，同时放宽正文行数，否则高度加了文字仍被截断 */
-.note-card {
+/* ============ 0.6.3 闲记卡片固定高度 ============ */
+/* 普通卡片保持固定高度，长正文只在自己的正文区滚动；编辑卡片仍可按内容展开。 */
+.note-card:not(.note-card-editing) {
+  height: 400px;
   min-height: 400px;
-}
-
-.note-content {
-  -webkit-line-clamp: 10;
+  max-height: 400px;
+  align-self: start;
 }
 
 /* ============ 0.6.3 双击查看原图 ============ */

@@ -32,6 +32,30 @@ function mediaUrl(image: NoteImage): string {
   return `coc-media://${image.path}`
 }
 
+function syncNoteScrollbar(element: HTMLButtonElement): void {
+  const scrollbar = element.parentElement?.querySelector<HTMLElement>('.note-scrollbar')
+  if (!scrollbar) return
+
+  const viewportHeight = element.clientHeight
+  const scrollHeight = element.scrollHeight
+  const scrollRange = scrollHeight - viewportHeight
+  const trackInsetTop = 12
+  const trackHeight = viewportHeight - trackInsetTop
+  if (trackHeight <= 0 || scrollRange <= 1) {
+    scrollbar.classList.remove('scrollable')
+    scrollbar.style.removeProperty('height')
+    scrollbar.style.removeProperty('transform')
+    return
+  }
+
+  const thumbHeight = Math.min(trackHeight, Math.max(24, (trackHeight * viewportHeight) / scrollHeight))
+  const thumbRange = trackHeight - thumbHeight
+  const thumbTop = (element.scrollTop / scrollRange) * thumbRange
+  scrollbar.classList.add('scrollable')
+  scrollbar.style.height = `${thumbHeight}px`
+  scrollbar.style.transform = `translateY(${thumbTop}px)`
+}
+
 export function NoteBoard({
   notes,
   modules,
@@ -248,32 +272,37 @@ export function NoteBoard({
               <span className="note-module">{note.moduleName || '未关联模组'}</span>
               <span className="note-date">{note.noteDate}</span>
             </header>
-            <button
-              className="note-card-main"
-              aria-label={`编辑闲记 ${note.noteDate}`}
-              onClick={() => setDraft(toDraft(note))}
-            >
-              <span className="note-content">{note.content || '（空白闲记）'}</span>
-              {note.images.length > 0 && (
-                <span className="note-thumbs">
-                  {note.images.slice(0, 3).map((image) => (
-                    <img
-                      key={image.path}
-                      src={mediaUrl(image)}
-                      alt={image.name}
-                      title="双击查看原图"
-                      onDoubleClick={(event) => {
-                        // 预览图在“点开编辑”的按钮里，双击要看图而不是进编辑
-                        event.stopPropagation()
-                        event.preventDefault()
-                        openZoom(image)
-                      }}
-                    />
-                  ))}
-                  {note.images.length > 3 && <span className="note-more">+{note.images.length - 3}</span>}
-                </span>
-              )}
-            </button>
+            <div className="note-scroll-area">
+              <button
+                className="note-card-main"
+                aria-label={`编辑闲记 ${note.noteDate}`}
+                onMouseEnter={(event) => syncNoteScrollbar(event.currentTarget)}
+                onScroll={(event) => syncNoteScrollbar(event.currentTarget)}
+                onClick={() => setDraft(toDraft(note))}
+              >
+                <span className="note-content">{note.content || '（空白闲记）'}</span>
+                {note.images.length > 0 && (
+                  <span className="note-thumbs">
+                    {note.images.slice(0, 3).map((image) => (
+                      <img
+                        key={image.path}
+                        src={mediaUrl(image)}
+                        alt={image.name}
+                        title="双击查看原图"
+                        onDoubleClick={(event) => {
+                          // 预览图在“点开编辑”的按钮里，双击要看图而不是进编辑
+                          event.stopPropagation()
+                          event.preventDefault()
+                          openZoom(image)
+                        }}
+                      />
+                    ))}
+                    {note.images.length > 3 && <span className="note-more">+{note.images.length - 3}</span>}
+                  </span>
+                )}
+              </button>
+              <span className="note-scrollbar" aria-hidden="true" />
+            </div>
             <footer className="note-card-actions">
               <button className="text-button danger" onClick={() => requestDelete(toDraft(note))}>
                 删除
