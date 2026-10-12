@@ -1,0 +1,10 @@
+packages:
+  - '.'
+allowBuilds:
+  core-js: false
+  esbuild: true
+minimumReleaseAgeExclude:
+  - react@19.3.0
+  - react-dom@19.3.0
+  - scheduler@0.28.0
+  - zod@4.6.1

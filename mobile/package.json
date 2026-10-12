@@ -1,0 +1,31 @@
+{
+  "name": "coc-logbook-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-web.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "sync": "pnpm build && cap sync android",
+    "android:build": "pnpm sync && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-android.ps1"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.3",
+    "@capacitor/core": "8.5.3",
+    "core-js": "3.50.0",
+    "fflate": "0.8.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "4.6.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.3",
+    "@types/node": "22.20.1",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "esbuild": "0.28.2",
+    "typescript": "5.9.2",
+    "vitest": "5.0.0"
+  }
+}

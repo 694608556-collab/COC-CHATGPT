@@ -1,0 +1,6 @@
+{
+  "appId": "coc.logbook",
+  "appName": "COC 跑团记录簿",
+  "webDir": "www",
+  "android": { "minWebViewVersion": 69, "allowMixedContent": false }
+}

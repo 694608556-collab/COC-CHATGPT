@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">COC 跑团记录簿</string>
+    <string name="title_activity_main">COC 跑团记录簿</string>
+    <string name="package_name">coc.logbook</string>
+    <string name="custom_url_scheme">coc.logbook</string>
+</resources>

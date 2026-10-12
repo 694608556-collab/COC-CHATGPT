@@ -1,0 +1,20 @@
+import { build } from 'esbuild'
+import { mkdir, copyFile, writeFile } from 'node:fs/promises'
+
+await mkdir('www', { recursive: true })
+await copyFile('../build/icon.png', 'www/icon.png')
+await build({
+  entryPoints: ['src/main.tsx'],
+  outfile: 'www/app.js',
+  bundle: true,
+  target: 'chrome69',
+  format: 'iife',
+  jsx: 'automatic',
+  minify: true,
+  define: { 'process.env.NODE_ENV': '"production"' }
+})
+// Generated HTML only loads packaged local assets: there is no remote dev server or sample embedded in the APK.
+await writeFile(
+  'www/index.html',
+  `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'"><title>COC 跑团记录簿</title><link rel="stylesheet" href="app.css"></head><body><div id="root"></div><script>window.globalThis=window;</script><script src="app.js"></script></body></html>`
+)
