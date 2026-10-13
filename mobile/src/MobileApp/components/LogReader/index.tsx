@@ -30,7 +30,6 @@ export function LogReader(props: {
   busy: boolean
   onBack(): void
   onEdit(): void
-  onDelete(): void
   onFetch(): void
   onReset(): void
   onExport(filters: FilterPreset): void
@@ -116,9 +115,6 @@ export function LogReader(props: {
             </button>
           </>
         )}
-        <button disabled={props.busy} className="danger" onClick={props.onDelete}>
-          删除场次
-        </button>
       </div>
       <section className="panel">
         <h2>{props.record.name}</h2>
@@ -127,9 +123,7 @@ export function LogReader(props: {
         </p>
         {props.record.link && <p className="source-link">来源：{props.record.link}</p>}
         {!hasBody && (
-          <p className="warning">
-            此备份只有场次登记，没有日志正文。联网获取尚未接入，不能显示未保存的内容。
-          </p>
+          <p className="warning">此场次尚未保存正文。在线场次可获取正文，手动场次可通过编辑填写正文。</p>
         )}
       </section>
       {hasBody && (

@@ -3,12 +3,8 @@ import { MODULE_PLAY_STATUS_LABELS } from '../../../../../src/shared/types'
 import type { ModuleRecord, SessionRecord } from '../../../../../src/shared/types'
 import type { MobileSnapshot } from '../../../data/types'
 import type { DataAction } from '../../../data/actions'
+import { GestureRow } from '../GestureRow'
 
-/**
- * 手机模组/场次浏览，搜索名称，不联网补取缺失正文。
- * @param props - 安卓业务快照、阅读事件和导入入口。
- * @returns 单列模组与场次卡片。
- */
 export function Records(props: {
   snapshot: MobileSnapshot
   onRead(record: SessionRecord): void
@@ -22,20 +18,23 @@ export function Records(props: {
   onExport(ids: string[], combined: boolean): void
   busy: boolean
 }) {
-  const [query, setQuery] = useState('')
-  const [moduleId, setModuleId] = useState('')
-  const [selected, setSelected] = useState<string[]>([])
   const { snapshot } = props
-  const records = snapshot.records
-    .filter(
-      (r) =>
-        (!moduleId || r.moduleId === moduleId) &&
-        (!query ||
-          `${r.name} ${snapshot.modules.find((m) => m.id === r.moduleId)?.name}`
-            .toLowerCase()
-            .includes(query.toLowerCase()))
-    )
+  const [query, setQuery] = useState('')
+  const [expanded, setExpanded] = useState<string[]>(() =>
+    snapshot.modules.length === 1 ? [snapshot.modules[0]!.id] : []
+  )
+  const [selected, setSelected] = useState<string[]>([])
+  const [selecting, setSelecting] = useState(false)
+  const needle = query.trim().toLowerCase()
+  const modules = snapshot.modules
+    .slice()
     .sort((a, b) => a.order - b.order)
+    .filter(
+      (m) =>
+        !needle ||
+        m.name.toLowerCase().includes(needle) ||
+        snapshot.records.some((r) => r.moduleId === m.id && r.name.toLowerCase().includes(needle))
+    )
   return (
     <>
       <div className="edit-actions">
@@ -48,57 +47,6 @@ export function Records(props: {
         </button>
       </div>
       {!!snapshot.modules.length && (
-        <details className="panel">
-          <summary>管理模组</summary>
-          {snapshot.modules
-            .slice()
-            .sort((a, b) => a.order - b.order)
-            .map((m) => (
-              <section key={m.id} className="entity-actions">
-                <button disabled={props.busy} onClick={() => props.onEditModule(m)}>
-                  {m.name} · 编辑
-                </button>
-                <button
-                  disabled={props.busy}
-                  aria-label={'上移模组 ' + m.name}
-                  onClick={() => props.onAction({ type: 'move', kind: 'module', id: m.id, direction: -1 })}
-                >
-                  上移
-                </button>
-                <button
-                  disabled={props.busy}
-                  aria-label={'下移模组 ' + m.name}
-                  onClick={() => props.onAction({ type: 'move', kind: 'module', id: m.id, direction: 1 })}
-                >
-                  下移
-                </button>
-                <button
-                  disabled={props.busy}
-                  onClick={() => props.onAction({ type: 'realign', moduleId: m.id })}
-                >
-                  重排场次序号
-                </button>
-                <button
-                  disabled={props.busy}
-                  className="danger"
-                  onClick={() => props.onAction({ type: 'delete', kind: 'module', id: m.id })}
-                >
-                  删除模组 {m.name}
-                </button>
-              </section>
-            ))}
-        </details>
-      )}
-      {!snapshot.records.length ? (
-        <section className="panel empty">
-          <h2>暂无场次</h2>
-          <p>可以先新增模组，再添加手动场次，也可以导入电脑备份。</p>
-          <p>导入前先校验、预览，确认后再覆盖。旧备份若没有正文，不能凭来源链接离线阅读。</p>
-          <button className="primary" onClick={props.onImport}>
-            前往数据与设置
-          </button>
-        </section>
-      ) : (
         <>
           <label className="field">
             搜索模组或场次
@@ -109,97 +57,195 @@ export function Records(props: {
               placeholder="输入名称"
             />
           </label>
-          <label className="field">
-            模组
-            <select value={moduleId} onChange={(e) => setModuleId(e.target.value)}>
-              <option value="">全部模组</option>
-              {snapshot.modules.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name} · {MODULE_PLAY_STATUS_LABELS[m.playStatus]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="record-list">
-            <div className="entity-actions">
-              <button disabled={props.busy} onClick={() => setSelected(records.map((r) => r.id))}>
-                全选当前列表
-              </button>
-              <button onClick={() => setSelected([])}>取消选择</button>
-              <button
-                disabled={props.busy || !selected.length}
-                onClick={() =>
-                  props.onFetch(
-                    snapshot.records
-                      .filter((r) => selected.includes(r.id) && r.sourceType === 'online')
-                      .map((r) => r.id)
-                  )
-                }
-              >
-                获取所选在线正文
-              </button>
-              <button
-                disabled={props.busy || !selected.length}
-                onClick={() => props.onExport(selected, false)}
-              >
-                批量导出
-              </button>
-              <button
-                disabled={props.busy || !selected.length}
-                onClick={() => props.onExport(selected, true)}
-              >
-                合成导出
-              </button>
-            </div>
-            {records.map((r) => (
-              <section key={r.id}>
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    checked={selected.includes(r.id)}
-                    onChange={(e) =>
-                      setSelected(
-                        e.target.checked ? [...selected, r.id] : selected.filter((id) => id !== r.id)
-                      )
-                    }
-                  />
-                  选择 {r.name}
-                </label>
-                <div className="entity-actions">
-                  <button
-                    disabled={props.busy}
-                    aria-label={'上移场次 ' + r.name}
-                    onClick={() => props.onAction({ type: 'move', kind: 'record', id: r.id, direction: -1 })}
-                  >
-                    上移
-                  </button>
-                  <button
-                    disabled={props.busy}
-                    aria-label={'下移场次 ' + r.name}
-                    onClick={() => props.onAction({ type: 'move', kind: 'record', id: r.id, direction: 1 })}
-                  >
-                    下移
-                  </button>
-                </div>
-                <button className="record-card" key={r.id} onClick={() => props.onRead(r)}>
-                  <span className="muted">{snapshot.modules.find((m) => m.id === r.moduleId)?.name}</span>
-                  <strong>{r.name}</strong>
-                  <span>
-                    {r.playDate || '日期未填写'}
-                    <span className={r.rawContent || r.manualContent ? 'tag available' : 'tag'}>
-                      {r.rawContent || r.manualContent ? '正文已保存' : '缺少正文'}
-                    </span>
-                  </span>
-                  <span>
-                    序号 {r.sequenceNo} · {r.status}
-                    {r.lastError ? ' · ' + r.lastError : ''}
-                  </span>
-                </button>
-              </section>
-            ))}
-          </div>
-          {!records.length && <p className="muted">没有匹配的场次。</p>}
+          <p className="muted gesture-hint">
+            点击模组展开 · 双击名称编辑 · 左滑删除 · 长按拖动排序；场次长按后松开进入多选
+          </p>
         </>
+      )}
+      {modules.map((m) => {
+        const allRecords = snapshot.records
+          .filter((r) => r.moduleId === m.id)
+          .sort((a, b) => a.order - b.order)
+        const records = allRecords.filter(
+          (r) => !needle || m.name.toLowerCase().includes(needle) || r.name.toLowerCase().includes(needle)
+        )
+        const open = !!needle || expanded.includes(m.id)
+        const ids = records.filter((r) => selected.includes(r.id)).map((r) => r.id)
+        return (
+          <section key={m.id} className="module-group panel">
+            <GestureRow
+              id={m.id}
+              group="modules"
+              label={'模组 ' + m.name}
+              disabled={props.busy}
+              onDelete={() => props.onAction({ type: 'delete', kind: 'module', id: m.id })}
+              onReorder={(targetId) =>
+                props.onAction({ type: 'reorder', kind: 'module', id: m.id, targetId })
+              }
+            >
+              <button
+                className="module-toggle"
+                data-module-toggle
+                aria-expanded={open}
+                aria-label={'模组 ' + m.name}
+                disabled={props.busy}
+                onClick={(event) => {
+                  if (event.detail > 1) return
+                  setExpanded(open ? expanded.filter((id) => id !== m.id) : [...expanded, m.id])
+                }}
+                onDoubleClick={() => props.onEditModule(m)}
+              >
+                <span className="module-caret" aria-hidden="true">
+                  {open ? '▾' : '▸'}
+                </span>
+                <strong>{m.name}</strong>
+                <span className="module-meta">
+                  {MODULE_PLAY_STATUS_LABELS[m.playStatus]} · {allRecords.length} 场
+                </span>
+              </button>
+            </GestureRow>
+            {open && (
+              <div className="module-content">
+                {!!(m.kps.length || m.pairs.length) && (
+                  <p className="muted participant-summary">
+                    KP：{m.kps.join('、') || '未填写'} · PC/PL：
+                    {m.pairs.map((p) => p.pc + '/' + p.pl).join('、') || '未填写'}
+                  </p>
+                )}
+                <div className="entity-actions module-actions" role="group" aria-label={m.name + '操作'}>
+                  <button
+                    disabled={props.busy || !records.length}
+                    onClick={() => {
+                      setSelecting(true)
+                      setSelected(Array.from(new Set([...selected, ...records.map((r) => r.id)])))
+                    }}
+                  >
+                    全选此模组
+                  </button>
+                  <button
+                    disabled={props.busy || !allRecords.length}
+                    onClick={() => props.onAction({ type: 'realign', moduleId: m.id })}
+                  >
+                    重排场次序号
+                  </button>
+                  {selecting && (
+                    <>
+                      <button
+                        onClick={() => {
+                          setSelected([])
+                          setSelecting(false)
+                        }}
+                      >
+                        退出多选
+                      </button>
+                      <span className="selection-count">已选 {ids.length} 场</span>
+                      <button
+                        disabled={
+                          props.busy || !records.some((r) => ids.includes(r.id) && r.sourceType === 'online')
+                        }
+                        onClick={() =>
+                          props.onFetch(
+                            records
+                              .filter((r) => ids.includes(r.id) && r.sourceType === 'online')
+                              .map((r) => r.id)
+                          )
+                        }
+                      >
+                        获取所选在线正文
+                      </button>
+                      <button disabled={props.busy || !ids.length} onClick={() => props.onExport(ids, false)}>
+                        批量导出
+                      </button>
+                      <button disabled={props.busy || !ids.length} onClick={() => props.onExport(ids, true)}>
+                        合成导出
+                      </button>
+                    </>
+                  )}
+                </div>
+                <div className="record-list">
+                  {records.map((r) => (
+                    <GestureRow
+                      key={r.id}
+                      id={r.id}
+                      group={'records:' + m.id}
+                      label={'场次 ' + r.name}
+                      disabled={props.busy}
+                      onDelete={() => props.onAction({ type: 'delete', kind: 'record', id: r.id })}
+                      onHold={() => {
+                        setSelecting(true)
+                        setSelected((current) => (current.includes(r.id) ? current : [...current, r.id]))
+                      }}
+                      onReorder={(targetId) =>
+                        props.onAction({ type: 'reorder', kind: 'record', id: r.id, targetId })
+                      }
+                    >
+                      <div className={'session-row' + (selected.includes(r.id) ? ' selected' : '')}>
+                        {selecting && (
+                          <label className="check selection-check">
+                            <input
+                              type="checkbox"
+                              aria-label={'选择 ' + r.name}
+                              checked={selected.includes(r.id)}
+                              onChange={(e) =>
+                                setSelected(
+                                  e.target.checked
+                                    ? [...selected, r.id]
+                                    : selected.filter((id) => id !== r.id)
+                                )
+                              }
+                            />
+                          </label>
+                        )}
+                        <button
+                          className="record-card"
+                          onClick={() =>
+                            selecting
+                              ? setSelected(
+                                  selected.includes(r.id)
+                                    ? selected.filter((id) => id !== r.id)
+                                    : [...selected, r.id]
+                                )
+                              : props.onRead(r)
+                          }
+                        >
+                          <span className="muted">{m.name}</span>
+                          <strong>{r.name}</strong>
+                          <span className="record-meta">
+                            <span>{r.playDate || '日期未填写'}</span>
+                            <span
+                              className={
+                                r.rawContent || r.manualContent !== undefined ? 'tag available' : 'tag'
+                              }
+                            >
+                              {r.rawContent || r.manualContent !== undefined ? '正文已保存' : '缺少正文'}
+                            </span>
+                          </span>
+                          <span>
+                            序号 {r.sequenceNo} · {r.status}
+                            {r.lastError ? ' · ' + r.lastError : ''}
+                          </span>
+                        </button>
+                      </div>
+                    </GestureRow>
+                  ))}
+                </div>
+                {!records.length && (
+                  <p className="muted">{needle ? '没有匹配的场次。' : '此模组暂无场次。'}</p>
+                )}
+              </div>
+            )}
+          </section>
+        )
+      })}
+      {!modules.length && !!snapshot.modules.length && <p className="muted">没有匹配的模组或场次。</p>}
+      {!snapshot.records.length && (
+        <section className="panel empty">
+          <h2>暂无场次</h2>
+          <p>可以先新增模组，再添加手动场次，也可以导入电脑备份。</p>
+          <button className="primary" onClick={props.onImport}>
+            前往数据与设置
+          </button>
+        </section>
       )}
     </>
   )

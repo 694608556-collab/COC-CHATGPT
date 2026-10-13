@@ -2,7 +2,7 @@ import type { MobileSnapshot } from './types'
 import { previewBackup } from './backup'
 export type DataAction =
   | { type: 'delete'; kind: 'module' | 'record' | 'character'; id: string }
-  | { type: 'move'; kind: 'module' | 'record'; id: string; direction: -1 | 1 }
+  | { type: 'reorder'; kind: 'module' | 'record'; id: string; targetId: string }
   | { type: 'realign'; moduleId: string }
   | { type: 'reset'; id: string }
   | { type: 'clear' }
@@ -25,7 +25,7 @@ export async function applyAction(current: MobileSnapshot, action: DataAction): 
         pairs: m.pairs.map((p) => (p.characterId === action.id ? { pc: p.pc, pl: p.pl } : p))
       }))
     }
-  } else if (action.type === 'move') {
+  } else if (action.type === 'reorder') {
     const source = action.kind === 'module' ? next.modules : next.records
     const selected = source.find((r) => r.id === action.id)
     if (!selected) throw new Error('目标已不存在，请重新读取。')
@@ -37,8 +37,10 @@ export async function applyAction(current: MobileSnapshot, action: DataAction): 
       )
       .sort((a, b) => a.order - b.order)
     const index = rows.findIndex((r) => r.id === action.id)
-    const other = index + action.direction
-    if (other >= 0 && other < rows.length) [rows[index], rows[other]] = [rows[other]!, rows[index]!]
+    const other = rows.findIndex((r) => r.id === action.targetId)
+    if (other < 0) throw new Error('只能在同一列表内排序，请重新读取。')
+    const [moved] = rows.splice(index, 1)
+    rows.splice(other, 0, moved!)
     rows.forEach((r, i) => {
       r.order = i
     })

@@ -1,3 +1,4 @@
+import { expandModules } from './helpers'
 import { expect, test } from '@playwright/test'
 
 test('公开样本预览、跨页高亮跳转、过滤和手动正文搜索', async ({ page }) => {
@@ -11,6 +12,7 @@ test('公开样本预览、跨页高亮跳转、过滤和手动正文搜索', as
   await expect(page.getByRole('heading', { name: '暂无场次' })).toBeVisible()
   await page.getByRole('button', { name: '载入公开测试数据' }).click()
   await page.getByRole('button', { name: '确认覆盖并导入' }).click()
+  await expandModules(page)
   await page.getByRole('button', { name: /雾港调查.*第一场：灯塔线索/ }).click()
   const query = page.getByRole('searchbox', { name: '搜索整场正文' })
   const results = page.getByRole('region', { name: '搜索结果' })
@@ -52,6 +54,7 @@ test('公开样本预览、跨页高亮跳转、过滤和手动正文搜索', as
   await expect(results).toHaveCount(0)
   await expect(page.locator('.messages mark')).toHaveCount(0)
   await page.getByRole('button', { name: '返回场次', exact: true }).click()
+  await expandModules(page)
   await page.getByRole('button', { name: /雾港调查.*第二场：手动调查笔记/ }).click()
   await query.fill('铜钥匙')
   await expect(results.getByRole('status')).toContainText('匹配 2 条')
@@ -84,6 +87,7 @@ test('浅深主题保存并重开；320px 深色高亮可见', async ({ page }) 
   await page.getByRole('button', { name: '载入公开测试数据' }).click()
   await page.getByRole('button', { name: '确认覆盖并导入' }).click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  await expandModules(page)
   await page.getByRole('button', { name: /雾港调查.*第一场：灯塔线索/ }).click()
   await page.getByRole('searchbox', { name: '搜索整场正文' }).fill('灯塔')
   await page.getByRole('button', { name: '搜索', exact: true }).click()

@@ -476,7 +476,7 @@ export function MobileApp({
           <strong>COC 跑团记录簿</strong>
           <span>安卓开发版 · 本机数据</span>
         </div>
-        <span className="version">0.2</span>
+        <span className="version">0.2.1</span>
       </header>
       <main>
         {error && (
@@ -563,9 +563,6 @@ export function MobileApp({
                       busy={busy}
                       onBack={() => setRecord(undefined)}
                       onEdit={() => startEdit({ kind: 'record', value: record })}
-                      onDelete={() =>
-                        void perform(() => act({ type: 'delete', kind: 'record', id: record.id }))
-                      }
                       onFetch={() => void perform(() => probe([record.id]))}
                       onReset={() => void perform(() => act({ type: 'reset', id: record.id }))}
                       onExport={(filters) => void perform(() => exportText(record, filters))}
@@ -594,6 +591,7 @@ export function MobileApp({
                   ))}
                 {page === 'characters' && (
                   <CharacterCards
+                    busy={busy}
                     characters={snapshot.characters}
                     selected={selectedCharacter}
                     onSelect={setSelectedCharacter}
@@ -635,7 +633,7 @@ export function MobileApp({
                     lastAutoBackupAt={native.lastAutoBackupAt}
                     onClear={() => void perform(() => act({ type: 'clear' }))}
                     onTableExport={(format) => void perform(() => exportTables(format))}
-                    onTableImport={(kind) => void perform(() => previewTable(kind))}
+                    onTableImport={() => void perform(() => previewTable('records'))}
                     documents={documents}
                     onListDocuments={() =>
                       void perform(async () => setDocuments((await port.listDocuments()).documents))

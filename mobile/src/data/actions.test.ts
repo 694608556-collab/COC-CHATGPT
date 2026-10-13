@@ -4,6 +4,35 @@ import { applyEdit } from './edit'
 import { searchSample } from '../dev/sample'
 import { createEmptyCharacter } from '../../../src/shared/coc-rules'
 describe('删除、排序与关联完整性', () => {
+  it('拖动可跨多个位置一次排序，拒绝跨模组目标且不修改原快照', async () => {
+    const current = searchSample()
+    const first = current.records[0]!
+    const second = current.records[1]!
+    const third = { ...second, id: 'third-record', name: '第三场', order: 2 }
+    current.records.push(third)
+    const before = JSON.stringify(current)
+    const next = await applyAction(current, {
+      type: 'reorder',
+      kind: 'record',
+      id: first.id,
+      targetId: third.id
+    })
+    expect(
+      next.records
+        .filter((r) => r.moduleId === first.moduleId)
+        .sort((a, b) => a.order - b.order)
+        .map((r) => r.id)
+    ).toEqual([second.id, third.id, first.id])
+    expect(JSON.stringify(current)).toBe(before)
+    await expect(
+      applyAction(current, {
+        type: 'reorder',
+        kind: 'record',
+        id: first.id,
+        targetId: current.records[2]!.id
+      })
+    ).rejects.toThrow('同一列表')
+  })
   it('删除模组级联场次、解除角色归属，原快照不变', async () => {
     const current = searchSample()
     const c = createEmptyCharacter({
@@ -50,10 +79,10 @@ describe('删除、排序与关联完整性', () => {
     expect(changed.records[0]?.rawContent).toBeUndefined()
     expect(changed.records[0]?.status).toBe('pending')
     const moved = await applyAction(current, {
-      type: 'move',
+      type: 'reorder',
       kind: 'record',
       id: current.records[0]!.id,
-      direction: 1
+      targetId: current.records[1]!.id
     })
     const numbered = await applyAction(moved, { type: 'realign', moduleId: current.modules[0]!.id })
     expect(numbered.records[0]?.sequenceNo).toBe(2)

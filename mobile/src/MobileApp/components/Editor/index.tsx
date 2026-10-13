@@ -5,11 +5,12 @@ import {
   calculateDerived,
   skillFinal,
   convertCharacterEdition,
-  createSkill,
-  skillPointSummary
+  createSkill
 } from '../../../../../src/shared/coc-rules'
 import type { Edit } from '../../../data/edit'
 import type { MobileSnapshot } from '../../../data/types'
+import { RemoveButton } from '../RemoveButton'
+import { CharacterSuggest } from '../CharacterSuggest'
 
 export function Editor(props: {
   initial: Edit
@@ -119,64 +120,81 @@ export function Editor(props: {
                   ))}
                 </select>
               </label>
-              {text('KP（每行一位）', draft.value.kps.join('\n'), (value) =>
-                module({ ...draft.value, kps: value.split('\n') })
-              )}
-              <h3>参与者</h3>
+              <h3>KP（守密人）</h3>
+              <div className="participant-grid">
+                {draft.value.kps.map((kp, index) => (
+                  <div className="kp-edit-row" key={index}>
+                    <span className="badge">KP</span>
+                    <label className="field">
+                      <span className="sr-only">KP{index + 1}</span>
+                      <input
+                        value={kp}
+                        placeholder="守密人名称"
+                        onChange={(event) =>
+                          module({
+                            ...draft.value,
+                            kps: draft.value.kps.map((value, i) => (i === index ? event.target.value : value))
+                          })
+                        }
+                      />
+                    </label>
+                    <RemoveButton
+                      label={'删除 KP' + (index + 1)}
+                      onClick={() =>
+                        module({
+                          ...draft.value,
+                          kps: draft.value.kps.filter((_, i) => i !== index)
+                        })
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="inline-add"
+                onClick={() => module({ ...draft.value, kps: [...draft.value.kps, ''] })}
+              >
+                ＋ 添加 KP
+              </button>
+              <h3>PC / PL 成对名单</h3>
               {draft.value.pairs.map((pair, index) => (
-                <section className="pair-editor" key={index}>
-                  {field('PC' + (index + 1), pair.pc, (pc) =>
-                    module({
-                      ...draft.value,
-                      pairs: draft.value.pairs.map((p, i) =>
-                        i === index ? { ...p, pc, characterId: undefined } : p
-                      )
-                    })
-                  )}
+                <div className="pair-row" key={index}>
+                  <CharacterSuggest
+                    label={'PC' + (index + 1)}
+                    value={pair.pc}
+                    characterId={pair.characterId}
+                    characters={props.snapshot.characters}
+                    onChange={(pc, characterId) =>
+                      module({
+                        ...draft.value,
+                        pairs: draft.value.pairs.map((p, i) => (i === index ? { ...p, pc, characterId } : p))
+                      })
+                    }
+                  />
                   {field('PL' + (index + 1), pair.pl, (pl) =>
                     module({
                       ...draft.value,
                       pairs: draft.value.pairs.map((p, i) => (i === index ? { ...p, pl } : p))
                     })
                   )}
-                  <label className="field">
-                    关联角色{index + 1}
-                    <select
-                      aria-label={'关联角色' + (index + 1)}
-                      value={pair.characterId ?? ''}
-                      onChange={(e) =>
-                        module({
-                          ...draft.value,
-                          pairs: draft.value.pairs.map((p, i) =>
-                            i === index ? { ...p, characterId: e.target.value || undefined } : p
-                          )
-                        })
-                      }
-                    >
-                      <option value="">仅保留姓名</option>
-                      {props.snapshot.characters.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.basic.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    className="danger"
+                  <RemoveButton
+                    label={'删除 PC' + (index + 1) + ' / PL' + (index + 1)}
                     onClick={() =>
-                      module({ ...draft.value, pairs: draft.value.pairs.filter((_, i) => i !== index) })
+                      module({
+                        ...draft.value,
+                        pairs: draft.value.pairs.filter((_, i) => i !== index)
+                      })
                     }
-                  >
-                    移除参与者{index + 1}
-                  </button>
-                </section>
+                  />
+                </div>
               ))}
               <button
                 type="button"
+                className="inline-add"
                 onClick={() => module({ ...draft.value, pairs: [...draft.value.pairs, { pc: '', pl: '' }] })}
               >
-                添加参与者
+                ＋ 添加参与者
               </button>
             </>
           )}
@@ -272,20 +290,22 @@ export function Editor(props: {
                 </label>
               ))}
               <p className="muted">移除归属会解除该模组内的角色关联，保留 PC/PL 姓名。</p>
-              {Object.entries({
-                name: '姓名',
-                occupation: '职业',
-                age: '年龄',
-                gender: '性别',
-                birthplace: '出生地',
-                residence: '居住地'
-              }).map(([key, label]) =>
-                field(label, c.basic[key as keyof typeof c.basic], (value) =>
-                  character({ ...c, basic: { ...c.basic, [key]: value } })
-                )
-              )}
+              <div className="edit-grid basic-fields">
+                {Object.entries({
+                  name: '姓名',
+                  occupation: '职业',
+                  age: '年龄',
+                  gender: '性别',
+                  birthplace: '出生地',
+                  residence: '居住地'
+                }).map(([key, label]) =>
+                  field(label, c.basic[key as keyof typeof c.basic], (value) =>
+                    character({ ...c, basic: { ...c.basic, [key]: value } })
+                  )
+                )}
+              </div>
               <h3>属性</h3>
-              <div className="edit-grid">
+              <div className="edit-grid attribute-edit-grid">
                 {Object.entries(c.attrs).map(([key, value]) =>
                   field(
                     key,
@@ -347,105 +367,70 @@ export function Editor(props: {
                 field('职业技能点公式', c.occupationFormula, (occupationFormula) =>
                   character({ ...c, occupationFormula })
                 )}
-              <label className="field">
-                职业点总额覆盖（留空按公式）
-                <input
-                  type="number"
-                  value={c.occupationPointOverride ?? ''}
-                  onChange={(e) =>
+              <details>
+                <summary>技能</summary>
+                <button
+                  type="button"
+                  className="inline-add"
+                  onClick={() =>
                     character({
                       ...c,
-                      occupationPointOverride: e.target.value === '' ? undefined : Number(e.target.value)
+                      skills: [...c.skills, createSkill('新技能')]
                     })
                   }
-                />
-              </label>
-              <p className="muted">
-                {(() => {
-                  try {
-                    const points = skillPointSummary(c)
-                    return (
-                      '职业点 ' +
-                      points.occupationUsed +
-                      '/' +
-                      points.occupationLimit +
-                      ' · 兴趣点 ' +
-                      points.interestUsed +
-                      '/' +
-                      points.interestLimit
-                    )
-                  } catch {
-                    return '职业点公式无效，请使用 EDU×4 等属性乘法公式。'
-                  }
-                })()}
-              </p>
-              <details>
-                <summary>技能点分配</summary>
-                {c.skills.map((skill, index) => (
-                  <section key={skill.id} className="skill-edit">
-                    <h3>
-                      {skill.name}
-                      {skill.hidden ? '（已隐藏）' : ''} · 合计 {skillFinal(skill)}
-                    </h3>
-                    {field('技能' + (index + 1) + '名称', skill.name, (name) =>
-                      character({ ...c, skills: c.skills.map((s, i) => (i === index ? { ...s, name } : s)) })
-                    )}
-                    <label className="check">
+                >
+                  ＋ 添加技能
+                </button>
+                <div className="skill-editor-grid">
+                  {c.skills.map((skill, index) => (
+                    <div key={skill.id} className="skill-edit-row">
                       <input
-                        type="checkbox"
-                        checked={!!skill.hidden}
-                        onChange={(e) =>
+                        aria-label={'技能' + (index + 1) + '名称'}
+                        value={skill.name}
+                        onChange={(event) =>
                           character({
                             ...c,
                             skills: c.skills.map((s, i) =>
-                              i === index ? { ...s, hidden: e.target.checked } : s
+                              i === index ? { ...s, name: event.target.value } : s
                             )
                           })
                         }
                       />
-                      隐藏技能{index + 1}
-                    </label>
-                    <div className="edit-grid">
-                      {(['base', 'occupation', 'interest', 'growth'] as const).map((key) =>
-                        field(
-                          {
-                            base: '基础',
-                            occupation: '职业点',
-                            interest: '兴趣点',
-                            growth: '成长点'
-                          }[key],
-                          skill[key],
-                          (value) =>
-                            character({
-                              ...c,
-                              skills: c.skills.map((s, i) =>
-                                i === index
-                                  ? {
-                                      ...s,
-                                      [key]: value === '' ? NaN : Number(value)
-                                    }
-                                  : s
-                              )
-                            }),
-                          'number'
-                        )
-                      )}
+                      <input
+                        aria-label={'技能' + (index + 1) + '数值'}
+                        type="number"
+                        required
+                        step="any"
+                        value={Number.isFinite(skillFinal(skill)) ? skillFinal(skill) : ''}
+                        onChange={(event) =>
+                          character({
+                            ...c,
+                            skills: c.skills.map((s, i) =>
+                              i === index
+                                ? {
+                                    ...s,
+                                    base: event.target.value === '' ? NaN : Number(event.target.value),
+                                    occupation: 0,
+                                    interest: 0,
+                                    growth: 0
+                                  }
+                                : s
+                            )
+                          })
+                        }
+                      />
+                      <RemoveButton
+                        label={'删除技能' + (index + 1)}
+                        onClick={() =>
+                          character({
+                            ...c,
+                            skills: c.skills.filter((_, i) => i !== index)
+                          })
+                        }
+                      />
                     </div>
-                    <button
-                      type="button"
-                      className="danger"
-                      onClick={() => character({ ...c, skills: c.skills.filter((_, i) => i !== index) })}
-                    >
-                      删除技能{index + 1}
-                    </button>
-                  </section>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => character({ ...c, skills: [...c.skills, createSkill('新技能')] })}
-                >
-                  添加技能
-                </button>
+                  ))}
+                </div>
               </details>
               <details>
                 <summary>武器战斗表</summary>
@@ -469,57 +454,92 @@ export function Editor(props: {
                         )
                       )}
                     </div>
-                    <button
-                      type="button"
-                      className="danger"
+                    <RemoveButton
+                      label={'删除武器' + (index + 1)}
                       onClick={() => character({ ...c, weapons: c.weapons.filter((_, i) => i !== index) })}
-                    >
-                      删除武器{index + 1}
-                    </button>
+                    />
                   </section>
                 ))}
-                <button type="button" onClick={() => character({ ...c, weapons: [...c.weapons, {}] })}>
+                <button
+                  type="button"
+                  className="inline-add"
+                  onClick={() => character({ ...c, weapons: [...c.weapons, {}] })}
+                >
                   添加武器
                 </button>
               </details>
-              {text('物品（每行一项）', c.items.join('\n'), (value) =>
-                character({ ...c, items: value.split('\n') })
-              )}
-              {Object.entries({
-                description: '',
-                belief: '',
-                importantPerson: '',
-                significantPlace: '',
-                treasure: '',
-                trait: '',
-                secret: '',
-                wound: '',
-                phobia: '',
-                ...c.background
-              }).map(([key, value]) =>
-                text(
-                  (
-                    {
-                      description: '个人描述',
-                      belief: '思想与信念',
-                      importantPerson: '重要之人',
-                      significantPlace: '意义非凡之地',
-                      treasure: '宝贵之物',
-                      trait: '特质',
-                      secret: '难言之隐',
-                      wound: '伤口和疤痕',
-                      phobia: '恐惧症/狂躁症'
-                    } as Record<string, string>
-                  )[key] ?? key,
-                  value,
-                  (value) =>
-                    character({
-                      ...c,
-                      background: { ...c.background, [key]: value }
-                    })
-                )
-              )}
-              {text('调查员经历', c.story, (story) => character({ ...c, story }))}
+              <div className="section-heading-with-action">
+                <h3>财产与装备</h3>
+                <button
+                  type="button"
+                  className="inline-add"
+                  onClick={() => character({ ...c, items: [...c.items, ''] })}
+                >
+                  ＋ 添加物品
+                </button>
+              </div>
+              <div className="item-editor-grid">
+                {c.items.map((item, index) => (
+                  <div className="item-edit-row" key={index}>
+                    <input
+                      aria-label={'物品' + (index + 1)}
+                      value={item}
+                      onChange={(event) =>
+                        character({
+                          ...c,
+                          items: c.items.map((value, i) => (i === index ? event.target.value : value))
+                        })
+                      }
+                    />
+                    <RemoveButton
+                      label={'删除物品' + (index + 1)}
+                      onClick={() =>
+                        character({
+                          ...c,
+                          items: c.items.filter((_, i) => i !== index)
+                        })
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="background-fields">
+                {Object.entries({
+                  description: '',
+                  belief: '',
+                  importantPerson: '',
+                  significantPlace: '',
+                  treasure: '',
+                  trait: '',
+                  secret: '',
+                  wound: '',
+                  phobia: '',
+                  ...c.background
+                }).map(([key, value]) =>
+                  text(
+                    (
+                      {
+                        description: '个人描述',
+                        belief: '思想与信念',
+                        importantPerson: '重要之人',
+                        significantPlace: '意义非凡之地',
+                        treasure: '宝贵之物',
+                        trait: '特质',
+                        secret: '难言之隐',
+                        wound: '伤口和疤痕',
+                        phobia: '恐惧症/狂躁症'
+                      } as Record<string, string>
+                    )[key] ?? key,
+                    value,
+                    (value) =>
+                      character({
+                        ...c,
+                        background: { ...c.background, [key]: value }
+                      })
+                  )
+                )}
+                {text('调查员经历', c.story, (story) => character({ ...c, story }))}
+              </div>
             </>
           )}
           <div className="dialog-actions">

@@ -1,3 +1,4 @@
+import { expandModules } from './helpers'
 import { expect, test } from '@playwright/test'
 import { exampleBackup } from '../src/data/fixtures'
 
@@ -24,10 +25,12 @@ test('320px：缺少 randomUUID 时可创建角色，导入后的在线正文仍
     buffer: Buffer.from(JSON.stringify(exampleBackup()))
   })
   await page.getByRole('button', { name: /确认.*覆盖/ }).click()
+  await expandModules(page)
   await page.getByRole('button', { name: /示例模组.*第一场/ }).click()
   await page.getByRole('button', { name: '编辑场次', exact: true }).click()
   await page.getByLabel('场次名称', { exact: true }).fill('修改名称后')
   await page.getByRole('button', { name: '保存修改', exact: true }).click()
+  await expandModules(page)
   await page.getByRole('button', { name: /示例模组.*修改名称后/ }).click()
   await expect(page.getByText('离线正文', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '角色卡', exact: true }).click()
@@ -53,6 +56,7 @@ test('手机宽度：新建、取消、保存、重开和备份', async ({ page 
   await page.getByLabel('场次名称', { exact: true }).fill('第一场')
   await page.getByLabel('手动正文', { exact: true }).fill('公开测试正文\n第二段')
   await page.getByRole('button', { name: '保存修改', exact: true }).click()
+  await expandModules(page)
   await page.getByRole('button', { name: /公开测试模组.*第一场/ }).click()
   await expect(page.getByText('公开测试正文', { exact: false })).toBeVisible()
   await page.getByRole('button', { name: '编辑场次', exact: true }).click()

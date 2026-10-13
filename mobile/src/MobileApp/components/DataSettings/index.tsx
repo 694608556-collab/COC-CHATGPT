@@ -21,7 +21,7 @@ export function DataSettings(props: {
   lastAutoBackupAt?: number
   onClear(): void
   onTableExport(format: 'csv' | 'xlsx'): void
-  onTableImport(kind: 'records' | 'characters'): void
+  onTableImport(): void
   documents: SavedDocument[]
   onListDocuments(): void
   onOpenDocument(uri: string): void
@@ -49,30 +49,34 @@ export function DataSettings(props: {
       </section>
       <section className="panel">
         <h2>阅读与导出默认设置</h2>
-        {Object.entries({
-          hideDiceCommands: '隐藏骰指令',
-          hideImages: '隐藏图片链接',
-          hideOffTopic: '隐藏题外话',
-          hideTime: '隐藏时间',
-          hidePlatformAccount: '隐藏平台账号',
-          hideYearMonthDay: '隐藏年月日'
-        }).map(([key, label]) => (
-          <label className="check" key={key}>
-            <input
-              disabled={props.busy}
-              type="checkbox"
-              checked={
-                props.snapshot.settings.filterPreset[key as keyof typeof props.snapshot.settings.filterPreset]
-              }
-              onChange={(e) =>
-                props.onSettings({
-                  filterPreset: { ...props.snapshot.settings.filterPreset, [key]: e.target.checked }
-                })
-              }
-            />
-            {label}
-          </label>
-        ))}
+        <div className="settings-option-grid">
+          {Object.entries({
+            hideDiceCommands: '隐藏骰指令',
+            hideImages: '隐藏图片链接',
+            hideOffTopic: '隐藏题外话',
+            hideTime: '隐藏时间',
+            hidePlatformAccount: '隐藏平台账号',
+            hideYearMonthDay: '隐藏年月日'
+          }).map(([key, label]) => (
+            <label className="check" key={key}>
+              <input
+                disabled={props.busy}
+                type="checkbox"
+                checked={
+                  props.snapshot.settings.filterPreset[
+                    key as keyof typeof props.snapshot.settings.filterPreset
+                  ]
+                }
+                onChange={(e) =>
+                  props.onSettings({
+                    filterPreset: { ...props.snapshot.settings.filterPreset, [key]: e.target.checked }
+                  })
+                }
+              />
+              {label}
+            </label>
+          ))}
+        </div>
       </section>
       <section className="panel">
         <h2>自动本地备份</h2>
@@ -128,11 +132,8 @@ export function DataSettings(props: {
       </section>
       <section className="panel">
         <h2>表格导入与导出</h2>
-        <button disabled={props.busy} onClick={() => props.onTableImport('records')}>
+        <button disabled={props.busy} onClick={props.onTableImport}>
           导入场次表格
-        </button>
-        <button disabled={props.busy} onClick={() => props.onTableImport('characters')}>
-          导入角色卡表格
         </button>
         <button
           disabled={props.busy || !props.snapshot.records.length}
