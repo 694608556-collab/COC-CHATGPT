@@ -17,6 +17,9 @@ function deviceStore(failSafety = false): LogbookPort {
     archive: { uri: 'content://example/tree', label: '测试目录', valid: true }
   }
   return {
+    commitEdit: async () => {
+      throw new Error('测试未调用编辑')
+    },
     getState: async () => ({ ...state }),
     selectArchive: async () => ({ cancelled: true }),
     openBackup: async () => ({ cancelled: true }),
@@ -62,7 +65,12 @@ describe('恢复确认与持久化公共边界', () => {
       ...preview.snapshot,
       settings: { ...preview.snapshot.settings, theme: 'light' as const }
     }
-    await restoreBackup(device, preview, { confirmed: true, restoreSettings: false, revision: 0, current })
+    await restoreBackup(device, preview, {
+      confirmed: true,
+      restoreSettings: false,
+      revision: 0,
+      current
+    })
     expect(JSON.parse((await device.getState()).json!).settings.theme).toBe('light')
   })
   it('安全副本创建失败时当前保存数据不变', async () => {

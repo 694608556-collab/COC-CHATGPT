@@ -12,6 +12,7 @@ export function LogReader(props: {
   preset: FilterPreset
   busy: boolean
   onBack(): void
+  onEdit(): void
   onExport(filters: FilterPreset): void
 }) {
   const [filters, setFilters] = useState(props.preset)
@@ -33,6 +34,9 @@ export function LogReader(props: {
     <>
       <div className="reader-actions">
         <button onClick={props.onBack}>返回场次</button>
+        <button disabled={props.busy} onClick={props.onEdit}>
+          编辑场次
+        </button>
         <button className="primary" disabled={props.busy || !hasBody} onClick={() => props.onExport(filters)}>
           导出 TXT
         </button>
@@ -74,7 +78,13 @@ export function LogReader(props: {
                     setPage(0)
                   }}
                 />
-                {{ hideDiceCommands: '隐藏骰指令', hideOffTopic: '隐藏题外话', hideTime: '隐藏时间' }[key]}
+                {
+                  {
+                    hideDiceCommands: '隐藏骰指令',
+                    hideOffTopic: '隐藏题外话',
+                    hideTime: '隐藏时间'
+                  }[key]
+                }
               </label>
             ))}
           </div>

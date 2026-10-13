@@ -1,19 +1,26 @@
 import { useState } from 'react'
-import type { CharacterData } from '../../../../../src/shared/types'
+import type { CharacterData, Edition } from '../../../../../src/shared/types'
 import { skillFinal } from '../../../../../src/shared/coc-rules'
 
 /**
- * 首阶段完整角色字段只读浏览；不恢复已删除的 Excel/PDF 导出。
+ * 角色字段浏览与基础编辑入口；不恢复已删除的 Excel/PDF 导出。
  * @param props - 已导入并校验的角色卡集合。
  * @returns 角色列表、属性、技能及背景信息。
  */
-export function CharacterCards(props: { characters: CharacterData[] }) {
+export function CharacterCards(props: {
+  characters: CharacterData[]
+  onEdit(value: CharacterData): void
+  onNew(edition: Edition): void
+}) {
   const [selected, setSelected] = useState('')
   const character = props.characters.find((c) => c.id === selected)
   if (!character)
     return (
       <>
-        <p className="muted">首阶段提供已有角色卡浏览，编辑功能尚未接入。</p>
+        <div className="edit-actions">
+          <button onClick={() => props.onNew(6)}>新建六版角色</button>
+          <button onClick={() => props.onNew(7)}>新建七版角色</button>
+        </div>
         {props.characters.map((c) => (
           <button key={c.id} className="record-card" onClick={() => setSelected(c.id)}>
             <strong>{c.basic.name || '未命名角色'}</strong>
@@ -33,6 +40,7 @@ export function CharacterCards(props: { characters: CharacterData[] }) {
   return (
     <>
       <button onClick={() => setSelected('')}>返回角色列表</button>
+      <button onClick={() => props.onEdit(character)}>编辑角色卡</button>
       <section className="panel">
         <h2>{character.basic.name || '未命名角色'}</h2>
         <p>

@@ -3,7 +3,7 @@ import { DEFAULT_FILTER_PRESET } from '../../../src/shared/types'
 import type { FilterPreset, SessionRecord } from '../../../src/shared/types'
 import { renderLogText } from '../../../src/shared/document-renderer'
 import { Native, decodeBase64, encodeBase64 } from '../data/native'
-import type { NativeState } from '../data/native'
+import type { LogbookPort, NativeState } from '../data/native'
 import { previewBackup, encodeBackup } from '../data/backup'
 import { restoreBackup } from '../data/restore'
 import type { ImportPreview, MobileSnapshot } from '../data/types'
@@ -13,6 +13,10 @@ import { DataSettings } from './components/DataSettings'
 import { ArchiveGate } from './components/ArchiveGate'
 import { RestoreDialog } from './components/RestoreDialog'
 import { LogReader } from './components/LogReader'
+import { Editor } from './components/Editor'
+import { saveEdit } from '../data/edit'
+import type { Edit } from '../data/edit'
+import { createEmptyCharacter } from '../../../src/shared/coc-rules'
 
 /** @returns 初次使用的空数据，不推测或静默创建归档目录。 */
 function emptySnapshot(): MobileSnapshot {
@@ -27,7 +31,7 @@ function emptySnapshot(): MobileSnapshot {
 }
 
 /** @returns 安卓三模块外壳；所有覆盖与写入仅经原生持久化接口。 */
-export function MobileApp() {
+export function MobileApp({ port = Native }: { port?: LogbookPort }) {
   const [native, setNative] = useState<NativeState>()
   const [snapshot, setSnapshot] = useState<MobileSnapshot>(emptySnapshot)
   const [page, setPage] = useState<'records' | 'characters' | 'settings'>('records')
@@ -37,10 +41,69 @@ export function MobileApp() {
   const busyLock = useRef(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  const [editing, setEditing] = useState<{ draft: Edit; revision: number }>()
+  function startEdit(draft: Edit) {
+    if (native && !busyLock.current) setEditing({ draft, revision: native.revision })
+  }
+  function newModule() {
+    startEdit({
+      kind: 'module',
+      value: {
+        id: crypto.randomUUID(),
+        name: '',
+        playStatus: 'not_started',
+        kps: [],
+        pairs: [],
+        order: snapshot.modules.length,
+        collapsed: false,
+        createdAt: '',
+        updatedAt: ''
+      }
+    })
+  }
+  function newRecord() {
+    startEdit({
+      kind: 'record',
+      value: {
+        id: crypto.randomUUID(),
+        name: '',
+        moduleId: snapshot.modules[0]?.id ?? '',
+        sequenceNo: 0,
+        sourceType: 'manual',
+        status: 'manual',
+        dateSource: 'none',
+        manualContent: '',
+        order: snapshot.records.length,
+        createdAt: '',
+        updatedAt: ''
+      }
+    })
+  }
+  async function persistEdit(draft: Edit) {
+    if (!editing || busyLock.current) return
+    busyLock.current = true
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const result = await saveEdit(port, snapshot, draft, editing.revision)
+      setEditing(undefined)
+      setRecord(undefined)
+      setNotice('修改已保存。安全副本：' + result.safetyBackup.name)
+      try {
+        await reload()
+      } catch {
+        setError('修改已提交，但页面重新读取失败。请重新打开应用读取，勿重复保存。')
+      }
+    } finally {
+      busyLock.current = false
+      setBusy(false)
+    }
+  }
 
   /** @returns 当前存储与授权；读取失败保留旧显示，不重置数据库。 */
   async function reload() {
-    const state = await Native.getState()
+    const state = await port.getState()
     const data = state.json
       ? (await previewBackup(new TextEncoder().encode(state.json))).snapshot
       : emptySnapshot()
@@ -74,7 +137,7 @@ export function MobileApp() {
 
   /** @returns 打开系统目录选择；取消不将首次配置标为成功。 */
   async function chooseArchive() {
-    const choice = await Native.selectArchive()
+    const choice = await port.selectArchive()
     if (choice.cancelled) {
       setNotice('尚未确认新位置；原位置保持不动。')
       return
@@ -84,7 +147,7 @@ export function MobileApp() {
   }
   /** @returns 仅生成预览，不在文件选择后自动恢复。 */
   async function chooseBackup() {
-    const choice = await Native.openBackup()
+    const choice = await port.openBackup()
     if (choice.cancelled || !choice.base64) return
     setPreview(await previewBackup(decodeBase64(choice.base64)))
   }
@@ -95,7 +158,7 @@ export function MobileApp() {
    */
   async function confirmRestore(restoreSettings: boolean) {
     if (!preview || !native) throw new Error('预览已失效，请重新选择备份。')
-    const result = await restoreBackup(Native, preview, {
+    const result = await restoreBackup(port, preview, {
       confirmed: true,
       restoreSettings,
       revision: native.revision,
@@ -109,7 +172,7 @@ export function MobileApp() {
   }
   /** @returns 保存含已获取正文的安卓备份；不冒充已兼容旧电脑版的整库格式。 */
   async function exportBackup() {
-    const file = await Native.writeArchive({
+    const file = await port.writeArchive({
       name: `coc-android-backup-${Date.now()}.json`,
       mime: 'application/json',
       base64: encodeBase64(encodeBackup(snapshot))
@@ -131,14 +194,18 @@ export function MobileApp() {
         .join('')
         .replace(/[\\/:*?"<>|.]/g, '_')
         .slice(0, 60) || '场次'
-    const file = await Native.writeArchive({
+    const file = await port.writeArchive({
       name: `${name}.txt`,
       mime: 'text/plain',
       base64: encodeBase64(new TextEncoder().encode(text))
     })
     setNotice(`TXT 已保存并回读校验：${file.name}`)
   }
-  const titles = { records: '跑团记录汇总', characters: '角色卡', settings: '数据与设置' }
+  const titles = {
+    records: '跑团记录汇总',
+    characters: '角色卡',
+    settings: '数据与设置'
+  }
   return (
     <div className="mobile-shell">
       <header className="app-header">
@@ -180,35 +247,62 @@ export function MobileApp() {
               <p className="eyebrow">仅保留你确认的三个模块</p>
               <h1>{titles[page]}</h1>
             </div>
-            {page === 'records' &&
-              (record ? (
-                <LogReader
-                  key={record.id}
-                  record={record}
-                  preset={snapshot.settings.filterPreset}
-                  busy={busy}
-                  onBack={() => setRecord(undefined)}
-                  onExport={(filters) => void perform(() => exportText(record, filters))}
-                />
-              ) : (
-                <Records
-                  snapshot={snapshot}
-                  onRead={setRecord}
-                  onImport={() => {
-                    setPage('settings')
-                  }}
-                />
-              ))}
-            {page === 'characters' && <CharacterCards characters={snapshot.characters} />}
-            {page === 'settings' && (
-              <DataSettings
-                archive={native.archive}
+            {editing ? (
+              <Editor
+                initial={editing.draft}
                 snapshot={snapshot}
                 busy={busy}
-                onChoose={() => void perform(chooseArchive)}
-                onImport={() => void perform(chooseBackup)}
-                onBackup={() => void perform(exportBackup)}
+                onSave={persistEdit}
+                onClose={() => setEditing(undefined)}
               />
+            ) : (
+              <>
+                {page === 'records' &&
+                  (record ? (
+                    <LogReader
+                      key={record.id}
+                      record={record}
+                      preset={snapshot.settings.filterPreset}
+                      busy={busy}
+                      onBack={() => setRecord(undefined)}
+                      onEdit={() => startEdit({ kind: 'record', value: record })}
+                      onExport={(filters) => void perform(() => exportText(record, filters))}
+                    />
+                  ) : (
+                    <Records
+                      snapshot={snapshot}
+                      onNewModule={newModule}
+                      onNewRecord={newRecord}
+                      onEditModule={(value) => startEdit({ kind: 'module', value })}
+                      onRead={setRecord}
+                      onImport={() => {
+                        setPage('settings')
+                      }}
+                    />
+                  ))}
+                {page === 'characters' && (
+                  <CharacterCards
+                    characters={snapshot.characters}
+                    onEdit={(value) => startEdit({ kind: 'character', value })}
+                    onNew={(edition) =>
+                      startEdit({
+                        kind: 'character',
+                        value: createEmptyCharacter({ edition })
+                      })
+                    }
+                  />
+                )}
+                {page === 'settings' && (
+                  <DataSettings
+                    archive={native.archive}
+                    snapshot={snapshot}
+                    busy={busy}
+                    onChoose={() => void perform(chooseArchive)}
+                    onImport={() => void perform(chooseBackup)}
+                    onBackup={() => void perform(exportBackup)}
+                  />
+                )}
+              </>
             )}
           </>
         )}
@@ -217,7 +311,7 @@ export function MobileApp() {
         {(['records', 'characters', 'settings'] as const).map((tab) => (
           <button
             key={tab}
-            disabled={busy || !native?.archive.valid}
+            disabled={busy || !!editing || !native?.archive.valid}
             aria-current={page === tab ? 'page' : undefined}
             className={page === tab ? 'active' : ''}
             onClick={() => {

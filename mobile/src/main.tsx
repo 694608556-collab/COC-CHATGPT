@@ -1,4 +1,5 @@
 import 'core-js/actual/object/from-entries'
+import './data/compat'
 import { createRoot } from 'react-dom/client'
 import { MobileApp } from './MobileApp'
 import './MobileApp/styles.css'

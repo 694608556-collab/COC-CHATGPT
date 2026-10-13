@@ -13,6 +13,74 @@
   color: var(--text);
   background: var(--bg);
 }
+.dev-banner {
+  padding: 14px 18px;
+  background: #fff2cd;
+  color: #473800;
+  border-bottom: 1px solid #bba454;
+  font-size: 13px;
+}
+.dev-banner p {
+  margin: 6px 0;
+}
+.dev-banner button {
+  margin: 4px 8px 4px 0;
+  color: #473800;
+  background: #fff;
+  overflow-wrap: break-word;
+  max-width: 100%;
+}
+.dev-banner details button {
+  display: block;
+  text-align: left;
+}
+.editor fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.editor textarea {
+  font: inherit;
+  color: var(--text);
+  width: 100%;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  resize: vertical;
+}
+.editor textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.edit-grid input {
+  min-width: 0;
+}
+.edit-actions {
+  margin-bottom: 16px;
+}
+.edit-actions button {
+  margin: 0 8px 8px 0;
+}
+.skill-edit {
+  border-bottom: 1px solid var(--line);
+}
+.editor summary {
+  cursor: pointer;
+  min-height: 44px;
+}
+.reader-actions {
+  flex-wrap: wrap;
+}
+.reader-actions button {
+  margin-bottom: 6px;
+}
 :root[data-theme='dark'] {
   --bg: #0f1115;
   --panel: #171a21;

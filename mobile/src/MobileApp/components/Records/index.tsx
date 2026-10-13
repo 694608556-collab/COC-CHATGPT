@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { MODULE_PLAY_STATUS_LABELS } from '../../../../../src/shared/types'
-import type { SessionRecord } from '../../../../../src/shared/types'
+import type { ModuleRecord, SessionRecord } from '../../../../../src/shared/types'
 import type { MobileSnapshot } from '../../../data/types'
 
 /**
@@ -12,6 +12,9 @@ export function Records(props: {
   snapshot: MobileSnapshot
   onRead(record: SessionRecord): void
   onImport(): void
+  onNewModule(): void
+  onNewRecord(): void
+  onEditModule(value: ModuleRecord): void
 }) {
   const [query, setQuery] = useState('')
   const [moduleId, setModuleId] = useState('')
@@ -28,6 +31,22 @@ export function Records(props: {
     .sort((a, b) => a.order - b.order)
   return (
     <>
+      <div className="edit-actions">
+        <button onClick={props.onNewModule}>新增模组</button>
+        <button disabled={!snapshot.modules.length} onClick={props.onNewRecord}>
+          新增手动场次
+        </button>
+      </div>
+      {!!snapshot.modules.length && (
+        <details className="panel">
+          <summary>管理模组</summary>
+          {snapshot.modules.map((m) => (
+            <button key={m.id} onClick={() => props.onEditModule(m)}>
+              {m.name} · 编辑
+            </button>
+          ))}
+        </details>
+      )}
       <div className="summary">
         <strong>
           {snapshot.modules.length}
@@ -44,7 +63,8 @@ export function Records(props: {
       </div>
       {!snapshot.records.length ? (
         <section className="panel empty">
-          <h2>从电脑备份开始</h2>
+          <h2>暂无场次</h2>
+          <p>可以先新增模组，再添加手动场次，也可以导入电脑备份。</p>
           <p>导入前先校验、预览，确认后再覆盖。旧备份若没有正文，不能凭来源链接离线阅读。</p>
           <button className="primary" onClick={props.onImport}>
             前往数据与设置

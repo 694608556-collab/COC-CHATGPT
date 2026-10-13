@@ -33,6 +33,11 @@ export interface SavedDocument {
 }
 /** 所有请求/响应与本工程 LogbookPlugin.java 一一对应，不访问推测的 HTTP 接口。 */
 export interface LogbookPort {
+  /** 校验后的编辑快照；原生端先写安全副本，再以版本序号进行事务提交。 */
+  commitEdit(options: {
+    json: string
+    expectedRevision: number
+  }): Promise<{ revision: number; safetyBackup: SavedDocument }>
   /** @returns 当前持久化状态与实时目录有效性；不修改业务数据。 */
   getState(): Promise<NativeState>
   /** @returns 系统选择并实际验证的目录；取消只返回 cancelled=true。 */

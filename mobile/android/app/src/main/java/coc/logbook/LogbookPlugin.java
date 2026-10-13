@@ -203,9 +203,15 @@ public final class LogbookPlugin extends Plugin {
         JSONObject settings = new JSONObject(); settings.put("theme", "light"); settings.put("filterPreset", filters); data.put("settings", settings); return data;
     }
     @PluginMethod public void commitRestore(PluginCall call) {
+        commitSnapshot(call, true);
+    }
+    @PluginMethod public void commitEdit(PluginCall call) {
+        commitSnapshot(call, false);
+    }
+    private void commitSnapshot(PluginCall call, boolean restoring) {
         execute(() -> {
             try {
-                if (!Boolean.TRUE.equals(call.getBoolean("confirmed", false))) throw new IllegalStateException("需要用户明确确认覆盖。");
+                if (restoring && !Boolean.TRUE.equals(call.getBoolean("confirmed", false))) throw new IllegalStateException("需要用户明确确认覆盖。");
                 String json = call.getString("json", "");
                 if (json.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) throw new IllegalArgumentException("数据超过首阶段大小上限。");
                 JSONObject next = new JSONObject(json); validateSnapshot(next);
@@ -215,10 +221,10 @@ public final class LogbookPlugin extends Plugin {
                 envelope.put("exportedAt", java.time.Instant.now().toString()); envelope.put("restoreScope", new JSONArray(Arrays.asList("modules", "records", "characters")));
                 String current = database.snapshot(); envelope.put("snapshot", current == null ? emptySnapshot() : new JSONObject(current));
                 // Only a fully read-back, user-visible safety copy permits the database transaction.
-                JSObject safety = write("before-restore-" + System.currentTimeMillis() + ".json", "application/json", envelope.toString().getBytes(StandardCharsets.UTF_8));
+                JSObject safety = write((restoring ? "before-restore-" : "before-edit-") + System.currentTimeMillis() + ".json", "application/json", envelope.toString().getBytes(StandardCharsets.UTF_8));
                 long revision = database.replace(next.toString(), expected);
                 JSObject out = new JSObject(); out.put("revision", revision); out.put("safetyBackup", safety); call.resolve(out);
-            } catch (Exception error) { call.reject("恢复未完成：" + error.getMessage(), error); }
+            } catch (Exception error) { call.reject((restoring ? "恢复未完成：" : "编辑未保存：") + error.getMessage(), error); }
         });
     }
 }
