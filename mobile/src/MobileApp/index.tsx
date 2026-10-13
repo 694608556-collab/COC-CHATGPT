@@ -31,7 +31,13 @@ function emptySnapshot(): MobileSnapshot {
 }
 
 /** @returns 安卓三模块外壳；所有覆盖与写入仅经原生持久化接口。 */
-export function MobileApp({ port = Native }: { port?: LogbookPort }) {
+export function MobileApp({
+  port = Native,
+  testBackup
+}: {
+  port?: LogbookPort
+  testBackup?: () => Uint8Array
+}) {
   const [native, setNative] = useState<NativeState>()
   const [snapshot, setSnapshot] = useState<MobileSnapshot>(emptySnapshot)
   const [page, setPage] = useState<'records' | 'characters' | 'settings'>('records')
@@ -179,6 +185,19 @@ export function MobileApp({ port = Native }: { port?: LogbookPort }) {
     })
     setNotice(`备份已保存并回读校验：${file.name}`)
   }
+  async function changeTheme(theme: 'light' | 'dark') {
+    if (!native || theme === snapshot.settings.theme) return
+    const next = {
+      ...snapshot,
+      exportedAt: new Date().toISOString(),
+      settings: { ...snapshot.settings, theme }
+    }
+    const result = await port.commitEdit({ json: JSON.stringify(next), expectedRevision: native.revision })
+    setSnapshot(next)
+    setNative({ ...native, json: JSON.stringify(next), revision: result.revision })
+    document.documentElement.dataset.theme = theme
+    setNotice(theme === 'dark' ? '已保存深色主题。' : '已保存浅色主题。')
+  }
   /**
    * 使用桌面现有过滤/文本渲染逻辑导出单场次。
    * @param target - 用户当前阅读的场次。
@@ -244,6 +263,24 @@ export function MobileApp({ port = Native }: { port?: LogbookPort }) {
         ) : (
           <>
             <div className="page-heading">
+              {testBackup && !editing && !record && (
+                <section className="panel sample-help">
+                  <h2>公开搜索测试数据</h2>
+                  <p>
+                    2 个模组、4 个场次，含 240
+                    条跨页正文和手动笔记。载入会先预览，确认后覆盖当前测试数据并保留安全副本。
+                  </p>
+                  <button
+                    disabled={busy || !!preview}
+                    onClick={() => void perform(async () => setPreview(await previewBackup(testBackup())))}
+                  >
+                    载入公开测试数据
+                  </button>
+                  <p className="muted">
+                    打开“第一场：灯塔线索”，搜索“灯塔”可测试三页跳转；搜索“a+b”可测试符号。手动笔记可搜索“铜钥匙”。
+                  </p>
+                </section>
+              )}
               <p className="eyebrow">仅保留你确认的三个模块</p>
               <h1>{titles[page]}</h1>
             </div>
@@ -300,6 +337,7 @@ export function MobileApp({ port = Native }: { port?: LogbookPort }) {
                     onChoose={() => void perform(chooseArchive)}
                     onImport={() => void perform(chooseBackup)}
                     onBackup={() => void perform(exportBackup)}
+                    onTheme={(theme) => void perform(() => changeTheme(theme))}
                   />
                 )}
               </>

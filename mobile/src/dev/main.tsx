@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client'
 import { MobileApp } from '../MobileApp'
 import { createBrowserPort } from './browser-port'
 import type { BrowserDocument } from './browser-port'
-import { exampleBackup } from '../data/fixtures'
+import { searchSample } from './sample'
 import { decodeBase64 } from '../data/native'
 import '../MobileApp/styles.css'
 
@@ -32,8 +32,8 @@ function Preview() {
         <button
           onClick={() =>
             download(
-              'public-example.json',
-              new TextEncoder().encode(JSON.stringify(exampleBackup())),
+              'coc-search-sample.json',
+              new TextEncoder().encode(JSON.stringify(searchSample())),
               'application/json'
             )
           }
@@ -65,7 +65,10 @@ function Preview() {
           </details>
         )}
       </aside>
-      <MobileApp port={browser.port} />
+      <MobileApp
+        port={browser.port}
+        testBackup={() => new TextEncoder().encode(JSON.stringify(searchSample()))}
+      />
     </>
   )
 }

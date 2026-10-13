@@ -13,9 +13,30 @@ export function DataSettings(props: {
   onChoose(): void
   onImport(): void
   onBackup(): void
+  onTheme(theme: 'light' | 'dark'): void
 }) {
   return (
     <>
+      <section className="panel">
+        <h2>显示主题</h2>
+        <div className="edit-actions" role="group" aria-label="显示主题">
+          <button
+            disabled={props.busy}
+            aria-pressed={props.snapshot.settings.theme === 'light'}
+            onClick={() => props.onTheme('light')}
+          >
+            浅色模式
+          </button>
+          <button
+            disabled={props.busy}
+            aria-pressed={props.snapshot.settings.theme === 'dark'}
+            onClick={() => props.onTheme('dark')}
+          >
+            深色模式
+          </button>
+        </div>
+        <p className="muted">保存后下次打开仍使用所选主题。</p>
+      </section>
       <section className="panel">
         <h2>归档位置</h2>
         <p className="location">{props.archive.label}</p>
