@@ -10,6 +10,8 @@ import { searchSample } from './sample'
 import { decodeBase64 } from '../data/native'
 import '../MobileApp/styles.css'
 import { waitForAppFonts } from '../data/fonts'
+import { GestureTestingContext } from '../MobileApp/components/GestureTestingContext'
+import type { GestureTestSource } from '../MobileApp/components/GestureTestingContext'
 
 const browser = createBrowserPort()
 function download(name: string, bytes: Uint8Array, mime: string) {
@@ -23,8 +25,17 @@ function download(name: string, bytes: Uint8Array, mime: string) {
 function Preview() {
   const [files, setFiles] = useState<BrowserDocument[]>([])
   const [error, setError] = useState('')
+  const [gestureHelp, setGestureHelp] = useState(true)
+  const [gestureSource, setGestureSource] = useState<GestureTestSource>()
   return (
-    <>
+    <GestureTestingContext.Provider
+      value={{
+        enabled: gestureHelp,
+        source: gestureSource,
+        start: setGestureSource,
+        cancel: () => setGestureSource(undefined)
+      }}
+    >
       <aside className="dev-banner">
         <strong>浏览器开发预览</strong>
         <p>
@@ -53,6 +64,32 @@ function Preview() {
           刷新测试文件列表
         </button>
         <button onClick={() => window.dispatchEvent(new Event('logbook-back'))}>测试系统返回键</button>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={gestureHelp}
+            onChange={(event) => {
+              setGestureHelp(event.target.checked)
+              setGestureSource(undefined)
+            }}
+          />
+          显示鼠标手势辅助
+        </label>
+        <details className="gesture-instructions">
+          <summary>鼠标操作说明</summary>
+          <p>
+            鼠标：左键按住约半秒，看到紫色边框后松开可多选，继续上下拖动可排序；按住左键向左拖动可露出删除。
+          </p>
+          <p>
+            辅助按钮仅用于浏览器预览：模拟长按进入多选，模拟左滑露出删除，模拟拖动后点击同一列表中的目标位置。
+          </p>
+        </details>
+        {gestureSource && (
+          <p role="status">
+            正在模拟拖动“{gestureSource.label}”：点击同一列表中的目标项。
+            <button onClick={() => setGestureSource(undefined)}>取消模拟拖动</button>
+          </p>
+        )}
         {error && <p role="alert">{error}</p>}
         {!!files.length && (
           <details>
@@ -72,7 +109,7 @@ function Preview() {
         port={browser.port}
         testBackup={() => new TextEncoder().encode(JSON.stringify(searchSample()))}
       />
-    </>
+    </GestureTestingContext.Provider>
   )
 }
 const root = document.getElementById('root')!

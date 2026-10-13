@@ -29,6 +29,8 @@ async function noOverflow(page: Page) {
   expect(clipped).toEqual([])
 }
 async function drag(page: Page, from: Locator, to: Locator) {
+  await to.scrollIntoViewIfNeeded()
+  await from.scrollIntoViewIfNeeded()
   const a = (await from.boundingBox())!
   const b = (await to.boundingBox())!
   await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2)

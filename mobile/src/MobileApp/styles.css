@@ -911,6 +911,26 @@ input[type='checkbox']:checked::after {
   -webkit-user-select: text;
   user-select: text;
 }
+.gesture-content {
+  cursor: grab;
+}
+.gesture-row.held .gesture-content,
+.gesture-row.drag .gesture-content {
+  cursor: grabbing;
+}
+.gesture-testing-tools {
+  padding: 2px 5px 4px;
+  background: var(--soft);
+  text-align: right;
+}
+.gesture-testing-tools button {
+  min-height: 25px;
+  padding: 2px 5px;
+  margin: 2px 3px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--panel);
+}
 .swipe-delete {
   visibility: hidden;
   position: absolute;

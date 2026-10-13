@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { GestureTestingContext } from './GestureTestingContext'
 
 /** Touch and mouse share one gesture state; ordinary vertical movement remains page scrolling. */
 export function GestureRow(props: {
@@ -13,15 +14,32 @@ export function GestureRow(props: {
   children: ReactNode
 }) {
   const root = useRef<HTMLDivElement>(null)
+  const context = useContext(GestureTestingContext)
+  const testing = process.env.NODE_ENV === 'development' ? context : undefined
+  const testingRef = useRef(testing)
+  testingRef.current = testing
+  const active = useRef(false)
   const latest = useRef(props)
   latest.current = props
   const cleanup = useRef<() => void>(() => {})
   const suppressClick = useRef(0)
   const [reveal, setReveal] = useState(false)
   const [motion, setMotion] = useState({ x: 0, y: 0, mode: '' })
-  useEffect(() => () => cleanup.current(), [])
+  useEffect(
+    () => () => {
+      cleanup.current()
+      if (testingRef.current?.source?.id === latest.current.id) testingRef.current.cancel()
+    },
+    []
+  )
 
-  function begin(x: number, y: number, touch: boolean, target: EventTarget | null) {
+  function begin(
+    x: number,
+    y: number,
+    input: 'touch' | 'mouse' | 'pointer',
+    target: EventTarget | null,
+    pointerId?: number
+  ) {
     if (
       props.disabled ||
       !(target instanceof Element) ||
@@ -29,6 +47,16 @@ export function GestureRow(props: {
     )
       return
     cleanup.current()
+    active.current = true
+    function capture() {
+      if (pointerId !== undefined) {
+        try {
+          root.current?.setPointerCapture(pointerId)
+        } catch {
+          /* Window listeners remain available. */
+        }
+      }
+    }
     const start = { x, y }
     const startScrollY = window.scrollY
     let armed = false
@@ -40,6 +68,7 @@ export function GestureRow(props: {
     let frame = 0
     const timer = window.setTimeout(() => {
       armed = true
+      capture()
       setMotion({ x: 0, y: 0, mode: 'held' })
     }, 480)
     const unmark = () => {
@@ -74,13 +103,14 @@ export function GestureRow(props: {
       lastY = nextY
       deltaX = nextX - start.x
       deltaY = nextY - start.y
-      if (!armed && !mode && Math.max(Math.abs(deltaX), Math.abs(deltaY)) > 9) {
+      const tolerance = input === 'touch' ? 9 : 14
+      if (!mode && Math.abs(deltaX) > tolerance && Math.abs(deltaX) > Math.abs(deltaY) * 1.25 && deltaX < 0) {
         clearTimeout(timer)
-        if (Math.abs(deltaX) > Math.abs(deltaY) * 1.25 && deltaX < 0) mode = 'swipe'
-        else {
-          finish(true)
-          return
-        }
+        mode = 'swipe'
+        capture()
+      } else if (!armed && !mode && Math.max(Math.abs(deltaX), Math.abs(deltaY)) > tolerance) {
+        finish(true)
+        return
       }
       if (armed && !mode && Math.abs(deltaY) > 8 && latest.current.onReorder) {
         mode = 'drag'
@@ -106,6 +136,9 @@ export function GestureRow(props: {
       else if (armed && !mode) latest.current.onHold?.()
     }
     const mouseMove = (event: MouseEvent) => move(event.clientX, event.clientY, event)
+    const pointerMove = (event: PointerEvent) => {
+      if (event.pointerId === pointerId) move(event.clientX, event.clientY, event)
+    }
     const touchMove = (event: TouchEvent) => {
       if (event.touches.length !== 1) {
         finish(true)
@@ -116,16 +149,27 @@ export function GestureRow(props: {
     }
     const end = () => finish()
     const cancel = () => finish(true)
-    if (touch) {
+    const pointerEnd = (event: PointerEvent) => {
+      if (event.pointerId === pointerId) finish()
+    }
+    const pointerCancel = (event: PointerEvent) => {
+      if (event.pointerId === pointerId) finish(true)
+    }
+    if (input === 'touch') {
       window.addEventListener('touchmove', touchMove, { passive: false })
       window.addEventListener('touchend', end)
       window.addEventListener('touchcancel', cancel)
+    } else if (input === 'pointer') {
+      window.addEventListener('pointermove', pointerMove, { passive: false })
+      window.addEventListener('pointerup', pointerEnd)
+      window.addEventListener('pointercancel', pointerCancel)
     } else {
       window.addEventListener('mousemove', mouseMove)
       window.addEventListener('mouseup', end)
     }
     window.addEventListener('blur', cancel)
     cleanup.current = () => {
+      active.current = false
       clearTimeout(timer)
       cancelAnimationFrame(frame)
       window.removeEventListener('touchmove', touchMove)
@@ -133,6 +177,11 @@ export function GestureRow(props: {
       window.removeEventListener('touchcancel', cancel)
       window.removeEventListener('mousemove', mouseMove)
       window.removeEventListener('mouseup', end)
+      window.removeEventListener('pointermove', pointerMove)
+      window.removeEventListener('pointerup', pointerEnd)
+      window.removeEventListener('pointercancel', pointerCancel)
+      if (pointerId !== undefined && root.current?.hasPointerCapture(pointerId))
+        root.current.releasePointerCapture(pointerId)
       window.removeEventListener('blur', cancel)
       unmark()
       cleanup.current = () => {}
@@ -141,7 +190,12 @@ export function GestureRow(props: {
   return (
     <div
       ref={root}
-      className={'gesture-row ' + motion.mode + (reveal ? ' revealed' : '')}
+      className={
+        'gesture-row ' +
+        motion.mode +
+        (reveal ? ' revealed' : '') +
+        (testing?.source?.id === props.id ? ' held' : '')
+      }
       data-drag-id={props.id}
       data-drag-group={props.group}
       onTouchStart={(event) => {
@@ -152,13 +206,22 @@ export function GestureRow(props: {
         }
         event.stopPropagation()
         const point = event.touches[0]!
-        begin(point.clientX, point.clientY, true, event.target)
+        begin(point.clientX, point.clientY, 'touch', event.target)
+      }}
+      onPointerDown={(event) => {
+        if (event.pointerType === 'touch' || event.button !== 0) return
+        event.stopPropagation()
+        begin(event.clientX, event.clientY, 'pointer', event.target, event.pointerId)
       }}
       onMouseDown={(event) => {
-        if (event.button !== 0) return
+        if (event.button !== 0 || active.current) return
+        if ((event.target as Element).closest('input, select, textarea, [data-no-gesture], .swipe-delete'))
+          return
         event.stopPropagation()
-        begin(event.clientX, event.clientY, false, event.target)
+        event.preventDefault()
+        begin(event.clientX, event.clientY, 'mouse', event.target)
       }}
+      onDragStart={(event) => event.preventDefault()}
       onContextMenu={(event) => event.preventDefault()}
       onKeyDown={(event) => {
         if (event.key === 'Escape') setReveal(false)
@@ -168,7 +231,20 @@ export function GestureRow(props: {
         }
       }}
       onClickCapture={(event) => {
-        if ((event.target as Element).closest('.swipe-delete')) return
+        if ((event.target as Element).closest('.swipe-delete, [data-no-gesture], input')) return
+        if (
+          testing?.enabled &&
+          testing.source &&
+          props.group === testing.source.group &&
+          props.id !== testing.source.id
+        ) {
+          event.preventDefault()
+          event.stopPropagation()
+          const source = testing.source
+          testing.cancel()
+          source.drop(props.id)
+          return
+        }
         if (Date.now() < suppressClick.current) {
           event.preventDefault()
           event.stopPropagation()
@@ -201,6 +277,34 @@ export function GestureRow(props: {
       >
         {props.children}
       </div>
+      {process.env.NODE_ENV === 'development' && testing?.enabled && (
+        <div className="gesture-testing-tools" data-no-gesture>
+          {props.onHold && (
+            <button type="button" disabled={props.disabled} onClick={props.onHold}>
+              模拟长按
+            </button>
+          )}
+          <button type="button" disabled={props.disabled} onClick={() => setReveal(true)}>
+            模拟左滑
+          </button>
+          {props.onReorder && props.group && (
+            <button
+              type="button"
+              disabled={props.disabled}
+              onClick={() =>
+                testing.start({
+                  id: props.id,
+                  group: props.group!,
+                  label: props.label,
+                  drop: (targetId) => latest.current.onReorder?.(targetId)
+                })
+              }
+            >
+              模拟拖动
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
