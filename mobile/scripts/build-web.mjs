@@ -1,5 +1,6 @@
 import { build } from 'esbuild'
 import { mkdir, copyFile, writeFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 
 await mkdir('www', { recursive: true })
 await copyFile('../build/icon.png', 'www/icon.png')
@@ -7,6 +8,9 @@ await build({
   entryPoints: ['src/main.tsx'],
   outfile: 'www/app.js',
   bundle: true,
+  nodePaths: [resolve('node_modules')],
+  loader: { '.ttf': 'file', '.otf': 'file' },
+  assetNames: 'fonts/[name]-[hash]',
   target: 'chrome69',
   format: 'iife',
   jsx: 'automatic',

@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CharacterData, ModuleRecord, SessionRecord } from '../../../../../src/shared/types'
 import { MODULE_PLAY_STATUS_LABELS } from '../../../../../src/shared/types'
-import { calculateDerived, skillFinal } from '../../../../../src/shared/coc-rules'
+import {
+  calculateDerived,
+  skillFinal,
+  convertCharacterEdition,
+  createSkill,
+  skillPointSummary
+} from '../../../../../src/shared/coc-rules'
 import type { Edit } from '../../../data/edit'
 import type { MobileSnapshot } from '../../../data/types'
 
@@ -33,6 +39,10 @@ export function Editor(props: {
   function cancel() {
     if (!props.busy && (!dirty || window.confirm('放弃尚未保存的修改？'))) props.onClose()
   }
+  useEffect(() => {
+    window.addEventListener('logbook-editor-back', cancel)
+    return () => window.removeEventListener('logbook-editor-back', cancel)
+  })
   function field(label: string, value: string | number, change: (value: string) => void, type = 'text') {
     return (
       <label className="field" key={label}>
@@ -41,7 +51,7 @@ export function Editor(props: {
           required={type === 'number'}
           type={type}
           step={type === 'number' ? 'any' : undefined}
-          value={value}
+          value={typeof value === 'number' && !Number.isFinite(value) ? '' : value}
           onChange={(e) => change(e.target.value)}
         />
       </label>
@@ -112,7 +122,62 @@ export function Editor(props: {
               {text('KP（每行一位）', draft.value.kps.join('\n'), (value) =>
                 module({ ...draft.value, kps: value.split('\n') })
               )}
-              <p className="muted">已有 PC / PL 及角色关联保留；参与者管理将在后续接入。</p>
+              <h3>参与者</h3>
+              {draft.value.pairs.map((pair, index) => (
+                <section className="pair-editor" key={index}>
+                  {field('PC' + (index + 1), pair.pc, (pc) =>
+                    module({
+                      ...draft.value,
+                      pairs: draft.value.pairs.map((p, i) =>
+                        i === index ? { ...p, pc, characterId: undefined } : p
+                      )
+                    })
+                  )}
+                  {field('PL' + (index + 1), pair.pl, (pl) =>
+                    module({
+                      ...draft.value,
+                      pairs: draft.value.pairs.map((p, i) => (i === index ? { ...p, pl } : p))
+                    })
+                  )}
+                  <label className="field">
+                    关联角色{index + 1}
+                    <select
+                      aria-label={'关联角色' + (index + 1)}
+                      value={pair.characterId ?? ''}
+                      onChange={(e) =>
+                        module({
+                          ...draft.value,
+                          pairs: draft.value.pairs.map((p, i) =>
+                            i === index ? { ...p, characterId: e.target.value || undefined } : p
+                          )
+                        })
+                      }
+                    >
+                      <option value="">仅保留姓名</option>
+                      {props.snapshot.characters.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.basic.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() =>
+                      module({ ...draft.value, pairs: draft.value.pairs.filter((_, i) => i !== index) })
+                    }
+                  >
+                    移除参与者{index + 1}
+                  </button>
+                </section>
+              ))}
+              <button
+                type="button"
+                onClick={() => module({ ...draft.value, pairs: [...draft.value.pairs, { pc: '', pl: '' }] })}
+              >
+                添加参与者
+              </button>
             </>
           )}
           {draft.kind === 'record' && (
@@ -154,21 +219,59 @@ export function Editor(props: {
                   }),
                 'date'
               )}
-              {draft.value.sourceType === 'manual' ? (
-                text('手动正文', draft.value.manualContent ?? '', (manualContent) =>
-                  record({ ...draft.value, manualContent })
-                )
-              ) : (
-                <p className="muted source-link">
-                  在线正文和来源链接保留：{draft.value.link}
-                  。本阶段不更换来源或联网重新获取。
-                </p>
-              )}
+              <label className="field">
+                正文来源
+                <select
+                  value={draft.value.sourceType}
+                  onChange={(e) => {
+                    if (window.confirm('更换来源后，保存时会清除旧来源正文。继续？'))
+                      record({ ...draft.value, sourceType: e.target.value as 'manual' | 'online' })
+                  }}
+                >
+                  <option value="manual">手动正文</option>
+                  <option value="online">海豹日志链接</option>
+                </select>
+              </label>
+              {draft.value.sourceType === 'manual'
+                ? text('手动正文', draft.value.manualContent ?? '', (manualContent) =>
+                    record({ ...draft.value, manualContent })
+                  )
+                : field('海豹日志链接', draft.value.link ?? '', (link) => record({ ...draft.value, link }))}
             </>
           )}
           {c && (
             <>
-              <p>第 {c.edition} 版</p>
+              <label className="field">
+                角色规则版次
+                <select
+                  aria-label="角色规则版次"
+                  value={c.edition}
+                  onChange={(e) => {
+                    if (window.confirm('按已有规则转换属性及派生值，并保留另一版属性快照。继续？'))
+                      character(convertCharacterEdition(c, Number(e.target.value) as 6 | 7))
+                  }}
+                >
+                  <option value={6}>第六版</option>
+                  <option value={7}>第七版</option>
+                </select>
+              </label>
+              <h3>模组归属</h3>
+              {props.snapshot.modules.map((m) => (
+                <label className="check" key={m.id}>
+                  <input
+                    type="checkbox"
+                    checked={c.moduleIds.includes(m.id)}
+                    onChange={(e) => {
+                      const moduleIds = e.target.checked
+                        ? [...c.moduleIds, m.id]
+                        : c.moduleIds.filter((id) => id !== m.id)
+                      character({ ...c, moduleIds, moduleId: moduleIds[0] })
+                    }}
+                  />
+                  {m.name}
+                </label>
+              ))}
+              <p className="muted">移除归属会解除该模组内的角色关联，保留 PC/PL 姓名。</p>
               {Object.entries({
                 name: '姓名',
                 occupation: '职业',
@@ -240,6 +343,42 @@ export function Editor(props: {
                   )
                 )}
               </div>
+              {c.edition === 7 &&
+                field('职业技能点公式', c.occupationFormula, (occupationFormula) =>
+                  character({ ...c, occupationFormula })
+                )}
+              <label className="field">
+                职业点总额覆盖（留空按公式）
+                <input
+                  type="number"
+                  value={c.occupationPointOverride ?? ''}
+                  onChange={(e) =>
+                    character({
+                      ...c,
+                      occupationPointOverride: e.target.value === '' ? undefined : Number(e.target.value)
+                    })
+                  }
+                />
+              </label>
+              <p className="muted">
+                {(() => {
+                  try {
+                    const points = skillPointSummary(c)
+                    return (
+                      '职业点 ' +
+                      points.occupationUsed +
+                      '/' +
+                      points.occupationLimit +
+                      ' · 兴趣点 ' +
+                      points.interestUsed +
+                      '/' +
+                      points.interestLimit
+                    )
+                  } catch {
+                    return '职业点公式无效，请使用 EDU×4 等属性乘法公式。'
+                  }
+                })()}
+              </p>
               <details>
                 <summary>技能点分配</summary>
                 {c.skills.map((skill, index) => (
@@ -248,6 +387,24 @@ export function Editor(props: {
                       {skill.name}
                       {skill.hidden ? '（已隐藏）' : ''} · 合计 {skillFinal(skill)}
                     </h3>
+                    {field('技能' + (index + 1) + '名称', skill.name, (name) =>
+                      character({ ...c, skills: c.skills.map((s, i) => (i === index ? { ...s, name } : s)) })
+                    )}
+                    <label className="check">
+                      <input
+                        type="checkbox"
+                        checked={!!skill.hidden}
+                        onChange={(e) =>
+                          character({
+                            ...c,
+                            skills: c.skills.map((s, i) =>
+                              i === index ? { ...s, hidden: e.target.checked } : s
+                            )
+                          })
+                        }
+                      />
+                      隐藏技能{index + 1}
+                    </label>
                     <div className="edit-grid">
                       {(['base', 'occupation', 'interest', 'growth'] as const).map((key) =>
                         field(
@@ -274,24 +431,95 @@ export function Editor(props: {
                         )
                       )}
                     </div>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => character({ ...c, skills: c.skills.filter((_, i) => i !== index) })}
+                    >
+                      删除技能{index + 1}
+                    </button>
                   </section>
                 ))}
+                <button
+                  type="button"
+                  onClick={() => character({ ...c, skills: [...c.skills, createSkill('新技能')] })}
+                >
+                  添加技能
+                </button>
+              </details>
+              <details>
+                <summary>武器战斗表</summary>
+                {c.weapons.map((weapon, index) => (
+                  <section key={index} className="pair-editor">
+                    <div className="edit-grid">
+                      {Object.entries({
+                        name: '名称',
+                        hit: '命中',
+                        damage: '伤害',
+                        range: '射程',
+                        times: '次数',
+                        ammo: '装弹',
+                        durability: '耐久'
+                      }).map(([key, label]) =>
+                        field('武器' + (index + 1) + label, String(weapon[key] ?? ''), (value) =>
+                          character({
+                            ...c,
+                            weapons: c.weapons.map((w, i) => (i === index ? { ...w, [key]: value } : w))
+                          })
+                        )
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => character({ ...c, weapons: c.weapons.filter((_, i) => i !== index) })}
+                    >
+                      删除武器{index + 1}
+                    </button>
+                  </section>
+                ))}
+                <button type="button" onClick={() => character({ ...c, weapons: [...c.weapons, {}] })}>
+                  添加武器
+                </button>
               </details>
               {text('物品（每行一项）', c.items.join('\n'), (value) =>
                 character({ ...c, items: value.split('\n') })
               )}
-              {Object.entries(c.background).map(([key, value]) =>
-                text(key, value, (value) =>
-                  character({
-                    ...c,
-                    background: { ...c.background, [key]: value }
-                  })
+              {Object.entries({
+                description: '',
+                belief: '',
+                importantPerson: '',
+                significantPlace: '',
+                treasure: '',
+                trait: '',
+                secret: '',
+                wound: '',
+                phobia: '',
+                ...c.background
+              }).map(([key, value]) =>
+                text(
+                  (
+                    {
+                      description: '个人描述',
+                      belief: '思想与信念',
+                      importantPerson: '重要之人',
+                      significantPlace: '意义非凡之地',
+                      treasure: '宝贵之物',
+                      trait: '特质',
+                      secret: '难言之隐',
+                      wound: '伤口和疤痕',
+                      phobia: '恐惧症/狂躁症'
+                    } as Record<string, string>
+                  )[key] ?? key,
+                  value,
+                  (value) =>
+                    character({
+                      ...c,
+                      background: { ...c.background, [key]: value }
+                    })
                 )
               )}
               {text('调查员经历', c.story, (story) => character({ ...c, story }))}
-              <p className="muted">
-                已有武器、模组关联、职业公式和隐藏技能保留。本阶段不提供版次转换及武器、关联管理。
-              </p>
             </>
           )}
           <div className="dialog-actions">

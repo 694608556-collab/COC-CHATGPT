@@ -11,6 +11,7 @@ export interface ArchiveLocation {
 }
 /** 原生数据库与授权读取结果。 */
 export interface NativeState {
+  lastAutoBackupAt?: number
   /** 当前是否有活动网络；类型为 boolean，不表示远程日志网站一定可达。 */
   networkConnected: boolean
   /** 已保存业务快照 JSON；类型为 string | null，初次为空。 */
@@ -22,6 +23,7 @@ export interface NativeState {
 }
 /** 写入外部可见目录后的回读证明。 */
 export interface SavedDocument {
+  purpose?: 'export' | 'backup' | 'safety' | 'auto' | 'import'
   /** 系统文档 URI；类型为 string，不是 root 路径。 */
   uri: string
   /** 实际保存的名称；类型为 string。 */
@@ -33,6 +35,15 @@ export interface SavedDocument {
 }
 /** 所有请求/响应与本工程 LogbookPlugin.java 一一对应，不访问推测的 HTTP 接口。 */
 export interface LogbookPort {
+  listDocuments(options?: { all?: boolean }): Promise<{ documents: SavedDocument[] }>
+  readDocument(options: { uri: string }): Promise<{ name: string; mime: string; base64: string }>
+  fetchLog(options: { url: string }): Promise<{ status: number; url: string; text: string }>
+  automaticBackup(options: {
+    json: string
+    expectedRevision: number
+  }): Promise<{ document: SavedDocument; savedAt: number; warning?: string }>
+  openDocument(options: { uri: string }): Promise<void>
+  shareDocument(options: { uri: string }): Promise<void>
   /** 校验后的编辑快照；原生端先写安全副本，再以版本序号进行事务提交。 */
   commitEdit(options: {
     json: string
@@ -43,7 +54,9 @@ export interface LogbookPort {
   /** @returns 系统选择并实际验证的目录；取消只返回 cancelled=true。 */
   selectArchive(): Promise<{ cancelled: boolean; archive?: ArchiveLocation }>
   /** @returns 用户明确选择的备份字节；取消不返回内容。 */
-  openBackup(): Promise<{ cancelled: boolean; base64?: string; name?: string }>
+  openBackup(options?: {
+    kind?: 'backup' | 'record-table' | 'character-table'
+  }): Promise<{ cancelled: boolean; base64?: string; name?: string }>
   /**
    * 先回读安全备份，再在 SQLite 事务内覆盖；失败不变更当前业务数据。
    * @param options - 已校验 JSON、预览时序号和用户明确确认标记。
@@ -53,13 +66,19 @@ export interface LogbookPort {
     json: string
     expectedRevision: number
     confirmed: boolean
+    attachments?: Array<{ name: string; mime: string; base64: string }>
   }): Promise<{ revision: number; safetyBackup: SavedDocument }>
   /**
    * 创建新文件，不覆盖同名用户文件；成功前校验实际回读字节。
    * @param options - 安全文件名、MIME 类型与 Base64 文件字节。
    * @returns 回读证明。
    */
-  writeArchive(options: { name: string; mime: string; base64: string }): Promise<SavedDocument>
+  writeArchive(options: {
+    name: string
+    mime: string
+    base64: string
+    purpose?: 'export' | 'backup'
+  }): Promise<SavedDocument>
 }
 
 export const Native = registerPlugin<LogbookPort>('Logbook')

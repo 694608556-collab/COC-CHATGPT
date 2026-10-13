@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { unzipSync } from 'fflate'
+import { unzipSync, zipSync } from 'fflate'
 import { DEFAULT_FILTER_PRESET } from '../../../src/shared/types'
 import type { ImportPreview, MobileSnapshot } from './types'
 
@@ -122,7 +122,17 @@ const payloadSchema = z.object({
   records: z.array(recordSchema),
   characters: z.array(characterSchema),
   settings: z
-    .object({ theme: z.enum(['light', 'dark']).optional(), filterPreset: filterSchema.optional() })
+    .object({
+      theme: z.enum(['light', 'dark']).optional(),
+      filterPreset: filterSchema.optional(),
+      autoBackup: z
+        .object({
+          enabled: z.boolean(),
+          interval: z.enum(['idle', 'daily', 'weekly']),
+          retention: z.number().int().positive().default(10)
+        })
+        .optional()
+    })
     .optional()
 })
 
@@ -135,6 +145,7 @@ const payloadSchema = z.object({
 export async function previewBackup(bytes: Uint8Array): Promise<ImportPreview> {
   if (!bytes.length || bytes.length > 64 * 1024 * 1024) throw new Error('备份大小无效，首阶段上限为 64 MB。')
   let input: unknown
+  let zipFiles: Record<string, Uint8Array> | undefined
   if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
     const seen = new Set<string>()
     let total = 0
@@ -157,6 +168,7 @@ export async function previewBackup(bytes: Uint8Array): Promise<ImportPreview> {
       }
     })
     const data = files['backup.json']
+    zipFiles = files
     if (!data) throw new Error('ZIP 校验失败：缺少 backup.json。')
     input = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(data))
     const manifests = z
@@ -178,6 +190,7 @@ export async function previewBackup(bytes: Uint8Array): Promise<ImportPreview> {
   } else input = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
   if (!input || typeof input !== 'object') throw new Error('备份结构校验失败。')
   let root = input as Record<string, unknown>
+  const androidEnvelope = root.format === 'coc.logbook.android'
   if (root.format === 'coc.logbook.android') {
     if (root.formatVersion !== 1 || !root.snapshot || typeof root.snapshot !== 'object')
       throw new Error('安卓备份版本不兼容。')
@@ -218,16 +231,77 @@ export async function previewBackup(bytes: Uint8Array): Promise<ImportPreview> {
     characters: payload.characters,
     settings: {
       theme: payload.settings?.theme ?? 'light',
-      filterPreset: { ...DEFAULT_FILTER_PRESET, ...payload.settings?.filterPreset }
+      filterPreset: {
+        ...DEFAULT_FILTER_PRESET,
+        ...payload.settings?.filterPreset,
+        indentFirstLine: false,
+        darkDisplay: false
+      },
+      autoBackup:
+        payload.settings?.autoBackup &&
+        (androidEnvelope ||
+          !(root.settings && typeof root.settings === 'object' && 'archiveDirectory' in root.settings))
+          ? { ...payload.settings.autoBackup, retention: 10 }
+          : undefined
     }
   }
   const offlineRecords = snapshot.records.filter(
     (r) => r.rawContent || (r.sourceType === 'manual' && r.manualContent)
   ).length
-  const warnings = ['安卓不保留资料汇总与跑团闲记。', '本阶段不导入归档附件；原备份和原文件保持不动。']
+  const attachments: NonNullable<ImportPreview['attachments']> = []
+  if (zipFiles) {
+    const entries = z
+      .object({
+        archiveEntries: z.array(z.object({ path: string, ownerType: string })).default([]),
+        manifest: z
+          .array(z.object({ archivePath: string, zipPath: string, size: number, hash: string }))
+          .default([])
+      })
+      .parse(root)
+    const used = new Set<string>()
+    for (const item of entries.manifest) {
+      if (
+        !entries.archiveEntries.some(
+          (entry) => entry.path === item.archivePath && ['record', 'module'].includes(entry.ownerType)
+        )
+      )
+        continue
+      if (used.has(item.zipPath)) continue
+      const bytes = zipFiles[item.zipPath]
+      if (!bytes) throw new Error('归档附件不存在。')
+      const hash = Array.from(
+        new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer)),
+        (b) => b.toString(16).padStart(2, '0')
+      ).join('')
+      if (bytes.length !== item.size || hash !== item.hash.toLowerCase())
+        throw new Error('归档附件大小或摘要校验失败。')
+      const name = item.archivePath.split(/[\\/]/).pop() || '归档文件'
+      const extension = name.split('.').pop()?.toLowerCase()
+      const mime =
+        (
+          {
+            txt: 'text/plain',
+            json: 'application/json',
+            doc: 'application/msword',
+            docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            pdf: 'application/pdf',
+            csv: 'text/csv',
+            xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          } as Record<string, string>
+        )[extension ?? ''] ?? 'application/octet-stream'
+      attachments.push({ name, mime, bytes })
+      used.add(item.zipPath)
+    }
+  }
+  const warnings = [
+    '安卓不保留资料汇总与跑团闲记。',
+    attachments.length
+      ? '将恢复 ' + attachments.length + ' 份跑团记录/模组归档文件，创建新文件，不覆盖同名文件。'
+      : '此备份不含可恢复的跑团归档附件。'
+  ]
   if (offlineRecords < snapshot.records.length)
     warnings.push(`${snapshot.records.length - offlineRecords} 个场次未带正文，导入后不能凭链接离线阅读。`)
-  return { snapshot, offlineRecords, warnings }
+  return { snapshot, offlineRecords, warnings, attachments }
 }
 
 /**
@@ -245,4 +319,40 @@ export function encodeBackup(snapshot: MobileSnapshot): Uint8Array {
       snapshot
     })
   )
+}
+export async function encodeArchiveBackup(
+  snapshot: MobileSnapshot,
+  files: Array<{ name: string; bytes: Uint8Array }>
+) {
+  const entries: Record<string, Uint8Array> = {}
+  const manifest = []
+  const archiveEntries = []
+  let total = 0
+  for (const [index, file] of files.entries()) {
+    total += file.bytes.length
+    if (total > 128 * 1024 * 1024 || files.length > 1999)
+      throw new Error('归档附件过大或超过 1999 份，请分批导出。')
+    const path = index + '-' + file.name.replace(/[\\/]/g, '_')
+    const zipPath = 'archives/' + path
+    const hash = Array.from(
+      new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(file.bytes).buffer)),
+      (b) => b.toString(16).padStart(2, '0')
+    ).join('')
+    manifest.push({ archivePath: path, zipPath, size: file.bytes.length, hash })
+    archiveEntries.push({ path, ownerType: 'record' })
+    entries[zipPath] = file.bytes
+  }
+  entries['backup.json'] = new TextEncoder().encode(
+    JSON.stringify({
+      format: 'coc.logbook.android',
+      formatVersion: 1,
+      exportedAt: new Date().toISOString(),
+      restoreScope: ['modules', 'records', 'characters'],
+      snapshot: { ...snapshot, manifest, archiveEntries },
+      manifest
+    })
+  )
+  const zipped = zipSync(entries)
+  if (zipped.length > 64 * 1024 * 1024) throw new Error('ZIP 备份超过 64 MB，请先分批导出归档文件。')
+  return zipped
 }

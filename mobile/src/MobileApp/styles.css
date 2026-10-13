@@ -1,7 +1,55 @@
+@font-face {
+  font-family: 'SF Pro Display';
+  src: url('../../../src/renderer/src/assets/fonts/SF-Pro-Display-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: 'SF Pro Display';
+  src: url('../../../src/renderer/src/assets/fonts/SF-Pro-Display-Semibold.otf') format('opentype');
+  font-weight: 600;
+  font-display: block;
+}
+@font-face {
+  font-family: 'SF Pro Text';
+  src: url('../../../src/renderer/src/assets/fonts/SF-Pro-Text-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: 'SF Pro Text';
+  src: url('../../../src/renderer/src/assets/fonts/SF-Pro-Text-Medium.otf') format('opentype');
+  font-weight: 500;
+  font-display: block;
+}
+@font-face {
+  font-family: 'SF Pro Text';
+  src: url('../../../src/renderer/src/assets/fonts/SF-Pro-Text-Semibold.otf') format('opentype');
+  font-weight: 600;
+  font-display: block;
+}
+@font-face {
+  font-family: 'PingFang SC';
+  src: url('../../../src/renderer/src/assets/fonts/PingFangSC-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: block;
+}
+@font-face {
+  font-family: 'PingFang SC';
+  src: url('../../../src/renderer/src/assets/fonts/PingFangSC-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-display: block;
+}
+@font-face {
+  font-family: 'PingFang SC';
+  src: url('../../../src/renderer/src/assets/fonts/PingFangSC-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-display: block;
+}
 :root {
   font:
-    15px/1.6 system-ui,
-    sans-serif;
+    15px/1.6 'SF Pro Text',
+    'PingFang SC';
   --bg: #e6e8ec;
   --panel: #fff;
   --line: #d3d7de;
@@ -169,11 +217,13 @@ select:focus {
   border-color: #6d45f5;
 }
 h1 {
+  font-family: 'SF Pro Display', 'PingFang SC';
   font-size: 25px;
   line-height: 1.3;
   margin: 6px 0 20px;
 }
 h2 {
+  font-family: 'SF Pro Display', 'PingFang SC';
   font-size: 20px;
   margin: 0 0 12px;
 }
@@ -297,16 +347,54 @@ main {
   font-size: 23px;
   line-height: 1.2;
 }
+.bottom-nav .nav-icon {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+.danger {
+  color: #b92734;
+}
+:root[data-theme='dark'] .danger {
+  color: #ff8b94;
+}
+.entity-actions {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.entity-actions button {
+  margin: 0 8px 8px 0;
+}
+.record-card strong,
+.editor h3,
+.details dd {
+  overflow-wrap: break-word;
+  min-width: 0;
+}
+.details dd {
+  max-width: 65%;
+}
+.pair-editor {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
 .bottom-nav .active {
   color: var(--accent);
   background: var(--soft);
 }
 .summary {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--panel);
   margin-bottom: 20px;
+}
+@media (max-width: 380px) {
+  .summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 .summary strong {
   flex: 1;

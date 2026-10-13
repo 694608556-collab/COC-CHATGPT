@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import type { CharacterData, Edition } from '../../../../../src/shared/types'
 import { skillFinal } from '../../../../../src/shared/coc-rules'
 
@@ -11,8 +10,12 @@ export function CharacterCards(props: {
   characters: CharacterData[]
   onEdit(value: CharacterData): void
   onNew(edition: Edition): void
+  selected: string
+  onSelect(id: string): void
+  onDelete(id: string): void
 }) {
-  const [selected, setSelected] = useState('')
+  const selected = props.selected
+  const setSelected = props.onSelect
   const character = props.characters.find((c) => c.id === selected)
   if (!character)
     return (
@@ -41,6 +44,9 @@ export function CharacterCards(props: {
     <>
       <button onClick={() => setSelected('')}>返回角色列表</button>
       <button onClick={() => props.onEdit(character)}>编辑角色卡</button>
+      <button className="danger" onClick={() => props.onDelete(character.id)}>
+        删除角色卡
+      </button>
       <section className="panel">
         <h2>{character.basic.name || '未命名角色'}</h2>
         <p>

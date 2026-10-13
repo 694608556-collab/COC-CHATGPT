@@ -30,7 +30,11 @@ export function LogReader(props: {
   busy: boolean
   onBack(): void
   onEdit(): void
+  onDelete(): void
+  onFetch(): void
+  onReset(): void
   onExport(filters: FilterPreset): void
+  onExportMore(filters: FilterPreset): void
 }) {
   const [filters, setFilters] = useState(props.preset)
   const [query, setQuery] = useState('')
@@ -96,6 +100,24 @@ export function LogReader(props: {
         </button>
         <button className="primary" disabled={props.busy || !hasBody} onClick={() => props.onExport(filters)}>
           导出 TXT
+        </button>
+        <button disabled={props.busy || !hasBody} onClick={() => props.onExportMore(filters)}>
+          更多导出格式
+        </button>
+      </div>
+      <div className="entity-actions">
+        {props.record.sourceType === 'online' && (
+          <>
+            <button disabled={props.busy} onClick={props.onFetch}>
+              获取/刷新正文
+            </button>
+            <button disabled={props.busy} onClick={props.onReset}>
+              重置链接状态
+            </button>
+          </>
+        )}
+        <button disabled={props.busy} className="danger" onClick={props.onDelete}>
+          删除场次
         </button>
       </div>
       <section className="panel">

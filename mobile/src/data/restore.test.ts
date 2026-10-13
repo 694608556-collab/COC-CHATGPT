@@ -17,6 +17,22 @@ function deviceStore(failSafety = false): LogbookPort {
     archive: { uri: 'content://example/tree', label: '测试目录', valid: true }
   }
   return {
+    listDocuments: async () => ({ documents: [] }),
+    readDocument: async () => {
+      throw new Error('测试未调用归档读取')
+    },
+    fetchLog: async () => {
+      throw new Error('测试未调用联网')
+    },
+    automaticBackup: async () => {
+      throw new Error('测试未调用自动备份')
+    },
+    openDocument: async () => {
+      throw new Error('测试未调用打开')
+    },
+    shareDocument: async () => {
+      throw new Error('测试未调用分享')
+    },
     commitEdit: async () => {
       throw new Error('测试未调用编辑')
     },

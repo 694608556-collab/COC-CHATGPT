@@ -17,6 +17,48 @@ async function setup() {
   return { browser, name, json }
 }
 describe('浏览器测试存储事务', () => {
+  it('附件导入和快照在同一事务，坏附件不会改变原状态', async () => {
+    const { browser, json } = await setup()
+    await expect(
+      browser.port.commitRestore({
+        json,
+        expectedRevision: 0,
+        confirmed: true,
+        attachments: [{ name: '../bad.txt', mime: 'text/plain', base64: btoa('x') }]
+      })
+    ).rejects.toThrow('文件名')
+    expect((await browser.port.getState()).revision).toBe(0)
+    expect(await browser.documents()).toHaveLength(0)
+    await browser.port.commitRestore({
+      json,
+      expectedRevision: 0,
+      confirmed: true,
+      attachments: [{ name: 'public.txt', mime: 'text/plain', base64: btoa('public') }]
+    })
+    const files = (await browser.port.listDocuments({ all: true })).documents
+    const imported = files.find((f) => f.purpose === 'import')!
+    expect((await browser.port.readDocument({ uri: imported.uri })).base64).toBe(btoa('public'))
+    await browser.close()
+  })
+  it('自动备份保留十份，仅轮换自有自动文件；手动和安全副本保留，过期请求拒绝', async () => {
+    const { browser, json } = await setup()
+    await browser.port.commitRestore({ json, expectedRevision: 0, confirmed: true })
+    await browser.port.writeArchive({
+      name: 'auto-backup-user.json',
+      mime: 'application/json',
+      base64: btoa('user file')
+    })
+    const state = await browser.port.getState()
+    for (let i = 0; i < 12; i++)
+      await browser.port.automaticBackup({ json: state.json!, expectedRevision: 1 })
+    const files = await browser.documents()
+    expect(files.filter((f) => f.kind === 'auto')).toHaveLength(10)
+    expect(files.some((f) => f.name === 'auto-backup-user.json')).toBe(true)
+    expect(files.some((f) => f.name.startsWith('before-restore'))).toBe(true)
+    await expect(browser.port.automaticBackup({ json, expectedRevision: 0 })).rejects.toThrow('变化')
+    expect(await browser.documents()).toHaveLength(12)
+    await browser.close()
+  })
   it('首次门禁及取消不会被当作授权成功', async () => {
     vi.stubGlobal('window', { confirm: () => false })
     const browser = createBrowserPort(crypto.randomUUID())

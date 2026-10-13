@@ -4,6 +4,8 @@ import { encodeBackup, previewBackup } from '../data/backup'
 import { DEFAULT_FILTER_PRESET } from '../../../src/shared/types'
 
 export interface BrowserDocument extends SavedDocument {
+  kind?: 'auto'
+  createdAt?: number
   base64: string
   mime: string
 }
@@ -54,7 +56,12 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
       base64: encodeBase64(bytes)
     }
   }
-  async function commit(json: string, expectedRevision: number, prefix: string) {
+  async function commit(
+    json: string,
+    expectedRevision: number,
+    prefix: string,
+    attachments: Array<{ name: string; mime: string; base64: string }> = []
+  ) {
     const next = (await previewBackup(new TextEncoder().encode(json))).snapshot
     const before = await readState()
     if (!before.archive.valid) throw new Error('请先启用浏览器测试存储。')
@@ -77,6 +84,13 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
       'application/json',
       encodeBackup(snapshot)
     )
+    const imported = await Promise.all(
+      attachments.map(async (file) => ({
+        ...(await document(file.name, file.mime, decodeBase64(file.base64))),
+        purpose: 'import' as const
+      }))
+    )
+    safety.purpose = 'safety'
     const db = await database
     return new Promise<{ revision: number; safetyBackup: SavedDocument }>((resolve, reject) => {
       const tx = db.transaction(['state', 'documents'], 'readwrite')
@@ -92,6 +106,7 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
         }
         const documents = tx.objectStore('documents')
         documents.add(safety)
+        imported.forEach((file) => documents.add(file))
         const check = documents.get(safety.uri)
         check.onsuccess = () => {
           if (check.result?.base64 !== safety.base64) {
@@ -115,6 +130,135 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
     })
   }
   const port: LogbookPort = {
+    async listDocuments(options) {
+      const db = await database
+      const files = await new Promise<BrowserDocument[]>((resolve, reject) => {
+        const request = db.transaction('documents').objectStore('documents').getAll()
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+      return {
+        documents: files
+          .slice(options?.all ? 0 : -30)
+          .reverse()
+          .map((file) => ({
+            uri: file.uri,
+            name: file.name,
+            bytes: file.bytes,
+            sha256: file.sha256,
+            purpose: file.purpose
+          }))
+      }
+    },
+    async readDocument({ uri }) {
+      const db = await database
+      return new Promise((resolve, reject) => {
+        const request = db.transaction('documents').objectStore('documents').get(uri)
+        request.onsuccess = () =>
+          request.result
+            ? resolve({ name: request.result.name, mime: request.result.mime, base64: request.result.base64 })
+            : reject(new Error('归档文件不存在。'))
+        request.onerror = () => reject(request.error)
+      })
+    },
+    async fetchLog({ url }) {
+      const endpoint = new URL(url)
+      if (endpoint.origin !== 'https://dice-api.weizaima.com' || endpoint.pathname !== '/dice/api/load_data')
+        throw new Error('不支持此日志地址。')
+      const response = await fetch('/_logbook/sea?url=' + encodeURIComponent(url))
+      if (!response.ok) throw new Error('日志连接失败。')
+      return response.json()
+    },
+    async automaticBackup({ json, expectedRevision }) {
+      const snapshot = (await previewBackup(new TextEncoder().encode(json))).snapshot
+      const savedAt = Date.now()
+      const file = {
+        ...(await document('auto-backup-' + savedAt + '.json', 'application/json', encodeBackup(snapshot))),
+        kind: 'auto' as const,
+        purpose: 'auto' as const,
+        createdAt: savedAt
+      }
+      const db = await database
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(['state', 'documents'], 'readwrite')
+        let failure: Error | undefined
+        const states = tx.objectStore('state')
+        const documents = tx.objectStore('documents')
+        const current = states.get('current')
+        current.onsuccess = () => {
+          if (
+            !current.result?.archive.valid ||
+            current.result.revision !== expectedRevision ||
+            current.result.json !== json
+          ) {
+            failure = new Error('数据或目录已变化，本次自动备份未执行。')
+            tx.abort()
+            return
+          }
+          documents.add(file)
+          const back = documents.get(file.uri)
+          back.onsuccess = () => {
+            if (back.result?.base64 !== file.base64) {
+              failure = new Error('自动备份回读失败。')
+              tx.abort()
+              return
+            }
+            states.put({ ...current.result, lastAutoBackupAt: savedAt }, 'current')
+            const all = documents.getAll()
+            all.onsuccess = () => {
+              const owned: BrowserDocument[] = all.result.filter((f: BrowserDocument) => f.kind === 'auto')
+              owned.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+              owned.slice(10).forEach((f) => documents.delete(f.uri))
+            }
+          }
+        }
+        tx.oncomplete = () => resolve()
+        tx.onabort = () => reject(failure ?? tx.error)
+        tx.onerror = () => reject(tx.error)
+      })
+      return { document: file, savedAt }
+    },
+    async openDocument({ uri }) {
+      const db = await database
+      const file = await new Promise<BrowserDocument>((resolve, reject) => {
+        const request = db.transaction('documents').objectStore('documents').get(uri)
+        request.onsuccess = () =>
+          request.result ? resolve(request.result) : reject(new Error('测试文件已不存在。'))
+        request.onerror = () => reject(request.error)
+      })
+      const url = URL.createObjectURL(
+        new Blob([new Uint8Array(decodeBase64(file.base64)).buffer], { type: file.mime })
+      )
+      const opened = window.open(url, '_blank', 'noopener')
+      setTimeout(() => URL.revokeObjectURL(url), 60000)
+      if (!opened) {
+        const a = window.document.createElement('a')
+        a.href = url
+        a.download = file.name
+        a.click()
+      }
+    },
+    async shareDocument({ uri }) {
+      const db = await database
+      const file = await new Promise<BrowserDocument>((resolve, reject) => {
+        const request = db.transaction('documents').objectStore('documents').get(uri)
+        request.onsuccess = () =>
+          request.result ? resolve(request.result) : reject(new Error('测试文件已不存在。'))
+        request.onerror = () => reject(request.error)
+      })
+      const blob = new File([new Uint8Array(decodeBase64(file.base64)).buffer], file.name, {
+        type: file.mime
+      })
+      if (navigator.canShare?.({ files: [blob] })) await navigator.share({ files: [blob], title: file.name })
+      else {
+        const url = URL.createObjectURL(blob)
+        const a = window.document.createElement('a')
+        a.href = url
+        a.download = file.name
+        a.click()
+        setTimeout(() => URL.revokeObjectURL(url), 1000)
+      }
+    },
     getState: readState,
     async selectArchive() {
       if (!window.confirm('启用浏览器测试存储？数据只保存在当前浏览器中，不代表安卓目录授权。'))
@@ -136,11 +280,11 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
       })
       return { cancelled: false, archive }
     },
-    openBackup: () =>
+    openBackup: (options) =>
       new Promise((resolve, reject) => {
         const input = window.document.createElement('input')
         input.type = 'file'
-        input.accept = '.json,.zip'
+        input.accept = options?.kind && options.kind !== 'backup' ? '.csv,.xls,.xlsx' : '.json,.zip'
         input.hidden = true
         window.document.body.append(input)
         input.oncancel = () => {
@@ -168,8 +312,11 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
         }
         input.click()
       }),
-    async writeArchive({ name, mime, base64 }) {
-      const file = await document(name, mime, decodeBase64(base64))
+    async writeArchive({ name, mime, base64, purpose }) {
+      const file = {
+        ...(await document(name, mime, decodeBase64(base64))),
+        purpose: purpose ?? ('export' as const)
+      }
       const db = await database
       await new Promise<void>((resolve, reject) => {
         const tx = db.transaction(['state', 'documents'], 'readwrite')
@@ -197,9 +344,9 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
       })
       return file
     },
-    async commitRestore({ json, expectedRevision, confirmed }) {
+    async commitRestore({ json, expectedRevision, confirmed, attachments }) {
       if (!confirmed) throw new Error('需要明确确认覆盖。')
-      return commit(json, expectedRevision, 'before-restore')
+      return commit(json, expectedRevision, 'before-restore', attachments)
     },
     async commitEdit({ json, expectedRevision }) {
       return commit(json, expectedRevision, 'before-edit')

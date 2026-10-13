@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { applyEdit, saveEdit } from './edit'
 import { exampleBackup } from './fixtures'
 import { previewBackup } from './backup'
-import { createEmptyCharacter } from '../../../src/shared/coc-rules'
+import { createEmptyCharacter, convertCharacterEdition } from '../../../src/shared/coc-rules'
 import type { LogbookPort } from './native'
 
 const load = async () =>
@@ -25,7 +25,7 @@ describe('编辑数据保护', () => {
         kind: 'record',
         value: { ...record, link: 'https://example.org/changed' }
       })
-    ).rejects.toThrow('来源')
+    ).rejects.toThrow('海豹')
   })
   it('拒绝孤立场次、空名与无效序号', async () => {
     const current = await load()
@@ -66,9 +66,9 @@ describe('编辑数据保护', () => {
       moduleIds: ['m1'],
       editionSnapshots: c.editionSnapshots
     })
-    await expect(applyEdit(current, { kind: 'character', value: { ...c, edition: 7 } })).rejects.toThrow(
-      '版次'
-    )
+    const converted = await applyEdit(current, { kind: 'character', value: convertCharacterEdition(c, 7) })
+    expect(converted.characters[0]?.attrs.STR).toBe(50)
+    expect(converted.characters[0]?.editionSnapshots[6]?.STR).toBe(10)
   })
   it('持久化失败不修改已加载快照，版本序号传到存储边界', async () => {
     const current = await load()

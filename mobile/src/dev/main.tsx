@@ -1,5 +1,6 @@
 import 'core-js/actual/object/from-entries'
 import '../data/compat'
+import 'core-js/actual/structured-clone'
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { MobileApp } from '../MobileApp'
@@ -8,6 +9,7 @@ import type { BrowserDocument } from './browser-port'
 import { searchSample } from './sample'
 import { decodeBase64 } from '../data/native'
 import '../MobileApp/styles.css'
+import { waitForAppFonts } from '../data/fonts'
 
 const browser = createBrowserPort()
 function download(name: string, bytes: Uint8Array, mime: string) {
@@ -50,6 +52,7 @@ function Preview() {
         >
           刷新测试文件列表
         </button>
+        <button onClick={() => window.dispatchEvent(new Event('logbook-back'))}>测试系统返回键</button>
         {error && <p role="alert">{error}</p>}
         {!!files.length && (
           <details>
@@ -72,4 +75,9 @@ function Preview() {
     </>
   )
 }
-createRoot(document.getElementById('root')!).render(<Preview />)
+const root = document.getElementById('root')!
+void waitForAppFonts()
+  .then(() => createRoot(root).render(<Preview />))
+  .catch(() => {
+    root.textContent = '内置字体加载失败，请检查开发构建的字体资源并刷新。'
+  })

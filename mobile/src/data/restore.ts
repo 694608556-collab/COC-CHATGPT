@@ -1,5 +1,6 @@
 import type { ImportPreview, MobileSnapshot } from './types'
 import type { LogbookPort } from './native'
+import { encodeBase64 } from './native'
 
 /** 明确的恢复选择，不恢复文件夹授权或桌面私有设置。 */
 export interface RestoreOptions {
@@ -28,6 +29,11 @@ export async function restoreBackup(port: LogbookPort, preview: ImportPreview, o
   return port.commitRestore({
     json: JSON.stringify(snapshot),
     expectedRevision: options.revision,
-    confirmed: true
+    confirmed: true,
+    attachments: preview.attachments?.map((file) => ({
+      name: file.name,
+      mime: file.mime,
+      base64: encodeBase64(file.bytes)
+    }))
   })
 }
