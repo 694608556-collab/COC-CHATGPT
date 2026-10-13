@@ -919,6 +919,8 @@ input[type='checkbox']:checked::after {
   cursor: grabbing;
 }
 .gesture-testing-tools {
+  position: relative;
+  z-index: 1;
   padding: 2px 5px 4px;
   background: var(--soft);
   text-align: right;

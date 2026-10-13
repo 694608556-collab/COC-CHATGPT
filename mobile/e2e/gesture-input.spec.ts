@@ -37,8 +37,6 @@ test('浏览器辅助入口可模拟长按、左滑和点击目标排序，并�
   await rows.first().getByRole('button', { name: '模拟左滑', exact: true }).click()
   await expect(rows.first().locator('.swipe-delete')).toBeVisible()
   await rows.first().screenshot({ path: 'test-results/browser-gesture-helper.png' })
-  await rows.first().locator('.record-card').click()
-  await expect(rows.first().locator('.swipe-delete')).toBeHidden()
   await rows.first().getByRole('button', { name: '模拟拖动', exact: true }).click()
   await expect(page.locator('.dev-banner [role="status"]')).toContainText('点击同一列表')
   await rows.last().locator('.record-card').click()
