@@ -252,6 +252,9 @@ p {
   margin-bottom: 4px;
 }
 .app-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   align-items: center;
   padding: 7px 12px;
@@ -877,15 +880,163 @@ input[type='checkbox']:checked::after {
   border-radius: 10px;
   margin-bottom: 8px;
 }
+.app-back {
+  flex-shrink: 0;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 8px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.app-edge-zone {
+  position: fixed;
+  top: 0;
+  bottom: 12px;
+  width: 10px;
+  z-index: 90;
+  touch-action: none;
+}
+.app-edge-zone.left {
+  left: 0;
+}
+.app-edge-zone.right {
+  right: 0;
+}
+.app-edge-zone::after {
+  position: absolute;
+  top: var(--gesture-y, 40%);
+  width: 32px;
+  height: 42px;
+  border-radius: 22px;
+  background: var(--panel);
+  color: var(--accent);
+  text-align: center;
+  font-size: 28px;
+  line-height: 42px;
+  opacity: 0;
+  pointer-events: none;
+}
+.app-edge-zone.left::after {
+  content: '›';
+  left: 2px;
+}
+.app-edge-zone.right::after {
+  content: '‹';
+  right: 2px;
+}
+.app-edge-zone.active::after {
+  opacity: 1;
+}
+.app-home-zone {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 12px;
+  z-index: 90;
+  touch-action: none;
+}
+.app-home-zone::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  left: calc(50% - 24px);
+  width: 48px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--muted);
+  pointer-events: none;
+}
+.app-home-zone.active::after {
+  background: var(--accent);
+}
+.busy-progress {
+  display: flex;
+  align-items: center;
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.operation-feedback {
+  position: fixed;
+  left: 50%;
+  bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  width: calc(100% - 24px);
+  max-width: 736px;
+  max-height: 30vh;
+  overflow: auto;
+  z-index: 35;
+  pointer-events: none;
+}
+.operation-feedback .busy-progress {
+  padding: 8px 12px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px 10px 0 0;
+  background: var(--panel);
+}
+.operation-feedback .notice,
+.operation-feedback .error {
+  margin: 0;
+}
+.busy-spinner {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  margin-right: 8px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: busy-turn 800ms linear infinite;
+}
+@keyframes busy-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .gesture-content {
+  display: flex;
+  align-items: stretch;
   position: relative;
   background: var(--panel);
   transition: transform 160ms ease;
   border-radius: inherit;
+  transform: translate(0, 0);
+}
+.gesture-main {
+  flex: 1;
+  min-width: 0;
+}
+.drag-handle {
+  flex: 0 0 44px;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0 10px 10px 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gesture-row.revealed > .gesture-content {
+  transform: translate(-56px, 0);
 }
 .gesture-row.swipe .gesture-content,
 .gesture-row.drag .gesture-content {
   transition: none;
+  will-change: transform;
 }
 .gesture-row.held {
   outline: 2px solid var(--accent);
@@ -896,7 +1047,7 @@ input[type='checkbox']:checked::after {
   z-index: 5;
 }
 .gesture-row.drag .gesture-content {
-  box-shadow: 0 8px 24px #0003;
+  box-shadow: 0 3px 8px #0002;
   outline: 2px solid var(--accent);
 }
 .gesture-row.drop-target {
@@ -912,9 +1063,8 @@ input[type='checkbox']:checked::after {
   user-select: text;
 }
 .gesture-content {
-  cursor: grab;
+  cursor: default;
 }
-.gesture-row.held .gesture-content,
 .gesture-row.drag .gesture-content {
   cursor: grabbing;
 }
@@ -936,16 +1086,20 @@ input[type='checkbox']:checked::after {
 .swipe-delete {
   visibility: hidden;
   position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 80px;
-  border: 0;
-  border-radius: 0 9px 9px 0;
-  color: white;
-  background: #bd3344;
-  padding: 4px;
-  font-size: 13px;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  min-height: 40px;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: var(--soft);
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .gesture-row.revealed .swipe-delete,
 .gesture-row.swipe .swipe-delete {

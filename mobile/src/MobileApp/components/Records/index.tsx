@@ -38,8 +38,10 @@ export function Records(props: {
   return (
     <>
       <div className="edit-actions">
-        <button onClick={props.onNewModule}>新增模组</button>
-        <button disabled={!snapshot.modules.length} onClick={props.onNewRecord}>
+        <button disabled={props.busy} onClick={props.onNewModule}>
+          新增模组
+        </button>
+        <button disabled={props.busy || !snapshot.modules.length} onClick={props.onNewRecord}>
           新增手动场次
         </button>
         <button disabled={props.busy || !snapshot.modules.length} onClick={props.onNewOnline}>
@@ -58,7 +60,7 @@ export function Records(props: {
             />
           </label>
           <p className="muted gesture-hint">
-            点击模组展开 · 双击名称编辑 · 左滑删除 · 长按拖动排序；场次长按后松开进入多选
+            点击模组展开 · 双击名称编辑 · 左滑删除、右滑收回 · 拖动右侧手柄排序；场次长按后松开进入多选
           </p>
         </>
       )}
@@ -88,7 +90,6 @@ export function Records(props: {
                 data-module-toggle
                 aria-expanded={open}
                 aria-label={'模组 ' + m.name}
-                disabled={props.busy}
                 onClick={(event) => {
                   if (event.detail > 1) return
                   setExpanded(open ? expanded.filter((id) => id !== m.id) : [...expanded, m.id])

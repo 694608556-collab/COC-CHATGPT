@@ -1,4 +1,6 @@
 import { registerPlugin } from '@capacitor/core'
+import type { DataAction } from './actions'
+export { decodeBase64, encodeBase64 } from './bytes'
 
 /** 原生归档目录状态。 */
 export interface ArchiveLocation {
@@ -14,7 +16,7 @@ export interface NativeState {
   lastAutoBackupAt?: number
   /** 当前是否有活动网络；类型为 boolean，不表示远程日志网站一定可达。 */
   networkConnected: boolean
-  /** 已保存业务快照 JSON；类型为 string | null，初次为空。 */
+  /** 最近读取的快照缓存；类型为 string | null，初次或轻量提交后缓存失效时为空。 */
   json: string | null
   /** 单调更新序号；类型为 number，用于拒绝陈旧覆盖。 */
   revision: number
@@ -39,11 +41,20 @@ export interface LogbookPort {
   readDocument(options: { uri: string }): Promise<{ name: string; mime: string; base64: string }>
   fetchLog(options: { url: string }): Promise<{ status: number; url: string; text: string }>
   automaticBackup(options: {
-    json: string
+    json?: string
     expectedRevision: number
   }): Promise<{ document: SavedDocument; savedAt: number; warning?: string }>
   openDocument(options: { uri: string }): Promise<void>
   shareDocument(options: { uri: string }): Promise<void>
+  /**
+   * 原生端修改已保存快照的列表元数据，正文不通过界面重复传输。
+   * @param options - 白名单操作及当前版本；安全副本回读失败或版本过期时拒绝。
+   * @returns 新版本、实际保存时间及安全副本，不返回大正文。
+   */
+  commitAction(options: {
+    action: DataAction
+    expectedRevision: number
+  }): Promise<{ revision: number; exportedAt: string; safetyBackup: SavedDocument }>
   /** 校验后的编辑快照；原生端先写安全副本，再以版本序号进行事务提交。 */
   commitEdit(options: {
     json: string
@@ -82,23 +93,3 @@ export interface LogbookPort {
 }
 
 export const Native = registerPlugin<LogbookPort>('Logbook')
-
-/**
- * 将原生文件字节还原为 Uint8Array。
- * @param value - 原生返回的 Base64。
- * @returns 原始字节，不执行其中内容。
- */
-export function decodeBase64(value: string): Uint8Array {
-  return Uint8Array.from(atob(value), (c) => c.charCodeAt(0))
-}
-/**
- * 编码待保存文件，分块避免大量正文超出函数实参数量限制。
- * @param bytes - UTF-8 文本或二进制文件。
- * @returns 原生桥接所需的 Base64。
- */
-export function encodeBase64(bytes: Uint8Array): string {
-  const chunks: string[] = []
-  for (let i = 0; i < bytes.length; i += 16384)
-    chunks.push(String.fromCharCode(...bytes.subarray(i, i + 16384)))
-  return btoa(chunks.join(''))
-}

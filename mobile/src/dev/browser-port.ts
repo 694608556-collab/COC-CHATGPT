@@ -2,6 +2,8 @@ import type { LogbookPort, NativeState, SavedDocument } from '../data/native'
 import { decodeBase64, encodeBase64 } from '../data/native'
 import { encodeBackup, previewBackup } from '../data/backup'
 import { DEFAULT_FILTER_PRESET } from '../../../src/shared/types'
+import { applyAction } from '../data/actions'
+import { encodeInBackground } from '../data/background'
 
 export interface BrowserDocument extends SavedDocument {
   kind?: 'auto'
@@ -170,7 +172,10 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
       return response.json()
     },
     async automaticBackup({ json, expectedRevision }) {
-      const snapshot = (await previewBackup(new TextEncoder().encode(json))).snapshot
+      const before = await readState()
+      const source = json ?? before.json
+      if (!source || before.revision !== expectedRevision) throw new Error('数据已变化，本次自动备份未执行。')
+      const snapshot = (await previewBackup(new TextEncoder().encode(source))).snapshot
       const savedAt = Date.now()
       const file = {
         ...(await document('auto-backup-' + savedAt + '.json', 'application/json', encodeBackup(snapshot))),
@@ -189,7 +194,7 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
           if (
             !current.result?.archive.valid ||
             current.result.revision !== expectedRevision ||
-            current.result.json !== json
+            current.result.json !== source
           ) {
             failure = new Error('数据或目录已变化，本次自动备份未执行。')
             tx.abort()
@@ -302,7 +307,7 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
             resolve({
               cancelled: false,
               name: file.name,
-              base64: encodeBase64(new Uint8Array(await file.arrayBuffer()))
+              base64: await encodeInBackground(new Uint8Array(await file.arrayBuffer()))
             })
           } catch (error) {
             reject(error)
@@ -350,6 +355,16 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
     },
     async commitEdit({ json, expectedRevision }) {
       return commit(json, expectedRevision, 'before-edit')
+    },
+    /** 浏览器独立存储实现相同的安全/版本边界，不进入 APK。 */
+    async commitAction({ action, expectedRevision }) {
+      const before = await readState()
+      if (before.revision !== expectedRevision) throw new Error('数据已变化，请重新操作。')
+      if (!before.json) throw new Error('尚无已保存数据。')
+      const current = (await previewBackup(new TextEncoder().encode(before.json))).snapshot
+      const next = await applyAction(current, action)
+      const result = await commit(JSON.stringify(next), expectedRevision, 'before-edit')
+      return { ...result, exportedAt: next.exportedAt }
     }
   }
   return {

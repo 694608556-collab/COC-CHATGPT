@@ -5,8 +5,9 @@ import { resolve } from 'node:path'
 await mkdir('www', { recursive: true })
 await copyFile('../build/icon.png', 'www/icon.png')
 await build({
-  entryPoints: ['src/main.tsx'],
-  outfile: 'www/app.js',
+  entryPoints: { app: 'src/main.tsx', 'snapshot-worker': 'src/data/snapshot-worker.ts' },
+  outdir: 'www',
+  banner: { js: 'var globalThis = typeof window !== "undefined" ? window : self;' },
   bundle: true,
   nodePaths: [resolve('node_modules')],
   loader: { '.ttf': 'file', '.otf': 'file' },

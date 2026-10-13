@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { expandModules } from './helpers'
 
-test('长按拖到屏幕边缘自动滚动，松开后停止', async ({ page }) => {
+test('手柄拖到屏幕边缘自动滚动，松开后停止', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 })
   page.on('dialog', (dialog) => dialog.accept())
   await page.goto('/')
@@ -11,12 +11,11 @@ test('长按拖到屏幕边缘自动滚动，松开后停止', async ({ page }) 
   await expandModules(page)
   const row = page.locator('.record-list .gesture-row').first()
   await row.scrollIntoViewIfNeeded()
-  const box = (await row.boundingBox())!
-  await page.mouse.move(box.x + 90, box.y + 20)
+  const box = (await row.getByRole('button', { name: /拖动排序/ }).boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
   await page.mouse.down()
-  await page.waitForTimeout(550)
   const before = await page.evaluate(() => scrollY)
-  await page.mouse.move(box.x + 90, 650, { steps: 5 })
+  await page.mouse.move(box.x + box.width / 2, 650, { steps: 5 })
   await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(before + 20)
   await page.mouse.up()
   const after = await page.evaluate(() => scrollY)

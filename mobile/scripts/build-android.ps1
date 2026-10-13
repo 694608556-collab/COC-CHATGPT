@@ -1,4 +1,5 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
+# Keep this script UTF-8 with BOM: Windows PowerShell 5.1 must decode the Chinese diagnostics correctly.
 if (-not $env:JAVA_HOME -or -not (Test-Path -LiteralPath (Join-Path $env:JAVA_HOME 'bin/java.exe'))) {
     throw '请安装 JDK 21 并设置 JAVA_HOME，再执行安卓构建。浏览器开发请运行 pnpm dev。'
 }

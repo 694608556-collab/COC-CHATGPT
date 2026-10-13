@@ -4,6 +4,37 @@ import { applyEdit } from './edit'
 import { searchSample } from '../dev/sample'
 import { createEmptyCharacter } from '../../../src/shared/coc-rules'
 describe('删除、排序与关联完整性', () => {
+  it('75 场大正文排序及时完成，保留正文且不改动原顺序', async () => {
+    const current = searchSample()
+    const template = current.records[0]!
+    current.records = Array.from({ length: 75 }, (_, order) => ({
+      ...template,
+      id: 'large-' + order,
+      name: '公开性能场次 ' + order,
+      order,
+      rawContent: {
+        ...template.rawContent!,
+        messages: Array.from({ length: 324 }, (_, index) => ({
+          ...template.rawContent!.messages[0]!,
+          id: order + '-' + index,
+          text: '公开性能正文。'.repeat(30),
+          raw: { text: '公开原始字段。'.repeat(30) }
+        }))
+      }
+    }))
+    const started = performance.now()
+    const next = await applyAction(current, {
+      type: 'reorder',
+      kind: 'record',
+      id: 'large-0',
+      targetId: 'large-74'
+    })
+    expect(performance.now() - started).toBeLessThan(150)
+    expect(next.records.slice().sort((a, b) => a.order - b.order)[0]!.id).toBe('large-1')
+    expect(next.records.find((record) => record.id === 'large-0')!.order).toBe(74)
+    expect(next.records[0]!.rawContent!.messages[0]!.text).toBe('公开性能正文。'.repeat(30))
+    expect(current.records[0]!.order).toBe(0)
+  })
   it('拖动可跨多个位置一次排序，拒绝跨模组目标且不修改原快照', async () => {
     const current = searchSample()
     const first = current.records[0]!

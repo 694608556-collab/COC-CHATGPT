@@ -10,6 +10,10 @@ export function RestoreDialog(props: {
   preview: ImportPreview
   currentRecords: number
   busy: boolean
+  /** 当前真实导入阶段，类型为 string。 */
+  stage: string
+  /** 导入失败说明，类型为 string；弹窗不隐藏错误。 */
+  error: string
   onCancel(): void
   onConfirm(restoreSettings: boolean): void
 }) {
@@ -24,6 +28,22 @@ export function RestoreDialog(props: {
         aria-labelledby="restore-title"
       >
         <h2 id="restore-title">确认导入范围</h2>
+        {props.busy && (
+          <div
+            className="busy-progress"
+            role="progressbar"
+            aria-label="安全导入进度"
+            aria-valuetext={props.stage}
+          >
+            <span className="busy-spinner" aria-hidden="true" />
+            <span>{props.stage || '正在准备安全导入…'}</span>
+          </div>
+        )}
+        {props.error && (
+          <p className="error" role="alert">
+            {props.error}
+          </p>
+        )}
         <p>
           {snapshot.modules.length} 个模组 · {snapshot.records.length} 个场次 · {snapshot.characters.length}{' '}
           张角色卡

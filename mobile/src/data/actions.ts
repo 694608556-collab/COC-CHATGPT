@@ -1,5 +1,4 @@
 import type { MobileSnapshot } from './types'
-import { previewBackup } from './backup'
 export type DataAction =
   | { type: 'delete'; kind: 'module' | 'record' | 'character'; id: string }
   | { type: 'reorder'; kind: 'module' | 'record'; id: string; targetId: string }
@@ -7,8 +6,14 @@ export type DataAction =
   | { type: 'reset'; id: string }
   | { type: 'clear' }
 
+/**
+ * 对已校验的本机快照应用列表操作，不复制或重新校验未变化的正文。
+ * @param current - 通过导入/读取边界校验的快照；不会修改其中的实体。
+ * @param action - 删除、排序、序号重排、状态重置或清空操作。
+ * @returns 新快照；仅复制有变更的实体，正文保持原有内容。
+ */
 export async function applyAction(current: MobileSnapshot, action: DataAction): Promise<MobileSnapshot> {
-  const next: MobileSnapshot = JSON.parse(JSON.stringify(current))
+  const next: MobileSnapshot = { ...current }
   if (action.type === 'delete') {
     if (action.kind === 'module') {
       next.modules = next.modules.filter((m) => m.id !== action.id)
@@ -41,16 +46,21 @@ export async function applyAction(current: MobileSnapshot, action: DataAction): 
     if (other < 0) throw new Error('只能在同一列表内排序，请重新读取。')
     const [moved] = rows.splice(index, 1)
     rows.splice(other, 0, moved!)
-    rows.forEach((r, i) => {
-      r.order = i
-    })
+    const order = new Map(rows.map((row, index) => [row.id, index]))
+    if (action.kind === 'module')
+      next.modules = next.modules.map((row) => ({ ...row, order: order.get(row.id)! }))
+    else
+      next.records = next.records.map((row) =>
+        order.has(row.id) ? { ...row, order: order.get(row.id)! } : row
+      )
   } else if (action.type === 'realign') {
-    next.records
+    const numbered = next.records
       .filter((r) => r.moduleId === action.moduleId)
       .sort((a, b) => a.order - b.order)
-      .forEach((r, i) => {
-        r.sequenceNo = i + 1
-      })
+    const sequence = new Map(numbered.map((row, index) => [row.id, index + 1]))
+    next.records = next.records.map((row) =>
+      sequence.has(row.id) ? { ...row, sequenceNo: sequence.get(row.id)! } : row
+    )
   } else if (action.type === 'reset') {
     next.records = next.records.map((r) =>
       r.id === action.id && r.sourceType === 'online'
@@ -63,5 +73,5 @@ export async function applyAction(current: MobileSnapshot, action: DataAction): 
     next.characters = []
   }
   next.exportedAt = new Date().toISOString()
-  return (await previewBackup(new TextEncoder().encode(JSON.stringify(next)))).snapshot
+  return next
 }

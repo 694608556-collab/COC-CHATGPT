@@ -350,22 +350,38 @@ public final class LogbookPlugin extends Plugin {
     @PluginMethod public void commitEdit(PluginCall call) {
         commitSnapshot(call, false);
     }
+    /** Only list metadata crosses the bridge; native safety-copy and CAS rules remain identical. */
+    @PluginMethod public void commitAction(PluginCall call) {
+        commitSnapshot(call, false, true);
+    }
     private void commitSnapshot(PluginCall call, boolean restoring) {
+        commitSnapshot(call, restoring, false);
+    }
+    private void commitSnapshot(PluginCall call, boolean restoring, boolean actionOnly) {
         execute(() -> {
             java.util.List<Uri> imported = new java.util.ArrayList<>();
             boolean committed = false;
             try {
                 if (restoring && !Boolean.TRUE.equals(call.getBoolean("confirmed", false))) throw new IllegalStateException("需要用户明确确认覆盖。");
-                String json = call.getString("json", "");
-                if (json.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) throw new IllegalArgumentException("数据超过首阶段大小上限。");
-                JSONObject next = new JSONObject(json); validateSnapshot(next);
                 Long expected = call.getData().has("expectedRevision") ? call.getData().getLong("expectedRevision") : null;
                 if (expected == null || expected != database.revision()) throw new IllegalStateException("数据已变化，请重新预览。");
+                String current = database.snapshot();
+                if (actionOnly && current == null) throw new IllegalStateException("尚无已保存数据。");
+                String json = actionOnly ? current : call.getString("json", "");
+                if (json.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) throw new IllegalArgumentException("数据超过首阶段大小上限。");
+                JSONObject next = new JSONObject(json); validateSnapshot(next);
+                if (actionOnly) {
+                    JSONObject action = call.getObject("action");
+                    if (action == null) throw new IllegalArgumentException("列表操作缺失。");
+                    LogbookActions.apply(next, action); validateSnapshot(next);
+                }
                 JSONObject envelope = new JSONObject(); envelope.put("format", "coc.logbook.android"); envelope.put("formatVersion", 1);
                 envelope.put("exportedAt", java.time.Instant.now().toString()); envelope.put("restoreScope", new JSONArray(Arrays.asList("modules", "records", "characters")));
-                String current = database.snapshot(); envelope.put("snapshot", current == null ? emptySnapshot() : new JSONObject(current));
+                // Embed the original JSON unchanged: parsing it again adds cost and can lose raw number precision.
+                String metadata = envelope.toString();
+                String safetyJson = metadata.substring(0, metadata.length() - 1) + ",\"snapshot\":" + (current == null ? emptySnapshot().toString() : current) + "}";
                 // Only a fully read-back, user-visible safety copy permits the database transaction.
-                JSObject safety = write((restoring ? "before-restore-" : "before-edit-") + System.currentTimeMillis() + ".json", "application/json", envelope.toString().getBytes(StandardCharsets.UTF_8), "safety");
+                JSObject safety = write((restoring ? "before-restore-" : "before-edit-") + System.currentTimeMillis() + ".json", "application/json", safetyJson.getBytes(StandardCharsets.UTF_8), "safety");
                 JSONArray files = restoring ? call.getArray("attachments") : null;
                 if (files != null) {
                     if (files.length() > 2000) throw new IllegalArgumentException("归档文件数量过多。");
@@ -381,7 +397,9 @@ public final class LogbookPlugin extends Plugin {
                 }
                 long revision = database.replace(next.toString(), expected);
                 committed = true;
-                JSObject out = new JSObject(); out.put("revision", revision); out.put("safetyBackup", safety); call.resolve(out);
+                JSObject out = new JSObject(); out.put("revision", revision); out.put("safetyBackup", safety);
+                if (actionOnly) out.put("exportedAt", next.getString("exportedAt"));
+                call.resolve(out);
             } catch (Exception error) {
                 if (!committed) for (Uri uri : imported) try { DocumentsContract.deleteDocument(getContext().getContentResolver(), uri); } catch (Exception ignored) { }
                 call.reject((restoring ? "恢复未完成：" : "编辑未保存：") + error.getMessage(), error);

@@ -31,7 +31,7 @@ async function noOverflow(page: Page) {
 async function drag(page: Page, from: Locator, to: Locator) {
   await to.scrollIntoViewIfNeeded()
   await from.scrollIntoViewIfNeeded()
-  const a = (await from.boundingBox())!
+  const a = (await from.getByRole('button', { name: /拖动排序/ }).boundingBox())!
   const b = (await to.boundingBox())!
   await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2)
   await page.mouse.down()
@@ -107,12 +107,14 @@ test('真实触摸事件：普通上下滚动、长按多选、左滑删除', as
   await expect(page.locator('.selection-check')).toHaveCount(4)
   await page.getByRole('button', { name: '退出多选' }).first().click()
   await rows.first().scrollIntoViewIfNeeded()
-  const first = (await rows.first().boundingBox())!
   const second = (await rows.nth(1).boundingBox())!
-  const heldX = Math.round(first.x + 80),
-    heldY = Math.round(first.y + 25)
+  const handle = (await rows
+    .first()
+    .getByRole('button', { name: /拖动排序/ })
+    .boundingBox())!
+  const heldX = Math.round(handle.x + handle.width / 2),
+    heldY = Math.round(handle.y + handle.height / 2)
   await send('touchStart', heldX, heldY)
-  await page.waitForTimeout(550)
   await send('touchMove', heldX, heldY + 15)
   await send('touchMove', heldX, Math.round(second.y + 25))
   await send('touchEnd', heldX, Math.round(second.y + 25))

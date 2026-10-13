@@ -4,10 +4,11 @@ import type { FilterPreset, SessionRecord } from '../../../src/shared/types'
 import { renderLogText } from '../../../src/shared/document-renderer'
 import { Native, decodeBase64, encodeBase64 } from '../data/native'
 import type { LogbookPort, NativeState } from '../data/native'
-import { previewBackup, encodeBackup, encodeArchiveBackup } from '../data/backup'
+import { encodeBackup, encodeArchiveBackup } from '../data/backup'
 import { restoreBackup } from '../data/restore'
 import type { ImportPreview, MobileSnapshot } from '../data/types'
 import { Records } from './components/Records'
+import { useNavigationGestures } from './useNavigationGestures'
 import { CharacterCards } from './components/CharacterCards'
 import { DataSettings } from './components/DataSettings'
 import { ArchiveGate } from './components/ArchiveGate'
@@ -29,6 +30,13 @@ import { createExport, safeName } from '../data/export'
 import type { ExportFormat } from '../data/export'
 import { importTable } from '../data/tables'
 import type { TablePreview } from '../data/tables'
+import {
+  prepareInBackground,
+  previewBase64InBackground,
+  previewInBackground,
+  readInBackground,
+  serializeInBackground
+} from '../data/background'
 import { exportRecordTables } from '../../../src/shared/record-table'
 import type { AppSnapshot } from '../../../src/shared/types'
 
@@ -73,19 +81,23 @@ export function MobileApp({
   const [tablePreview, setTablePreview] = useState<{ data: TablePreview; revision: number }>()
   async function commit(next: MobileSnapshot) {
     if (!native) throw new Error('本机数据尚未读取。')
-    const validated = (
-      await previewBackup(
-        new TextEncoder().encode(JSON.stringify({ ...next, exportedAt: new Date().toISOString() }))
-      )
-    ).snapshot
+    setNotice('正在后台校验并编码待保存数据…')
+    const prepared = await prepareInBackground({ ...next, exportedAt: new Date().toISOString() })
+    const validated = prepared.snapshot
+    setNotice('正在保存安全副本并提交数据，请保持应用打开…')
     const result = await port.commitEdit({
-      json: JSON.stringify(validated),
+      json: prepared.json,
       expectedRevision: native.revision
     })
     setSnapshot(validated)
-    setNative({ ...native, json: JSON.stringify(validated), revision: result.revision })
+    setNative({ ...native, json: prepared.json, revision: result.revision })
     document.documentElement.dataset.theme = validated.settings.theme
   }
+  /**
+   * 确认危险操作后发送轻量列表命令；安全提交失败时维持当前数据。
+   * @param action - 明确的排序、删除或其他列表动作。
+   * @returns 无返回值；成功后仅更新列表快照及原生版本。
+   */
   async function act(action: DataAction) {
     if (action.type === 'delete' || action.type === 'clear') {
       const description =
@@ -98,10 +110,26 @@ export function MobileApp({
               : '删除此场次及已保存正文？'
       if (!window.confirm(description + ' 操作前会保存安全副本。')) return
     }
-    await commit(await applyAction(snapshot, action))
+    if (!native) throw new Error('本机数据尚未读取。')
+    const next = await applyAction(snapshot, action)
+    const before = snapshot
+    // 先展示待保存的列表位置，但不解锁第二次写入；安全提交失败必须回到原列表。
+    setSnapshot(next)
+    setNotice('正在保存列表操作并校验安全副本；仍可阅读和切换页面。')
+    let result: Awaited<ReturnType<LogbookPort['commitAction']>>
+    try {
+      result = await port.commitAction({ action, expectedRevision: native.revision })
+    } catch (reason) {
+      setSnapshot(before)
+      setNotice('本次操作未保存，列表已恢复。')
+      throw reason
+    }
+    // 安全提交后确认时间/版本；失效的大 JSON 缓存不用于自动备份。
+    setSnapshot({ ...next, exportedAt: result.exportedAt })
+    setNative({ ...native, json: null, revision: result.revision })
     if (action.type === 'delete' || action.type === 'clear') {
-      setRecord(undefined)
-      setSelectedCharacter('')
+      setRecord((current) => current && next.records.find((item) => item.id === current.id))
+      setSelectedCharacter((current) => (next.characters.some((item) => item.id === current) ? current : ''))
     }
     setNotice('操作已保存，安全副本已生成。')
   }
@@ -193,7 +221,6 @@ export function MobileApp({
     setBusy(true)
     try {
       const result = await port.automaticBackup({
-        json: native.json ?? JSON.stringify(snapshot),
         expectedRevision: native.revision
       })
       setNative({ ...native, lastAutoBackupAt: result.savedAt })
@@ -230,8 +257,19 @@ export function MobileApp({
     return () => clearTimeout(timer)
   }, [snapshot, native?.revision, native?.archive.valid, native?.lastAutoBackupAt])
   const backHandler = useRef<() => void>(() => {})
-  backHandler.current = () => {
+  useNavigationGestures(() => backHandler.current(), requestHome)
+  /** @returns 无返回值；回桌面仅后台化，不清除草稿；写入期间拒绝应用内退出。 */
+  function requestHome() {
     if (busyLock.current) {
+      setNotice('数据正在处理，请完成后再返回桌面。')
+      return
+    }
+    if (Capacitor.isNativePlatform()) void CapacitorApp.minimizeApp()
+    else if (process.env.NODE_ENV === 'development')
+      setNotice('浏览器预览：已请求返回手机桌面，草稿和数据未清除。')
+  }
+  backHandler.current = () => {
+    if (busyLock.current && (editing || preview || exportRequest || tablePreview)) {
       setNotice('操作进行中，请稍候。')
       return
     }
@@ -316,12 +354,13 @@ export function MobileApp({
       const result = await saveEdit(port, snapshot, draft, editing.revision)
       setEditing(undefined)
       setRecord(undefined)
-      setNotice('修改已保存。安全副本：' + result.safetyBackup.name)
       try {
         await reload()
       } catch {
         setError('修改已提交，但页面重新读取失败。请重新打开应用读取，勿重复保存。')
       }
+      // 重读的阶段提示不得吞掉已确认的提交结果；重读失败仍单独显示错误。
+      setNotice('修改已保存。安全副本：' + result.safetyBackup.name)
     } finally {
       busyLock.current = false
       setBusy(false)
@@ -331,12 +370,12 @@ export function MobileApp({
   /** @returns 当前存储与授权；读取失败保留旧显示，不重置数据库。 */
   async function reload() {
     const state = await port.getState()
-    const data = state.json
-      ? (await previewBackup(new TextEncoder().encode(state.json))).snapshot
-      : emptySnapshot()
+    setNotice('正在后台读取并校验本机数据…')
+    const data = state.json ? await readInBackground(state.json) : emptySnapshot()
     setSnapshot(data)
     setNative(state)
     document.documentElement.dataset.theme = data.settings.theme
+    setNotice('')
   }
   /**
    * 串行化用户操作并显示失败，防止重复点击并发覆盖。
@@ -353,6 +392,9 @@ export function MobileApp({
       await action()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '操作失败，请重试。')
+      setNotice((current) =>
+        current.startsWith('正在') || current.startsWith('请选择') ? '操作未完成，请查看错误提示。' : current
+      )
     } finally {
       busyLock.current = false
       setBusy(false)
@@ -374,9 +416,15 @@ export function MobileApp({
   }
   /** @returns 仅生成预览，不在文件选择后自动恢复。 */
   async function chooseBackup() {
+    setNotice('请选择备份文件；读取后将进行后台校验…')
     const choice = await port.openBackup()
-    if (choice.cancelled || !choice.base64) return
-    setPreview(await previewBackup(decodeBase64(choice.base64)))
+    if (choice.cancelled || !choice.base64) {
+      setNotice('已取消选择备份，当前数据未改变。')
+      return
+    }
+    setNotice('正在后台解码和校验备份，尚未写入数据…')
+    setPreview(await previewBase64InBackground(choice.base64))
+    setNotice('备份校验完成；请核对并确认，尚未覆盖当前数据。')
   }
   /**
    * 用户点击确认后生成安全副本，再在事务内覆盖。
@@ -385,11 +433,20 @@ export function MobileApp({
    */
   async function confirmRestore(restoreSettings: boolean) {
     if (!preview || !native) throw new Error('预览已失效，请重新选择备份。')
+    setNotice('正在准备安全导入，尚未覆盖数据…')
+    // 先让确认弹窗的阶段与禁用状态实际绘制，再处理大对象或调用原生桥。
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
     const result = await restoreBackup(port, preview, {
       confirmed: true,
       restoreSettings,
       revision: native.revision,
-      current: snapshot
+      current: snapshot,
+      serialize: async (value) => {
+        setNotice('正在后台编码完整导入数据…')
+        const json = await serializeInBackground(value)
+        setNotice('正在保存安全副本并导入，请保持应用打开…')
+        return json
+      }
     })
     setPreview(undefined)
     setRecord(undefined)
@@ -468,27 +525,72 @@ export function MobileApp({
     characters: '角色卡',
     settings: '数据与设置'
   }
+  const atHome =
+    !editing &&
+    !preview &&
+    !tablePreview &&
+    !exportRequest &&
+    !record &&
+    !selectedCharacter &&
+    page === 'records'
   return (
     <div className="mobile-shell">
+      <div className="app-edge-zone left" data-navigation-zone="left" aria-hidden="true" />
+      <div className="app-edge-zone right" data-navigation-zone="right" aria-hidden="true" />
+      <div className="app-home-zone" data-navigation-zone="home" aria-hidden="true" />
       <header className="app-header">
+        <button
+          type="button"
+          className="app-back"
+          aria-label={atHome && Capacitor.isNativePlatform() ? '返回手机桌面' : '返回上一页'}
+          disabled={atHome && !Capacitor.isNativePlatform()}
+          onClick={() => backHandler.current()}
+        >
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </button>
         <img src="icon.png" alt="" />
         <div>
           <strong>COC 跑团记录簿</strong>
           <span>安卓开发版 · 本机数据</span>
         </div>
-        <span className="version">0.2.1</span>
+        <span className="version">0.2.5</span>
       </header>
       <main>
-        {error && (
-          <div className="error" role="alert">
-            {error}
-          </div>
-        )}
-        {notice && (
-          <div className="notice" role="status">
-            {notice}
-          </div>
-        )}
+        <div className="operation-feedback">
+          {busy && (
+            <div
+              className="busy-progress"
+              role="progressbar"
+              aria-label="数据处理进度"
+              aria-valuetext={notice || '正在处理，请稍候'}
+            >
+              <span className="busy-spinner" aria-hidden="true" />
+              <span>正在处理，阶段见提示；未完成前请勿重复保存。</span>
+            </div>
+          )}
+          {error && !preview && (
+            <div className="error" role="alert">
+              {error}
+            </div>
+          )}
+          {notice && (
+            <div className="notice" role="status">
+              {notice}
+            </div>
+          )}
+        </div>
         {savedDocument && (
           <section className="panel">
             <p>最近保存：{savedDocument.name}</p>
@@ -532,7 +634,9 @@ export function MobileApp({
                   </p>
                   <button
                     disabled={busy || !!preview}
-                    onClick={() => void perform(async () => setPreview(await previewBackup(testBackup())))}
+                    onClick={() =>
+                      void perform(async () => setPreview(await previewInBackground(testBackup())))
+                    }
                   >
                     载入公开测试数据
                   </button>
@@ -651,7 +755,7 @@ export function MobileApp({
         {(['records', 'characters', 'settings'] as const).map((tab) => (
           <button
             key={tab}
-            disabled={busy || !!editing || !native?.archive.valid}
+            disabled={!!editing || !native?.archive.valid}
             aria-current={page === tab ? 'page' : undefined}
             className={page === tab ? 'active' : ''}
             onClick={() => {
@@ -671,8 +775,13 @@ export function MobileApp({
         <RestoreDialog
           preview={preview}
           busy={busy}
+          stage={notice}
+          error={error}
           currentRecords={snapshot.records.length}
-          onCancel={() => setPreview(undefined)}
+          onCancel={() => {
+            setPreview(undefined)
+            setNotice('已取消导入，当前数据未改变。')
+          }}
           onConfirm={(restoreSettings) => void perform(() => confirmRestore(restoreSettings))}
         />
       )}

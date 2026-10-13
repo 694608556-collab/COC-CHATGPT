@@ -23,8 +23,12 @@ export function CharacterCards(props: {
     return (
       <>
         <div className="edit-actions">
-          <button onClick={() => props.onNew(6)}>新建六版角色</button>
-          <button onClick={() => props.onNew(7)}>新建七版角色</button>
+          <button disabled={props.busy} onClick={() => props.onNew(6)}>
+            新建六版角色
+          </button>
+          <button disabled={props.busy} onClick={() => props.onNew(7)}>
+            新建七版角色
+          </button>
         </div>
         {props.characters.map((c) => (
           <GestureRow

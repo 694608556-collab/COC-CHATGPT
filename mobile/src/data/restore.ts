@@ -12,6 +12,8 @@ export interface RestoreOptions {
   revision: number
   /** 预览时的当前数据；类型为 MobileSnapshot。 */
   current: MobileSnapshot
+  /** 可选后台编码器；不改变确认、版本或安全提交规则。 */
+  serialize?: (snapshot: MobileSnapshot) => Promise<string>
 }
 /**
  * 从预览进入原生安全覆盖流程。
@@ -27,7 +29,7 @@ export async function restoreBackup(port: LogbookPort, preview: ImportPreview, o
     settings: options.restoreSettings ? preview.snapshot.settings : options.current.settings
   }
   return port.commitRestore({
-    json: JSON.stringify(snapshot),
+    json: options.serialize ? await options.serialize(snapshot) : JSON.stringify(snapshot),
     expectedRevision: options.revision,
     confirmed: true,
     attachments: preview.attachments?.map((file) => ({
