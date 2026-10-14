@@ -1,3 +1,4 @@
+import { acceptAppConfirmations } from './helpers'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
@@ -6,6 +7,7 @@ import { createEmptyCharacter } from '../../src/shared/coc-rules'
 
 async function ready(page: Page) {
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.setViewportSize({ width: 393, height: 915 })
   const sample = searchSample()
   const character = createEmptyCharacter({
@@ -94,9 +96,11 @@ test('手填伤害不被属性及版次覆盖；短物品三列、长名称加�
   await page.getByLabel('伤害加值', { exact: true }).fill('+2D6（自填）')
   await page.getByLabel('STR', { exact: true }).fill('90')
   await expect(page.getByLabel('伤害加值', { exact: true })).toHaveValue('+2D6（自填）')
-  await page.getByRole('combobox', { name: '角色规则版次' }).selectOption('6')
+  await page.getByRole('combobox', { name: '角色规则版次' }).click()
+  await page.getByRole('option', { name: '第六版', exact: true }).click()
   await expect(page.getByLabel('伤害加值', { exact: true })).toHaveValue('+2D6（自填）')
-  await page.getByRole('combobox', { name: '角色规则版次' }).selectOption('7')
+  await page.getByRole('combobox', { name: '角色规则版次' }).click()
+  await page.getByRole('option', { name: '第七版', exact: true }).click()
   const boxes = await page
     .locator('.item-edit-row')
     .evaluateAll((nodes) =>
@@ -169,7 +173,10 @@ test('成功提示可关闭或三秒后渐隐；静态警告和保存错误关�
   await expect(warning).toHaveCount(0)
   await expect(page.getByRole('button', { name: '保存安卓备份', exact: true })).toBeEnabled()
   await page.getByLabel('隐藏骰指令').check()
-  await expect(notice).toContainText('设置已保存')
+  await expect(page.getByRole('status', { name: '普通保存状态' })).toHaveText('已保存')
+  await expect(notice).toHaveCount(0)
+  await page.getByRole('button', { name: '保存安卓备份', exact: true }).click()
+  await expect(notice).toContainText('备份已保存')
   // Capture the 300 ms fade transition rather than relying on a slow assertion poll.
   await notice.evaluate((node) => {
     const state = window as Window & { feedbackFadeSeen?: boolean }

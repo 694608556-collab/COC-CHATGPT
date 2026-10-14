@@ -1,3 +1,4 @@
+import { acceptAppConfirmations } from './helpers'
 import { expect, test } from '@playwright/test'
 test('四项统计、删除的设置项及离线内置桌面字体', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 740 })
@@ -7,6 +8,7 @@ test('四项统计、删除的设置项及离线内置桌面字体', async ({ pa
       remoteFonts.push(request.url())
   })
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '数据与设置', exact: true }).click()

@@ -350,6 +350,113 @@ public final class LogbookPlugin extends Plugin {
     @PluginMethod public void commitEdit(PluginCall call) {
         commitSnapshot(call, false);
     }
+    /** Settings requests cannot carry entities or a caller-controlled safety bypass. */
+    private void validateSettings(JSONObject settings) throws Exception {
+        Set<String> allowed = new HashSet<>(Arrays.asList("theme", "filterPreset", "autoBackup"));
+        java.util.Iterator<String> keys = settings.keys();
+        while (keys.hasNext()) if (!allowed.contains(keys.next())) throw new IllegalArgumentException("设置字段不合法。");
+        Object theme = settings.get("theme");
+        if (!"light".equals(theme) && !"dark".equals(theme)) throw new IllegalArgumentException("主题不合法。");
+        JSONObject filters = settings.getJSONObject("filterPreset");
+        Set<String> filterKeys = new HashSet<>(Arrays.asList("hideDiceCommands", "hideImages", "hideOffTopic", "hideTime", "hidePlatformAccount", "hideYearMonthDay", "indentFirstLine", "darkDisplay"));
+        if (filters.length() != filterKeys.size()) throw new IllegalArgumentException("阅读设置不完整。");
+        for (String key : filterKeys) if (!(filters.get(key) instanceof Boolean)) throw new IllegalArgumentException("阅读设置类型不合法。");
+        if (settings.has("autoBackup")) {
+            JSONObject backup = settings.getJSONObject("autoBackup");
+            if (backup.length() != 3 || !(backup.get("enabled") instanceof Boolean) ||
+                !Arrays.asList("idle", "daily", "weekly").contains(backup.get("interval")) ||
+                !(backup.get("retention") instanceof Number) || ((Number)backup.get("retention")).doubleValue() != 10)
+                throw new IllegalArgumentException("自动备份设置不合法。");
+        }
+    }
+    /** Small bridge request; unchanged entities remain native-owned, CAS and authorization are never skipped. */
+    @PluginMethod public void commitSettings(PluginCall call) {
+        execute(() -> {
+            try {
+                Long expected = call.getData().has("expectedRevision") ? call.getData().getLong("expectedRevision") : null;
+                if (expected == null || expected != database.revision()) throw new IllegalStateException("数据已变化，请重新读取。");
+                JSONObject settings = call.getObject("settings");
+                if (settings == null || settings.toString().getBytes(StandardCharsets.UTF_8).length > 16384)
+                    throw new IllegalArgumentException("设置缺失或超过大小限制。");
+                validateSettings(settings);
+                requireArchivePermission(prefs().getString("tree", ""));
+                String current = database.snapshot();
+                if (current != null) validateJsonText(current);
+                JSONObject next = current == null ? emptySnapshot() : new JSONObject(current);
+                validateSnapshot(next);
+                String exportedAt = java.time.Instant.now().toString();
+                next.put("settings", settings); next.put("exportedAt", exportedAt);
+                long revision = database.replace(next.toString(), expected);
+                JSObject out = new JSObject(); out.put("revision", revision); out.put("exportedAt", exportedAt);
+                call.resolve(out);
+            } catch (Exception error) { call.reject("设置未保存：" + error.getMessage(), error); }
+        });
+    }
+    /** Structural equality avoids serializing the entire message cache twice just to detect a settings edit. */
+    private boolean sameJson(Object left, Object right) throws Exception {
+        if (left == right) return true;
+        if (left instanceof JSONObject && right instanceof JSONObject) {
+            JSONObject a = (JSONObject)left, b = (JSONObject)right;
+            if (a.length() != b.length()) return false;
+            java.util.Iterator<String> keys = a.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                if (!b.has(key) || !sameJson(a.get(key), b.get(key))) return false;
+            }
+            return true;
+        }
+        if (left instanceof JSONArray && right instanceof JSONArray) {
+            JSONArray a = (JSONArray)left, b = (JSONArray)right;
+            if (a.length() != b.length()) return false;
+            for (int i = 0; i < a.length(); i++) if (!sameJson(a.get(i), b.get(i))) return false;
+            return true;
+        }
+        return left != null && left.equals(right);
+    }
+    /** Android's JSONObject parser is lenient. Raw text may be persisted only after a strict JSON syntax check. */
+    private void validateJsonText(String json) throws Exception {
+        try (android.util.JsonReader reader = new android.util.JsonReader(new java.io.StringReader(json))) {
+            reader.setLenient(false);
+            reader.beginObject();
+            while (reader.hasNext()) { reader.nextName(); reader.skipValue(); }
+            reader.endObject();
+            if (reader.peek() != android.util.JsonToken.END_DOCUMENT) throw new IllegalArgumentException("JSON 包含多余内容。");
+        }
+    }
+    /** 0=settings, 1=ordinary checkpoint, 2=destructive; decided from stored entities, never caller flags. */
+    private int protectionLevel(JSONObject before, JSONObject next) throws Exception {
+        String[] groups = {"modules", "records", "characters"};
+        if (before == null) {
+            for (String group : groups) if (next.getJSONArray(group).length() > 0) return 1;
+            return 0;
+        }
+        boolean settingsOnly = true;
+        for (String group : groups) {
+            JSONArray oldRows = before.getJSONArray(group), rows = next.getJSONArray(group);
+            if (settingsOnly && !sameJson(oldRows, rows)) settingsOnly = false;
+            Set<String> ids = entityIds(rows);
+            for (int i = 0; i < oldRows.length(); i++) if (!ids.contains(oldRows.getJSONObject(i).getString("id"))) return 2;
+        }
+        if (settingsOnly) return 0;
+        java.util.Map<String, JSONObject> records = new java.util.HashMap<>();
+        JSONArray rows = next.getJSONArray("records");
+        for (int i = 0; i < rows.length(); i++) records.put(rows.getJSONObject(i).getString("id"), rows.getJSONObject(i));
+        JSONArray oldRows = before.getJSONArray("records");
+        for (int i = 0; i < oldRows.length(); i++) {
+            JSONObject old = oldRows.getJSONObject(i), row = records.get(old.getString("id"));
+            if (row == null || !old.optString("sourceType", "").equals(row.optString("sourceType", "")) ||
+                !old.optString("link", "").equals(row.optString("link", ""))) return 2;
+        }
+        return 1;
+    }
+    /** Even settings/windowed saves must fail after a SAF grant is revoked. */
+    private void requireArchivePermission(String tree) {
+        boolean authorized = false;
+        for (android.content.UriPermission permission : getContext().getContentResolver().getPersistedUriPermissions()) {
+            if (permission.getUri().toString().equals(tree) && permission.isReadPermission() && permission.isWritePermission()) authorized = true;
+        }
+        if (!authorized) throw new IllegalStateException("保存位置授权已失效，请重新选择。");
+    }
     /** Only validated reorders skip the dedicated safety copy; all actions retain CAS and transactions. */
     @PluginMethod public void commitAction(PluginCall call) {
         commitSnapshot(call, false, true);
@@ -369,6 +476,7 @@ public final class LogbookPlugin extends Plugin {
                 if (actionOnly && current == null) throw new IllegalStateException("尚无已保存数据。");
                 String json = actionOnly ? current : call.getString("json", "");
                 if (json.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) throw new IllegalArgumentException("数据超过首阶段大小上限。");
+                if (!actionOnly) validateJsonText(json);
                 JSONObject next = new JSONObject(json); validateSnapshot(next);
                 boolean sorting = false;
                 if (actionOnly) {
@@ -377,8 +485,13 @@ public final class LogbookPlugin extends Plugin {
                     LogbookActions.apply(next, action); validateSnapshot(next);
                     sorting = "reorder".equals(action.getString("type"));
                 }
+                int protection = restoring || (actionOnly && !sorting) ? 2 : sorting ? 0 : protectionLevel(current == null ? null : new JSONObject(current), next);
+                String tree = prefs().getString("tree", "");
+                requireArchivePermission(tree);
+                long now = System.currentTimeMillis(), lastSafety = prefs().getLong("ordinary-safety-at", 0);
+                boolean windowValid = tree.equals(prefs().getString("ordinary-safety-tree", "")) && lastSafety > 0 && now >= lastSafety && now - lastSafety < 10L * 60 * 1000;
                 JSObject safety = null;
-                if (!sorting) {
+                if (protection == 2 || (protection == 1 && !windowValid)) {
                     JSONObject envelope = new JSONObject(); envelope.put("format", "coc.logbook.android"); envelope.put("formatVersion", 1);
                     envelope.put("exportedAt", java.time.Instant.now().toString()); envelope.put("restoreScope", new JSONArray(Arrays.asList("modules", "records", "characters")));
                     // Embed the original JSON unchanged: parsing it again adds cost and can lose raw number precision.
@@ -386,13 +499,6 @@ public final class LogbookPlugin extends Plugin {
                     String safetyJson = metadata.substring(0, metadata.length() - 1) + ",\"snapshot\":" + (current == null ? emptySnapshot().toString() : current) + "}";
                     // Only a fully read-back, user-visible safety copy permits the database transaction.
                     safety = write((restoring ? "before-restore-" : "before-edit-") + System.currentTimeMillis() + ".json", "application/json", safetyJson.getBytes(StandardCharsets.UTF_8), "safety");
-                } else {
-                    String tree = prefs().getString("tree", "");
-                    boolean authorized = false;
-                    for (android.content.UriPermission permission : getContext().getContentResolver().getPersistedUriPermissions()) {
-                        if (permission.getUri().toString().equals(tree) && permission.isReadPermission() && permission.isWritePermission()) authorized = true;
-                    }
-                    if (!authorized) throw new IllegalStateException("保存位置授权已失效，请重新选择。");
                 }
                 JSONArray files = restoring ? call.getArray("attachments") : null;
                 if (files != null) {
@@ -407,8 +513,13 @@ public final class LogbookPlugin extends Plugin {
                         imported.add(Uri.parse(saved.getString("uri")));
                     }
                 }
-                long revision = database.replace(next.toString(), expected);
+                // Full snapshot requests have already been parsed and validated; keep their original text and numeric precision.
+                // Only native list actions mutate the parsed candidate and therefore require serialization here.
+                long revision = database.replace(actionOnly ? next.toString() : json, expected);
                 committed = true;
+                // Only successful commits advance a checkpoint. Destructive commits begin a new protection window.
+                if (protection == 1 && safety != null) prefs().edit().putLong("ordinary-safety-at", now).putString("ordinary-safety-tree", tree).apply();
+                else if (protection == 2) prefs().edit().remove("ordinary-safety-at").remove("ordinary-safety-tree").apply();
                 JSObject out = new JSObject(); out.put("revision", revision);
                 if (safety != null) out.put("safetyBackup", safety);
                 if (actionOnly) out.put("exportedAt", next.getString("exportedAt"));

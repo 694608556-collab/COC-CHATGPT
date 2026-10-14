@@ -1,0 +1,68 @@
+import { expect, test } from '@playwright/test'
+import { acceptAppConfirmations, expandModules } from './helpers'
+
+test('普通设置使用页内真实保存状态，不弹底部校验提示，重开保留设置', async ({ page }) => {
+  page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: '选择并确认保存位置' }).click()
+  await page.getByRole('button', { name: '数据与设置', exact: true }).click()
+  await page.getByLabel('隐藏骰指令').check()
+  await expect(page.getByRole('status', { name: '普通保存状态' })).toHaveText('已保存')
+  await expect(
+    page.locator('.operation-feedback [role="status"], .operation-feedback [role="progressbar"]')
+  ).toHaveCount(0)
+  await page.reload()
+  await page.getByRole('button', { name: '数据与设置', exact: true }).click()
+  await expect(page.getByLabel('隐藏骰指令')).toBeChecked()
+})
+
+test('普通内容编辑完成仅页内提示，重开保留名称及正文', async ({ page }) => {
+  page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: '选择并确认保存位置' }).click()
+  await page.getByRole('button', { name: '新增模组', exact: true }).click()
+  await page.getByLabel('模组名称', { exact: true }).fill('安静保存测试')
+  await page.getByRole('button', { name: '保存修改', exact: true }).click()
+  await expect(page.getByRole('status', { name: '普通保存状态' })).toHaveText('已保存')
+  await expect(
+    page.locator('.operation-feedback [role="status"], .operation-feedback [role="progressbar"]')
+  ).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByRole('button', { name: '模组 安静保存测试', exact: true })).toBeVisible()
+  await expandModules(page)
+  await page.getByRole('button', { name: '新增手动场次', exact: true }).click()
+  await page.getByLabel('手动正文', { exact: true }).fill('公开安静保存正文')
+  await page.getByRole('button', { name: '保存修改', exact: true }).click()
+  await expect(page.getByRole('status', { name: '普通保存状态' })).toHaveText('已保存')
+  await expect(
+    page.locator('.operation-feedback [role="status"], .operation-feedback [role="progressbar"]')
+  ).toHaveCount(0)
+  await page.reload()
+  await expandModules(page)
+  await page.locator('.record-card').click()
+  await expect(page.getByText('公开安静保存正文', { exact: true })).toBeVisible()
+})
+
+test('陈旧设置保存显示失败并恢复原设置，不覆盖另一页面已保存内容', async ({ page, context }) => {
+  page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: '选择并确认保存位置' }).click()
+  await page.getByRole('button', { name: '数据与设置', exact: true }).click()
+  const other = await context.newPage()
+  await other.goto('/')
+  await other.getByRole('button', { name: '新增模组', exact: true }).click()
+  await other.getByLabel('模组名称', { exact: true }).fill('并发保留测试')
+  await other.getByRole('button', { name: '保存修改', exact: true }).click()
+  await expect(other.getByRole('status', { name: '普通保存状态' })).toHaveText('已保存')
+  // 失败会立即回滚勾选，click 而非要求最终勾选成功的 check。
+  await page.getByLabel('隐藏骰指令').click()
+  await expect(page.getByRole('alert')).toContainText('变化')
+  await expect(page.getByLabel('隐藏骰指令')).not.toBeChecked()
+  await expect(page.getByRole('status', { name: '普通保存状态' })).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByRole('button', { name: '模组 并发保留测试', exact: true })).toBeVisible()
+  await other.close()
+})

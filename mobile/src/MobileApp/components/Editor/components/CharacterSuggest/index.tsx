@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import type { CharacterData } from '../../../../src/shared/types'
+import type { CharacterData } from '../../../../../../../src/shared/types'
 
 export function CharacterSuggest(props: {
   label: string
@@ -21,9 +21,15 @@ export function CharacterSuggest(props: {
     }
     document.addEventListener('mousedown', close)
     document.addEventListener('touchstart', close)
+    /** @returns 无返回值；系统返回先关闭候选，不丢弃角色关联草稿。 */
+    function dismiss() {
+      setOpen(false)
+    }
+    window.addEventListener('logbook-dropdown-close', dismiss)
     return () => {
       document.removeEventListener('mousedown', close)
       document.removeEventListener('touchstart', close)
+      window.removeEventListener('logbook-dropdown-close', dismiss)
     }
   }, [])
   function choose(character: CharacterData) {
@@ -76,6 +82,7 @@ export function CharacterSuggest(props: {
         <ul
           id={id + '-options'}
           className="combo-options"
+          data-app-dropdown
           role="listbox"
           aria-label={props.label + '角色候选'}
         >

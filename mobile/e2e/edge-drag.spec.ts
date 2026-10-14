@@ -1,9 +1,11 @@
+import { acceptAppConfirmations } from './helpers'
 import { test, expect } from '@playwright/test'
 import { expandModules } from './helpers'
 
 test('手柄拖到屏幕边缘自动滚动，松开后停止', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 })
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '载入公开测试数据' }).click()

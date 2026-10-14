@@ -1,8 +1,10 @@
+import { acceptAppConfirmations } from './helpers'
 import { expect, test } from '@playwright/test'
 import { expandModules } from './helpers'
 
 test('旧页面排序失败恢复原列表，不覆盖另一页面刚保存的数据', async ({ page, context }) => {
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '载入公开测试数据' }).click()
@@ -14,7 +16,7 @@ test('旧页面排序失败恢复原列表，不覆盖另一页面刚保存的�
   await other.getByRole('button', { name: '新增模组', exact: true }).click()
   await other.getByLabel('模组名称', { exact: true }).fill('另一页面新增的测试模组')
   await other.getByRole('button', { name: '保存修改', exact: true }).click()
-  await expect(other.getByRole('status')).toContainText('修改已保存')
+  await expect(other.getByRole('status', { name: '普通保存状态' })).toHaveText('已保存')
 
   const rows = page
     .locator('.module-group')

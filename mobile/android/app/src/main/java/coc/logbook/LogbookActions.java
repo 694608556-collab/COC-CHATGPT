@@ -3,6 +3,8 @@ package coc.logbook;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -21,6 +23,22 @@ final class LogbookActions {
         JSONArray modules = data.getJSONArray("modules"), records = data.getJSONArray("records"), characters = data.getJSONArray("characters");
         if ("clear".equals(type)) {
             data.put("modules", new JSONArray()); data.put("records", new JSONArray()); data.put("characters", new JSONArray());
+        } else if ("delete-records".equals(type)) {
+            JSONArray selection = action.getJSONArray("ids");
+            if (selection.length() == 0) throw new IllegalArgumentException("至少选择一个场次。");
+            Set<String> ids = new HashSet<>();
+            // Validate every target before mutating the private candidate; missing IDs cannot partially delete.
+            for (int i = 0; i < selection.length(); i++) {
+                String id = selection.getString(i);
+                if (!ids.add(id)) throw new IllegalArgumentException("场次选择无效，请重新选择。");
+                find(records, id);
+            }
+            JSONArray remaining = new JSONArray();
+            for (int i = 0; i < records.length(); i++) {
+                JSONObject row = records.getJSONObject(i);
+                if (!ids.contains(row.getString("id"))) remaining.put(row);
+            }
+            data.put("records", remaining);
         } else if ("delete".equals(type)) {
             String kind = action.getString("kind"), id = action.getString("id");
             if ("module".equals(kind)) {

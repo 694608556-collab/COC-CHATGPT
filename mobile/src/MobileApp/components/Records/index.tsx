@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { MODULE_PLAY_STATUS_LABELS } from '../../../../../src/shared/types'
 import type { ModuleRecord, SessionRecord } from '../../../../../src/shared/types'
 import type { MobileSnapshot } from '../../../data/types'
@@ -13,6 +13,11 @@ const STATUS_LABELS = {
   manual: '手动内容'
 }
 
+/**
+ * 记录列表、同页模组和已选场次操作；不在组件内直接持久化。
+ * @param props - 数据、忙状态及受保护的编辑/删除/导出事件。
+ * @returns 手机记录汇总页面。
+ */
 export function Records(props: {
   snapshot: MobileSnapshot
   onRead(record: SessionRecord): void
@@ -33,6 +38,40 @@ export function Records(props: {
   )
   const [selected, setSelected] = useState<string[]>([])
   const [selecting, setSelecting] = useState(false)
+  const collapseTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  useEffect(
+    () => () => {
+      for (const timer of collapseTimers.current.values()) clearTimeout(timer)
+    },
+    []
+  )
+  /**
+   * 箭头点击立即折叠；名称收合先等待双击，避免文档缩短导致第二次点击落空。
+   * @param id - 模组标识。
+   * @param open - 此刻模组是否展开。
+   * @param caret - 是否点在专用折叠箭头上。
+   * @returns 无返回值。
+   */
+  function toggleModule(id: string, open: boolean, caret: boolean) {
+    clearTimeout(collapseTimers.current.get(id))
+    collapseTimers.current.delete(id)
+    if (!open || caret)
+      setExpanded((current) => (open ? current.filter((item) => item !== id) : [...current, id]))
+    else
+      collapseTimers.current.set(
+        id,
+        setTimeout(() => {
+          setExpanded((current) => current.filter((item) => item !== id))
+          collapseTimers.current.delete(id)
+        }, 320)
+      )
+  }
+  /** @param value - 待编辑模组。 @returns 无返回值；取消尚未执行的名称收合。 */
+  function editModule(value: ModuleRecord) {
+    clearTimeout(collapseTimers.current.get(value.id))
+    collapseTimers.current.delete(value.id)
+    props.onEditModule(value)
+  }
   const needle = query.trim().toLowerCase()
   const modules = snapshot.modules
     .slice()
@@ -94,9 +133,9 @@ export function Records(props: {
                 aria-label={'模组 ' + m.name}
                 onClick={(event) => {
                   if (event.detail > 1) return
-                  setExpanded(open ? expanded.filter((id) => id !== m.id) : [...expanded, m.id])
+                  toggleModule(m.id, open, !!(event.target as Element).closest('.module-caret'))
                 }}
-                onDoubleClick={() => props.onEditModule(m)}
+                onDoubleClick={() => editModule(m)}
               >
                 <span className="module-caret" aria-hidden="true">
                   {open ? '▾' : '▸'}
@@ -130,6 +169,13 @@ export function Records(props: {
                   </button>
                   <button disabled={props.busy} onClick={() => props.onNewOnline(m.id)}>
                     新增在线场次
+                  </button>
+                  <button
+                    className="danger"
+                    disabled={props.busy || !ids.length}
+                    onClick={() => props.onAction({ type: 'delete-records', ids })}
+                  >
+                    批量删除
                   </button>
                   {selecting && (
                     <>
@@ -173,6 +219,7 @@ export function Records(props: {
                       group={'records:' + m.id}
                       label={'场次 ' + r.name}
                       disabled={props.busy}
+                      selected={selected.includes(r.id)}
                       onDelete={() => props.onAction({ type: 'delete', kind: 'record', id: r.id })}
                       onHold={() => {
                         setSelecting(true)
@@ -212,20 +259,22 @@ export function Records(props: {
                           }
                         >
                           <span className="muted">{m.name}</span>
-                          <strong>{r.name}</strong>
-                          <span className="record-status">
-                            <span className="record-status-text">
-                              序号 {r.sequenceNo} ·{' '}
-                              {r.sourceType === 'manual' ? '手动内容' : STATUS_LABELS[r.status]}
-                              {r.lastError ? ' · ' + r.lastError : ''}
-                              {' · 跑团时间：' + (r.playDate || '未填写')}
-                            </span>
+                          <span className="record-title">
+                            <strong className="record-name">{r.name}</strong>
                             <span
                               className={
                                 r.rawContent || r.manualContent !== undefined ? 'tag available' : 'tag'
                               }
                             >
                               {r.rawContent || r.manualContent !== undefined ? '正文已保存' : '缺少正文'}
+                            </span>
+                          </span>
+                          <span className="record-status">
+                            <span className="record-status-text">
+                              序号 {r.sequenceNo} ·{' '}
+                              {r.sourceType === 'manual' ? '手动内容' : STATUS_LABELS[r.status]}
+                              {r.lastError ? ' · ' + r.lastError : ''}
+                              {' · 跑团时间：' + (r.playDate || '未填写')}
                             </span>
                           </span>
                         </button>

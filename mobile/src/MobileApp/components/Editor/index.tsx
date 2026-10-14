@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CharacterData, ModuleRecord, SessionRecord } from '../../../../../src/shared/types'
 import { MODULE_PLAY_STATUS_LABELS } from '../../../../../src/shared/types'
+import { sessionNameFor } from '../../../../../src/shared/session-number'
 import {
   calculateDerived,
   skillFinal,
@@ -10,10 +11,11 @@ import {
 import type { Edit } from '../../../data/edit'
 import type { MobileSnapshot } from '../../../data/types'
 import { RemoveButton } from '../RemoveButton'
-import { CharacterSuggest } from '../CharacterSuggest'
+import { CharacterSuggest } from './components/CharacterSuggest'
 import { BACKGROUND_LABELS, WEAPON_LABELS } from '../../characterLabels'
 import { useItemLayout } from '../../useItemLayout'
 import { SystemMessage } from '../SystemMessage'
+import { SelectField } from '../SelectField'
 
 export function Editor(props: {
   initial: Edit
@@ -21,6 +23,7 @@ export function Editor(props: {
   busy: boolean
   onSave(edit: Edit): Promise<void>
   onClose(): void
+  onConfirm(message: string): Promise<boolean>
 }) {
   const [draft, setDraft] = useState<Edit>(() => JSON.parse(JSON.stringify(props.initial)))
   const [error, setError] = useState('')
@@ -41,20 +44,37 @@ export function Editor(props: {
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [dirty, props.busy])
-  function cancel() {
-    if (!props.busy && (!dirty || window.confirm('放弃尚未保存的修改？'))) props.onClose()
+  /** @returns 无返回值；取消或系统返回经应用弹窗确认后才丢弃草稿。 */
+  async function cancel() {
+    if (!props.busy && (!dirty || (await props.onConfirm('放弃尚未保存的修改？')))) props.onClose()
   }
   useEffect(() => {
     window.addEventListener('logbook-editor-back', cancel)
     return () => window.removeEventListener('logbook-editor-back', cancel)
   })
-  function field(label: string, value: string | number, change: (value: string) => void, type = 'text') {
+  /**
+   * 渲染受控输入；提示只显示在空框中，不写入草稿。
+   * @param label - 可见且可访问的字段名称。
+   * @param value - 草稿值，非有限数字显示为空。
+   * @param change - 接收用户输入文本的草稿更新回调。
+   * @param type - HTML 输入类型，默认文本。
+   * @param placeholder - 空值时的灰字提示，不替代字段标签。
+   * @returns 带标签的输入框。
+   */
+  function field(
+    label: string,
+    value: string | number,
+    change: (value: string) => void,
+    type = 'text',
+    placeholder?: string
+  ) {
     return (
       <label className="field" key={label}>
         {label}
         <input
           required={type === 'number'}
           type={type}
+          placeholder={placeholder}
           step={type === 'number' ? 'any' : undefined}
           value={typeof value === 'number' && !Number.isFinite(value) ? '' : value}
           onChange={(e) => change(e.target.value)}
@@ -86,7 +106,7 @@ export function Editor(props: {
       <h2 ref={heading} tabIndex={-1}>
         {title}
       </h2>
-      <p className="muted">保存前会生成安全副本；取消不会改变已保存数据。</p>
+      <p className="muted">普通编辑每 10 分钟合并安全副本；危险变更单独保护。取消不会改变已保存数据。</p>
       {error && <SystemMessage kind="error" message={error} onDismiss={() => setError('')} />}
       <form
         onSubmit={(event) => {
@@ -102,24 +122,21 @@ export function Editor(props: {
           {draft.kind === 'module' && (
             <>
               {field('模组名称', draft.value.name, (name) => module({ ...draft.value, name }))}
-              <label className="field">
-                进度
-                <select
-                  value={draft.value.playStatus}
-                  onChange={(e) =>
-                    module({
-                      ...draft.value,
-                      playStatus: e.target.value as ModuleRecord['playStatus']
-                    })
-                  }
-                >
-                  {Object.entries(MODULE_PLAY_STATUS_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <SelectField
+                label="进度"
+                disabled={props.busy}
+                value={draft.value.playStatus}
+                onChange={(value) =>
+                  module({
+                    ...draft.value,
+                    playStatus: value as ModuleRecord['playStatus']
+                  })
+                }
+                options={Object.entries(MODULE_PLAY_STATUS_LABELS).map(([value, label]) => ({
+                  value,
+                  label
+                }))}
+              />
               <h3>KP（守密人）</h3>
               <div className="participant-grid">
                 {draft.value.kps.map((kp, index) => (
@@ -200,22 +217,25 @@ export function Editor(props: {
           )}
           {draft.kind === 'record' && (
             <>
-              {field('场次名称', draft.value.name, (name) => record({ ...draft.value, name }))}
-              <label className="field">
-                所属模组
-                <select
-                  required
-                  value={draft.value.moduleId}
-                  onChange={(e) => record({ ...draft.value, moduleId: e.target.value })}
-                >
-                  <option value="">请选择模组</option>
-                  {props.snapshot.modules.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {field(
+                '场次名称',
+                draft.value.name,
+                (name) => record({ ...draft.value, name }),
+                'text',
+                Number.isInteger(draft.value.sequenceNo) && draft.value.sequenceNo >= 0
+                  ? `留空自动命名为“${sessionNameFor('', draft.value.sequenceNo)}”`
+                  : '留空按场次序号自动命名'
+              )}
+              <SelectField
+                label="所属模组"
+                disabled={props.busy}
+                value={draft.value.moduleId}
+                onChange={(moduleId) => record({ ...draft.value, moduleId })}
+                options={[
+                  { value: '', label: '请选择模组' },
+                  ...props.snapshot.modules.map((m) => ({ value: m.id, label: m.name }))
+                ]}
+              />
               {field(
                 '场次序号',
                 draft.value.sequenceNo,
@@ -237,19 +257,19 @@ export function Editor(props: {
                   }),
                 'date'
               )}
-              <label className="field">
-                正文来源
-                <select
-                  value={draft.value.sourceType}
-                  onChange={(e) => {
-                    if (window.confirm('更换来源后，保存时会清除旧来源正文。继续？'))
-                      record({ ...draft.value, sourceType: e.target.value as 'manual' | 'online' })
-                  }}
-                >
-                  <option value="manual">手动正文</option>
-                  <option value="online">海豹日志链接</option>
-                </select>
-              </label>
+              <SelectField
+                label="正文来源"
+                disabled={props.busy}
+                value={draft.value.sourceType}
+                onChange={async (value) => {
+                  if (await props.onConfirm('更换来源后，保存时会清除旧来源正文。继续？'))
+                    record({ ...draft.value, sourceType: value as 'manual' | 'online' })
+                }}
+                options={[
+                  { value: 'manual', label: '手动正文' },
+                  { value: 'online', label: '海豹日志链接' }
+                ]}
+              />
               {draft.value.sourceType === 'manual'
                 ? text('手动正文', draft.value.manualContent ?? '', (manualContent) =>
                     record({ ...draft.value, manualContent })
@@ -259,28 +279,29 @@ export function Editor(props: {
           )}
           {c && (
             <>
-              <label className="field">
-                角色规则版次
-                <select
-                  aria-label="角色规则版次"
-                  value={c.edition}
-                  onChange={(e) => {
-                    if (
-                      window.confirm('按已有规则转换属性及派生值，保留手填伤害加值和另一版属性快照。继续？')
-                    ) {
-                      const converted = convertCharacterEdition(c, Number(e.target.value) as 6 | 7)
-                      character({
-                        ...converted,
-                        occupationFormula: c.occupationFormula,
-                        derived: { ...converted.derived, db: c.derived.db }
-                      })
-                    }
-                  }}
-                >
-                  <option value={6}>第六版</option>
-                  <option value={7}>第七版</option>
-                </select>
-              </label>
+              <SelectField
+                label="角色规则版次"
+                disabled={props.busy}
+                value={String(c.edition)}
+                onChange={async (value) => {
+                  if (
+                    await props.onConfirm(
+                      '按已有规则转换属性及派生值，保留手填伤害加值和另一版属性快照。继续？'
+                    )
+                  ) {
+                    const converted = convertCharacterEdition(c, Number(value) as 6 | 7)
+                    character({
+                      ...converted,
+                      occupationFormula: c.occupationFormula,
+                      derived: { ...converted.derived, db: c.derived.db }
+                    })
+                  }
+                }}
+                options={[
+                  { value: '6', label: '第六版' },
+                  { value: '7', label: '第七版' }
+                ]}
+              />
               <h3>模组归属</h3>
               {props.snapshot.modules.map((m) => (
                 <label className="check" key={m.id}>

@@ -1,9 +1,11 @@
+import { acceptAppConfirmations } from './helpers'
 import { expect, test } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
 import { expandModules } from './helpers'
 
 async function ready(page: Page) {
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '载入公开测试数据' }).click()
@@ -34,19 +36,19 @@ async function fades(page: Page, message: Locator) {
   await expect(message).toHaveCount(0)
 }
 
-test('正文保存标签在日期栏末尾，不再独占一栏；窄屏无溢出', async ({ page }, info) => {
+test('正文保存标签在场次名称栏末尾，不挤压长名称；窄屏无溢出', async ({ page }, info) => {
   await page.setViewportSize({ width: 430, height: 915 })
   await ready(page)
   const row = page.locator('[data-drag-id="demo-manual"]')
   await expect(row.locator('.record-meta')).toHaveCount(0)
-  await expect(row.locator('.record-status > :last-child')).toHaveText('正文已保存')
+  await expect(row.locator('.record-title > :last-child')).toHaveText('正文已保存')
   await expect(row.locator('.record-status-text')).toContainText('跑团时间：2026-10-13')
-  const text = (await row.locator('.record-status-text').boundingBox())!
+  const text = (await row.locator('.record-name').boundingBox())!
   const badge = (await row.locator('.tag').boundingBox())!
   expect(badge.x).toBeGreaterThanOrEqual(text.x + text.width)
   await row.evaluate((node) => node.scrollIntoView({ block: 'center' }))
   await row.screenshot({ path: info.outputPath('compact-record-date-badge.png') })
-  await expect(page.locator('[data-drag-id="demo-missing"] .record-status > :last-child')).toHaveText(
+  await expect(page.locator('[data-drag-id="demo-missing"] .record-title > :last-child')).toHaveText(
     '缺少正文'
   )
   for (const width of [280, 320, 360, 393, 412, 430, 600, 840]) {

@@ -36,6 +36,9 @@ function deviceStore(failSafety = false): LogbookPort {
     commitEdit: async () => {
       throw new Error('测试未调用编辑')
     },
+    commitSettings: async () => {
+      throw new Error('测试未调用设置')
+    },
     commitAction: async () => {
       throw new Error('测试未调用列表操作')
     },

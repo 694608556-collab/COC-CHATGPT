@@ -1,8 +1,10 @@
+import { acceptAppConfirmations } from './helpers'
 import { expandModules } from './helpers'
 import { expect, test } from '@playwright/test'
 
 test('公开样本预览、跨页高亮跳转、过滤和手动正文搜索', async ({ page }) => {
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '载入公开测试数据' }).click()
@@ -46,7 +48,7 @@ test('公开样本预览、跨页高亮跳转、过滤和手动正文搜索', as
   await expect(page.getByLabel('隐藏骰指令')).toHaveCount(0)
   await page.getByRole('button', { name: '数据与设置', exact: true }).click()
   await page.getByLabel('隐藏骰指令').check()
-  await expect(page.locator('.operation-feedback [role="status"]')).toHaveText('设置已保存。')
+  await expect(page.getByRole('status', { name: '普通保存状态' })).toHaveText('已保存')
   await page.getByRole('button', { name: '跑团记录', exact: true }).click()
   await expandModules(page)
   await page.getByRole('button', { name: /雾港调查.*第一场：灯塔线索/ }).click()
@@ -72,6 +74,7 @@ test('公开样本预览、跨页高亮跳转、过滤和手动正文搜索', as
 test('浅深主题保存并重开；320px 深色高亮可见', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 740 })
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '数据与设置', exact: true }).click()

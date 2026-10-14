@@ -1,5 +1,6 @@
 import { registerPlugin } from '@capacitor/core'
 import type { DataAction } from './actions'
+import type { MobileSnapshot } from './types'
 export { decodeBase64, encodeBase64 } from './bytes'
 
 /** 原生归档目录状态。 */
@@ -37,6 +38,15 @@ export interface SavedDocument {
 }
 /** 所有请求/响应与本工程 LogbookPlugin.java 一一对应，不访问推测的 HTTP 接口。 */
 export interface LogbookPort {
+  /**
+   * 仅提交完整设置；原生校验当前数据并事务更新设置及时间，不接收实体或生成全量副本。
+   * @param options - 小设置对象及已读取版本；保留目录授权与 CAS 检查。
+   * @returns 持久化成功的新版本和实际时间；不返回正文缓存。
+   */
+  commitSettings(options: {
+    settings: MobileSnapshot['settings']
+    expectedRevision: number
+  }): Promise<{ revision: number; exportedAt: string }>
   listDocuments(options?: { all?: boolean }): Promise<{ documents: SavedDocument[] }>
   readDocument(options: { uri: string }): Promise<{ name: string; mime: string; base64: string }>
   fetchLog(options: { url: string }): Promise<{ status: number; url: string; text: string }>
@@ -48,18 +58,18 @@ export interface LogbookPort {
   shareDocument(options: { uri: string }): Promise<void>
   /**
    * 原生端修改已保存快照的列表元数据，正文不通过界面重复传输。
-   * @param options - 白名单操作及当前版本；仅排序不生成安全副本，其余仍要求回读成功。
+   * @param options - 白名单操作及当前版本；批量删除一次提交全部已选 ID，仅排序不生成安全副本。
    * @returns 新版本、实际保存时间及非排序操作的安全副本，不返回大正文。
    */
   commitAction(options: {
     action: DataAction
     expectedRevision: number
   }): Promise<{ revision: number; exportedAt: string; safetyBackup?: SavedDocument }>
-  /** 校验后的编辑快照；原生端先写安全副本，再以版本序号进行事务提交。 */
+  /** 校验后的编辑快照；设置免副本、普通编辑十分钟合并，危险变化逐次保护；原生自行判定，保留版本检查及事务。 */
   commitEdit(options: {
     json: string
     expectedRevision: number
-  }): Promise<{ revision: number; safetyBackup: SavedDocument }>
+  }): Promise<{ revision: number; safetyBackup?: SavedDocument }>
   /** @returns 当前持久化状态与实时目录有效性；不修改业务数据。 */
   getState(): Promise<NativeState>
   /** @returns 系统选择并实际验证的目录；取消只返回 cancelled=true。 */

@@ -47,6 +47,7 @@
   font-display: block;
 }
 :root {
+  -webkit-tap-highlight-color: transparent;
   font:
     14px/1.45 'SF Pro Text',
     'PingFang SC';
@@ -132,6 +133,10 @@ button[aria-pressed='true'] {
   margin: 0;
   min-width: 0;
 }
+/* 标题聚焦用于读屏定位；旧 WebView 的默认橙色外框不属于应用卡片边框。 */
+.editor h2:focus {
+  outline: 0;
+}
 .editor textarea {
   font: inherit;
   color: var(--text);
@@ -145,6 +150,10 @@ button[aria-pressed='true'] {
 .editor textarea:focus {
   outline: 0;
   border-color: var(--muted);
+}
+.editor input::placeholder {
+  color: var(--muted);
+  opacity: 0.75;
 }
 .edit-grid {
   display: grid;
@@ -215,18 +224,12 @@ input:focus,
 select:focus {
   outline: 0;
 }
+button:focus {
+  box-shadow: none;
+}
 input:focus,
 select:focus {
   border-color: var(--muted);
-}
-button:focus-visible {
-  box-shadow: inset 0 0 0 1px var(--muted);
-}
-/* Older WebViews do not support :focus-visible. Keyboard focus still has a neutral border. */
-@supports not selector(:focus-visible) {
-  button:focus {
-    box-shadow: inset 0 0 0 1px var(--muted);
-  }
 }
 .primary {
   color: #fff;
@@ -348,7 +351,7 @@ main {
   display: flex;
   background: var(--panel);
   border-top: 1px solid var(--line);
-  padding: 3px 8px;
+  padding: 12px 8px;
   /* Keep the existing 12 px home-gesture strip outside the navigation buttons. */
   padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   z-index: 10;
@@ -467,9 +470,25 @@ main {
 .record-card > span {
   display: block;
 }
-.record-card > strong {
-  font-size: 14px;
+.record-title {
+  display: flex !important;
+  align-items: center;
   margin: 3px 0 7px;
+}
+.recent-saved-title {
+  display: flex;
+  align-items: center;
+}
+.recent-saved-title p {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+.record-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  overflow-wrap: break-word;
 }
 .record-card > span {
   font-size: 12px;
@@ -519,6 +538,11 @@ main {
   border-radius: 10px;
   padding: 14px;
   margin-bottom: 10px;
+}
+/* 正文选中使用原卡片圆角边界；WebView 默认 outline 不随圆角且会显示橙框。 */
+.message:focus {
+  outline: 0;
+  border-color: var(--accent);
 }
 .message header {
   color: var(--accent);
@@ -595,6 +619,12 @@ main {
   max-height: calc(100vh - 24px);
   overflow-y: auto;
   margin: 0;
+}
+.confirm-backdrop {
+  z-index: 150;
+}
+.confirm-dialog {
+  max-width: 420px;
 }
 .dialog-actions {
   display: flex;
@@ -698,6 +728,53 @@ input[type='checkbox']:checked::after {
 }
 .field select {
   min-width: 0;
+}
+.dropdown-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  text-align: left;
+  margin: 0;
+}
+.dropdown-trigger > span:first-child {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+.dropdown-trigger > span:last-child {
+  flex-shrink: 0;
+  margin-left: 8px;
+  color: var(--muted);
+}
+.dropdown-options {
+  position: fixed;
+  z-index: 120;
+  padding: 5px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+.dropdown-options > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+.dropdown-options > button.highlighted,
+.dropdown-options > button[aria-selected='true'] {
+  background: var(--soft);
+  color: var(--accent);
 }
 .editor textarea {
   min-height: 84px;
@@ -812,6 +889,17 @@ input[type='checkbox']:checked::after {
   flex: 1;
   min-width: 0;
   overflow-wrap: break-word;
+}
+.message-symbol {
+  flex: 0 0 16px;
+  margin: 5px 8px 0 0;
+  color: var(--muted);
+}
+.system-message.error .message-symbol {
+  color: #cf222e;
+}
+.system-message.warning .message-symbol {
+  color: var(--warn);
 }
 .message-close {
   flex: 0 0 28px;
@@ -935,19 +1023,22 @@ input[type='checkbox']:checked::after {
   overflow: auto;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px #0002;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   color: var(--text);
+  font-size: 13px;
 }
 .combo-options li {
-  padding: 7px;
-  border-radius: 5px;
+  padding: 8px 10px;
+  min-height: 44px;
+  border-radius: 6px;
   cursor: pointer;
   overflow-wrap: break-word;
 }
 .combo-options li[aria-selected='true'],
 .combo-options li:hover {
   background: var(--soft);
+  color: var(--accent);
 }
 .combo-options small {
   display: block;
@@ -1055,7 +1146,7 @@ input[type='checkbox']:checked::after {
   max-height: 96px;
   overflow: auto;
   font-size: 12px;
-  background: var(--panel);
+  background: transparent;
 }
 .navigation-dock {
   position: fixed;
@@ -1063,34 +1154,21 @@ input[type='checkbox']:checked::after {
   right: 0;
   bottom: 0;
   z-index: 10;
-  background: var(--panel);
-}
-.operation-feedback .busy-progress {
-  padding: 7px 12px;
-  margin: 0;
-}
-.operation-feedback .notice,
-.operation-feedback .error {
-  margin: 0;
-  padding: 6px 12px;
-  border: 0;
   background: transparent;
 }
-.operation-feedback .error {
-  display: flex;
-  align-items: flex-start;
+.operation-feedback .system-message {
+  align-items: center;
+  margin: 6px 12px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
 }
-.operation-feedback .error > span {
-  flex: 1;
-  min-width: 0;
-  color: inherit;
-  font-size: inherit;
-}
-.operation-feedback .error > button {
-  flex: 0 0 32px;
-  min-height: 32px;
-  padding: 0;
-  margin: 0;
+.operation-feedback .message-symbol {
+  margin-top: 0;
 }
 .busy-spinner {
   flex: 0 0 14px;
@@ -1160,6 +1238,9 @@ input[type='checkbox']:checked::after {
   background: var(--soft);
 }
 .gesture-row.held > .gesture-content {
+  background: var(--soft);
+}
+.gesture-row.selected > .gesture-content {
   background: var(--soft);
 }
 .gesture-row.drag {
@@ -1328,7 +1409,7 @@ input[type='checkbox']:checked::after {
   flex: 1;
   min-width: 0;
 }
-.record-status .tag {
+.record-title .tag {
   float: none;
   flex-shrink: 0;
   margin-left: 6px;
@@ -1438,4 +1519,11 @@ input[type='checkbox']:checked::after {
   .background-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+.inline-save-status {
+  display: inline-block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 4px;
 }

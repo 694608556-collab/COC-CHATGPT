@@ -1,8 +1,10 @@
+import { acceptAppConfirmations } from './helpers'
 import { expect, test } from '@playwright/test'
 import { expandModules } from './helpers'
 
 test('仅手柄直接拖动排序，卡片长按多选不参与排序', async ({ page }, testInfo) => {
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '载入公开测试数据' }).click()
@@ -37,6 +39,7 @@ test('仅手柄直接拖动排序，卡片长按多选不参与排序', async ({
 
 test('统一返回入口返回详情并保留编辑丢弃确认', async ({ page }) => {
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '载入公开测试数据' }).click()
@@ -50,15 +53,14 @@ test('统一返回入口返回详情并保留编辑丢弃确认', async ({ page 
   expect(await back.evaluate((button) => getComputedStyle(button).borderTopWidth)).toBe('0px')
   await page.getByRole('button', { name: '编辑场次', exact: true }).click()
   await page.getByLabel('场次名称', { exact: true }).fill('不应保存的改名')
-  page.removeAllListeners('dialog')
-  const cancel = page.waitForEvent('dialog').then(async (dialog) => {
-    expect(dialog.message()).toContain('放弃尚未保存')
-    await dialog.dismiss()
-  })
-  await Promise.all([back.click(), cancel])
+  const confirmation = page.getByRole('dialog', { name: '确认操作', exact: true })
+  await page.removeLocatorHandler(confirmation)
+  await back.click()
+  await expect(confirmation).toContainText('放弃尚未保存')
+  await confirmation.getByRole('button', { name: '取消', exact: true }).click()
   await expect(page.getByLabel('场次名称', { exact: true })).toHaveValue('不应保存的改名')
-  const discard = page.waitForEvent('dialog').then((dialog) => dialog.accept())
-  await Promise.all([back.click(), discard])
+  await back.click()
+  await confirmation.getByRole('button', { name: '确认', exact: true }).click()
   await expect(page.getByRole('button', { name: '编辑场次', exact: true })).toBeVisible()
   await back.click()
   await expect(page.getByRole('heading', { name: '跑团记录汇总', exact: true })).toBeVisible()

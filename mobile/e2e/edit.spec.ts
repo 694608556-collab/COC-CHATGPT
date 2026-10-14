@@ -1,3 +1,4 @@
+import { acceptAppConfirmations } from './helpers'
 import { expandModules } from './helpers'
 import { expect, test } from '@playwright/test'
 import { exampleBackup } from '../src/data/fixtures'
@@ -12,6 +13,7 @@ test('320px：缺少 randomUUID 时可创建角色，导入后的在线正文仍
     })
   })
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '数据与设置', exact: true }).click()
@@ -46,12 +48,13 @@ test('手机宽度：新建、取消、保存、重开和备份', async ({ page 
   const failures: string[] = []
   page.on('pageerror', (error) => failures.push(error.message))
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '新增模组', exact: true }).click()
   await page.getByLabel('模组名称', { exact: true }).fill('公开测试模组')
   await page.getByRole('button', { name: '保存修改', exact: true }).click()
-  await expect(page.getByRole('status')).toContainText('修改已保存')
+  await expect(page.getByRole('status', { name: '普通保存状态' })).toHaveText('已保存')
   await expandModules(page)
   await page.getByRole('button', { name: '新增手动场次', exact: true }).click()
   await page.getByLabel('场次名称', { exact: true }).fill('第一场')
@@ -84,6 +87,6 @@ test('手机宽度：新建、取消、保存、重开和备份', async ({ page 
   await page.getByRole('button', { name: '保存安卓备份', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('备份已保存')
   await page.getByRole('button', { name: '刷新测试文件列表' }).click()
-  await expect(page.getByText('测试文件（4）', { exact: true })).toBeVisible()
+  await expect(page.getByText('测试文件（2）', { exact: true })).toBeVisible()
   expect(failures).toEqual([])
 })

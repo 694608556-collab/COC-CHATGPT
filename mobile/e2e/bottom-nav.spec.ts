@@ -1,7 +1,9 @@
+import { acceptAppConfirmations } from './helpers'
 import { expect, test } from '@playwright/test'
 
-test('底部栏约 60px，保持点击高度、不被上滑条遮挡，窄宽屏和深色正常', async ({ page }, info) => {
+test('底部栏上下留白一致约 69px，点击高度足够且不被上滑条遮挡，窄宽屏和深色正常', async ({ page }, info) => {
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   const nav = page.getByRole('navigation', { name: '主导航' })
@@ -9,14 +11,17 @@ test('底部栏约 60px，保持点击高度、不被上滑条遮挡，窄宽屏
     await page.setViewportSize({ width, height: 915 })
     await expect(nav.getByRole('button')).toHaveCount(3)
     const navBox = (await nav.boundingBox())!
-    expect(navBox.height).toBeGreaterThanOrEqual(59)
-    expect(navBox.height).toBeLessThanOrEqual(61)
+    expect(navBox.height).toBeGreaterThanOrEqual(68)
+    expect(navBox.height).toBeLessThanOrEqual(70)
     for (const name of ['跑团记录', '角色卡', '数据与设置']) {
       const button = nav.getByRole('button', { name, exact: true })
       await button.click()
       await expect(button).toHaveAttribute('aria-current', 'page')
       const box = (await button.boundingBox())!
       expect(box.height).toBeGreaterThanOrEqual(44)
+      expect(
+        Math.abs(box.y - navBox.y - 1 - (navBox.y + navBox.height - box.y - box.height))
+      ).toBeLessThanOrEqual(1)
       expect(box.x).toBeGreaterThanOrEqual(0)
       expect(box.x + box.width).toBeLessThanOrEqual(width)
       expect(
@@ -36,5 +41,5 @@ test('底部栏约 60px，保持点击高度、不被上滑条遮挡，窄宽屏
   await page.getByRole('button', { name: '深色模式', exact: true }).click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   await nav.screenshot({ path: info.outputPath('bottom-nav-compact-dark.png') })
-  expect((await nav.boundingBox())!.height).toBeLessThanOrEqual(61)
+  expect((await nav.boundingBox())!.height).toBeLessThanOrEqual(70)
 })

@@ -15,11 +15,14 @@ import { ArchiveGate } from './components/ArchiveGate'
 import { RestoreDialog } from './components/RestoreDialog'
 import { LogReader } from './components/LogReader'
 import { Editor } from './components/Editor'
+import { ConfirmDialog } from './components/ConfirmDialog'
 import { saveEdit } from '../data/edit'
+import { validateSettings } from '../data/settings'
 import type { Edit } from '../data/edit'
 import { createEmptyCharacter } from '../../../src/shared/coc-rules'
 import { NavIcon } from './components/NavIcon'
 import { SystemMessage } from './components/SystemMessage'
+import { RemoveButton } from './components/RemoveButton'
 import { applyAction } from '../data/actions'
 import type { DataAction } from '../data/actions'
 import { fetchRecord } from '../data/network'
@@ -67,8 +70,28 @@ export function MobileApp({
   const [record, setRecord] = useState<SessionRecord>()
   const [preview, setPreview] = useState<ImportPreview>()
   const [busy, setBusy] = useState(false)
+  const [confirmation, setConfirmation] = useState('')
+  const confirmationResolver = useRef<((confirmed: boolean) => void) | undefined>(undefined)
+  useEffect(() => () => confirmationResolver.current?.(false), [])
+  /** @param message - 用户确认前的操作说明。 @returns 用户确认时 resolve true；取消、重复请求或卸载时为 false。 */
+  function confirmOperation(message: string): Promise<boolean> {
+    if (confirmationResolver.current) return Promise.resolve(false)
+    return new Promise((resolve) => {
+      confirmationResolver.current = resolve
+      setConfirmation(message)
+    })
+  }
+  /** @param confirmed - 本次确认选择。 @returns 无返回值；先关闭单一弹窗，再继续原操作。 */
+  function resolveConfirmation(confirmed: boolean) {
+    const resolve = confirmationResolver.current
+    confirmationResolver.current = undefined
+    setConfirmation('')
+    resolve?.(confirmed)
+  }
   const busyLock = useRef(false)
   const [notice, setNotice] = useState('')
+  const [quietSaving, setQuietSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState('')
   const [error, setError] = useState('')
   const [editing, setEditing] = useState<{ draft: Edit; revision: number }>()
   const [selectedCharacter, setSelectedCharacter] = useState('')
@@ -85,7 +108,7 @@ export function MobileApp({
     setNotice('正在后台校验并编码待保存数据…')
     const prepared = await prepareInBackground({ ...next, exportedAt: new Date().toISOString() })
     const validated = prepared.snapshot
-    setNotice('正在保存安全副本并提交数据，请保持应用打开…')
+    setNotice('正在按分级保护保存数据，请保持应用打开…')
     const result = await port.commitEdit({
       json: prepared.json,
       expectedRevision: native.revision
@@ -100,16 +123,18 @@ export function MobileApp({
    * @returns 无返回值；成功后仅更新列表快照及原生版本。
    */
   async function act(action: DataAction) {
-    if (action.type === 'delete' || action.type === 'clear') {
+    if (action.type === 'delete' || action.type === 'clear' || action.type === 'delete-records') {
       const description =
-        action.type === 'clear'
-          ? '清空全部模组、场次和角色卡？归档文件会保留。'
-          : action.kind === 'module'
-            ? '删除此模组及其全部场次？角色卡会保留并解除此模组归属。'
-            : action.kind === 'character'
-              ? '删除此角色卡？参与者姓名会保留，角色关联会解除。'
-              : '删除此场次及已保存正文？'
-      if (!window.confirm(description + ' 操作前会保存安全副本。')) return
+        action.type === 'delete-records'
+          ? `批量删除已选 ${action.ids.length} 个场次及其已保存正文？未选场次、模组和角色卡会保留。`
+          : action.type === 'clear'
+            ? '清空全部模组、场次和角色卡？归档文件会保留。'
+            : action.kind === 'module'
+              ? '删除此模组及其全部场次？角色卡会保留并解除此模组归属。'
+              : action.kind === 'character'
+                ? '删除此角色卡？参与者姓名会保留，角色关联会解除。'
+                : '删除此场次及已保存正文？'
+      if (!(await confirmOperation(description + ' 操作前会保存安全副本。'))) return
     }
     if (!native) throw new Error('本机数据尚未读取。')
     const next = await applyAction(snapshot, action)
@@ -130,7 +155,7 @@ export function MobileApp({
     // 安全提交后确认时间/版本；失效的大 JSON 缓存不用于自动备份。
     setSnapshot({ ...next, exportedAt: result.exportedAt })
     setNative({ ...native, json: null, revision: result.revision })
-    if (action.type === 'delete' || action.type === 'clear') {
+    if (action.type === 'delete' || action.type === 'clear' || action.type === 'delete-records') {
       setRecord((current) => current && next.records.find((item) => item.id === current.id))
       setSelectedCharacter((current) => (next.characters.some((item) => item.id === current) ? current : ''))
     }
@@ -217,12 +242,13 @@ export function MobileApp({
       throw new Error('数据已变化，请重新选择表格。')
     await commit(tablePreview.data.next)
     setTablePreview(undefined)
-    setNotice('表格数据已添加，安全副本已保存。')
+    setNotice('表格数据已添加并保存。')
   }
   async function runAutoBackup() {
     if (!native || busyLock.current || !native.archive.valid) return
     busyLock.current = true
     setBusy(true)
+    setSaveStatus('')
     try {
       const result = await port.automaticBackup({
         expectedRevision: native.revision
@@ -274,6 +300,15 @@ export function MobileApp({
       setNotice('浏览器预览：已请求返回手机桌面，草稿和数据未清除。')
   }
   backHandler.current = () => {
+    if (confirmationResolver.current) {
+      resolveConfirmation(false)
+      return
+    }
+    // 先关闭应用内下拉；第二次返回才进入原有编辑/导出保护逻辑。
+    if (document.querySelector('[data-app-dropdown]')) {
+      window.dispatchEvent(new Event('logbook-dropdown-close'))
+      return
+    }
     if (busyLock.current && (editing || preview || exportRequest || tablePreview)) {
       setNotice('操作进行中，请稍候。')
       return
@@ -332,6 +367,12 @@ export function MobileApp({
       }
     })
   }
+  /**
+   * 建立空名称草稿，序号接续本模组当前最大值，不重排已有场次。
+   * @param moduleId - 已存在的归属模组。
+   * @param sourceType - 手动正文或在线日志来源。
+   * @returns 无返回值；打开受保护的编辑页。
+   */
   function newRecord(moduleId: string, sourceType: 'manual' | 'online' = 'manual') {
     if (!snapshot.modules.some((module) => module.id === moduleId)) return
     startEdit({
@@ -340,7 +381,10 @@ export function MobileApp({
         id: crypto.randomUUID(),
         name: '',
         moduleId,
-        sequenceNo: 0,
+        sequenceNo:
+          snapshot.records
+            .filter((r) => r.moduleId === moduleId)
+            .reduce((maximum, r) => Math.max(maximum, r.sequenceNo), 0) + 1,
         sourceType,
         status: sourceType === 'manual' ? 'manual' : 'pending',
         dateSource: 'none',
@@ -351,24 +395,40 @@ export function MobileApp({
       }
     })
   }
+  /**
+   * 提交草稿并复用已校验候选；普通编辑使用按钮/页内状态，危险来源变化保留明确进度。
+   * @param draft - 编辑页的完整草稿；存储拒绝时不关闭编辑或展示成功。
+   * @returns 无返回值；失败交回编辑页显示并保留草稿。
+   */
   async function persistEdit(draft: Edit) {
     if (!editing || busyLock.current) return
     busyLock.current = true
     setBusy(true)
     setError('')
     setNotice('')
+    const previous =
+      draft.kind === 'record' ? snapshot.records.find((row) => row.id === draft.value.id) : undefined
+    const quiet =
+      !previous ||
+      draft.kind !== 'record' ||
+      (previous.sourceType === draft.value.sourceType && previous.link === draft.value.link)
+    setQuietSaving(quiet)
+    setSaveStatus(quiet ? '保存中…' : '')
+    if (!quiet) setNotice('正在保存变更并校验安全副本…')
     try {
       const result = await saveEdit(port, snapshot, draft, editing.revision)
+      setSnapshot(result.snapshot)
+      setNative((current) => current && { ...current, json: result.json, revision: result.revision })
       setEditing(undefined)
       setRecord(undefined)
-      try {
-        await reload()
-      } catch {
-        setError('修改已提交，但页面重新读取失败。请重新打开应用读取，勿重复保存。')
-      }
-      // 重读的阶段提示不得吞掉已确认的提交结果；重读失败仍单独显示错误。
-      setNotice('修改已保存。安全副本：' + result.safetyBackup.name)
+      if (quiet) setSaveStatus('已保存')
+      else
+        setNotice(result.safetyBackup ? '修改已保存。安全副本：' + result.safetyBackup.name : '修改已保存。')
+    } catch (reason) {
+      setSaveStatus('')
+      throw reason
     } finally {
+      setQuietSaving(false)
       busyLock.current = false
       setBusy(false)
     }
@@ -387,22 +447,31 @@ export function MobileApp({
   /**
    * 串行化用户操作并显示失败，防止重复点击并发覆盖。
    * @param action - 一个完整操作，不读取其他应用数据。
+   * @param quiet - 普通保存使用页内小状态；重要操作仍展示阶段进度。
    * @returns 无返回值；失败展示错误且不宣称保存成功。
    */
-  async function perform(action: () => Promise<void>) {
+  async function perform(action: () => Promise<void>, quiet = false) {
     if (busyLock.current) return
     busyLock.current = true
     setBusy(true)
     setError('')
     setNotice('')
+    setQuietSaving(quiet)
+    setSaveStatus(quiet ? '保存中…' : '')
     try {
       await action()
+      if (quiet) {
+        setNotice('')
+        setSaveStatus('已保存')
+      }
     } catch (reason) {
+      setSaveStatus('')
       setError(reason instanceof Error ? reason.message : '操作失败，请重试。')
       setNotice((current) =>
         current.startsWith('正在') || current.startsWith('请选择') ? '操作未完成，请查看错误提示。' : current
       )
     } finally {
+      setQuietSaving(false)
       busyLock.current = false
       setBusy(false)
     }
@@ -491,18 +560,26 @@ export function MobileApp({
     setSavedDocument(file)
     setNotice(`备份已保存并回读校验：${file.name}`)
   }
-  async function changeTheme(theme: 'light' | 'dark') {
-    if (!native || theme === snapshot.settings.theme) return
-    const next = {
-      ...snapshot,
-      exportedAt: new Date().toISOString(),
-      settings: { ...snapshot.settings, theme }
+  /**
+   * 只把完整小设置送过桥；提交成功后更新版本，失败恢复原设置。
+   * @param changes - 来自设置页的字段变化，不包含场次正文或目录。
+   * @returns 无返回值；只有原生事务确认后才能展示“已保存”。
+   */
+  async function persistSettings(changes: Partial<MobileSnapshot['settings']>) {
+    if (!native) throw new Error('本机数据尚未读取。')
+    const before = snapshot
+    const settings = validateSettings({ ...snapshot.settings, ...changes })
+    setSnapshot({ ...snapshot, settings })
+    document.documentElement.dataset.theme = settings.theme
+    try {
+      const result = await port.commitSettings({ settings, expectedRevision: native.revision })
+      setSnapshot({ ...snapshot, settings, exportedAt: result.exportedAt })
+      setNative({ ...native, json: null, revision: result.revision })
+    } catch (reason) {
+      setSnapshot(before)
+      document.documentElement.dataset.theme = before.settings.theme
+      throw reason
     }
-    const result = await port.commitEdit({ json: JSON.stringify(next), expectedRevision: native.revision })
-    setSnapshot(next)
-    setNative({ ...native, json: JSON.stringify(next), revision: result.revision })
-    document.documentElement.dataset.theme = theme
-    setNotice(theme === 'dark' ? '已保存深色主题。' : '已保存浅色主题。')
   }
   /**
    * 使用桌面现有过滤/文本渲染逻辑导出单场次。
@@ -572,12 +649,15 @@ export function MobileApp({
           <strong>COC 跑团记录簿</strong>
           <span>安卓开发版 · 本机数据</span>
         </div>
-        <span className="version">0.2.5</span>
+        <span className="version">0.2.11</span>
       </header>
-      <main>
+      <main aria-hidden={confirmation ? true : undefined}>
         {savedDocument && (
           <section className="panel">
-            <p>最近保存：{savedDocument.name}</p>
+            <div className="recent-saved-title">
+              <p>最近保存：{savedDocument.name}</p>
+              <RemoveButton label="关闭最近保存" onClick={() => setSavedDocument(undefined)} />
+            </div>
             <button
               disabled={busy}
               onClick={() => void perform(() => port.openDocument({ uri: savedDocument.uri }))}
@@ -631,6 +711,11 @@ export function MobileApp({
               )}
               <p className="eyebrow">仅保留你确认的三个模块</p>
               <h1>{titles[page]}</h1>
+              {!editing && saveStatus && (
+                <span className="inline-save-status" role="status" aria-label="普通保存状态">
+                  {saveStatus}
+                </span>
+              )}
             </div>
             {editing ? (
               <Editor
@@ -639,6 +724,7 @@ export function MobileApp({
                 busy={busy}
                 onSave={persistEdit}
                 onClose={() => setEditing(undefined)}
+                onConfirm={confirmOperation}
               />
             ) : (
               <>
@@ -703,21 +789,8 @@ export function MobileApp({
                     onImport={() => void perform(chooseBackup)}
                     onBackup={() => void perform(exportBackup)}
                     onZipBackup={() => void perform(() => exportBackup(true))}
-                    onTheme={(theme) => void perform(() => changeTheme(theme))}
-                    onSettings={(settings) => {
-                      const before = snapshot
-                      const next = { ...snapshot, settings: { ...snapshot.settings, ...settings } }
-                      setSnapshot(next)
-                      void perform(async () => {
-                        try {
-                          await commit(next)
-                          setNotice('设置已保存。')
-                        } catch (reason) {
-                          setSnapshot(before)
-                          throw reason
-                        }
-                      })
-                    }}
+                    onTheme={(theme) => void perform(() => persistSettings({ theme }), true)}
+                    onSettings={(settings) => void perform(() => persistSettings(settings), true)}
                     onAutoBackup={() => void runAutoBackup()}
                     lastAutoBackupAt={native.lastAutoBackupAt}
                     onClear={() => void perform(() => act({ type: 'clear' }))}
@@ -738,7 +811,7 @@ export function MobileApp({
       </main>
       <div className="navigation-dock">
         <div className="operation-feedback">
-          {busy && !preview && !error && (
+          {busy && !quietSaving && !preview && !error && !confirmation && (
             <SystemMessage kind="progress" ariaLabel="数据处理进度" message={notice || '正在处理…'} />
           )}
           {error && !preview && (
@@ -776,6 +849,7 @@ export function MobileApp({
           ))}
         </nav>
       </div>
+      {confirmation && <ConfirmDialog message={confirmation} onResolve={resolveConfirmation} />}
       {preview && (
         <RestoreDialog
           preview={preview}

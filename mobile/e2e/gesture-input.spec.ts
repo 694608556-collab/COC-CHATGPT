@@ -1,8 +1,10 @@
+import { acceptAppConfirmations } from './helpers'
 import { test, expect } from '@playwright/test'
 import { expandModules } from './helpers'
 
 test('鼠标按住超过长按阈值后仍可向左拖动显示删除', async ({ page }) => {
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '载入公开测试数据' }).click()
@@ -24,6 +26,7 @@ test('鼠标按住超过长按阈值后仍可向左拖动显示删除', async ({
 
 test('浏览器辅助入口可模拟长按、左滑和点击目标排序，并可关闭', async ({ page }) => {
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '载入公开测试数据' }).click()

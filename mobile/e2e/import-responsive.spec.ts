@@ -1,8 +1,10 @@
+import { acceptAppConfirmations } from './helpers'
 import { expect, test } from '@playwright/test'
 import { searchSample } from '../src/dev/sample'
 
 test('大备份预览期间动画持续，取消保留数据，确认后及时显示弹窗内进度', async ({ page }) => {
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '载入公开测试数据' }).click()

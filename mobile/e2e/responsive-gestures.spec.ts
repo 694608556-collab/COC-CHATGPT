@@ -1,9 +1,11 @@
+import { acceptAppConfirmations } from './helpers'
 import { test, expect } from '@playwright/test'
 import type { Page, Locator } from '@playwright/test'
 import { expandModules, swipeLeft } from './helpers'
 
 async function ready(page: Page) {
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '载入公开测试数据' }).click()
@@ -149,6 +151,7 @@ for (const width of [280, 320, 360, 393, 412, 430, 600, 840]) {
     if (width === 393)
       await page.screenshot({ path: 'test-results/responsive-records-393.png', fullPage: true })
     await page.getByRole('button', { name: '模组 雾港调查（公开测试）', exact: true }).dblclick()
+    await expect(page.getByRole('heading', { name: '编辑模组' })).toBeVisible({ timeout: 1500 })
     await page.getByRole('button', { name: /添加 KP$/ }).click()
     await page.getByLabel('KP1', { exact: true }).fill('公开主持人')
     await page.getByRole('button', { name: /添加参与者$/ }).click()

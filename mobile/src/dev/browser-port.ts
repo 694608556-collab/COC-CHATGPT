@@ -4,6 +4,16 @@ import { encodeBackup, previewBackup } from '../data/backup'
 import { DEFAULT_FILTER_PRESET } from '../../../src/shared/types'
 import { applyAction } from '../data/actions'
 import { encodeInBackground } from '../data/background'
+import { safetyLevel, ORDINARY_SAFETY_WINDOW_MS } from '../data/safety'
+import { validateSettings } from '../data/settings'
+
+/** 仅浏览器开发存储内部的保护窗口；不进入安卓桥接响应。 */
+interface BrowserStoredState extends NativeState {
+  /** 上次成功普通编辑副本的创建时间，单位毫秒。 */
+  ordinarySafetyAt?: number
+  /** 创建该副本时的归档 URI，目录变化时旧窗口失效。 */
+  ordinarySafetyTree?: string
+}
 
 export interface BrowserDocument extends SavedDocument {
   kind?: 'auto'
@@ -29,7 +39,7 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
   })
-  async function readState(): Promise<NativeState> {
+  async function readState(): Promise<BrowserStoredState> {
     const db = await database
     return new Promise((resolve, reject) => {
       const tx = db.transaction('state')
@@ -58,11 +68,21 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
       base64: encodeBase64(bytes)
     }
   }
+  /**
+   * 浏览器开发存储的分级保护事务，不进入 APK。
+   * @param json - 已完成界面确认的候选快照。
+   * @param expectedRevision - 调用时持久化版本。
+   * @param prefix - 副本文件名前缀，恢复总是逐次保护。
+   * @param attachments - 与恢复事务一并登记的归档附件。
+   * @param forceSafety - 内部危险列表命令必须逐次保护，不来自客户端请求。
+   * @returns 新版本与本次实际创建的可选副本；失败不提交数据或窗口。
+   */
   async function commit(
     json: string,
     expectedRevision: number,
     prefix: string,
-    attachments: Array<{ name: string; mime: string; base64: string }> = []
+    attachments: Array<{ name: string; mime: string; base64: string }> = [],
+    forceSafety = false
   ) {
     const next = (await previewBackup(new TextEncoder().encode(json))).snapshot
     const before = await readState()
@@ -81,34 +101,64 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
             filterPreset: DEFAULT_FILTER_PRESET
           }
         }
-    const safety = await document(
-      prefix + '-' + Date.now() + '.json',
-      'application/json',
-      encodeBackup(snapshot)
-    )
+    const level =
+      prefix === 'before-restore' || forceSafety ? 'always' : safetyLevel(before.json ? snapshot : null, next)
+    const now = Date.now()
+    const protectedWindow =
+      before.ordinarySafetyTree === before.archive.uri &&
+      before.ordinarySafetyAt !== undefined &&
+      now >= before.ordinarySafetyAt &&
+      now - before.ordinarySafetyAt < ORDINARY_SAFETY_WINDOW_MS
+    const safety =
+      level === 'always' || (level === 'ordinary' && !protectedWindow)
+        ? await document(prefix + '-' + now + '.json', 'application/json', encodeBackup(snapshot))
+        : undefined
     const imported = await Promise.all(
       attachments.map(async (file) => ({
         ...(await document(file.name, file.mime, decodeBase64(file.base64))),
         purpose: 'import' as const
       }))
     )
-    safety.purpose = 'safety'
+    if (safety) safety.purpose = 'safety'
     const db = await database
-    return new Promise<{ revision: number; safetyBackup: SavedDocument }>((resolve, reject) => {
+    return new Promise<{ revision: number; safetyBackup?: SavedDocument }>((resolve, reject) => {
       const tx = db.transaction(['state', 'documents'], 'readwrite')
       const states = tx.objectStore('state')
       let failure: Error | undefined
       const request = states.get('current')
       request.onsuccess = () => {
         const current: NativeState = request.result ?? initial
-        if (current.revision !== expectedRevision || !current.archive.valid) {
+        if (
+          current.revision !== expectedRevision ||
+          !current.archive.valid ||
+          current.archive.uri !== before.archive.uri
+        ) {
           failure = new Error('数据或测试存储已变化，请重新打开编辑或导入预览。')
           tx.abort()
           return
         }
         const documents = tx.objectStore('documents')
-        documents.add(safety)
+        if (safety) documents.add(safety)
         imported.forEach((file) => documents.add(file))
+        /** @returns 无返回值；窗口标记与业务数据在同一成功事务内更新。 */
+        const replace = () => {
+          states.put(
+            {
+              ...current,
+              json: JSON.stringify(next),
+              revision: expectedRevision + 1,
+              ...(safety && level === 'ordinary'
+                ? { ordinarySafetyAt: now, ordinarySafetyTree: before.archive.uri }
+                : {}),
+              ...(level === 'always' ? { ordinarySafetyAt: undefined, ordinarySafetyTree: undefined } : {})
+            },
+            'current'
+          )
+        }
+        if (!safety) {
+          replace()
+          return
+        }
         const check = documents.get(safety.uri)
         check.onsuccess = () => {
           if (check.result?.base64 !== safety.base64) {
@@ -116,14 +166,7 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
             tx.abort()
             return
           }
-          states.put(
-            {
-              ...current,
-              json: JSON.stringify(next),
-              revision: expectedRevision + 1
-            },
-            'current'
-          )
+          replace()
         }
       }
       tx.oncomplete = () => resolve({ revision: expectedRevision + 1, safetyBackup: safety })
@@ -351,10 +394,55 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
     },
     async commitRestore({ json, expectedRevision, confirmed, attachments }) {
       if (!confirmed) throw new Error('需要明确确认覆盖。')
-      return commit(json, expectedRevision, 'before-restore', attachments)
+      const result = await commit(json, expectedRevision, 'before-restore', attachments)
+      if (!result.safetyBackup) throw new Error('恢复前安全副本缺失。')
+      return { revision: result.revision, safetyBackup: result.safetyBackup }
     },
     async commitEdit({ json, expectedRevision }) {
       return commit(json, expectedRevision, 'before-edit')
+    },
+    /** @param options - 白名单设置及版本。 @returns 事务确认的新版本/时间；不改正文、归档或保护窗口。 */
+    async commitSettings(options) {
+      const { settings: input, expectedRevision } = options
+      const settings = validateSettings(input)
+      const exportedAt = new Date().toISOString()
+      const db = await database
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('state', 'readwrite')
+        let failure: Error | undefined
+        const states = tx.objectStore('state')
+        const request = states.get('current')
+        request.onsuccess = () => {
+          try {
+            const state: NativeState = request.result ?? initial
+            if (state.revision !== expectedRevision || !state.archive.valid)
+              throw new Error('数据或测试存储已变化，请重新读取。')
+            const current = state.json
+              ? JSON.parse(state.json)
+              : {
+                  schemaVersion: 2,
+                  modules: [],
+                  records: [],
+                  characters: []
+                }
+            states.put(
+              {
+                ...state,
+                json: JSON.stringify({ ...current, settings, exportedAt }),
+                revision: expectedRevision + 1
+              },
+              'current'
+            )
+          } catch (reason) {
+            failure = reason instanceof Error ? reason : new Error('设置未保存。')
+            tx.abort()
+          }
+        }
+        tx.oncomplete = () => resolve()
+        tx.onabort = () => reject(failure ?? tx.error ?? new Error('设置未保存。'))
+        tx.onerror = () => reject(tx.error)
+      })
+      return { revision: expectedRevision + 1, exportedAt }
     },
     /** 浏览器独立存储实现相同的安全/版本边界，不进入 APK。 */
     async commitAction({ action, expectedRevision }) {
@@ -387,7 +475,7 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
         })
         return { revision: expectedRevision + 1, exportedAt: next.exportedAt }
       }
-      const result = await commit(JSON.stringify(next), expectedRevision, 'before-edit')
+      const result = await commit(JSON.stringify(next), expectedRevision, 'before-edit', [], true)
       return { ...result, exportedAt: next.exportedAt }
     }
   }

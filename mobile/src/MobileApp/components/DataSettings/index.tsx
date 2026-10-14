@@ -2,6 +2,7 @@ import type { ArchiveLocation } from '../../../data/native'
 import type { SavedDocument } from '../../../data/native'
 import type { MobileSnapshot } from '../../../data/types'
 import { SystemMessage } from '../SystemMessage'
+import { SelectField } from '../SelectField'
 
 /**
  * 数据恢复/手动备份及目录管理入口；未完成能力明确列出。
@@ -81,6 +82,10 @@ export function DataSettings(props: {
       </section>
       <section className="panel">
         <h2>自动本地备份</h2>
+        <p className="muted">
+          安全副本与自动备份独立：设置、排序不生成全量副本；普通编辑每 10
+          分钟合并保护；删除、清空、导入覆盖和更换正文来源单独保护。已有副本不删除。
+        </p>
         <label className="check">
           <input
             disabled={props.busy}
@@ -98,26 +103,25 @@ export function DataSettings(props: {
           />
           启用自动备份
         </label>
-        <label className="field">
-          自动备份周期
-          <select
-            disabled={props.busy}
-            value={props.snapshot.settings.autoBackup?.interval ?? 'idle'}
-            onChange={(e) =>
-              props.onSettings({
-                autoBackup: {
-                  enabled: props.snapshot.settings.autoBackup?.enabled ?? false,
-                  interval: e.target.value as 'idle' | 'daily' | 'weekly',
-                  retention: 10
-                }
-              })
-            }
-          >
-            <option value="idle">修改后空闲备份</option>
-            <option value="daily">每日</option>
-            <option value="weekly">每周</option>
-          </select>
-        </label>
+        <SelectField
+          label="自动备份周期"
+          disabled={props.busy}
+          value={props.snapshot.settings.autoBackup?.interval ?? 'idle'}
+          onChange={(value) =>
+            props.onSettings({
+              autoBackup: {
+                enabled: props.snapshot.settings.autoBackup?.enabled ?? false,
+                interval: value as 'idle' | 'daily' | 'weekly',
+                retention: 10
+              }
+            })
+          }
+          options={[
+            { value: 'idle', label: '修改后空闲备份' },
+            { value: 'daily', label: '每日' },
+            { value: 'weekly', label: '每周' }
+          ]}
+        />
         <p className="muted">
           应用运行期间执行；关闭或系统暂停期间不保证定时执行，下次启动检查到期时间。只轮换本应用登记的自动备份，保留最近
           10 份；手动/安全副本不删除。

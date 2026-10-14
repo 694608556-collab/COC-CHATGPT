@@ -2,13 +2,19 @@ import type { CharacterData, ModuleRecord, SessionRecord } from '../../../src/sh
 import type { MobileSnapshot } from './types'
 import type { LogbookPort } from './native'
 import { previewBackup } from './backup'
+import { sessionNameFor } from '../../../src/shared/session-number'
 
 export type Edit =
   | { kind: 'module'; value: ModuleRecord }
   | { kind: 'record'; value: SessionRecord }
   | { kind: 'character'; value: CharacterData }
 
-/** Build a new snapshot without mutating loaded data; retain all unrelated entities and body fields. */
+/**
+ * 构造不修改原数据的编辑快照；场次空名沿用桌面共享默认取名规则。
+ * @param current - 已校验的数据，未编辑实体与正文保留。
+ * @param edit - 用户确认保存的编辑草稿。
+ * @returns 校验后的新快照；场次名留空时按当前序号生成“第 N 场”。
+ */
 export async function applyEdit(current: MobileSnapshot, edit: Edit): Promise<MobileSnapshot> {
   const next: MobileSnapshot = JSON.parse(JSON.stringify(current))
   const now = new Date().toISOString()
@@ -23,13 +29,17 @@ export async function applyEdit(current: MobileSnapshot, edit: Edit): Promise<Mo
     }
     next.modules = old ? next.modules.map((m) => (m.id === value.id ? value : m)) : [...next.modules, value]
   } else if (edit.kind === 'record') {
-    if (!edit.value.name.trim()) throw new Error('请填写场次名称。')
     if (!Number.isInteger(edit.value.sequenceNo) || edit.value.sequenceNo < 0)
       throw new Error('场次序号须为非负整数。')
     const old = next.records.find((r) => r.id === edit.value.id)
     const value = {
       ...edit.value,
-      name: edit.value.name.trim(),
+      name:
+        edit.value.name.trim() ||
+        sessionNameFor(
+          next.modules.find((m) => m.id === edit.value.moduleId)?.name ?? '',
+          edit.value.sequenceNo
+        ),
       createdAt: old?.createdAt ?? now,
       updatedAt: now
     }
@@ -47,7 +57,12 @@ export async function applyEdit(current: MobileSnapshot, edit: Edit): Promise<Mo
     }
     if (value.sourceType === 'online') {
       if (!old || old.link !== value.link || old.sourceType !== value.sourceType) {
-        const url = new URL(value.link ?? '')
+        let url: URL
+        try {
+          url = new URL(value.link ?? '')
+        } catch {
+          throw new Error('请输入包含 key 参数的完整海豹日志网址。')
+        }
         if (
           url.hostname !== 'log.weizaima.com' ||
           !['http:', 'https:'].includes(url.protocol) ||
@@ -119,6 +134,14 @@ export async function applyEdit(current: MobileSnapshot, edit: Edit): Promise<Mo
   return (await previewBackup(new TextEncoder().encode(JSON.stringify(next)))).snapshot
 }
 
+/**
+ * 保存校验后的编辑，并仅在存储确认后返回同一候选供界面展示，避免即时全量重读。
+ * @param port - 持久化边界，负责版本检查、分级副本及事务。
+ * @param current - 当前已读取的快照，不原地修改。
+ * @param edit - 待保存草稿。
+ * @param revision - 打开编辑时的持久化版本。
+ * @returns 已提交版本、候选快照/JSON 及本次实际创建的可选副本；失败不返回候选。
+ */
 export async function saveEdit(
   port: Pick<LogbookPort, 'commitEdit'>,
   current: MobileSnapshot,
@@ -126,8 +149,10 @@ export async function saveEdit(
   revision: number
 ) {
   const next = await applyEdit(current, edit)
-  return port.commitEdit({
-    json: JSON.stringify(next),
+  const json = JSON.stringify(next)
+  const result = await port.commitEdit({
+    json,
     expectedRevision: revision
   })
+  return { ...result, snapshot: next, json }
 }

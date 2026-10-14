@@ -1,3 +1,4 @@
+import { acceptAppConfirmations } from './helpers'
 import { expandModules, swipeLeft } from './helpers'
 import { test, expect } from '@playwright/test'
 import { zlibSync } from 'fflate'
@@ -6,6 +7,7 @@ import { unzipSync } from 'fflate'
 
 async function ready(page: import('@playwright/test').Page) {
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '载入公开测试数据' }).click()
@@ -30,7 +32,8 @@ test('设置统计、导航 SVG、完整角色编辑、关联及删除清理', a
   await page.getByLabel('武器1名称', { exact: true }).fill('公开测试武器')
   await page.getByLabel('武器1伤害', { exact: true }).fill('1D4')
   await page.getByLabel('个人描述', { exact: true }).fill('公开背景')
-  await page.getByLabel('角色规则版次', { exact: true }).selectOption('6')
+  await page.getByRole('combobox', { name: '角色规则版次', exact: true }).click()
+  await page.getByRole('option', { name: '第六版', exact: true }).click()
   await page.getByRole('button', { name: '保存修改', exact: true }).click()
   await page.getByRole('button', { name: /关联调查员/ }).click()
   await expect(page.getByText('自定义调查', { exact: true })).toBeVisible()
@@ -111,7 +114,7 @@ test('海豹压缩协议获取、失败保留正文、自动备份和多格式�
   await expect(page.getByText('通过网络边界获取的中文正文', { exact: true })).toBeVisible()
   for (const format of ['raw', 'doc', 'dialogue-doc', 'docx', 'pdf']) {
     await page.getByRole('button', { name: '更多导出格式' }).click()
-    await page.getByRole('button', { name: /^文件格式/ }).click()
+    await page.getByRole('combobox', { name: '文件格式', exact: true }).click()
     await page
       .getByRole('option', {
         name: (

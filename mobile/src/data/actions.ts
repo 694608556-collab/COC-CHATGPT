@@ -1,5 +1,13 @@
 import type { MobileSnapshot } from './types'
+/** 用户确认后一次提交的场次删除命令，不影响模组、角色或归档文件。 */
+interface BatchRecordDeletion {
+  /** 操作白名单标识，类型为字面量 delete-records。 */
+  type: 'delete-records'
+  /** 已选场次 ID，类型为 string[]；必须非空、唯一且全部仍然存在。 */
+  ids: string[]
+}
 export type DataAction =
+  | BatchRecordDeletion
   | { type: 'delete'; kind: 'module' | 'record' | 'character'; id: string }
   | { type: 'reorder'; kind: 'module' | 'record'; id: string; targetId: string }
   | { type: 'reset'; id: string }
@@ -13,7 +21,16 @@ export type DataAction =
  */
 export async function applyAction(current: MobileSnapshot, action: DataAction): Promise<MobileSnapshot> {
   const next: MobileSnapshot = { ...current }
-  if (action.type === 'delete') {
+  if (action.type === 'delete-records') {
+    if (!Array.isArray(action.ids) || !action.ids.length) throw new Error('至少选择一个场次。')
+    const ids = new Set(action.ids)
+    if (ids.size !== action.ids.length) throw new Error('场次选择无效，请重新选择。')
+    for (const id of ids) {
+      if (typeof id !== 'string' || !current.records.some((r) => r.id === id))
+        throw new Error('目标已不存在，请重新读取。')
+    }
+    next.records = current.records.filter((r) => !ids.has(r.id))
+  } else if (action.type === 'delete') {
     if (action.kind === 'module') {
       next.modules = next.modules.filter((m) => m.id !== action.id)
       next.records = next.records.filter((r) => r.moduleId !== action.id)

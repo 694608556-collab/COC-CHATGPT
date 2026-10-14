@@ -1,3 +1,4 @@
+import { acceptAppConfirmations } from './helpers'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
@@ -7,6 +8,7 @@ import { createEmptyCharacter } from '../../src/shared/coc-rules'
 
 async function ready(page: Page) {
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '载入公开测试数据' }).click()
@@ -34,14 +36,14 @@ test('紧凑标题、无粗紫焦点框、模组内新增归属及多选提醒�
       .evaluate((node) => node.getBoundingClientRect().width)
   ).toBe(30)
   await group.getByRole('button', { name: '新增手动场次' }).click()
-  await expect(page.getByRole('combobox', { name: '所属模组', exact: true })).toHaveValue('demo-module-1')
+  await expect(page.getByRole('combobox', { name: '所属模组', exact: true })).toContainText('山间旅馆')
   await page.getByLabel('场次名称', { exact: true }).fill('归属第二模组的手动场次')
   await page.getByLabel('手动正文', { exact: true }).fill('公开测试内容')
   await page.getByRole('button', { name: '保存修改', exact: true }).click()
   await expandModules(page)
   await expect(group.locator('.record-card').filter({ hasText: '归属第二模组' })).toBeVisible()
   await group.getByRole('button', { name: '新增在线场次' }).click()
-  await expect(page.getByRole('combobox', { name: '所属模组', exact: true })).toHaveValue('demo-module-1')
+  await expect(page.getByRole('combobox', { name: '所属模组', exact: true })).toContainText('山间旅馆')
   await page.getByRole('button', { name: '取消编辑' }).click()
   await expandModules(page)
   await group.getByRole('button', { name: '全选此模组' }).click()
@@ -53,6 +55,52 @@ test('紧凑标题、无粗紫焦点框、模组内新增归属及多选提醒�
       .evaluateAll((nodes, y) => nodes.every((node) => node.getBoundingClientRect().bottom <= y), count.y)
   ).toBe(true)
   await page.screenshot({ path: info.outputPath('compact-records-selection.png') })
+})
+
+test('正文点击和搜索定位用紫色圆角细边框，切换后原条目恢复灰边且正文不变', async ({ page }, info) => {
+  await ready(page)
+  await expandModules(page)
+  await page.locator('[data-drag-id="demo-long"] .record-card').click()
+  const first = page.locator('[data-message-index="0"]')
+  const second = page.locator('[data-message-index="1"]')
+  const original = await first.textContent()
+  await first.click()
+  await expect(first).toBeFocused()
+  expect(
+    await first.evaluate((node) => {
+      const style = getComputedStyle(node)
+      return {
+        outline: style.outlineWidth,
+        border: style.borderColor,
+        width: style.borderWidth,
+        radius: style.borderRadius
+      }
+    })
+  ).toEqual({ outline: '0px', border: 'rgb(109, 69, 245)', width: '1px', radius: '10px' })
+  await second.click()
+  await expect(second).toBeFocused()
+  expect(await first.evaluate((node) => getComputedStyle(node).borderColor)).toBe('rgb(211, 215, 222)')
+  const query = page.getByRole('searchbox', { name: '搜索整场正文' })
+  await query.fill('灯塔')
+  await query.press('Enter')
+  const target = page.locator('.search-target')
+  await expect(target).toBeFocused()
+  expect(await target.evaluate((node) => getComputedStyle(node).borderColor)).toBe('rgb(109, 69, 245)')
+  await first.click()
+  await expect(first).toBeFocused()
+  expect(await target.evaluate((node) => getComputedStyle(node).borderColor)).toBe('rgb(211, 215, 222)')
+  await page.getByRole('button', { name: '清空正文搜索' }).click()
+  await expect(first).toHaveText(original!)
+  await first.click()
+  await first.screenshot({ path: info.outputPath('purple-message-selection.png') })
+  await page.getByRole('button', { name: '数据与设置', exact: true }).click()
+  await page.getByRole('button', { name: '深色模式', exact: true }).click()
+  await expect(page.getByRole('status', { name: '普通保存状态' })).toHaveText('已保存')
+  await page.getByRole('button', { name: '跑团记录', exact: true }).click()
+  await expandModules(page)
+  await page.locator('[data-drag-id="demo-long"] .record-card').click()
+  await first.click()
+  expect(await first.evaluate((node) => getComputedStyle(node).borderColor)).toBe('rgb(156, 133, 255)')
 })
 
 test('中文链接状态、末尾日期、紧凑操作栏与导出格式键盘菜单', async ({ page }, info) => {
@@ -83,7 +131,7 @@ test('中文链接状态、末尾日期、紧凑操作栏与导出格式键盘�
   await expect(query).toHaveValue('')
   await expect(page.locator('.search-target')).toHaveCount(0)
   await page.getByRole('button', { name: '更多导出格式' }).click()
-  const trigger = page.getByRole('button', { name: /^文件格式/ })
+  const trigger = page.getByRole('combobox', { name: '文件格式', exact: true })
   await trigger.press('ArrowDown')
   await expect(page.getByRole('option', { name: 'TXT', exact: true })).toBeFocused()
   await expect(page.getByRole('option')).toHaveCount(6)
@@ -184,7 +232,7 @@ test('清空应用数据取消及确认：原范围、设置、授权及现存�
   await ready(page)
   await page.getByRole('button', { name: '数据与设置', exact: true }).click()
   await page.getByLabel('隐藏骰指令').check()
-  await expect(page.locator('.operation-feedback [role="status"]')).toHaveText('设置已保存。')
+  await expect(page.getByRole('status', { name: '普通保存状态' })).toHaveText('已保存')
   await page.getByRole('button', { name: '保存安卓备份', exact: true }).click()
   await expect(page.locator('.operation-feedback [role="status"]')).toContainText('备份已保存')
   await page.getByRole('button', { name: '刷新归档文件' }).click()
@@ -195,16 +243,15 @@ test('清空应用数据取消及确认：原范围、设置、授权及现存�
   expect(beforeDocuments.length).toBeGreaterThan(0)
   await expect(page.getByRole('heading', { name: '清空应用数据' })).toBeVisible()
   await expect(page.getByRole('button', { name: '清空业务数据' })).toHaveCount(0)
-  page.removeAllListeners('dialog')
-  page.once('dialog', (dialog) => dialog.dismiss())
+  const confirmation = page.getByRole('dialog', { name: '确认操作', exact: true })
+  await page.removeLocatorHandler(confirmation)
   await page.getByRole('button', { name: '清空应用数据', exact: true }).click()
+  await confirmation.getByRole('button', { name: '取消', exact: true }).click()
   await expect(page.getByRole('region', { name: '数据统计' })).toContainText('4')
-  page.once('dialog', (dialog) => {
-    expect(dialog.message()).toContain('归档文件会保留')
-    expect(dialog.message()).toContain('安全副本')
-    return dialog.accept()
-  })
   await page.getByRole('button', { name: '清空应用数据', exact: true }).click()
+  await expect(confirmation).toContainText('归档文件会保留')
+  await expect(confirmation).toContainText('安全副本')
+  await confirmation.getByRole('button', { name: '确认', exact: true }).click()
   await expect(page.locator('.operation-feedback [role="status"]')).toContainText('安全副本已生成')
   await expect(page.getByLabel('隐藏骰指令')).toBeChecked()
   await page.getByRole('button', { name: '刷新归档文件' }).click()

@@ -1,8 +1,10 @@
+import { acceptAppConfirmations } from './helpers'
 import { expect, test } from '@playwright/test'
 import { expandModules } from './helpers'
 
 test('边缘滑动返回保护编辑，底部上滑请求回桌面且不清除草稿', async ({ page }) => {
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '载入公开测试数据' }).click()
@@ -26,12 +28,11 @@ test('边缘滑动返回保护编辑，底部上滑请求回桌面且不清除�
   await page.locator('.record-card').first().click()
   await page.getByRole('button', { name: '编辑场次', exact: true }).click()
   await page.getByLabel('场次名称', { exact: true }).fill('保留的未保存草稿')
-  page.removeAllListeners('dialog')
-  const cancel = page.waitForEvent('dialog').then(async (dialog) => {
-    expect(dialog.message()).toContain('放弃尚未保存')
-    await dialog.dismiss()
-  })
-  await Promise.all([swipe(3, 320, 100, 0), cancel])
+  const confirmation = page.getByRole('dialog', { name: '确认操作', exact: true })
+  await page.removeLocatorHandler(confirmation)
+  await swipe(3, 320, 100, 0)
+  await expect(confirmation).toContainText('放弃尚未保存')
+  await confirmation.getByRole('button', { name: '取消', exact: true }).click()
   await expect(page.getByLabel('场次名称', { exact: true })).toHaveValue('保留的未保存草稿')
   await swipe(206, 913, 0, -100)
   await expect(page.getByRole('status')).toContainText('请求返回手机桌面')
@@ -44,6 +45,7 @@ test('边缘滑动返回保护编辑，底部上滑请求回桌面且不清除�
 
 test('边缘/底部触摸被取消或进入后台后无残留，恢复前台不意外导航', async ({ page }) => {
   page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '数据与设置', exact: true }).click()
