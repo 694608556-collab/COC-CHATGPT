@@ -16,11 +16,11 @@ export interface RestoreOptions {
   serialize?: (snapshot: MobileSnapshot) => Promise<string>
 }
 /**
- * 从预览进入原生安全覆盖流程。
- * @param port - 手机原生持久化与安全备份边界。
+ * 从预览进入原生确认后事务覆盖流程。
+ * @param port - 手机原生事务持久化边界。
  * @param preview - 校验通过的备份预览。
  * @param options - 用户明确选择及预览时的状态。
- * @returns 完成后的版本与安全副本证明。
+ * @returns 完成后的版本；校验或提交失败保留原数据。
  */
 export async function restoreBackup(port: LogbookPort, preview: ImportPreview, options: RestoreOptions) {
   if (!options.confirmed) throw new Error('需要用户明确确认覆盖。')

@@ -51,7 +51,7 @@ test('松手前同组实时让位；排序无专属安全副本，完成提示�
   await expect(page.getByRole('status')).toHaveCount(0, { timeout: 5000 })
   expect((await rows.first().boundingBox())!.y).toBeCloseTo(rowTop, 0)
   await page.getByRole('button', { name: '刷新测试文件列表', exact: true }).click()
-  await expect(page.getByText('测试文件（1）', { exact: true })).toBeVisible()
+  await expect(page.getByText('测试文件（0）', { exact: true })).toBeVisible()
   await page.screenshot({ path: info.outputPath('records-after-sort.png') })
 })
 

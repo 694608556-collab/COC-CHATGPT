@@ -94,8 +94,8 @@ export function CharacterCards(props: {
           {character.edition} 版 · {character.basic.occupation || '职业未填写'} ·{' '}
           {character.basic.age ? character.basic.age + ' 岁' : '年龄未填写'}
         </p>
-        <dl className="details">
-          {Object.entries(character.basic).map(([key, value]) => (
+        <dl className="details character-basic">
+          {(['name', 'age', 'occupation', 'gender', 'birthplace', 'residence'] as const).map((key) => (
             <div key={key}>
               <dt>
                 {{
@@ -107,7 +107,7 @@ export function CharacterCards(props: {
                   residence: '居住地'
                 }[key] || key}
               </dt>
-              <dd>{value || '未填写'}</dd>
+              <dd>{character.basic[key] || '未填写'}</dd>
             </div>
           ))}
         </dl>

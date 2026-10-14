@@ -54,7 +54,7 @@ test('底部切换和长按无黑色焦点阴影，多选整行含复选框和�
   expect(await heading.evaluate((node) => getComputedStyle(node).outlineStyle)).toBe('none')
 })
 
-test('批量删除显示数量并确认，取消不写入，确认仅删除本模组已选场次且只增加一份安全副本', async ({ page }) => {
+test('批量删除显示数量并确认，取消不写入，确认仅删除本模组已选场次且不增加副本', async ({ page }) => {
   await ready(page)
   const group = page.locator('.module-group').filter({ hasText: '雾港调查' })
   await expect(group.getByRole('button', { name: '批量删除', exact: true })).toBeDisabled()
@@ -63,11 +63,11 @@ test('批量删除显示数量并确认，取消不写入，确认仅删除本�
   await page.removeLocatorHandler(confirmation)
   await group.getByRole('button', { name: '批量删除', exact: true }).click()
   await expect(confirmation).toContainText('已选 2 个场次')
-  await expect(confirmation).toContainText('安全副本')
+  await expect(confirmation).not.toContainText('安全副本')
   await confirmation.getByRole('button', { name: '取消', exact: true }).click()
   await expect(group.locator('.record-list .gesture-row')).toHaveCount(2)
   await page.getByRole('button', { name: '刷新测试文件列表', exact: true }).click()
-  await expect(page.getByText('测试文件（1）', { exact: true })).toBeVisible()
+  await expect(page.getByText('测试文件（0）', { exact: true })).toBeVisible()
   await group.getByRole('button', { name: '批量删除', exact: true }).click()
   await confirmation.getByRole('button', { name: '确认', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('操作已保存')
@@ -76,7 +76,7 @@ test('批量删除显示数量并确认，取消不写入，确认仅删除本�
     page.locator('.module-group').filter({ hasText: '山间旅馆' }).locator('.record-list .gesture-row')
   ).toHaveCount(2)
   await page.getByRole('button', { name: '刷新测试文件列表', exact: true }).click()
-  await expect(page.getByText('测试文件（2）', { exact: true })).toBeVisible()
+  await expect(page.getByText('测试文件（0）', { exact: true })).toBeVisible()
   await page.reload()
   await expandModules(page)
   await expect(group.locator('.record-list .gesture-row')).toHaveCount(0)
@@ -141,11 +141,11 @@ test('最近保存灰色 × 只关闭显示，已导出的文件与归档登记�
   await page.getByRole('button', { name: '导出 TXT', exact: true }).click()
   await expect(page.getByText(/最近保存：/)).toBeVisible()
   await page.getByRole('button', { name: '刷新测试文件列表', exact: true }).click()
-  await expect(page.getByText('测试文件（2）', { exact: true })).toBeVisible()
+  await expect(page.getByText('测试文件（1）', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '关闭最近保存', exact: true }).click()
   await expect(page.getByText(/最近保存：/)).toHaveCount(0)
   await page.getByRole('button', { name: '刷新测试文件列表', exact: true }).click()
-  await expect(page.getByText('测试文件（2）', { exact: true })).toBeVisible()
+  await expect(page.getByText('测试文件（1）', { exact: true })).toBeVisible()
 })
 
 test('退出确认使用应用卡片弹窗，取消和系统返回保留草稿，确认后才丢弃', async ({ page }, info) => {

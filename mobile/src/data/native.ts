@@ -38,6 +38,13 @@ export interface SavedDocument {
 }
 /** 所有请求/响应与本工程 LogbookPlugin.java 一一对应，不访问推测的 HTTP 接口。 */
 export interface LogbookPort {
+  /** @param options - 已校验的模组及读取版本，不带正文。 @returns 事务确认的新版本及时间。 */
+  commitModule(options: {
+    value: import('../../../src/shared/types').ModuleRecord
+    expectedRevision: number
+  }): Promise<{ revision: number; exportedAt: string }>
+  /** @returns 轻量版本/授权状态；不传输正文、不创建文件。 */
+  getStatus(): Promise<Pick<NativeState, 'revision' | 'archive' | 'lastAutoBackupAt'>>
   /**
    * 仅提交完整设置；原生校验当前数据并事务更新设置及时间，不接收实体或生成全量副本。
    * @param options - 小设置对象及已读取版本；保留目录授权与 CAS 检查。
@@ -58,14 +65,14 @@ export interface LogbookPort {
   shareDocument(options: { uri: string }): Promise<void>
   /**
    * 原生端修改已保存快照的列表元数据，正文不通过界面重复传输。
-   * @param options - 白名单操作及当前版本；批量删除一次提交全部已选 ID，仅排序不生成安全副本。
-   * @returns 新版本、实际保存时间及非排序操作的安全副本，不返回大正文。
+   * @param options - 白名单操作及当前版本；批量删除一次提交全部已选 ID，不创建操作前副本。
+   * @returns 新版本与实际保存时间，不返回大正文。
    */
   commitAction(options: {
     action: DataAction
     expectedRevision: number
   }): Promise<{ revision: number; exportedAt: string; safetyBackup?: SavedDocument }>
-  /** 校验后的编辑快照；设置免副本、普通编辑十分钟合并，危险变化逐次保护；原生自行判定，保留版本检查及事务。 */
+  /** 校验后的编辑快照；直接保存，不创建操作前副本，保留授权、版本检查及事务。 */
   commitEdit(options: {
     json: string
     expectedRevision: number
@@ -79,16 +86,16 @@ export interface LogbookPort {
     kind?: 'backup' | 'record-table' | 'character-table'
   }): Promise<{ cancelled: boolean; base64?: string; name?: string }>
   /**
-   * 先回读安全备份，再在 SQLite 事务内覆盖；失败不变更当前业务数据。
+   * 显式确认后在 SQLite 事务内覆盖；校验或提交失败不变更当前业务数据。
    * @param options - 已校验 JSON、预览时序号和用户明确确认标记。
-   * @returns 新序号与用户可见的恢复前安全备份。
+   * @returns 新序号；不生成操作前副本。
    */
   commitRestore(options: {
     json: string
     expectedRevision: number
     confirmed: boolean
     attachments?: Array<{ name: string; mime: string; base64: string }>
-  }): Promise<{ revision: number; safetyBackup: SavedDocument }>
+  }): Promise<{ revision: number; safetyBackup?: SavedDocument }>
   /**
    * 创建新文件，不覆盖同名用户文件；成功前校验实际回读字节。
    * @param options - 安全文件名、MIME 类型与 Base64 文件字节。

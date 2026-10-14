@@ -91,7 +91,7 @@ function Preview() {
           </p>
         )}
         {error && <p role="alert">{error}</p>}
-        {!!files.length && (
+        {
           <details>
             <summary>测试文件（{files.length}）</summary>
             {files.map((file) => (
@@ -103,7 +103,7 @@ function Preview() {
               </button>
             ))}
           </details>
-        )}
+        }
       </aside>
       <MobileApp
         port={browser.port}

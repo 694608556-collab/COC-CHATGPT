@@ -47,7 +47,7 @@ export function RestoreDialog(props: {
         ))}
         <p>
           将覆盖本机的模组、场次与角色卡（当前 {props.currentRecords}{' '}
-          个场次），不会自动合并。确认后先在归档目录生成并回读安全备份；失败则不继续覆盖。
+          个场次），不会自动合并，也不生成操作前副本。需要时请先手动备份；校验或提交失败保留原数据。
         </p>
         <label className="check">
           <input

@@ -27,9 +27,12 @@ export function useNavigationGestures(onBack: () => void, onHome: () => void) {
     function start(event: TouchEvent) {
       cancel()
       if (event.touches.length !== 1 || !(event.target instanceof Element)) return
-      const zone = event.target.closest<HTMLElement>('[data-navigation-zone]')
-      if (!zone) return
       const point = event.touches[0]!
+      // Chromium 会把窄边缘的触摸目标调整到附近按钮；用实际坐标命中专用条，弹窗仍优先。
+      const zone = document
+        .elementFromPoint(point.clientX, point.clientY)
+        ?.closest<HTMLElement>('[data-navigation-zone]')
+      if (!zone) return
       gesture = {
         zone,
         kind: zone.dataset.navigationZone!,

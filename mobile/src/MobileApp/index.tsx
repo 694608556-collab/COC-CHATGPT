@@ -18,6 +18,7 @@ import { Editor } from './components/Editor'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { saveEdit } from '../data/edit'
 import { validateSettings } from '../data/settings'
+import { automaticBackupDelay } from '../data/automatic-backup'
 import type { Edit } from '../data/edit'
 import { createEmptyCharacter } from '../../../src/shared/coc-rules'
 import { NavIcon } from './components/NavIcon'
@@ -65,6 +66,8 @@ export function MobileApp({
   testBackup?: () => Uint8Array
 }) {
   const [native, setNative] = useState<NativeState>()
+  const nativeRef = useRef(native)
+  nativeRef.current = native
   const [snapshot, setSnapshot] = useState<MobileSnapshot>(emptySnapshot)
   const [page, setPage] = useState<'records' | 'characters' | 'settings'>('records')
   const [record, setRecord] = useState<SessionRecord>()
@@ -108,7 +111,7 @@ export function MobileApp({
     setNotice('正在后台校验并编码待保存数据…')
     const prepared = await prepareInBackground({ ...next, exportedAt: new Date().toISOString() })
     const validated = prepared.snapshot
-    setNotice('正在按分级保护保存数据，请保持应用打开…')
+    setNotice('正在保存数据，请保持应用打开…')
     const result = await port.commitEdit({
       json: prepared.json,
       expectedRevision: native.revision
@@ -134,14 +137,14 @@ export function MobileApp({
               : action.kind === 'character'
                 ? '删除此角色卡？参与者姓名会保留，角色关联会解除。'
                 : '删除此场次及已保存正文？'
-      if (!(await confirmOperation(description + ' 操作前会保存安全副本。'))) return
+      if (!(await confirmOperation(description))) return
     }
     if (!native) throw new Error('本机数据尚未读取。')
     const next = await applyAction(snapshot, action)
     const before = snapshot
     // 先展示待保存的列表位置，但不解锁第二次写入；安全提交失败必须回到原列表。
     setSnapshot(next)
-    setNotice(action.type === 'reorder' ? '正在保存排序…' : '正在保存操作并校验安全副本…')
+    setNotice(action.type === 'reorder' ? '正在保存排序…' : '正在保存操作…')
     let result: Awaited<ReturnType<LogbookPort['commitAction']>>
     try {
       result = await port.commitAction({ action, expectedRevision: native.revision })
@@ -159,7 +162,7 @@ export function MobileApp({
       setRecord((current) => current && next.records.find((item) => item.id === current.id))
       setSelectedCharacter((current) => (next.characters.some((item) => item.id === current) ? current : ''))
     }
-    setNotice(action.type === 'reorder' ? '排序已保存。' : '操作已保存，安全副本已生成。')
+    setNotice(action.type === 'reorder' ? '排序已保存。' : '操作已保存。')
   }
   async function probe(ids: string[]) {
     const next = { ...snapshot, records: [...snapshot.records] }
@@ -244,40 +247,32 @@ export function MobileApp({
     setTablePreview(undefined)
     setNotice('表格数据已添加并保存。')
   }
-  async function runAutoBackup() {
+  async function runAutoBackup(manual = false) {
     if (!native || busyLock.current || !native.archive.valid) return
     busyLock.current = true
     setBusy(true)
+    setQuietSaving(!manual)
     setSaveStatus('')
     try {
       const result = await port.automaticBackup({
         expectedRevision: native.revision
       })
       setNative({ ...native, lastAutoBackupAt: result.savedAt })
-      setNotice('自动备份已保存：' + result.document.name + (result.warning ? '。' + result.warning : ''))
+      if (manual)
+        setNotice('自动备份已保存：' + result.document.name + (result.warning ? '。' + result.warning : ''))
+      else if (result.warning) setError(result.warning)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '自动备份失败，请检查保存位置。')
     } finally {
       busyLock.current = false
       setBusy(false)
+      setQuietSaving(false)
     }
   }
   useEffect(() => {
-    const config = snapshot.settings.autoBackup
-    if (!config?.enabled || !native?.archive.valid) return
-    if (
-      config.interval === 'idle' &&
-      native.lastAutoBackupAt &&
-      native.lastAutoBackupAt >= Date.parse(snapshot.exportedAt)
-    )
-      return
-    const due =
-      config.interval === 'idle'
-        ? 1500
-        : Math.max(
-            1500,
-            (native.lastAutoBackupAt ?? 0) + (config.interval === 'daily' ? 86400000 : 604800000) - Date.now()
-          )
+    if (!native?.archive.valid) return
+    const due = automaticBackupDelay(snapshot, native.lastAutoBackupAt, Date.now())
+    if (due === undefined) return
     let timer: ReturnType<typeof setTimeout>
     const attempt = () => {
       if (busyLock.current) timer = setTimeout(attempt, 1000)
@@ -336,7 +331,7 @@ export function MobileApp({
     if (Capacitor.isNativePlatform())
       void CapacitorApp.addListener('appStateChange', (state) => {
         window.dispatchEvent(new Event('logbook-gesture-reset'))
-        if (state.isActive && !busyLock.current) void perform(reload)
+        if (state.isActive) void checkForeground()
       }).then((handle) => {
         if (disposed) void handle.remove()
         else removeResume = () => handle.remove()
@@ -348,6 +343,22 @@ export function MobileApp({
       void removeResume?.()
     }
   }, [])
+  /** @returns 无返回值；回前台只检查版本和授权，原数据/草稿未变时不重读或弹提示。 */
+  async function checkForeground() {
+    if (busyLock.current) return
+    try {
+      const current = nativeRef.current
+      const status = await port.getStatus()
+      if (busyLock.current || !current || nativeRef.current !== current) return
+      if (status.revision !== current.revision) {
+        if (!document.querySelector('.editor')) await perform(reload, true)
+        // 草稿仍基于旧快照，不能把新版本序号配给旧数据；保存时应拒绝陈旧覆盖。
+        else setNative({ ...current, archive: status.archive, lastAutoBackupAt: status.lastAutoBackupAt })
+      } else setNative({ ...current, ...status })
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '保存位置检查失败。')
+    }
+  }
   function startEdit(draft: Edit) {
     if (native && !busyLock.current) setEditing({ draft, revision: native.revision })
   }
@@ -396,7 +407,7 @@ export function MobileApp({
     })
   }
   /**
-   * 提交草稿并复用已校验候选；普通编辑使用按钮/页内状态，危险来源变化保留明确进度。
+   * 提交草稿并复用已校验候选；普通编辑使用按钮/页内状态，来源变化保留明确进度。
    * @param draft - 编辑页的完整草稿；存储拒绝时不关闭编辑或展示成功。
    * @returns 无返回值；失败交回编辑页显示并保留草稿。
    */
@@ -414,7 +425,7 @@ export function MobileApp({
       (previous.sourceType === draft.value.sourceType && previous.link === draft.value.link)
     setQuietSaving(quiet)
     setSaveStatus(quiet ? '保存中…' : '')
-    if (!quiet) setNotice('正在保存变更并校验安全副本…')
+    if (!quiet) setNotice('正在保存变更…')
     try {
       const result = await saveEdit(port, snapshot, draft, editing.revision)
       setSnapshot(result.snapshot)
@@ -422,8 +433,7 @@ export function MobileApp({
       setEditing(undefined)
       setRecord(undefined)
       if (quiet) setSaveStatus('已保存')
-      else
-        setNotice(result.safetyBackup ? '修改已保存。安全副本：' + result.safetyBackup.name : '修改已保存。')
+      else setNotice('修改已保存。')
     } catch (reason) {
       setSaveStatus('')
       throw reason
@@ -503,7 +513,7 @@ export function MobileApp({
     setNotice('备份校验完成；请核对并确认，尚未覆盖当前数据。')
   }
   /**
-   * 用户点击确认后生成安全副本，再在事务内覆盖。
+   * 用户点击确认后在事务内覆盖，不创建操作前副本。
    * @param restoreSettings - 是否恢复主题及阅读过滤项，不恢复保存路径。
    * @returns 无返回值；失败保留预览供用户处理。
    */
@@ -512,7 +522,7 @@ export function MobileApp({
     setNotice('正在准备安全导入，尚未覆盖数据…')
     // 先让确认弹窗的阶段与禁用状态实际绘制，再处理大对象或调用原生桥。
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-    const result = await restoreBackup(port, preview, {
+    await restoreBackup(port, preview, {
       confirmed: true,
       restoreSettings,
       revision: native.revision,
@@ -520,7 +530,7 @@ export function MobileApp({
       serialize: async (value) => {
         setNotice('正在后台编码完整导入数据…')
         const json = await serializeInBackground(value)
-        setNotice('正在保存安全副本并导入，请保持应用打开…')
+        setNotice('正在导入数据，请保持应用打开…')
         return json
       }
     })
@@ -528,7 +538,7 @@ export function MobileApp({
     setPreview(undefined)
     setRecord(undefined)
     await reload()
-    setNotice(`导入完成。恢复前安全备份：${result.safetyBackup.name}`)
+    setNotice('导入完成。')
   }
   /** @returns 保存含已获取正文的安卓备份；不冒充已兼容旧电脑版的整库格式。 */
   async function exportBackup(includeArchives = false) {
@@ -649,7 +659,7 @@ export function MobileApp({
           <strong>COC 跑团记录簿</strong>
           <span>安卓开发版 · 本机数据</span>
         </div>
-        <span className="version">0.2.11</span>
+        <span className="version">0.2.12</span>
       </header>
       <main aria-hidden={confirmation ? true : undefined}>
         {savedDocument && (
@@ -693,8 +703,7 @@ export function MobileApp({
                 <section className="panel sample-help">
                   <h2>公开搜索测试数据</h2>
                   <p>
-                    2 个模组、4 个场次，含 240
-                    条跨页正文和手动笔记。载入会先预览，确认后覆盖当前测试数据并保留安全副本。
+                    2 个模组、4 个场次，含 240 条跨页正文和手动笔记。载入会先预览，确认后覆盖当前测试数据。
                   </p>
                   <button
                     disabled={busy || !!preview}
@@ -791,7 +800,7 @@ export function MobileApp({
                     onZipBackup={() => void perform(() => exportBackup(true))}
                     onTheme={(theme) => void perform(() => persistSettings({ theme }), true)}
                     onSettings={(settings) => void perform(() => persistSettings(settings), true)}
-                    onAutoBackup={() => void runAutoBackup()}
+                    onAutoBackup={() => void runAutoBackup(true)}
                     lastAutoBackupAt={native.lastAutoBackupAt}
                     onClear={() => void perform(() => act({ type: 'clear' }))}
                     onTableExport={(format) => void perform(() => exportTables(format))}

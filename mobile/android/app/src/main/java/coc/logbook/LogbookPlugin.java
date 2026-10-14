@@ -109,6 +109,19 @@ public final class LogbookPlugin extends Plugin {
             } catch (Exception error) { call.reject("读取失败；未清空数据。", error); }
         });
     }
+    /** Resume checks metadata/grants without transferring or validating all log bodies again. */
+    @PluginMethod public void getStatus(PluginCall call) {
+        execute(() -> {
+            try {
+                JSObject out = new JSObject(); out.put("revision", database.revision());
+                JSObject archive = location(false);
+                try { requireArchivePermission(prefs().getString("tree", "")); }
+                catch (Exception error) { archive.put("valid", false); }
+                out.put("archive", archive); out.put("lastAutoBackupAt", prefs().getLong("last-auto-backup", 0));
+                call.resolve(out);
+            } catch (Exception error) { call.reject("状态检查失败；未清空数据。", error); }
+        });
+    }
     @PluginMethod public void selectArchive(PluginCall call) {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
@@ -380,38 +393,95 @@ public final class LogbookPlugin extends Plugin {
                     throw new IllegalArgumentException("设置缺失或超过大小限制。");
                 validateSettings(settings);
                 requireArchivePermission(prefs().getString("tree", ""));
-                String current = database.snapshot();
-                if (current != null) validateJsonText(current);
-                JSONObject next = current == null ? emptySnapshot() : new JSONObject(current);
-                validateSnapshot(next);
                 String exportedAt = java.time.Instant.now().toString();
-                next.put("settings", settings); next.put("exportedAt", exportedAt);
-                long revision = database.replace(next.toString(), expected);
+                java.util.Map<String,String> fields = database.fields();
+                long revision;
+                if (fields == null) {
+                    JSONObject next = emptySnapshot(); next.put("settings", settings); next.put("exportedAt", exportedAt);
+                    revision = database.replace(next.toString(), expected);
+                } else {
+                    java.util.Map<String,String> changes = new java.util.LinkedHashMap<>();
+                    changes.put("settings", settings.toString()); changes.put("exportedAt", JSONObject.quote(exportedAt));
+                    revision = database.replaceFields(changes, expected);
+                }
                 JSObject out = new JSObject(); out.put("revision", revision); out.put("exportedAt", exportedAt);
                 call.resolve(out);
             } catch (Exception error) { call.reject("设置未保存：" + error.getMessage(), error); }
         });
     }
-    /** Structural equality avoids serializing the entire message cache twice just to detect a settings edit. */
-    private boolean sameJson(Object left, Object right) throws Exception {
-        if (left == right) return true;
-        if (left instanceof JSONObject && right instanceof JSONObject) {
-            JSONObject a = (JSONObject)left, b = (JSONObject)right;
-            if (a.length() != b.length()) return false;
-            java.util.Iterator<String> keys = a.keys();
-            while (keys.hasNext()) {
-                String key = keys.next();
-                if (!b.has(key) || !sameJson(a.get(key), b.get(key))) return false;
-            }
-            return true;
-        }
-        if (left instanceof JSONArray && right instanceof JSONArray) {
-            JSONArray a = (JSONArray)left, b = (JSONArray)right;
-            if (a.length() != b.length()) return false;
-            for (int i = 0; i < a.length(); i++) if (!sameJson(a.get(i), b.get(i))) return false;
-            return true;
-        }
-        return left != null && left.equals(right);
+    /** Validated module metadata cannot carry record bodies, settings or a safety bypass. */
+    @PluginMethod public void commitModule(PluginCall call) {
+        execute(() -> {
+            try {
+                Long expected = call.getData().has("expectedRevision") ? call.getData().getLong("expectedRevision") : null;
+                if (expected == null || expected != database.revision()) throw new IllegalStateException("数据已变化，请重新读取。");
+                JSONObject value = call.getObject("value");
+                if (value == null || value.toString().getBytes(StandardCharsets.UTF_8).length > 1024 * 1024) throw new IllegalArgumentException("模组数据缺失或过大。");
+                Set<String> allowed = new HashSet<>(Arrays.asList("id","name","playStatus","kps","pairs","order","collapsed","createdAt","updatedAt"));
+                if (value.length() != allowed.size()) throw new IllegalArgumentException("模组字段不完整。");
+                java.util.Iterator<String> keys = value.keys();
+                while (keys.hasNext()) if (!allowed.contains(keys.next())) throw new IllegalArgumentException("模组字段不合法。");
+                for (String key : new String[]{"id","name","playStatus","createdAt","updatedAt"})
+                    if (!(value.get(key) instanceof String)) throw new IllegalArgumentException("模组文本类型不合法。");
+                String id = value.getString("id"), name = value.getString("name").trim();
+                if (id.isEmpty() || name.isEmpty() || !Arrays.asList("running","finished","not_started").contains(value.getString("playStatus")) ||
+                    !(value.get("collapsed") instanceof Boolean) || !(value.get("order") instanceof Number) ||
+                    !Double.isFinite(((Number)value.get("order")).doubleValue())) throw new IllegalArgumentException("模组内容不合法。");
+                value.getString("createdAt"); value.getString("updatedAt");
+                requireArchivePermission(prefs().getString("tree", ""));
+                java.util.Map<String,String> fields = database.fields();
+                JSONObject empty = fields == null ? emptySnapshot() : null;
+                JSONArray modules = fields == null ? new JSONArray() : new JSONArray(fields.get("modules"));
+                JSONArray characters = fields == null ? new JSONArray() : new JSONArray(fields.get("characters"));
+                Set<String> characterIds = entityIds(characters), linked = new HashSet<>();
+                JSONArray pairs = value.getJSONArray("pairs"), kps = value.getJSONArray("kps"), trimmed = new JSONArray();
+                for (int i = 0; i < kps.length(); i++) {
+                    if (!(kps.get(i) instanceof String)) throw new IllegalArgumentException("KP 名称不合法。");
+                    String kp = kps.getString(i).trim(); if (!kp.isEmpty()) trimmed.put(kp);
+                }
+                for (int i = 0; i < pairs.length(); i++) {
+                    JSONObject pair = pairs.getJSONObject(i);
+                    java.util.Iterator<String> pairKeys = pair.keys();
+                    while (pairKeys.hasNext()) if (!Arrays.asList("pc","pl","characterId").contains(pairKeys.next())) throw new IllegalArgumentException("参与者字段不合法。");
+                    if (!(pair.get("pc") instanceof String) || !(pair.get("pl") instanceof String)) throw new IllegalArgumentException("参与者不合法。");
+                    if (pair.has("characterId")) {
+                        if (!(pair.get("characterId") instanceof String)) throw new IllegalArgumentException("角色标识不合法。");
+                        String cid = pair.getString("characterId");
+                        if (!characterIds.contains(cid)) throw new IllegalArgumentException("角色关联失效。");
+                        linked.add(cid);
+                        for (int j = 0; j < characters.length(); j++) if (cid.equals(characters.getJSONObject(j).getString("id")))
+                            pair.put("pc", characters.getJSONObject(j).getJSONObject("basic").getString("name"));
+                    }
+                }
+                String exportedAt = java.time.Instant.now().toString();
+                value.put("name", name); value.put("kps", trimmed); value.put("updatedAt", exportedAt);
+                boolean found = false;
+                for (int i = 0; i < modules.length(); i++) if (id.equals(modules.getJSONObject(i).getString("id"))) {
+                    value.put("createdAt", modules.getJSONObject(i).getString("createdAt")); modules.put(i, value); found = true; break;
+                }
+                if (!found) modules.put(value);
+                boolean linkedChanged = false;
+                for (int i = 0; i < characters.length(); i++) {
+                    JSONObject character = characters.getJSONObject(i);
+                    if (!linked.contains(character.getString("id"))) continue;
+                    JSONArray ids = character.getJSONArray("moduleIds"); boolean exists = false;
+                    for (int j = 0; j < ids.length(); j++) if (id.equals(ids.getString(j))) exists = true;
+                    if (!exists) { ids.put(id); linkedChanged = true; }
+                    if (!character.has("moduleId")) { character.put("moduleId", id); linkedChanged = true; }
+                }
+                long revision;
+                if (fields == null) {
+                    empty.put("modules", modules); empty.put("characters", characters); empty.put("exportedAt", exportedAt);
+                    revision = database.replace(empty.toString(), expected);
+                } else {
+                    java.util.Map<String,String> changes = new java.util.LinkedHashMap<>();
+                    changes.put("modules", modules.toString()); changes.put("exportedAt", JSONObject.quote(exportedAt));
+                    if (linkedChanged) changes.put("characters", characters.toString());
+                    revision = database.replaceFields(changes, expected);
+                }
+                JSObject result = new JSObject(); result.put("revision", revision); result.put("exportedAt", exportedAt); call.resolve(result);
+            } catch (Exception error) { call.reject("模组未保存：" + error.getMessage(), error); }
+        });
     }
     /** Android's JSONObject parser is lenient. Raw text may be persisted only after a strict JSON syntax check. */
     private void validateJsonText(String json) throws Exception {
@@ -423,32 +493,6 @@ public final class LogbookPlugin extends Plugin {
             if (reader.peek() != android.util.JsonToken.END_DOCUMENT) throw new IllegalArgumentException("JSON 包含多余内容。");
         }
     }
-    /** 0=settings, 1=ordinary checkpoint, 2=destructive; decided from stored entities, never caller flags. */
-    private int protectionLevel(JSONObject before, JSONObject next) throws Exception {
-        String[] groups = {"modules", "records", "characters"};
-        if (before == null) {
-            for (String group : groups) if (next.getJSONArray(group).length() > 0) return 1;
-            return 0;
-        }
-        boolean settingsOnly = true;
-        for (String group : groups) {
-            JSONArray oldRows = before.getJSONArray(group), rows = next.getJSONArray(group);
-            if (settingsOnly && !sameJson(oldRows, rows)) settingsOnly = false;
-            Set<String> ids = entityIds(rows);
-            for (int i = 0; i < oldRows.length(); i++) if (!ids.contains(oldRows.getJSONObject(i).getString("id"))) return 2;
-        }
-        if (settingsOnly) return 0;
-        java.util.Map<String, JSONObject> records = new java.util.HashMap<>();
-        JSONArray rows = next.getJSONArray("records");
-        for (int i = 0; i < rows.length(); i++) records.put(rows.getJSONObject(i).getString("id"), rows.getJSONObject(i));
-        JSONArray oldRows = before.getJSONArray("records");
-        for (int i = 0; i < oldRows.length(); i++) {
-            JSONObject old = oldRows.getJSONObject(i), row = records.get(old.getString("id"));
-            if (row == null || !old.optString("sourceType", "").equals(row.optString("sourceType", "")) ||
-                !old.optString("link", "").equals(row.optString("link", ""))) return 2;
-        }
-        return 1;
-    }
     /** Even settings/windowed saves must fail after a SAF grant is revoked. */
     private void requireArchivePermission(String tree) {
         boolean authorized = false;
@@ -459,7 +503,46 @@ public final class LogbookPlugin extends Plugin {
     }
     /** Only validated reorders skip the dedicated safety copy; all actions retain CAS and transactions. */
     @PluginMethod public void commitAction(PluginCall call) {
+        JSONObject action = call.getObject("action");
+        if (action != null && "reorder".equals(action.optString("type"))) {
+            commitReorder(call, action); return;
+        }
         commitSnapshot(call, false, true);
+    }
+    /** Sorting stores only small order values. Bodies are reconstructed exactly at read/export boundaries. */
+    private void commitReorder(PluginCall call, JSONObject action) {
+        execute(() -> {
+            try {
+                Long expected = call.getData().has("expectedRevision") ? call.getData().getLong("expectedRevision") : null;
+                if (expected == null || expected != database.revision()) throw new IllegalStateException("数据已变化，请重新读取。");
+                requireArchivePermission(prefs().getString("tree", ""));
+                java.util.Map<String,String> fields = database.fields();
+                if (fields == null) throw new IllegalStateException("尚无已保存数据。");
+                JSONObject data = new JSONObject();
+                data.put("modules", new JSONArray(fields.get("modules"))); data.put("characters", new JSONArray());
+                JSONArray records = new JSONArray();
+                JSONObject orders = new JSONObject(fields.containsKey("recordOrders") ? fields.get("recordOrders") : "{}");
+                String kind = action.getString("kind");
+                if ("record".equals(kind)) for (String raw : JsonFields.elements(fields.get("records"))) {
+                    java.util.Map<String,String> row = JsonFields.split(raw);
+                    JSONObject metadata = new JSONObject("{\"id\":" + row.get("id") + ",\"moduleId\":" + row.get("moduleId") + ",\"order\":" + row.get("order") + "}");
+                    String id = metadata.getString("id"); if (orders.has(id)) metadata.put("order", orders.get(id));
+                    records.put(metadata);
+                }
+                data.put("records", records); LogbookActions.apply(data, action);
+                java.util.Map<String,String> changes = new java.util.LinkedHashMap<>();
+                if ("module".equals(kind)) changes.put("modules", data.getJSONArray("modules").toString());
+                else {
+                    for (int i = 0; i < records.length(); i++) {
+                        JSONObject row = records.getJSONObject(i); orders.put(row.getString("id"), row.get("order"));
+                    }
+                    changes.put("recordOrders", orders.toString());
+                }
+                String exportedAt = data.getString("exportedAt"); changes.put("exportedAt", JSONObject.quote(exportedAt));
+                long revision = database.replaceFields(changes, expected);
+                JSObject result = new JSObject(); result.put("revision", revision); result.put("exportedAt", exportedAt); call.resolve(result);
+            } catch (Exception error) { call.reject("排序未保存：" + error.getMessage(), error); }
+        });
     }
     private void commitSnapshot(PluginCall call, boolean restoring) {
         commitSnapshot(call, restoring, false);
@@ -472,34 +555,19 @@ public final class LogbookPlugin extends Plugin {
                 if (restoring && !Boolean.TRUE.equals(call.getBoolean("confirmed", false))) throw new IllegalStateException("需要用户明确确认覆盖。");
                 Long expected = call.getData().has("expectedRevision") ? call.getData().getLong("expectedRevision") : null;
                 if (expected == null || expected != database.revision()) throw new IllegalStateException("数据已变化，请重新预览。");
-                String current = database.snapshot();
+                String current = actionOnly ? database.snapshot() : null;
                 if (actionOnly && current == null) throw new IllegalStateException("尚无已保存数据。");
                 String json = actionOnly ? current : call.getString("json", "");
                 if (json.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) throw new IllegalArgumentException("数据超过首阶段大小上限。");
                 if (!actionOnly) validateJsonText(json);
                 JSONObject next = new JSONObject(json); validateSnapshot(next);
-                boolean sorting = false;
                 if (actionOnly) {
                     JSONObject action = call.getObject("action");
                     if (action == null) throw new IllegalArgumentException("列表操作缺失。");
                     LogbookActions.apply(next, action); validateSnapshot(next);
-                    sorting = "reorder".equals(action.getString("type"));
                 }
-                int protection = restoring || (actionOnly && !sorting) ? 2 : sorting ? 0 : protectionLevel(current == null ? null : new JSONObject(current), next);
                 String tree = prefs().getString("tree", "");
                 requireArchivePermission(tree);
-                long now = System.currentTimeMillis(), lastSafety = prefs().getLong("ordinary-safety-at", 0);
-                boolean windowValid = tree.equals(prefs().getString("ordinary-safety-tree", "")) && lastSafety > 0 && now >= lastSafety && now - lastSafety < 10L * 60 * 1000;
-                JSObject safety = null;
-                if (protection == 2 || (protection == 1 && !windowValid)) {
-                    JSONObject envelope = new JSONObject(); envelope.put("format", "coc.logbook.android"); envelope.put("formatVersion", 1);
-                    envelope.put("exportedAt", java.time.Instant.now().toString()); envelope.put("restoreScope", new JSONArray(Arrays.asList("modules", "records", "characters")));
-                    // Embed the original JSON unchanged: parsing it again adds cost and can lose raw number precision.
-                    String metadata = envelope.toString();
-                    String safetyJson = metadata.substring(0, metadata.length() - 1) + ",\"snapshot\":" + (current == null ? emptySnapshot().toString() : current) + "}";
-                    // Only a fully read-back, user-visible safety copy permits the database transaction.
-                    safety = write((restoring ? "before-restore-" : "before-edit-") + System.currentTimeMillis() + ".json", "application/json", safetyJson.getBytes(StandardCharsets.UTF_8), "safety");
-                }
                 JSONArray files = restoring ? call.getArray("attachments") : null;
                 if (files != null) {
                     if (files.length() > 2000) throw new IllegalArgumentException("归档文件数量过多。");
@@ -517,11 +585,7 @@ public final class LogbookPlugin extends Plugin {
                 // Only native list actions mutate the parsed candidate and therefore require serialization here.
                 long revision = database.replace(actionOnly ? next.toString() : json, expected);
                 committed = true;
-                // Only successful commits advance a checkpoint. Destructive commits begin a new protection window.
-                if (protection == 1 && safety != null) prefs().edit().putLong("ordinary-safety-at", now).putString("ordinary-safety-tree", tree).apply();
-                else if (protection == 2) prefs().edit().remove("ordinary-safety-at").remove("ordinary-safety-tree").apply();
                 JSObject out = new JSObject(); out.put("revision", revision);
-                if (safety != null) out.put("safetyBackup", safety);
                 if (actionOnly) out.put("exportedAt", next.getString("exportedAt"));
                 call.resolve(out);
             } catch (Exception error) {

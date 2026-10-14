@@ -87,6 +87,6 @@ test('手机宽度：新建、取消、保存、重开和备份', async ({ page 
   await page.getByRole('button', { name: '保存安卓备份', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('备份已保存')
   await page.getByRole('button', { name: '刷新测试文件列表' }).click()
-  await expect(page.getByText('测试文件（2）', { exact: true })).toBeVisible()
+  await expect(page.getByText('测试文件（1）', { exact: true })).toBeVisible()
   expect(failures).toEqual([])
 })

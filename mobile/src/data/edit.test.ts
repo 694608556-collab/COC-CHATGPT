@@ -8,6 +8,34 @@ import type { LogbookPort } from './native'
 const load = async () =>
   (await previewBackup(new TextEncoder().encode(JSON.stringify(exampleBackup())))).snapshot
 describe('编辑数据保护', () => {
+  it('模组小请求不编码未改正文，保存确认后返回完整未改内容', async () => {
+    const current = await load()
+    const body = current.records[0]!.rawContent!
+    Object.defineProperty(body, 'toJSON', {
+      value: () => {
+        throw new Error('未改正文被重复编码')
+      }
+    })
+    const port = {
+      commitEdit: async () => {
+        throw new Error('模组不应提交完整正文')
+      },
+      commitModule: async (options: { value: unknown; expectedRevision: number }) => {
+        expect(options.expectedRevision).toBe(7)
+        expect(JSON.stringify(options.value)).not.toContain('离线正文')
+        return { revision: 8, exportedAt: '2026-10-15T00:00:00Z' }
+      }
+    }
+    const result = await saveEdit(
+      port,
+      current,
+      { kind: 'module', value: { ...current.modules[0]!, name: '快速改名' } },
+      7
+    )
+    expect(result.snapshot.modules[0]!.name).toBe('快速改名')
+    expect(result.snapshot.records[0]!.rawContent!.messages[0]!.text).toBe('离线正文')
+    expect(current.modules[0]!.name).not.toBe('快速改名')
+  })
   it('手填伤害加值保存原文，移除公式入口后旧公式不阻止其他字段保存', async () => {
     const current = await load()
     const character = createEmptyCharacter({ edition: 7, name: '手填伤害测试' })
@@ -101,14 +129,18 @@ describe('编辑数据保护', () => {
     const current = await load()
     const before = JSON.stringify(current)
     const port = {
+      commitModule: async (options: { expectedRevision: number }) => {
+        expect(options.expectedRevision).toBe(9)
+        throw new Error('存储失败')
+      },
       commitEdit: async (options: { expectedRevision: number }) => {
         expect(options.expectedRevision).toBe(9)
         throw new Error('安全副本失败')
       }
-    } satisfies Pick<LogbookPort, 'commitEdit'>
+    } satisfies Pick<LogbookPort, 'commitEdit' | 'commitModule'>
     await expect(
       saveEdit(port, current, { kind: 'module', value: { ...current.modules[0]!, name: '修改' } }, 9)
-    ).rejects.toThrow('安全副本失败')
+    ).rejects.toThrow('存储失败')
     expect(JSON.stringify(current)).toBe(before)
   })
 })

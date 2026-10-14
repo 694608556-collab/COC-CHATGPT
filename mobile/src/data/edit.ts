@@ -16,7 +16,7 @@ export type Edit =
  * @returns 校验后的新快照；场次名留空时按当前序号生成“第 N 场”。
  */
 export async function applyEdit(current: MobileSnapshot, edit: Edit): Promise<MobileSnapshot> {
-  const next: MobileSnapshot = JSON.parse(JSON.stringify(current))
+  const next: MobileSnapshot = { ...current }
   const now = new Date().toISOString()
   if (edit.kind === 'module') {
     if (!edit.value.name.trim()) throw new Error('请填写模组名称。')
@@ -131,24 +131,57 @@ export async function applyEdit(current: MobileSnapshot, edit: Edit): Promise<Mo
     )
   }
   next.exportedAt = now
-  return (await previewBackup(new TextEncoder().encode(JSON.stringify(next)))).snapshot
+  // 未改动的正文已在读取边界校验。只校验本次实体和全部关联，避免改名扫描每场正文。
+  const checked = (
+    await previewBackup(
+      new TextEncoder().encode(
+        JSON.stringify({
+          ...next,
+          records: edit.kind === 'record' ? next.records.filter((row) => row.id === edit.value.id) : []
+        })
+      )
+    )
+  ).snapshot
+  return {
+    ...next,
+    modules: checked.modules,
+    characters: checked.characters,
+    records:
+      edit.kind === 'record'
+        ? next.records.map((row) => (row.id === edit.value.id ? checked.records[0]! : row))
+        : next.records
+  }
 }
 
 /**
  * 保存校验后的编辑，并仅在存储确认后返回同一候选供界面展示，避免即时全量重读。
- * @param port - 持久化边界，负责版本检查、分级副本及事务。
+ * @param port - 持久化边界，负责版本检查、授权及事务；模组使用小请求。
  * @param current - 当前已读取的快照，不原地修改。
  * @param edit - 待保存草稿。
  * @param revision - 打开编辑时的持久化版本。
- * @returns 已提交版本、候选快照/JSON 及本次实际创建的可选副本；失败不返回候选。
+ * @returns 已提交版本与候选快照；模组不缓存大 JSON，失败不返回候选。
  */
 export async function saveEdit(
-  port: Pick<LogbookPort, 'commitEdit'>,
+  port: Pick<LogbookPort, 'commitEdit' | 'commitModule'>,
   current: MobileSnapshot,
   edit: Edit,
   revision: number
 ) {
   const next = await applyEdit(current, edit)
+  if (edit.kind === 'module') {
+    const result = await port.commitModule({
+      value: next.modules.find((row) => row.id === edit.value.id)!,
+      expectedRevision: revision
+    })
+    const snapshot = {
+      ...next,
+      exportedAt: result.exportedAt,
+      modules: next.modules.map((row) =>
+        row.id === edit.value.id ? { ...row, updatedAt: result.exportedAt } : row
+      )
+    }
+    return { ...result, snapshot, json: null, safetyBackup: undefined }
+  }
   const json = JSON.stringify(next)
   const result = await port.commitEdit({
     json,

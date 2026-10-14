@@ -106,7 +106,7 @@ export function Editor(props: {
       <h2 ref={heading} tabIndex={-1}>
         {title}
       </h2>
-      <p className="muted">普通编辑每 10 分钟合并安全副本；危险变更单独保护。取消不会改变已保存数据。</p>
+      <p className="muted">保存后更新本机数据；取消不会改变已保存数据。</p>
       {error && <SystemMessage kind="error" message={error} onDismiss={() => setError('')} />}
       <form
         onSubmit={(event) => {

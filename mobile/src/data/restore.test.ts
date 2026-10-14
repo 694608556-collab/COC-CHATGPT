@@ -6,10 +6,10 @@ import type { LogbookPort, NativeState } from './native'
 
 /**
  * 模拟原生存储这一系统边界，不模拟应用内部服务。
- * @param failSafety - 文件系统是否拒绝创建安全副本。
+ * @param failSave - 是否拒绝提交事务。
  * @returns 可通过公开 getState 观察的原生端口。
  */
-function deviceStore(failSafety = false): LogbookPort {
+function deviceStore(failSave = false): LogbookPort {
   let state: NativeState = {
     networkConnected: false,
     json: null,
@@ -17,6 +17,10 @@ function deviceStore(failSafety = false): LogbookPort {
     archive: { uri: 'content://example/tree', label: '测试目录', valid: true }
   }
   return {
+    getStatus: async () => ({ revision: state.revision, archive: state.archive }),
+    commitModule: async () => {
+      throw new Error('测试未调用模组保存')
+    },
     listDocuments: async () => ({ documents: [] }),
     readDocument: async () => {
       throw new Error('测试未调用归档读取')
@@ -51,16 +55,10 @@ function deviceStore(failSafety = false): LogbookPort {
     commitRestore: async ({ json, expectedRevision, confirmed }) => {
       if (!confirmed) throw new Error('未确认')
       if (expectedRevision !== state.revision) throw new Error('已变化')
-      if (failSafety) throw new Error('安全备份失败')
+      if (failSave) throw new Error('事务保存失败')
       state = { ...state, json, revision: state.revision + 1 }
       return {
-        revision: state.revision,
-        safetyBackup: {
-          uri: 'content://example/safety.json',
-          name: 'safety.json',
-          bytes: 1,
-          sha256: 'example'
-        }
+        revision: state.revision
       }
     }
   }
@@ -95,7 +93,7 @@ describe('恢复确认与持久化公共边界', () => {
     })
     expect(JSON.parse((await device.getState()).json!).settings.theme).toBe('light')
   })
-  it('安全副本创建失败时当前保存数据不变', async () => {
+  it('事务保存失败时当前保存数据不变', async () => {
     const device = deviceStore(true)
     const preview = await previewBackup(new TextEncoder().encode(JSON.stringify(exampleBackup())))
     await expect(
@@ -105,7 +103,7 @@ describe('恢复确认与持久化公共边界', () => {
         revision: 0,
         current: preview.snapshot
       })
-    ).rejects.toThrow('安全备份失败')
+    ).rejects.toThrow('事务保存失败')
     expect((await device.getState()).json).toBeNull()
   })
   it('覆盖序号过期时不改变已保存的正文', async () => {

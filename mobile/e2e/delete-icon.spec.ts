@@ -35,7 +35,7 @@ test('左滑灰色圆角 × 仍确认删除，取消不改变场次', async ({ p
   const confirmation = page.getByRole('dialog', { name: '确认操作', exact: true })
   await page.removeLocatorHandler(confirmation)
   await remove.click()
-  await expect(confirmation).toContainText('安全副本')
+  await expect(confirmation).toContainText('删除此场次')
   await confirmation.getByRole('button', { name: '取消', exact: true }).click()
   await expect(rows).toHaveCount(4)
   await swipeLeft(page, rows.first())

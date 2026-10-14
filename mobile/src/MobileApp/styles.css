@@ -195,6 +195,10 @@ button[aria-pressed='true'] {
 * {
   box-sizing: border-box;
 }
+/* 包含 summary、可聚焦标题和 article，避免旧 WebView 自动画橙色矩形。 */
+:focus {
+  outline: 0;
+}
 body {
   margin: 0;
   min-width: 280px;
@@ -507,7 +511,10 @@ main {
 .reader-actions {
   display: flex;
   justify-content: flex-start;
-  margin-bottom: 14px;
+  margin-bottom: 0;
+}
+.reader-actions + .entity-actions {
+  margin-top: 0;
 }
 .source-link {
   overflow-wrap: break-word;
@@ -576,6 +583,19 @@ main {
 }
 .details dd {
   margin: 0;
+}
+.character-basic {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.character-basic > div {
+  display: block;
+  min-width: 0;
+}
+.character-basic dd {
+  max-width: none;
+  margin-top: 4px;
 }
 .attribute-grid {
   display: grid;
@@ -848,6 +868,24 @@ input[type='checkbox']:checked::after {
 .items-display-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
+.skill-editor-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (min-width: 500px) {
+  .skill-editor-grid {
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  }
+}
+.skill-editor-grid .skill-edit-row {
+  grid-template-columns: minmax(0, 1fr) 28px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.skill-editor-grid .skill-edit-row input:first-child {
+  grid-column: 1 / -1;
+  padding: 6px 3px;
+}
 .items-display-grid {
   display: grid;
   gap: 8px;
@@ -878,7 +916,7 @@ input[type='checkbox']:checked::after {
 }
 .system-message {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   opacity: 1;
   transition: opacity 300ms ease;
 }
@@ -892,7 +930,7 @@ input[type='checkbox']:checked::after {
 }
 .message-symbol {
   flex: 0 0 16px;
-  margin: 5px 8px 0 0;
+  margin: 0 8px 0 0;
   color: var(--muted);
 }
 .system-message.error .message-symbol {

@@ -83,8 +83,8 @@ export function DataSettings(props: {
       <section className="panel">
         <h2>自动本地备份</h2>
         <p className="muted">
-          安全副本与自动备份独立：设置、排序不生成全量副本；普通编辑每 10
-          分钟合并保护；删除、清空、导入覆盖和更换正文来源单独保护。已有副本不删除。
+          编辑、设置、排序、删除和导入直接保存最新数据，不额外生成操作前副本。 启用自动备份后，默认至少间隔 10
+          分钟且有修改才备份；已有副本保留。
         </p>
         <label className="check">
           <input
@@ -117,7 +117,7 @@ export function DataSettings(props: {
             })
           }
           options={[
-            { value: 'idle', label: '修改后空闲备份' },
+            { value: 'idle', label: '每 10 分钟（有修改时）' },
             { value: 'daily', label: '每日' },
             { value: 'weekly', label: '每周' }
           ]}
@@ -215,7 +215,7 @@ export function DataSettings(props: {
       </section>
       <section className="panel">
         <h2>清空应用数据</h2>
-        <p>清空模组、场次和角色卡，保留设置及归档文件。确认后先生成安全副本。</p>
+        <p>清空模组、场次和角色卡，保留设置及归档文件。不会生成操作前副本，需要时请先手动备份。</p>
         <button disabled={props.busy} className="danger" onClick={props.onClear}>
           清空应用数据
         </button>
@@ -241,6 +241,13 @@ export function DataSettings(props: {
             </button>
           </section>
         ))}
+      </section>
+      <section className="panel" aria-label="版本说明">
+        <h2>版本说明</h2>
+        <p>0.2.12-dev</p>
+        <p>数据仅本机保存、无账户</p>
+        <p>仅海豹链接相关联网</p>
+        <p>应用制作：亦如长风万里沙</p>
       </section>
     </>
   )
