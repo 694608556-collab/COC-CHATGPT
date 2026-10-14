@@ -348,12 +348,16 @@ main {
   display: flex;
   background: var(--panel);
   border-top: 1px solid var(--line);
-  padding: 6px 8px;
-  padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+  padding: 3px 8px;
+  /* Keep the existing 12 px home-gesture strip outside the navigation buttons. */
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   z-index: 10;
 }
 .bottom-nav button {
   flex: 1;
+  min-width: 0;
+  padding: 3px 8px;
+  line-height: 1.2;
   border: 0;
   border-radius: 9px;
   background: none;
@@ -362,13 +366,18 @@ main {
 }
 .bottom-nav button > span {
   display: block;
-  font-size: 23px;
-  line-height: 1.2;
+  font-size: 20px;
+  line-height: 1;
 }
 .bottom-nav .nav-icon {
   display: flex;
   justify-content: center;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
+  height: 20px;
+}
+.bottom-nav .nav-icon svg {
+  width: 20px;
+  height: 20px;
 }
 .danger {
   color: #b92734;
