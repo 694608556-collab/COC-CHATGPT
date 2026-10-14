@@ -8,6 +8,18 @@ import type { LogbookPort } from './native'
 const load = async () =>
   (await previewBackup(new TextEncoder().encode(JSON.stringify(exampleBackup())))).snapshot
 describe('编辑数据保护', () => {
+  it('手填伤害加值保存原文，移除公式入口后旧公式不阻止其他字段保存', async () => {
+    const current = await load()
+    const character = createEmptyCharacter({ edition: 7, name: '手填伤害测试' })
+    character.occupationFormula = '旧自定义公式'
+    character.derived.db = '+2D6（手填）'
+    current.characters = [character]
+    const next = await applyEdit(current, { kind: 'character', value: { ...character, items: ['钱包'] } })
+    expect(next.characters[0]?.derived.db).toBe('+2D6（手填）')
+    expect(next.characters[0]?.occupationFormula).toBe('旧自定义公式')
+    expect(next.characters[0]?.items).toEqual(['钱包'])
+    expect(current.characters[0]?.items).toEqual([])
+  })
   it('编辑在线场次名称保留正文、来源及无关数据，原快照不变', async () => {
     const current = await load()
     const before = JSON.stringify(current)

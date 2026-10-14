@@ -2,7 +2,6 @@ import type { CharacterData, ModuleRecord, SessionRecord } from '../../../src/sh
 import type { MobileSnapshot } from './types'
 import type { LogbookPort } from './native'
 import { previewBackup } from './backup'
-import { occupationPoints } from '../../../src/shared/coc-rules'
 
 export type Edit =
   | { kind: 'module'; value: ModuleRecord }
@@ -69,7 +68,6 @@ export async function applyEdit(current: MobileSnapshot, edit: Edit): Promise<Mo
   } else {
     if (!edit.value.basic.name.trim()) throw new Error('请填写角色姓名。')
     const old = next.characters.find((c) => c.id === edit.value.id)
-    occupationPoints(edit.value)
     const value = {
       ...edit.value,
       basic: { ...edit.value.basic, name: edit.value.basic.name.trim() },

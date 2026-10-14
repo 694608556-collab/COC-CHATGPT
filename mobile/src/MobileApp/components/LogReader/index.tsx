@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { FilterPreset, SessionRecord } from '../../../../../src/shared/types'
 import { applyLogFilters } from '../../../../../src/shared/log-filter'
 import { matchRanges, searchExcerpt } from '../../../data/search'
+import { SystemMessage } from '../SystemMessage'
 
 function Highlight({ text, query }: { text: string; query: string }) {
   const ranges = matchRanges(text, query)
@@ -35,13 +36,14 @@ export function LogReader(props: {
   onExport(filters: FilterPreset): void
   onExportMore(filters: FilterPreset): void
 }) {
-  const [filters, setFilters] = useState(props.preset)
+  const filters = props.preset
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
   const [selectedHit, setSelectedHit] = useState<number | null>(null)
   const [resultPage, setResultPage] = useState(0)
   const [jumpRequest, setJumpRequest] = useState<{ index: number; serial: number }>()
   const messageNodes = useRef(new Map<number, HTMLElement>())
+  const searchInput = useRef<HTMLInputElement>(null)
   const needle = query.trim()
   const messages = useMemo(
     () =>
@@ -123,7 +125,10 @@ export function LogReader(props: {
         </p>
         {props.record.link && <p className="source-link">来源：{props.record.link}</p>}
         {!hasBody && (
-          <p className="warning">此场次尚未保存正文。在线场次可获取正文，手动场次可通过编辑填写正文。</p>
+          <SystemMessage
+            kind="warning"
+            message="此场次尚未保存正文。在线场次可获取正文，手动场次可通过编辑填写正文。"
+          />
         )}
       </section>
       {hasBody && (
@@ -137,50 +142,46 @@ export function LogReader(props: {
           >
             <label className="field">
               搜索整场正文
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value)
-                  resetSearchPosition()
-                }}
-                placeholder="发言者或正文文字"
-              />
-            </label>
-            <div className="edit-actions">
-              <button type="submit" disabled={!hits.length}>
-                搜索
-              </button>
-              <button
-                type="button"
-                disabled={!query}
-                onClick={() => {
-                  setQuery('')
-                  resetSearchPosition()
-                }}
-              >
-                清除搜索
-              </button>
-            </div>
-          </form>
-          {!!props.record.rawContent && (
-            <div className="filters">
-              {(['hideDiceCommands', 'hideOffTopic', 'hideTime'] as const).map((key) => (
-                <label className="check" key={key}>
-                  <input
-                    type="checkbox"
-                    checked={filters[key]}
-                    onChange={(e) => {
-                      setFilters({ ...filters, [key]: e.target.checked })
-                      setPage(0)
+              <span className="search-input-wrap">
+                <input
+                  type="search"
+                  ref={searchInput}
+                  enterKeyHint="search"
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value)
+                    resetSearchPosition()
+                  }}
+                  placeholder="发言者或正文文字"
+                />
+                {query && (
+                  <button
+                    type="button"
+                    className="search-clear"
+                    aria-label="清空正文搜索"
+                    onClick={() => {
+                      setQuery('')
                       resetSearchPosition()
+                      searchInput.current?.focus()
                     }}
-                  />
-                  {{ hideDiceCommands: '隐藏骰指令', hideOffTopic: '隐藏题外话', hideTime: '隐藏时间' }[key]}
-                </label>
-              ))}
-            </div>
-          )}
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      aria-hidden="true"
+                    >
+                      <path d="m6 6 12 12M18 6 6 18" />
+                    </svg>
+                  </button>
+                )}
+              </span>
+            </label>
+          </form>
           {needle && (
             <section className="panel search-results" aria-label="搜索结果">
               <p role="status">
@@ -188,7 +189,7 @@ export function LogReader(props: {
                 。按当前过滤条件搜索。
               </p>
               {!hits.length ? (
-                <p>没有找到匹配内容，可修改关键词或取消过滤。</p>
+                <p>没有找到匹配内容，可修改关键词，或到数据与设置调整隐藏规则。</p>
               ) : (
                 <>
                   <div className="edit-actions">

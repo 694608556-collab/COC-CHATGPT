@@ -64,6 +64,27 @@ export function GestureRow(props: GestureRowProps) {
     },
     []
   )
+  useEffect(() => {
+    const reset = () => {
+      if (active.current) suppressClick.current = Date.now() + 450
+      cleanup.current()
+      setVisualMode('')
+      setReveal(false)
+      testingRef.current?.cancel()
+    }
+    const visibility = () => {
+      if (document.hidden) reset()
+    }
+    window.addEventListener('logbook-gesture-reset', reset)
+    window.addEventListener('pagehide', reset)
+    document.addEventListener('visibilitychange', visibility)
+    return () => {
+      reset()
+      window.removeEventListener('logbook-gesture-reset', reset)
+      window.removeEventListener('pagehide', reset)
+      document.removeEventListener('visibilitychange', visibility)
+    }
+  }, [])
 
   /**
    * 启动单次手势，松开或取消时移除监听和动画帧。
@@ -107,29 +128,38 @@ export function GestureRow(props: GestureRowProps) {
     let mode = fromHandle ? 'drag' : ''
     let deltaX = 0
     let deltaY = 0
-    let drop: HTMLElement | undefined
+    let targetId: string | undefined
+    let finished = false
     let lastY = y
     let paintFrame = 0
-    let pendingMotion = { x: 0, y: 0, mode: '' }
-    let targets: Array<{ node: HTMLElement; top: number; bottom: number }> = []
+    let swipeOffset = 0
+    let targets: Array<{
+      node: HTMLElement
+      id: string
+      top: number
+      height: number
+      center: number
+      gap: number
+    }> = []
+    let sourceIndex = -1
+    let previewIndex = -1
+    let sourceNode: HTMLElement | undefined
+    const owner = root.current
     /** @returns 无返回值；每帧统一滚动、目标标记和位移，移动事件不再反复改样式。 */
     function paint() {
       paintFrame = 0
       const distance = mode === 'drag' ? (lastY > innerHeight - 110 ? 10 : lastY < 70 ? -10 : 0) : 0
       if (distance) window.scrollBy(0, distance)
       const scroll = window.scrollY
-      if (mode === 'drag') updateDrop(lastY + scroll)
-      if (content)
-        content.style.transform = `translate3d(${pendingMotion.x}px, ${mode === 'drag' ? deltaY + scroll - startScrollY : 0}px, 0)`
+      if (mode === 'drag') {
+        updateDrop(deltaY + scroll - startScrollY)
+        if (sourceNode) sourceNode.style.transform = `translate3d(0, ${deltaY + scroll - startScrollY}px, 0)`
+      } else if (content) content.style.transform = `translate3d(${swipeOffset}px, 0, 0)`
       if (distance) paintFrame = requestAnimationFrame(paint)
     }
     /** @returns 无返回值；合并当前手势位移到下一绘制帧。 */
     function schedulePaint() {
-      pendingMotion = {
-        x: mode === 'swipe' ? Math.max(-56, Math.min(0, (reveal ? -56 : 0) + deltaX)) : 0,
-        y: mode === 'drag' ? deltaY + window.scrollY - startScrollY : 0,
-        mode
-      }
+      swipeOffset = mode === 'swipe' ? Math.max(-56, Math.min(0, (reveal ? -56 : 0) + deltaX)) : 0
       if (!paintFrame) paintFrame = requestAnimationFrame(paint)
     }
     const timer = fromHandle
@@ -139,32 +169,73 @@ export function GestureRow(props: GestureRowProps) {
           capture()
           setVisualMode('held')
         }, 480)
-    /** @returns 无返回值；清理上一个目标的视觉标记。 */
-    const unmark = () => {
-      drop?.classList.remove('drop-target')
-      drop = undefined
-    }
     /** @returns 无返回值；读取一次未变形的目标位置，不在移动事件中强制全列表布局。 */
     function captureTargets() {
       targets = Array.from(document.querySelectorAll<HTMLElement>('[data-drag-id]'))
-        .filter(
-          (node) =>
-            node.dataset.dragGroup === latest.current.group && node.dataset.dragId !== latest.current.id
-        )
-        .map((node) => {
+        .filter((node) => node.dataset.dragGroup === latest.current.group)
+        .map((row) => {
+          const node = latest.current.group === 'modules' ? row.closest<HTMLElement>('.module-group')! : row
           const box = node.getBoundingClientRect()
-          return { node, top: box.top + window.scrollY, bottom: box.bottom + window.scrollY }
+          const handleBox = row.getBoundingClientRect()
+          return {
+            node,
+            id: row.dataset.dragId!,
+            top: box.top + window.scrollY,
+            height: box.height,
+            center: handleBox.top + window.scrollY + handleBox.height / 2,
+            gap: 0
+          }
         })
-    }
-    /** @param position - 手指的文档纵坐标，CSS px。 @returns 无返回值；滚动不会使缓存失效。 */
-    function updateDrop(position: number) {
-      const within = targets.find((item) => position >= item.top && position <= item.bottom)?.node
-      if (within === drop) return
-      unmark()
-      if (within) {
-        drop = within
-        drop.classList.add('drop-target')
+      targets.forEach((item, index) => {
+        item.gap = Math.max(
+          0,
+          (targets[index + 1]?.top ?? item.top + item.height + 8) - item.top - item.height
+        )
+      })
+      sourceIndex = targets.findIndex((item) => item.id === latest.current.id)
+      sourceNode = targets[sourceIndex]?.node
+      sourceNode?.classList.add('drag-source')
+      if (sourceNode) {
+        sourceNode.style.willChange = 'transform'
+        sourceNode.style.transition = 'none'
       }
+    }
+    /** @param offset - 源行相对原位置的纵向位移。 @returns 无返回值；只预览让位，不写入数据。 */
+    function updateDrop(offset: number) {
+      const source = targets[sourceIndex]
+      if (!source) return
+      const center = source.center + offset
+      let index = sourceIndex
+      let closest = Infinity
+      targets.forEach((item, candidate) => {
+        const distance = Math.abs(center - item.center)
+        if (distance < closest) {
+          closest = distance
+          index = candidate
+        }
+      })
+      targetId = index === sourceIndex ? undefined : targets[index]!.id
+      if (index === previewIndex) return
+      previewIndex = index
+      const order = targets.slice()
+      order.splice(sourceIndex, 1)
+      order.splice(index, 0, source)
+      let top = targets[0]!.top
+      order.forEach((item) => {
+        if (item !== source) {
+          const offset = top - item.top
+          if (Math.abs(offset) > 0.5) {
+            item.node.style.transition = 'transform 120ms ease-out'
+            item.node.style.transform = `translate3d(0, ${offset}px, 0)`
+            item.node.dataset.dragPreview = 'true'
+          } else {
+            item.node.style.removeProperty('transform')
+            item.node.style.removeProperty('transition')
+            delete item.node.dataset.dragPreview
+          }
+        }
+        top += item.height + item.gap
+      })
     }
     /**
      * 分类横滑/拖动；普通纵向滚动不提交业务操作。
@@ -200,7 +271,6 @@ export function GestureRow(props: GestureRowProps) {
       if ((armed || mode) && event.cancelable) event.preventDefault()
       if (mode === 'swipe') schedulePaint()
       if (mode === 'drag') {
-        setReveal(false)
         schedulePaint()
       }
     }
@@ -210,14 +280,15 @@ export function GestureRow(props: GestureRowProps) {
      * @returns 无返回值。
      */
     function finish(cancelled = false) {
+      if (finished) return
+      finished = true
       clearTimeout(timer)
       // 松手可能早于已排队的绘制帧；使用最新触摸位置决定目标，不丢失最后一段移动。
-      if (mode === 'drag' && !cancelled) updateDrop(lastY + window.scrollY)
-      const targetId = drop?.dataset.dragId
+      if (mode === 'drag' && !cancelled) updateDrop(deltaY + window.scrollY - startScrollY)
       cleanup.current()
       setVisualMode('')
-      if (cancelled) return
       if (mode || armed) suppressClick.current = Date.now() + 450
+      if (cancelled) return
       if (mode === 'swipe') setReveal((reveal ? -56 : 0) + deltaX < -28)
       else if (mode === 'drag' && targetId && !latest.current.disabled) latest.current.onReorder?.(targetId)
       else if (armed && !mode) latest.current.onHold?.()
@@ -236,6 +307,16 @@ export function GestureRow(props: GestureRowProps) {
     }
     const end = () => finish()
     const cancel = () => finish(true)
+    const lostCapture = (event: PointerEvent) => {
+      // 触屏子元素的隐式捕获会先于 touchend 释放；只有本行主动捕获丢失才取消。
+      if (pointerId !== undefined && event.pointerId === pointerId && event.target === owner) finish(true)
+    }
+    const extraTouch = (event: TouchEvent) => {
+      if (event.touches.length !== 1) finish(true)
+    }
+    const visibility = () => {
+      if (document.hidden) finish(true)
+    }
     const pointerEnd = (event: PointerEvent) => {
       if (event.pointerId === pointerId) finish()
     }
@@ -255,12 +336,25 @@ export function GestureRow(props: GestureRowProps) {
       window.addEventListener('mouseup', end)
     }
     window.addEventListener('blur', cancel)
+    window.addEventListener('touchstart', extraTouch)
+    window.addEventListener('pagehide', cancel)
+    window.addEventListener('resize', cancel)
+    document.addEventListener('visibilitychange', visibility)
+    owner?.addEventListener('lostpointercapture', lostCapture)
     cleanup.current = () => {
       active.current = false
       clearTimeout(timer)
       cancelAnimationFrame(paintFrame)
       // React only owns gesture classes; always release the imperative transform on every exit.
       content?.style.removeProperty('transform')
+      owner?.classList.remove('drag', 'swipe', 'held')
+      targets.forEach(({ node }) => {
+        node.style.removeProperty('transform')
+        node.style.removeProperty('transition')
+        node.style.removeProperty('will-change')
+        node.classList.remove('drag-source', 'drop-target')
+        delete node.dataset.dragPreview
+      })
       window.removeEventListener('touchmove', touchMove)
       window.removeEventListener('touchend', end)
       window.removeEventListener('touchcancel', cancel)
@@ -269,10 +363,14 @@ export function GestureRow(props: GestureRowProps) {
       window.removeEventListener('pointermove', pointerMove)
       window.removeEventListener('pointerup', pointerEnd)
       window.removeEventListener('pointercancel', pointerCancel)
-      if (pointerId !== undefined && root.current?.hasPointerCapture(pointerId))
-        root.current.releasePointerCapture(pointerId)
+      owner?.removeEventListener('lostpointercapture', lostCapture)
+      if (pointerId !== undefined && owner?.hasPointerCapture(pointerId))
+        owner.releasePointerCapture(pointerId)
       window.removeEventListener('blur', cancel)
-      unmark()
+      window.removeEventListener('touchstart', extraTouch)
+      window.removeEventListener('pagehide', cancel)
+      window.removeEventListener('resize', cancel)
+      document.removeEventListener('visibilitychange', visibility)
       cleanup.current = () => {}
     }
     if (fromHandle) {

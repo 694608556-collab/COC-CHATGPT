@@ -57,10 +57,6 @@ final class LogbookActions {
             int targetIndex = rows.indexOf(target);
             rows.remove(selected); rows.add(targetIndex, selected);
             for (int i = 0; i < rows.size(); i++) rows.get(i).put("order", i);
-        } else if ("realign".equals(type)) {
-            String moduleId = action.getString("moduleId"); find(modules, moduleId);
-            List<JSONObject> rows = ordered(records, moduleId);
-            for (int i = 0; i < rows.size(); i++) rows.get(i).put("sequenceNo", i + 1);
         } else if ("reset".equals(type)) {
             JSONObject record = find(records, action.getString("id"));
             if ("online".equals(record.getString("sourceType"))) {

@@ -19,6 +19,7 @@ import { saveEdit } from '../data/edit'
 import type { Edit } from '../data/edit'
 import { createEmptyCharacter } from '../../../src/shared/coc-rules'
 import { NavIcon } from './components/NavIcon'
+import { SystemMessage } from './components/SystemMessage'
 import { applyAction } from '../data/actions'
 import type { DataAction } from '../data/actions'
 import { fetchRecord } from '../data/network'
@@ -115,14 +116,16 @@ export function MobileApp({
     const before = snapshot
     // 先展示待保存的列表位置，但不解锁第二次写入；安全提交失败必须回到原列表。
     setSnapshot(next)
-    setNotice('正在保存列表操作并校验安全副本；仍可阅读和切换页面。')
+    setNotice(action.type === 'reorder' ? '正在保存排序…' : '正在保存操作并校验安全副本…')
     let result: Awaited<ReturnType<LogbookPort['commitAction']>>
     try {
       result = await port.commitAction({ action, expectedRevision: native.revision })
     } catch (reason) {
       setSnapshot(before)
       setNotice('本次操作未保存，列表已恢复。')
-      throw reason
+      throw new Error(
+        '本次操作未保存，列表已恢复。' + (reason instanceof Error ? reason.message : '请重新读取。')
+      )
     }
     // 安全提交后确认时间/版本；失效的大 JSON 缓存不用于自动备份。
     setSnapshot({ ...next, exportedAt: result.exportedAt })
@@ -131,7 +134,7 @@ export function MobileApp({
       setRecord((current) => current && next.records.find((item) => item.id === current.id))
       setSelectedCharacter((current) => (next.characters.some((item) => item.id === current) ? current : ''))
     }
-    setNotice('操作已保存，安全副本已生成。')
+    setNotice(action.type === 'reorder' ? '排序已保存。' : '操作已保存，安全副本已生成。')
   }
   async function probe(ids: string[]) {
     const next = { ...snapshot, records: [...snapshot.records] }
@@ -143,9 +146,10 @@ export function MobileApp({
     await commit(next)
     if (record) setRecord(next.records.find((r) => r.id === record.id))
     const failures = next.records.filter((r) => ids.includes(r.id) && r.status !== 'valid').length
-    setNotice(
+    const summary =
       '获取完成：' + (ids.length - failures) + ' 个成功，' + failures + ' 个失败。已有正文在失败时保留。'
-    )
+    if (failures) setError(summary)
+    else setNotice(summary)
   }
   async function exportSelected(format: ExportFormat) {
     if (!exportRequest) return
@@ -260,6 +264,7 @@ export function MobileApp({
   useNavigationGestures(() => backHandler.current(), requestHome)
   /** @returns 无返回值；回桌面仅后台化，不清除草稿；写入期间拒绝应用内退出。 */
   function requestHome() {
+    window.dispatchEvent(new Event('logbook-gesture-reset'))
     if (busyLock.current) {
       setNotice('数据正在处理，请完成后再返回桌面。')
       return
@@ -295,6 +300,7 @@ export function MobileApp({
     let removeResume: (() => Promise<void>) | undefined
     if (Capacitor.isNativePlatform())
       void CapacitorApp.addListener('appStateChange', (state) => {
+        window.dispatchEvent(new Event('logbook-gesture-reset'))
         if (state.isActive && !busyLock.current) void perform(reload)
       }).then((handle) => {
         if (disposed) void handle.remove()
@@ -326,13 +332,14 @@ export function MobileApp({
       }
     })
   }
-  function newRecord(sourceType: 'manual' | 'online' = 'manual') {
+  function newRecord(moduleId: string, sourceType: 'manual' | 'online' = 'manual') {
+    if (!snapshot.modules.some((module) => module.id === moduleId)) return
     startEdit({
       kind: 'record',
       value: {
         id: crypto.randomUUID(),
         name: '',
-        moduleId: snapshot.modules[0]?.id ?? '',
+        moduleId,
         sequenceNo: 0,
         sourceType,
         status: sourceType === 'manual' ? 'manual' : 'pending',
@@ -448,10 +455,10 @@ export function MobileApp({
         return json
       }
     })
+    setPage('records')
     setPreview(undefined)
     setRecord(undefined)
     await reload()
-    setPage('records')
     setNotice(`导入完成。恢复前安全备份：${result.safetyBackup.name}`)
   }
   /** @returns 保存含已获取正文的安卓备份；不冒充已兼容旧电脑版的整库格式。 */
@@ -568,29 +575,6 @@ export function MobileApp({
         <span className="version">0.2.5</span>
       </header>
       <main>
-        <div className="operation-feedback">
-          {busy && (
-            <div
-              className="busy-progress"
-              role="progressbar"
-              aria-label="数据处理进度"
-              aria-valuetext={notice || '正在处理，请稍候'}
-            >
-              <span className="busy-spinner" aria-hidden="true" />
-              <span>正在处理，阶段见提示；未完成前请勿重复保存。</span>
-            </div>
-          )}
-          {error && !preview && (
-            <div className="error" role="alert">
-              {error}
-            </div>
-          )}
-          {notice && (
-            <div className="notice" role="status">
-              {notice}
-            </div>
-          )}
-        </div>
         {savedDocument && (
           <section className="panel">
             <p>最近保存：{savedDocument.name}</p>
@@ -678,8 +662,8 @@ export function MobileApp({
                     <Records
                       snapshot={snapshot}
                       onNewModule={newModule}
-                      onNewRecord={() => newRecord()}
-                      onNewOnline={() => newRecord('online')}
+                      onNewRecord={(moduleId) => newRecord(moduleId)}
+                      onNewOnline={(moduleId) => newRecord(moduleId, 'online')}
                       onAction={(action) => void perform(() => act(action))}
                       onFetch={(ids) => void perform(() => probe(ids))}
                       onExport={(ids, combined) =>
@@ -697,6 +681,7 @@ export function MobileApp({
                   <CharacterCards
                     busy={busy}
                     characters={snapshot.characters}
+                    modules={snapshot.modules}
                     selected={selectedCharacter}
                     onSelect={setSelectedCharacter}
                     onDelete={(id) => void perform(() => act({ type: 'delete', kind: 'character', id }))}
@@ -751,26 +736,46 @@ export function MobileApp({
           </>
         )}
       </main>
-      <nav className="bottom-nav" aria-label="主导航">
-        {(['records', 'characters', 'settings'] as const).map((tab) => (
-          <button
-            key={tab}
-            disabled={!!editing || !native?.archive.valid}
-            aria-current={page === tab ? 'page' : undefined}
-            className={page === tab ? 'active' : ''}
-            onClick={() => {
-              setPage(tab)
-              setRecord(undefined)
-              setSelectedCharacter('')
-            }}
-          >
-            <span className="nav-icon">
-              <NavIcon page={tab} />
-            </span>
-            {tab === 'records' ? '跑团记录' : tab === 'characters' ? '角色卡' : '数据与设置'}
-          </button>
-        ))}
-      </nav>
+      <div className="navigation-dock">
+        <div className="operation-feedback">
+          {busy && !preview && !error && (
+            <SystemMessage kind="progress" ariaLabel="数据处理进度" message={notice || '正在处理…'} />
+          )}
+          {error && !preview && (
+            <SystemMessage
+              kind="error"
+              message={error}
+              onDismiss={() => {
+                setError('')
+                setNotice('')
+              }}
+            />
+          )}
+          {notice && !busy && !preview && !error && (
+            <SystemMessage message={notice} autoHide onDismiss={() => setNotice('')} />
+          )}
+        </div>
+        <nav className="bottom-nav" aria-label="主导航">
+          {(['records', 'characters', 'settings'] as const).map((tab) => (
+            <button
+              key={tab}
+              disabled={!!editing || !native?.archive.valid}
+              aria-current={page === tab ? 'page' : undefined}
+              className={page === tab ? 'active' : ''}
+              onClick={() => {
+                setPage(tab)
+                setRecord(undefined)
+                setSelectedCharacter('')
+              }}
+            >
+              <span className="nav-icon">
+                <NavIcon page={tab} />
+              </span>
+              {tab === 'records' ? '跑团记录' : tab === 'characters' ? '角色卡' : '数据与设置'}
+            </button>
+          ))}
+        </nav>
+      </div>
       {preview && (
         <RestoreDialog
           preview={preview}
@@ -803,9 +808,7 @@ export function MobileApp({
               <p key={i}>{name}</p>
             ))}
             {tablePreview.data.warnings.map((warning, i) => (
-              <p className="warning" key={i}>
-                {warning}
-              </p>
+              <SystemMessage kind="warning" message={warning} key={i} />
             ))}
             <div className="dialog-actions">
               <button disabled={busy} onClick={() => setTablePreview(undefined)}>

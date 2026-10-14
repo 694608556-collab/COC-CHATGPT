@@ -1,6 +1,7 @@
 import type { ArchiveLocation } from '../../../data/native'
 import type { SavedDocument } from '../../../data/native'
 import type { MobileSnapshot } from '../../../data/types'
+import { SystemMessage } from '../SystemMessage'
 
 /**
  * 数据恢复/手动备份及目录管理入口；未完成能力明确列出。
@@ -191,9 +192,10 @@ export function DataSettings(props: {
         <button disabled={props.busy} onClick={props.onZipBackup}>
           保存含归档 ZIP 备份
         </button>
-        <p className="warning">
-          安卓备份包含已保存正文，但当前电脑版尚未支持安全恢复此格式。请勿用旧电脑版整库恢复流程导入。
-        </p>
+        <SystemMessage
+          kind="warning"
+          message="安卓备份包含已保存正文，但当前电脑版尚未支持安全恢复此格式。请勿用旧电脑版整库恢复流程导入。"
+        />
         <p className="muted">
           卸载会删除应用内部数据库，卸载前请导出备份。导出的 TXT 文档不能替代完整数据备份。
         </p>
@@ -208,10 +210,10 @@ export function DataSettings(props: {
         </p>
       </section>
       <section className="panel">
-        <h2>清空业务数据</h2>
+        <h2>清空应用数据</h2>
         <p>清空模组、场次和角色卡，保留设置及归档文件。确认后先生成安全副本。</p>
         <button disabled={props.busy} className="danger" onClick={props.onClear}>
-          清空业务数据
+          清空应用数据
         </button>
       </section>
       <section className="panel">

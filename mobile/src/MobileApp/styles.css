@@ -94,8 +94,9 @@ button[aria-pressed='true'] {
   border-color: var(--accent);
 }
 .search-target {
-  outline: 3px solid var(--accent);
-  outline-offset: 2px;
+  outline: 0;
+  background: var(--soft);
+  border-color: var(--line);
   scroll-margin: 100px 0;
 }
 .search-results .edit-actions {
@@ -142,8 +143,8 @@ button[aria-pressed='true'] {
   resize: vertical;
 }
 .editor textarea:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline: 0;
+  border-color: var(--muted);
 }
 .edit-grid {
   display: grid;
@@ -212,8 +213,20 @@ button:disabled {
 button:focus,
 input:focus,
 select:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline: 0;
+}
+input:focus,
+select:focus {
+  border-color: var(--muted);
+}
+button:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--muted);
+}
+/* Older WebViews do not support :focus-visible. Keyboard focus still has a neutral border. */
+@supports not selector(:focus-visible) {
+  button:focus {
+    box-shadow: inset 0 0 0 1px var(--muted);
+  }
 }
 .primary {
   color: #fff;
@@ -257,6 +270,7 @@ p {
   z-index: 10;
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   padding: 7px 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
@@ -282,7 +296,7 @@ p {
   color: var(--muted);
 }
 main {
-  padding: 14px 12px 100px;
+  padding: 14px 12px 186px;
   max-width: 760px;
   margin: auto;
 }
@@ -330,10 +344,7 @@ main {
   background: var(--panel);
 }
 .bottom-nav {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  position: relative;
   display: flex;
   background: var(--panel);
   border-top: 1px solid var(--line);
@@ -467,7 +478,7 @@ main {
 }
 .reader-actions {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   margin-bottom: 14px;
 }
 .source-link {
@@ -662,6 +673,7 @@ input[type='checkbox']:checked::after {
   min-height: 44px;
 }
 .app-header > div {
+  flex: 1;
   min-width: 0;
 }
 .app-header strong {
@@ -723,10 +735,10 @@ input[type='checkbox']:checked::after {
   flex-direction: column;
   align-items: center;
   justify-content: space-between;
-  border: 0;
+  border: 1px solid var(--line);
   border-radius: 7px;
   padding: 8px 4px;
-  background: var(--soft);
+  background: var(--panel);
   text-align: center;
   font-size: 12px;
   min-width: 0;
@@ -745,6 +757,65 @@ input[type='checkbox']:checked::after {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 8px;
+}
+.item-editor-grid,
+.items-display-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.items-display-grid {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+}
+.items-display-grid li {
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.character-title {
+  overflow-wrap: break-word;
+}
+.character-modules {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.weapon-display {
+  margin: 6px 0;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.system-message {
+  display: flex;
+  align-items: flex-start;
+  opacity: 1;
+  transition: opacity 300ms ease;
+}
+.system-message.fading {
+  opacity: 0;
+}
+.system-message-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+.message-close {
+  flex: 0 0 28px;
+  width: 28px;
+  min-height: 28px;
+  border: 0;
+  padding: 0;
+  margin: 0 0 0 6px;
+  color: var(--muted);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .skill-edit-row,
 .item-edit-row,
@@ -875,6 +946,8 @@ input[type='checkbox']:checked::after {
   color: var(--muted);
 }
 .gesture-row {
+  scroll-margin-top: 110px;
+  scroll-margin-bottom: 90px;
   position: relative;
   overflow: hidden;
   border-radius: 10px;
@@ -952,8 +1025,12 @@ input[type='checkbox']:checked::after {
   background: var(--muted);
   pointer-events: none;
 }
+.app-home-zone::after {
+  opacity: 0;
+}
 .app-home-zone.active::after {
   background: var(--accent);
+  opacity: 1;
 }
 .busy-progress {
   display: flex;
@@ -963,26 +1040,47 @@ input[type='checkbox']:checked::after {
   font-size: 12px;
 }
 .operation-feedback {
-  position: fixed;
-  left: 50%;
-  bottom: calc(88px + env(safe-area-inset-bottom, 0px));
-  transform: translateX(-50%);
-  width: calc(100% - 24px);
-  max-width: 736px;
-  max-height: 30vh;
+  margin: 0 auto;
+  max-width: 760px;
+  min-width: 0;
+  max-height: 96px;
   overflow: auto;
-  z-index: 35;
-  pointer-events: none;
+  font-size: 12px;
+  background: var(--panel);
+}
+.navigation-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  background: var(--panel);
 }
 .operation-feedback .busy-progress {
-  padding: 8px 12px;
+  padding: 7px 12px;
   margin: 0;
-  border: 1px solid var(--line);
-  border-radius: 10px 10px 0 0;
-  background: var(--panel);
 }
 .operation-feedback .notice,
 .operation-feedback .error {
+  margin: 0;
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+}
+.operation-feedback .error {
+  display: flex;
+  align-items: flex-start;
+}
+.operation-feedback .error > span {
+  flex: 1;
+  min-width: 0;
+  color: inherit;
+  font-size: inherit;
+}
+.operation-feedback .error > button {
+  flex: 0 0 32px;
+  min-height: 32px;
+  padding: 0;
   margin: 0;
 }
 .busy-spinner {
@@ -1008,19 +1106,30 @@ input[type='checkbox']:checked::after {
   transition: transform 160ms ease;
   border-radius: inherit;
   transform: translate(0, 0);
+  border: 1px solid var(--line);
 }
 .gesture-main {
   flex: 1;
   min-width: 0;
 }
+.gesture-content:focus-within {
+  border-color: var(--line);
+}
+.gesture-row .record-card:focus,
+.gesture-row .module-toggle:focus,
+.gesture-row .drag-handle:focus {
+  outline: 0;
+}
+.gesture-row .module-toggle:focus {
+  background: var(--soft);
+}
 .drag-handle {
-  flex: 0 0 44px;
-  width: 44px;
+  flex: 0 0 30px;
+  width: 30px;
   min-height: 44px;
   padding: 0;
   margin: 0;
   border: 0;
-  border-left: 1px solid var(--line);
   border-radius: 0 10px 10px 0;
   background: transparent;
   color: var(--muted);
@@ -1039,20 +1148,32 @@ input[type='checkbox']:checked::after {
   will-change: transform;
 }
 .gesture-row.held {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+  background: var(--soft);
+}
+.gesture-row.held > .gesture-content {
+  background: var(--soft);
 }
 .gesture-row.drag {
   overflow: visible;
   z-index: 5;
 }
 .gesture-row.drag .gesture-content {
-  box-shadow: 0 3px 8px #0002;
-  outline: 2px solid var(--accent);
+  background: var(--soft);
 }
 .gesture-row.drop-target {
-  outline: 2px dashed var(--accent);
-  outline-offset: -2px;
+  background: var(--soft);
+}
+.drag-source {
+  position: relative;
+  z-index: 6;
+  overflow: visible;
+}
+.drag-source .gesture-content {
+  background: var(--soft);
+}
+.gesture-row[data-drag-preview],
+.module-group[data-drag-preview] {
+  position: relative;
 }
 .gesture-row {
   -webkit-user-select: none;
@@ -1107,12 +1228,18 @@ input[type='checkbox']:checked::after {
 }
 .gesture-row .record-card {
   margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 .module-group {
   padding: 0;
 }
 .module-group > .gesture-row {
   margin: 0;
+}
+.module-group > .gesture-row > .gesture-content {
+  border: 0;
 }
 .module-toggle {
   width: 100%;
@@ -1159,6 +1286,7 @@ input[type='checkbox']:checked::after {
   overflow-wrap: break-word;
 }
 .selection-count {
+  flex: 0 0 100%;
   font-size: 12px;
   color: var(--accent);
 }
@@ -1181,20 +1309,21 @@ input[type='checkbox']:checked::after {
   margin: 0;
 }
 .session-row.selected .record-card {
-  border-color: var(--accent);
   background: var(--soft);
 }
-.record-meta {
+.record-status {
   display: flex !important;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
+  align-items: flex-end;
 }
-.record-meta > * {
-  margin: 0 4px 4px 0;
+.record-status-text {
+  flex: 1;
+  min-width: 0;
 }
-.record-meta .tag {
+.record-status .tag {
   float: none;
+  flex-shrink: 0;
+  margin-left: 6px;
+  white-space: nowrap;
 }
 .record-card > span {
   overflow-wrap: break-word;
@@ -1227,10 +1356,71 @@ input[type='checkbox']:checked::after {
   }
   .background-fields,
   .skill-editor-grid,
-  .item-editor-grid,
   .participant-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+.search-input-wrap {
+  position: relative;
+  display: block;
+}
+.reader-search .search-input-wrap input {
+  padding-right: 34px;
+}
+.reader-search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+.search-clear {
+  position: absolute;
+  right: 2px;
+  top: 1px;
+  bottom: 1px;
+  width: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.format-picker {
+  position: relative;
+  margin-top: 4px;
+}
+.format-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  font-size: 14px;
+  padding: 7px 9px;
+}
+.format-options {
+  margin-top: 5px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+  max-height: 240px;
+  overflow: auto;
+}
+.format-options button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  margin: 0;
+  min-height: 36px;
+  text-align: left;
+}
+.format-options button[aria-selected='true'] {
+  background: var(--soft);
+  color: var(--accent);
 }
 @media (min-width: 600px) {
   .basic-fields {

@@ -52,6 +52,7 @@ test('手机宽度：新建、取消、保存、重开和备份', async ({ page 
   await page.getByLabel('模组名称', { exact: true }).fill('公开测试模组')
   await page.getByRole('button', { name: '保存修改', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('修改已保存')
+  await expandModules(page)
   await page.getByRole('button', { name: '新增手动场次', exact: true }).click()
   await page.getByLabel('场次名称', { exact: true }).fill('第一场')
   await page.getByLabel('手动正文', { exact: true }).fill('公开测试正文\n第二段')

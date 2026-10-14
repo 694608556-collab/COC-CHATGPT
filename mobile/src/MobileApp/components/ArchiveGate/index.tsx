@@ -1,3 +1,5 @@
+import { SystemMessage } from '../SystemMessage'
+
 /**
  * 首次启动或授权失效的硬门禁，不提供静默默认目录。
  * @param props - 操作状态、原目录名称和用户选择事件。
@@ -11,7 +13,7 @@ export function ArchiveGate(props: { busy: boolean; label: string; onChoose(): v
       <p>备份与导出文件保存在你选择的普通共享文件夹，可以用手机“我的文件”访问，不需要 root。</p>
       <p>建议在 Download 或 Documents 中新建“COC跑团记录簿”子文件夹，也可选择存储卡上的专用文件夹。</p>
       {props.label !== '尚未选择' && (
-        <p className="warning">原位置“{props.label}”当前不可读写，请重新确认。</p>
+        <SystemMessage kind="warning" message={'原位置“' + props.label + '”当前不可读写，请重新确认。'} />
       )}
       <button className="primary" disabled={props.busy} onClick={props.onChoose}>
         {props.busy ? '正在确认…' : '选择并确认保存位置'}

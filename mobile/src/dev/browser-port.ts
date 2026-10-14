@@ -363,6 +363,30 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
       if (!before.json) throw new Error('尚无已保存数据。')
       const current = (await previewBackup(new TextEncoder().encode(before.json))).snapshot
       const next = await applyAction(current, action)
+      if (action.type === 'reorder') {
+        // 排序只更新顺序；同一事务重新核对版本与授权，不创建或删除安全副本。
+        const json = JSON.stringify(next)
+        const db = await database
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction('state', 'readwrite')
+          const states = tx.objectStore('state')
+          let failure: Error | undefined
+          const request = states.get('current')
+          request.onsuccess = () => {
+            const state: NativeState = request.result ?? initial
+            if (state.revision !== expectedRevision || !state.archive.valid) {
+              failure = new Error('数据或测试存储已变化，请重新操作。')
+              tx.abort()
+              return
+            }
+            states.put({ ...state, json, revision: expectedRevision + 1 }, 'current')
+          }
+          tx.oncomplete = () => resolve()
+          tx.onabort = () => reject(failure ?? tx.error ?? new Error('排序未保存。'))
+          tx.onerror = () => reject(tx.error)
+        })
+        return { revision: expectedRevision + 1, exportedAt: next.exportedAt }
+      }
       const result = await commit(JSON.stringify(next), expectedRevision, 'before-edit')
       return { ...result, exportedAt: next.exportedAt }
     }

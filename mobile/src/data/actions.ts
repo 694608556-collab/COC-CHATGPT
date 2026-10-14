@@ -2,14 +2,13 @@ import type { MobileSnapshot } from './types'
 export type DataAction =
   | { type: 'delete'; kind: 'module' | 'record' | 'character'; id: string }
   | { type: 'reorder'; kind: 'module' | 'record'; id: string; targetId: string }
-  | { type: 'realign'; moduleId: string }
   | { type: 'reset'; id: string }
   | { type: 'clear' }
 
 /**
  * 对已校验的本机快照应用列表操作，不复制或重新校验未变化的正文。
  * @param current - 通过导入/读取边界校验的快照；不会修改其中的实体。
- * @param action - 删除、排序、序号重排、状态重置或清空操作。
+ * @param action - 删除、排序、状态重置或清空操作。
  * @returns 新快照；仅复制有变更的实体，正文保持原有内容。
  */
 export async function applyAction(current: MobileSnapshot, action: DataAction): Promise<MobileSnapshot> {
@@ -53,25 +52,17 @@ export async function applyAction(current: MobileSnapshot, action: DataAction): 
       next.records = next.records.map((row) =>
         order.has(row.id) ? { ...row, order: order.get(row.id)! } : row
       )
-  } else if (action.type === 'realign') {
-    const numbered = next.records
-      .filter((r) => r.moduleId === action.moduleId)
-      .sort((a, b) => a.order - b.order)
-    const sequence = new Map(numbered.map((row, index) => [row.id, index + 1]))
-    next.records = next.records.map((row) =>
-      sequence.has(row.id) ? { ...row, sequenceNo: sequence.get(row.id)! } : row
-    )
   } else if (action.type === 'reset') {
     next.records = next.records.map((r) =>
       r.id === action.id && r.sourceType === 'online'
         ? { ...r, previousStatus: r.status, status: 'pending', lastError: undefined }
         : r
     )
-  } else {
+  } else if (action.type === 'clear') {
     next.modules = []
     next.records = []
     next.characters = []
-  }
+  } else throw new Error('不支持此列表操作。')
   next.exportedAt = new Date().toISOString()
   return next
 }

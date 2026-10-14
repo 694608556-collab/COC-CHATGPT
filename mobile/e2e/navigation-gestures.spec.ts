@@ -36,4 +36,55 @@ test('边缘滑动返回保护编辑，底部上滑请求回桌面且不清除�
   await swipe(206, 913, 0, -100)
   await expect(page.getByRole('status')).toContainText('请求返回手机桌面')
   await expect(page.getByLabel('场次名称', { exact: true })).toHaveValue('保留的未保存草稿')
+  await expect(page.locator('[data-navigation-zone].active')).toHaveCount(0)
+  expect(
+    await page.locator('.app-home-zone').evaluate((node) => getComputedStyle(node, '::after').opacity)
+  ).toBe('0')
+})
+
+test('边缘/底部触摸被取消或进入后台后无残留，恢复前台不意外导航', async ({ page }) => {
+  page.on('dialog', (dialog) => dialog.accept())
+  await page.goto('/')
+  await page.getByRole('button', { name: '选择并确认保存位置' }).click()
+  await page.getByRole('button', { name: '数据与设置', exact: true }).click()
+  const client = await page.context().newCDPSession(page)
+  await client.send('Emulation.setTouchEmulationEnabled', { enabled: true })
+  for (const kind of ['left', 'home']) {
+    const x = kind === 'left' ? 3 : 206
+    const y = kind === 'left' ? 500 : 913
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [{ x, y, id: 0, radiusX: 1, radiusY: 1 }]
+    })
+    for (let step = 1; step <= 4; step++)
+      await client.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [
+          {
+            x: x + (kind === 'left' ? 10 * step : 0),
+            y: y - (kind === 'home' ? 10 * step : 0),
+            id: 0,
+            radiusX: 1,
+            radiusY: 1
+          }
+        ]
+      })
+    await expect(page.locator('[data-navigation-zone].active')).toHaveCount(1)
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { value: true, configurable: true })
+      document.dispatchEvent(new Event('visibilitychange'))
+      delete (document as unknown as { hidden?: boolean }).hidden
+      window.dispatchEvent(new Event('pageshow'))
+    })
+    await client.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] })
+    await expect(page.locator('[data-navigation-zone].active')).toHaveCount(0)
+    expect(
+      await page
+        .locator('[data-navigation-zone]')
+        .evaluateAll((nodes) =>
+          nodes.every((node) => !(node as HTMLElement).style.getPropertyValue('--gesture-y'))
+        )
+    ).toBe(true)
+    await expect(page.getByRole('heading', { name: '数据与设置', exact: true })).toBeVisible()
+  }
 })

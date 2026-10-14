@@ -17,11 +17,12 @@ async function setup() {
   return { browser, name, json }
 }
 describe('浏览器测试存储事务', () => {
-  it('轻量排序提交保留正文与安全副本，过期版本不能覆盖新顺序', async () => {
+  it('排序不增加专属安全副本，保留正文、重开持久化与过期版本保护', async () => {
     const { browser, json } = await setup()
     const input = JSON.parse(json)
     input.records.push({ ...input.records[0], id: 'second-record', name: '第二场', order: 1 })
     await browser.port.commitRestore({ json: JSON.stringify(input), expectedRevision: 0, confirmed: true })
+    const documentsBefore = await browser.documents()
     const result = await browser.port.commitAction({
       action: { type: 'reorder', kind: 'record', id: input.records[0].id, targetId: 'second-record' },
       expectedRevision: 1
@@ -29,15 +30,38 @@ describe('浏览器测试存储事务', () => {
     const state = await browser.port.getState()
     expect(JSON.parse(state.json!).records[0].order).toBe(1)
     expect(JSON.parse(state.json!).records[0].rawContent).toEqual(input.records[0].rawContent)
-    const safety = await browser.port.readDocument({ uri: result.safetyBackup.uri })
-    expect(
-      (await previewBackup(Uint8Array.from(atob(safety.base64), (c) => c.charCodeAt(0)))).snapshot.records[0]!
-        .order
-    ).toBe(0)
+    expect(result.safetyBackup).toBeUndefined()
+    expect(await browser.documents()).toEqual(documentsBefore)
     await expect(
       browser.port.commitAction({ action: { type: 'clear' }, expectedRevision: 1 })
     ).rejects.toThrow('变化')
     expect((await browser.port.getState()).json).toBe(state.json)
+    await browser.close()
+  })
+  it('删除仍生成可回读的完整安全副本；跨组排序拒绝且不新增文件', async () => {
+    const { browser, json } = await setup()
+    const input = JSON.parse(json)
+    input.modules.push({ ...input.modules[0], id: 'other-module', name: '另一模组', order: 1 })
+    input.records.push({ ...input.records[0], id: 'other-record', moduleId: 'other-module', order: 0 })
+    await browser.port.commitRestore({ json: JSON.stringify(input), expectedRevision: 0, confirmed: true })
+    const before = await browser.port.getState()
+    await expect(
+      browser.port.commitAction({
+        action: { type: 'reorder', kind: 'record', id: input.records[0].id, targetId: 'other-record' },
+        expectedRevision: 1
+      })
+    ).rejects.toThrow('同一列表')
+    expect((await browser.port.getState()).json).toBe(before.json)
+    expect(await browser.documents()).toHaveLength(1)
+    const result = await browser.port.commitAction({
+      action: { type: 'delete', kind: 'record', id: input.records[0].id },
+      expectedRevision: 1
+    })
+    expect(result.safetyBackup).toBeDefined()
+    const safety = await browser.port.readDocument({ uri: result.safetyBackup!.uri })
+    const restored = await previewBackup(Uint8Array.from(atob(safety.base64), (c) => c.charCodeAt(0)))
+    expect(restored.snapshot.records).toEqual(input.records)
+    expect(JSON.parse((await browser.port.getState()).json!).records).toHaveLength(1)
     await browser.close()
   })
   it('附件导入和快照在同一事务，坏附件不会改变原状态', async () => {

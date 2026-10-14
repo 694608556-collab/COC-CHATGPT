@@ -48,13 +48,13 @@ export interface LogbookPort {
   shareDocument(options: { uri: string }): Promise<void>
   /**
    * 原生端修改已保存快照的列表元数据，正文不通过界面重复传输。
-   * @param options - 白名单操作及当前版本；安全副本回读失败或版本过期时拒绝。
-   * @returns 新版本、实际保存时间及安全副本，不返回大正文。
+   * @param options - 白名单操作及当前版本；仅排序不生成安全副本，其余仍要求回读成功。
+   * @returns 新版本、实际保存时间及非排序操作的安全副本，不返回大正文。
    */
   commitAction(options: {
     action: DataAction
     expectedRevision: number
-  }): Promise<{ revision: number; exportedAt: string; safetyBackup: SavedDocument }>
+  }): Promise<{ revision: number; exportedAt: string; safetyBackup?: SavedDocument }>
   /** 校验后的编辑快照；原生端先写安全副本，再以版本序号进行事务提交。 */
   commitEdit(options: {
     json: string

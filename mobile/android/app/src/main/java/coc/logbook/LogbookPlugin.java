@@ -350,7 +350,7 @@ public final class LogbookPlugin extends Plugin {
     @PluginMethod public void commitEdit(PluginCall call) {
         commitSnapshot(call, false);
     }
-    /** Only list metadata crosses the bridge; native safety-copy and CAS rules remain identical. */
+    /** Only validated reorders skip the dedicated safety copy; all actions retain CAS and transactions. */
     @PluginMethod public void commitAction(PluginCall call) {
         commitSnapshot(call, false, true);
     }
@@ -370,18 +370,30 @@ public final class LogbookPlugin extends Plugin {
                 String json = actionOnly ? current : call.getString("json", "");
                 if (json.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) throw new IllegalArgumentException("数据超过首阶段大小上限。");
                 JSONObject next = new JSONObject(json); validateSnapshot(next);
+                boolean sorting = false;
                 if (actionOnly) {
                     JSONObject action = call.getObject("action");
                     if (action == null) throw new IllegalArgumentException("列表操作缺失。");
                     LogbookActions.apply(next, action); validateSnapshot(next);
+                    sorting = "reorder".equals(action.getString("type"));
                 }
-                JSONObject envelope = new JSONObject(); envelope.put("format", "coc.logbook.android"); envelope.put("formatVersion", 1);
-                envelope.put("exportedAt", java.time.Instant.now().toString()); envelope.put("restoreScope", new JSONArray(Arrays.asList("modules", "records", "characters")));
-                // Embed the original JSON unchanged: parsing it again adds cost and can lose raw number precision.
-                String metadata = envelope.toString();
-                String safetyJson = metadata.substring(0, metadata.length() - 1) + ",\"snapshot\":" + (current == null ? emptySnapshot().toString() : current) + "}";
-                // Only a fully read-back, user-visible safety copy permits the database transaction.
-                JSObject safety = write((restoring ? "before-restore-" : "before-edit-") + System.currentTimeMillis() + ".json", "application/json", safetyJson.getBytes(StandardCharsets.UTF_8), "safety");
+                JSObject safety = null;
+                if (!sorting) {
+                    JSONObject envelope = new JSONObject(); envelope.put("format", "coc.logbook.android"); envelope.put("formatVersion", 1);
+                    envelope.put("exportedAt", java.time.Instant.now().toString()); envelope.put("restoreScope", new JSONArray(Arrays.asList("modules", "records", "characters")));
+                    // Embed the original JSON unchanged: parsing it again adds cost and can lose raw number precision.
+                    String metadata = envelope.toString();
+                    String safetyJson = metadata.substring(0, metadata.length() - 1) + ",\"snapshot\":" + (current == null ? emptySnapshot().toString() : current) + "}";
+                    // Only a fully read-back, user-visible safety copy permits the database transaction.
+                    safety = write((restoring ? "before-restore-" : "before-edit-") + System.currentTimeMillis() + ".json", "application/json", safetyJson.getBytes(StandardCharsets.UTF_8), "safety");
+                } else {
+                    String tree = prefs().getString("tree", "");
+                    boolean authorized = false;
+                    for (android.content.UriPermission permission : getContext().getContentResolver().getPersistedUriPermissions()) {
+                        if (permission.getUri().toString().equals(tree) && permission.isReadPermission() && permission.isWritePermission()) authorized = true;
+                    }
+                    if (!authorized) throw new IllegalStateException("保存位置授权已失效，请重新选择。");
+                }
                 JSONArray files = restoring ? call.getArray("attachments") : null;
                 if (files != null) {
                     if (files.length() > 2000) throw new IllegalArgumentException("归档文件数量过多。");
@@ -397,7 +409,8 @@ public final class LogbookPlugin extends Plugin {
                 }
                 long revision = database.replace(next.toString(), expected);
                 committed = true;
-                JSObject out = new JSObject(); out.put("revision", revision); out.put("safetyBackup", safety);
+                JSObject out = new JSObject(); out.put("revision", revision);
+                if (safety != null) out.put("safetyBackup", safety);
                 if (actionOnly) out.put("exportedAt", next.getString("exportedAt"));
                 call.resolve(out);
             } catch (Exception error) {

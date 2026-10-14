@@ -38,7 +38,7 @@ async function drag(page: Page, from: Locator, to: Locator) {
   await page.waitForTimeout(550)
   await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 10 })
   await page.mouse.up()
-  await expect(page.getByRole('status')).toContainText('操作已保存')
+  await expect(page.getByRole('status')).toContainText('排序已保存')
 }
 
 test('鼠标长按多选、拖动排序、左滑删除及刷新保留', async ({ page }) => {
@@ -99,8 +99,15 @@ test('真实触摸事件：普通上下滚动、长按多选、左滑删除', as
   await send('touchEnd', x, y - 60)
   await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(before)
   await expect(page.locator('.selection-check')).toHaveCount(0)
-  await rows.first().scrollIntoViewIfNeeded()
+  // 原生滚动后明确把触摸目标放到粘性标题栏下方，避免触点落在标题栏上。
+  await rows.first().evaluate((node) => node.scrollIntoView({ block: 'center' }))
   const b = (await rows.first().boundingBox())!
+  expect(
+    await page.evaluate(
+      ({ x, y }) => document.elementFromPoint(x, y)?.closest('[data-drag-id]')?.getAttribute('data-drag-id'),
+      { x, y: Math.round(b.y + 25) }
+    )
+  ).toBe(await rows.first().getAttribute('data-drag-id'))
   await send('touchStart', x, Math.round(b.y + 25))
   await page.waitForTimeout(550)
   await send('touchEnd', x, Math.round(b.y + 25))

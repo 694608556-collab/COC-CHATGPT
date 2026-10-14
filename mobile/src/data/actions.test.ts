@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { applyAction } from './actions'
+import type { DataAction } from './actions'
 import { applyEdit } from './edit'
 import { searchSample } from '../dev/sample'
 import { createEmptyCharacter } from '../../../src/shared/coc-rules'
@@ -101,7 +102,7 @@ describe('删除、排序与关联完整性', () => {
     })
     expect(detached.modules[0]?.pairs[0]?.characterId).toBeUndefined()
   })
-  it('换来源使旧正文失效，排序和序号只影响当前模组', async () => {
+  it('换来源使旧正文失效，排序只影响当前模组、不重写场次序号', async () => {
     const current = searchSample()
     const changed = await applyEdit(current, {
       kind: 'record',
@@ -115,8 +116,23 @@ describe('删除、排序与关联完整性', () => {
       id: current.records[0]!.id,
       targetId: current.records[1]!.id
     })
-    const numbered = await applyAction(moved, { type: 'realign', moduleId: current.modules[0]!.id })
-    expect(numbered.records[0]?.sequenceNo).toBe(2)
-    expect(numbered.records[2]?.order).toBe(current.records[2]?.order)
+    expect(moved.records.map((r) => r.sequenceNo)).toEqual(current.records.map((r) => r.sequenceNo))
+    expect(moved.records[2]?.order).toBe(current.records[2]?.order)
+  })
+  it('清空只清业务实体、保留设置；移除的序号重排请求拒绝而非落入清空', async () => {
+    const current = searchSample()
+    const before = JSON.stringify(current)
+    const cleared = await applyAction(current, { type: 'clear' })
+    expect(cleared.modules).toEqual([])
+    expect(cleared.records).toEqual([])
+    expect(cleared.characters).toEqual([])
+    expect(cleared.settings).toEqual(current.settings)
+    await expect(
+      applyAction(current, {
+        type: 'realign',
+        moduleId: current.modules[0]!.id
+      } as unknown as DataAction)
+    ).rejects.toThrow('不支持')
+    expect(JSON.stringify(current)).toBe(before)
   })
 })

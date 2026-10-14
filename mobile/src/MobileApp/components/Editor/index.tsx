@@ -11,6 +11,9 @@ import type { Edit } from '../../../data/edit'
 import type { MobileSnapshot } from '../../../data/types'
 import { RemoveButton } from '../RemoveButton'
 import { CharacterSuggest } from '../CharacterSuggest'
+import { BACKGROUND_LABELS, WEAPON_LABELS } from '../../characterLabels'
+import { useItemLayout } from '../../useItemLayout'
+import { SystemMessage } from '../SystemMessage'
 
 export function Editor(props: {
   initial: Edit
@@ -21,6 +24,7 @@ export function Editor(props: {
 }) {
   const [draft, setDraft] = useState<Edit>(() => JSON.parse(JSON.stringify(props.initial)))
   const [error, setError] = useState('')
+  const itemLayout = useItemLayout()
   const dirty = JSON.stringify(draft) !== JSON.stringify(props.initial)
   const title = draft.kind === 'module' ? '编辑模组' : draft.kind === 'record' ? '编辑场次' : '编辑角色卡'
   const heading = useRef<HTMLHeadingElement>(null)
@@ -83,11 +87,7 @@ export function Editor(props: {
         {title}
       </h2>
       <p className="muted">保存前会生成安全副本；取消不会改变已保存数据。</p>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <SystemMessage kind="error" message={error} onDismiss={() => setError('')} />}
       <form
         onSubmit={(event) => {
           event.preventDefault()
@@ -265,8 +265,16 @@ export function Editor(props: {
                   aria-label="角色规则版次"
                   value={c.edition}
                   onChange={(e) => {
-                    if (window.confirm('按已有规则转换属性及派生值，并保留另一版属性快照。继续？'))
-                      character(convertCharacterEdition(c, Number(e.target.value) as 6 | 7))
+                    if (
+                      window.confirm('按已有规则转换属性及派生值，保留手填伤害加值和另一版属性快照。继续？')
+                    ) {
+                      const converted = convertCharacterEdition(c, Number(e.target.value) as 6 | 7)
+                      character({
+                        ...converted,
+                        occupationFormula: c.occupationFormula,
+                        derived: { ...converted.derived, db: c.derived.db }
+                      })
+                    }
                   }}
                 >
                   <option value={6}>第六版</option>
@@ -324,7 +332,6 @@ export function Editor(props: {
                         },
                         derived: {
                           ...c.derived,
-                          db: calculateDerived(c.edition, attrs).db,
                           luck6: attrs.POW * 5
                         }
                       })
@@ -363,10 +370,7 @@ export function Editor(props: {
                   )
                 )}
               </div>
-              {c.edition === 7 &&
-                field('职业技能点公式', c.occupationFormula, (occupationFormula) =>
-                  character({ ...c, occupationFormula })
-                )}
+              {field('伤害加值', c.derived.db, (db) => character({ ...c, derived: { ...c.derived, db } }))}
               <details>
                 <summary>技能</summary>
                 <button
@@ -437,15 +441,7 @@ export function Editor(props: {
                 {c.weapons.map((weapon, index) => (
                   <section key={index} className="pair-editor">
                     <div className="edit-grid">
-                      {Object.entries({
-                        name: '名称',
-                        hit: '命中',
-                        damage: '伤害',
-                        range: '射程',
-                        times: '次数',
-                        ammo: '装弹',
-                        durability: '耐久'
-                      }).map(([key, label]) =>
+                      {Object.entries(WEAPON_LABELS).map(([key, label]) =>
                         field('武器' + (index + 1) + label, String(weapon[key] ?? ''), (value) =>
                           character({
                             ...c,
@@ -478,9 +474,9 @@ export function Editor(props: {
                   ＋ 添加物品
                 </button>
               </div>
-              <div className="item-editor-grid">
+              <div className="item-editor-grid" ref={itemLayout.ref} style={itemLayout.gridStyle}>
                 {c.items.map((item, index) => (
-                  <div className="item-edit-row" key={index}>
+                  <div className="item-edit-row" key={index} style={itemLayout.itemStyle(item)}>
                     <input
                       aria-label={'物品' + (index + 1)}
                       value={item}
@@ -516,26 +512,11 @@ export function Editor(props: {
                   phobia: '',
                   ...c.background
                 }).map(([key, value]) =>
-                  text(
-                    (
-                      {
-                        description: '个人描述',
-                        belief: '思想与信念',
-                        importantPerson: '重要之人',
-                        significantPlace: '意义非凡之地',
-                        treasure: '宝贵之物',
-                        trait: '特质',
-                        secret: '难言之隐',
-                        wound: '伤口和疤痕',
-                        phobia: '恐惧症/狂躁症'
-                      } as Record<string, string>
-                    )[key] ?? key,
-                    value,
-                    (value) =>
-                      character({
-                        ...c,
-                        background: { ...c.background, [key]: value }
-                      })
+                  text(BACKGROUND_LABELS[key] ?? key, value, (value) =>
+                    character({
+                      ...c,
+                      background: { ...c.background, [key]: value }
+                    })
                   )
                 )}
                 {text('调查员经历', c.story, (story) => character({ ...c, story }))}

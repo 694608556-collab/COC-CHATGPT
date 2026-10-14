@@ -20,7 +20,7 @@ test('仅手柄直接拖动排序，卡片长按多选不参与排序', async ({
   await page.mouse.move(a.x + a.width / 2, b.y + 25, { steps: 10 })
   const scrollBeforeRelease = await page.evaluate(() => scrollY)
   await page.mouse.up()
-  await expect(page.getByRole('status')).toContainText('操作已保存')
+  await expect(page.getByRole('status')).toContainText('排序已保存')
   await expect(rows.first()).toContainText('第二场')
   expect(await page.evaluate(() => scrollY)).toBeCloseTo(scrollBeforeRelease, 0)
   await page.screenshot({ path: testInfo.outputPath('handle-navigation-preview.png') })

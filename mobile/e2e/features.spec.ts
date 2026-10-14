@@ -71,7 +71,8 @@ test('海豹压缩协议获取、失败保留正文、自动备份和多格式�
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await ready(page)
-  await page.getByRole('button', { name: '新增在线场次' }).click()
+  await expandModules(page)
+  await page.getByRole('button', { name: '新增在线场次' }).first().click()
   await page.getByLabel('场次名称', { exact: true }).fill('网络契约测试')
   await page
     .getByLabel('海豹日志链接', { exact: true })
@@ -105,9 +106,26 @@ test('海豹压缩协议获取、失败保留正文、自动备份和多格式�
   fail = true
   await page.getByRole('button', { name: '获取/刷新正文' }).click()
   await expect(page.getByText('通过网络边界获取的中文正文', { exact: true })).toBeVisible()
+  await expect(page.getByRole('alert')).toContainText('1 个失败')
+  await page.getByRole('button', { name: '关闭错误提示' }).click()
+  await expect(page.getByText('通过网络边界获取的中文正文', { exact: true })).toBeVisible()
   for (const format of ['raw', 'doc', 'dialogue-doc', 'docx', 'pdf']) {
     await page.getByRole('button', { name: '更多导出格式' }).click()
-    await page.getByLabel('文件格式').selectOption(format)
+    await page.getByRole('button', { name: /^文件格式/ }).click()
+    await page
+      .getByRole('option', {
+        name: (
+          {
+            raw: '原始 JSON',
+            doc: '带图 DOC',
+            'dialogue-doc': '纯对话 DOC',
+            docx: 'DOCX',
+            pdf: 'PDF'
+          } as Record<string, string>
+        )[format],
+        exact: true
+      })
+      .click()
     await page.getByRole('button', { name: '保存导出文件' }).click()
     await expect(page.getByRole('status')).toContainText('1 个文件')
   }

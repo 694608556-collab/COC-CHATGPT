@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ImportPreview } from '../../../data/types'
+import { SystemMessage } from '../SystemMessage'
 
 /**
  * 显式覆盖确认；不勾选时保留本机显示设置，取消不调用原生恢复。
@@ -29,30 +30,20 @@ export function RestoreDialog(props: {
       >
         <h2 id="restore-title">确认导入范围</h2>
         {props.busy && (
-          <div
-            className="busy-progress"
-            role="progressbar"
-            aria-label="安全导入进度"
-            aria-valuetext={props.stage}
-          >
-            <span className="busy-spinner" aria-hidden="true" />
-            <span>{props.stage || '正在准备安全导入…'}</span>
-          </div>
+          <SystemMessage
+            kind="progress"
+            ariaLabel="安全导入进度"
+            message={props.stage || '正在准备安全导入…'}
+          />
         )}
-        {props.error && (
-          <p className="error" role="alert">
-            {props.error}
-          </p>
-        )}
+        {props.error && <SystemMessage kind="error" message={props.error} />}
         <p>
           {snapshot.modules.length} 个模组 · {snapshot.records.length} 个场次 · {snapshot.characters.length}{' '}
           张角色卡
         </p>
         <p>其中 {props.preview.offlineRecords} 个场次带有已保存正文。</p>
         {props.preview.warnings.map((w) => (
-          <p className="warning" key={w}>
-            {w}
-          </p>
+          <SystemMessage kind="warning" message={w} key={w} />
         ))}
         <p>
           将覆盖本机的模组、场次与角色卡（当前 {props.currentRecords}{' '}

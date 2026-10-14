@@ -1,6 +1,8 @@
-import type { CharacterData, Edition } from '../../../../../src/shared/types'
+import type { CharacterData, Edition, ModuleRecord } from '../../../../../src/shared/types'
 import { skillFinal } from '../../../../../src/shared/coc-rules'
 import { GestureRow } from '../GestureRow'
+import { BACKGROUND_LABELS } from '../../characterLabels'
+import { useItemLayout } from '../../useItemLayout'
 
 /**
  * 角色字段浏览与基础编辑入口；不恢复已删除的 Excel/PDF 导出。
@@ -9,6 +11,7 @@ import { GestureRow } from '../GestureRow'
  */
 export function CharacterCards(props: {
   characters: CharacterData[]
+  modules: ModuleRecord[]
   onEdit(value: CharacterData): void
   onNew(edition: Edition): void
   selected: string
@@ -16,6 +19,16 @@ export function CharacterCards(props: {
   onDelete(id: string): void
   busy: boolean
 }) {
+  const itemLayout = useItemLayout()
+  function moduleNames(c: CharacterData) {
+    const ids = new Set([...c.moduleIds, ...(c.moduleId ? [c.moduleId] : [])])
+    return (
+      props.modules
+        .filter((module) => ids.has(module.id))
+        .map((module) => module.name)
+        .join('、') || '未关联模组'
+    )
+  }
   const selected = props.selected
   const setSelected = props.onSelect
   const character = props.characters.find((c) => c.id === selected)
@@ -39,7 +52,13 @@ export function CharacterCards(props: {
             onDelete={() => props.onDelete(c.id)}
           >
             <button className="record-card" onClick={() => setSelected(c.id)}>
-              <strong>{c.basic.name || '未命名角色'}</strong>
+              <strong className="character-title">
+                {c.basic.name || '未命名角色'}
+                <span className="character-modules" aria-label="关联模组">
+                  {' '}
+                  · {moduleNames(c)}
+                </span>
+              </strong>
               <span>
                 {c.edition} 版 · {c.basic.occupation || '职业未填写'} ·{' '}
                 {c.basic.age ? c.basic.age + ' 岁' : '年龄未填写'}
@@ -64,7 +83,13 @@ export function CharacterCards(props: {
         </button>
       </div>
       <section className="panel">
-        <h2>{character.basic.name || '未命名角色'}</h2>
+        <h2 className="character-title">
+          {character.basic.name || '未命名角色'}
+          <span className="character-modules" aria-label="关联模组">
+            {' '}
+            · {moduleNames(character)}
+          </span>
+        </h2>
         <p>
           {character.edition} 版 · {character.basic.occupation || '职业未填写'} ·{' '}
           {character.basic.age ? character.basic.age + ' 岁' : '年龄未填写'}
@@ -117,24 +142,47 @@ export function CharacterCards(props: {
         </div>
       </section>
       <section className="panel">
-        <h2>装备与背景</h2>
+        <h2>武器</h2>
         {character.weapons.map((w, i) => (
-          <p key={i}>
-            {Object.entries(w)
-              .map(([k, v]) => `${k}：${v}`)
-              .join(' · ')}
+          <p className="weapon-display" key={i}>
+            {String(w.name ?? '').trim() || '名称未填写'}
           </p>
         ))}
-        {character.items.map((item, i) => (
-          <p key={i}>{item}</p>
-        ))}
-        {Object.entries(character.background).map(([key, value]) => (
+        {!character.weapons.length && <p className="muted">尚未填写武器。</p>}
+      </section>
+      <section className="panel">
+        <h2>财产与装备</h2>
+        {!!character.items.length && (
+          <ul
+            className="items-display-grid"
+            aria-label="物品"
+            ref={itemLayout.ref}
+            style={itemLayout.gridStyle}
+          >
+            {character.items.map((item, i) => (
+              <li key={i} style={itemLayout.itemStyle(item)}>
+                {item || '未填写'}
+              </li>
+            ))}
+          </ul>
+        )}
+        {!character.items.length && <p className="muted">尚未填写财产与装备。</p>}
+      </section>
+      <section className="panel">
+        <h2>背景</h2>
+        {Object.entries({
+          ...Object.fromEntries(Object.keys(BACKGROUND_LABELS).map((key) => [key, ''])),
+          ...character.background
+        }).map(([key, value]) => (
           <div key={key}>
-            <h3>{key}</h3>
-            <p className="preserve-text">{value}</p>
+            <h3>{BACKGROUND_LABELS[key] ?? key}</h3>
+            <p className="preserve-text">{value || '未填写'}</p>
           </div>
         ))}
-        <p className="preserve-text">{character.story}</p>
+      </section>
+      <section className="panel">
+        <h2>调查员经历</h2>
+        <p className="preserve-text">{character.story || '未填写'}</p>
       </section>
     </>
   )

@@ -5,14 +5,22 @@ import type { MobileSnapshot } from '../../../data/types'
 import type { DataAction } from '../../../data/actions'
 import { GestureRow } from '../GestureRow'
 
+const STATUS_LABELS = {
+  pending: '未检测',
+  valid: '有效',
+  invalid: '失效',
+  fetch_failed: '检测失败',
+  manual: '手动内容'
+}
+
 export function Records(props: {
   snapshot: MobileSnapshot
   onRead(record: SessionRecord): void
   onImport(): void
   onNewModule(): void
-  onNewRecord(): void
+  onNewRecord(moduleId: string): void
   onEditModule(value: ModuleRecord): void
-  onNewOnline(): void
+  onNewOnline(moduleId: string): void
   onAction(action: DataAction): void
   onFetch(ids: string[]): void
   onExport(ids: string[], combined: boolean): void
@@ -40,12 +48,6 @@ export function Records(props: {
       <div className="edit-actions">
         <button disabled={props.busy} onClick={props.onNewModule}>
           新增模组
-        </button>
-        <button disabled={props.busy || !snapshot.modules.length} onClick={props.onNewRecord}>
-          新增手动场次
-        </button>
-        <button disabled={props.busy || !snapshot.modules.length} onClick={props.onNewOnline}>
-          新增在线场次
         </button>
       </div>
       {!!snapshot.modules.length && (
@@ -123,11 +125,11 @@ export function Records(props: {
                   >
                     全选此模组
                   </button>
-                  <button
-                    disabled={props.busy || !allRecords.length}
-                    onClick={() => props.onAction({ type: 'realign', moduleId: m.id })}
-                  >
-                    重排场次序号
+                  <button disabled={props.busy} onClick={() => props.onNewRecord(m.id)}>
+                    新增手动场次
+                  </button>
+                  <button disabled={props.busy} onClick={() => props.onNewOnline(m.id)}>
+                    新增在线场次
                   </button>
                   {selecting && (
                     <>
@@ -139,7 +141,6 @@ export function Records(props: {
                       >
                         退出多选
                       </button>
-                      <span className="selection-count">已选 {ids.length} 场</span>
                       <button
                         disabled={
                           props.busy || !records.some((r) => ids.includes(r.id) && r.sourceType === 'online')
@@ -160,6 +161,7 @@ export function Records(props: {
                       <button disabled={props.busy || !ids.length} onClick={() => props.onExport(ids, true)}>
                         合成导出
                       </button>
+                      <span className="selection-count">已选 {ids.length} 场</span>
                     </>
                   )}
                 </div>
@@ -211,8 +213,13 @@ export function Records(props: {
                         >
                           <span className="muted">{m.name}</span>
                           <strong>{r.name}</strong>
-                          <span className="record-meta">
-                            <span>{r.playDate || '日期未填写'}</span>
+                          <span className="record-status">
+                            <span className="record-status-text">
+                              序号 {r.sequenceNo} ·{' '}
+                              {r.sourceType === 'manual' ? '手动内容' : STATUS_LABELS[r.status]}
+                              {r.lastError ? ' · ' + r.lastError : ''}
+                              {' · 跑团时间：' + (r.playDate || '未填写')}
+                            </span>
                             <span
                               className={
                                 r.rawContent || r.manualContent !== undefined ? 'tag available' : 'tag'
@@ -220,10 +227,6 @@ export function Records(props: {
                             >
                               {r.rawContent || r.manualContent !== undefined ? '正文已保存' : '缺少正文'}
                             </span>
-                          </span>
-                          <span>
-                            序号 {r.sequenceNo} · {r.status}
-                            {r.lastError ? ' · ' + r.lastError : ''}
                           </span>
                         </button>
                       </div>

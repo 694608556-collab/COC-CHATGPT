@@ -16,6 +16,11 @@ export function useNavigationGestures(onBack: () => void, onHome: () => void) {
     /** @returns 无返回值；取消不导航，也不保留活动反馈。 */
     function cancel() {
       gesture?.zone.classList.remove('active')
+      gesture?.zone.style.removeProperty('--gesture-y')
+      document.querySelectorAll<HTMLElement>('[data-navigation-zone]').forEach((zone) => {
+        zone.classList.remove('active')
+        zone.style.removeProperty('--gesture-y')
+      })
       gesture = undefined
     }
     /** @param event - 单指从专用边缘条开始的触摸。 @returns 无返回值。 */
@@ -68,6 +73,9 @@ export function useNavigationGestures(onBack: () => void, onHome: () => void) {
         callbacks.current.onBack()
       }
     }
+    const visibility = () => {
+      if (document.hidden) cancel()
+    }
     window.addEventListener('touchstart', start, { capture: true, passive: false })
     window.addEventListener('touchmove', move, { capture: true, passive: false })
     window.addEventListener('touchend', end, true)
@@ -75,6 +83,9 @@ export function useNavigationGestures(onBack: () => void, onHome: () => void) {
     window.addEventListener('blur', cancel)
     window.addEventListener('pagehide', cancel)
     window.addEventListener('resize', cancel)
+    window.addEventListener('pageshow', cancel)
+    window.addEventListener('logbook-gesture-reset', cancel)
+    document.addEventListener('visibilitychange', visibility)
     return () => {
       cancel()
       window.removeEventListener('touchstart', start, true)
@@ -84,6 +95,9 @@ export function useNavigationGestures(onBack: () => void, onHome: () => void) {
       window.removeEventListener('blur', cancel)
       window.removeEventListener('pagehide', cancel)
       window.removeEventListener('resize', cancel)
+      window.removeEventListener('pageshow', cancel)
+      window.removeEventListener('logbook-gesture-reset', cancel)
+      document.removeEventListener('visibilitychange', visibility)
     }
   }, [])
 }
