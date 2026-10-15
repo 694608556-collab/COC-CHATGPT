@@ -734,7 +734,7 @@ export function MobileApp({
           <strong>COC 跑团记录簿</strong>
           <span>安卓开发版 · 本机数据</span>
         </div>
-        <span className="version">0.2.14 · 试验</span>
+        <span className="version">0.2.14 · 试验 2</span>
       </header>
       <main aria-hidden={confirmation ? true : undefined}>
         {savedDocument && (
@@ -972,19 +972,23 @@ export function MobileApp({
         <div className="modal-backdrop">
           <section className="restore-dialog panel" role="dialog" aria-modal="true" aria-label="表格导入预览">
             <h2>表格导入预览</h2>
-            <p>新增 {tablePreview.data.names.length} 项；当前业务数据保留。</p>
-            {tablePreview.data.names.map((name, i) => (
-              <p key={i}>{name}</p>
-            ))}
-            {tablePreview.data.warnings.map((warning, i) => (
-              <SystemMessage kind="warning" message={warning} key={i} />
-            ))}
+            {busy && <SystemMessage kind="progress" message={notice || '正在添加表格数据…'} />}
+            {error && <SystemMessage kind="error" message={error} />}
+            <div className="dialog-body">
+              <p>新增 {tablePreview.data.names.length} 项；当前业务数据保留。</p>
+              {tablePreview.data.names.map((name, i) => (
+                <p key={i}>{name}</p>
+              ))}
+              {tablePreview.data.warnings.map((warning, i) => (
+                <SystemMessage kind="warning" message={warning} key={i} />
+              ))}
+            </div>
             <div className="dialog-actions">
               <button disabled={busy} onClick={() => setTablePreview(undefined)}>
                 取消
               </button>
-              <button disabled={busy} onClick={() => void perform(confirmTable)}>
-                确认添加表格数据
+              <button className="primary" disabled={busy} onClick={() => void perform(confirmTable)}>
+                {busy ? '正在添加…' : '确认添加表格数据'}
               </button>
             </div>
           </section>

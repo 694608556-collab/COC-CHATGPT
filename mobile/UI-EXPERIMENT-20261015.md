@@ -1,5 +1,7 @@
 # UI 与连续设置操作试验（2026-10-15）
 
+本页保留试验一记录。后续触摸范围、场次按钮层级及长弹窗布局见 [试验 2](UI-EXPERIMENT-2-20261015.md)；试验一 `bf0b4fd` 单独保留在 `codex/ui-optimization-stage1`。
+
 本轮仅作试验，尚未由用户接受。试验分支为 `codex/ui-optimization-experiment`，页面标明“0.2.14 · 试验”。原开发分支 `codex/android-browser-edit` 保留在 `14efc294b5639c9444651cbd97980a29fd8dfa1a`，包含此前完整模组搜索、独立姓名候选、窄记录图标和导入预览超过 50 场的修复。本试验不推进原分支、不合并、不正式发布。
 
 ## 试验范围

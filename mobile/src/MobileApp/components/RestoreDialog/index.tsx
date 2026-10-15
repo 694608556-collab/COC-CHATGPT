@@ -37,27 +37,29 @@ export function RestoreDialog(props: {
           />
         )}
         {props.error && <SystemMessage kind="error" message={props.error} />}
-        <p>
-          {snapshot.modules.length} 个模组 · {snapshot.records.length} 个场次 · {snapshot.characters.length}{' '}
-          张角色卡
-        </p>
-        <p>其中 {props.preview.offlineRecords} 个场次带有已保存正文。</p>
-        {props.preview.warnings.map((w) => (
-          <SystemMessage kind="warning" message={w} key={w} />
-        ))}
-        <p>
-          将覆盖本机的模组、场次与角色卡（当前 {props.currentRecords}{' '}
-          个场次），不会自动合并，也不生成操作前副本。需要时请先手动备份；校验或提交失败保留原数据。
-        </p>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={settings}
-            disabled={props.busy}
-            onChange={(e) => setSettings(e.target.checked)}
-          />
-          恢复主题与阅读过滤设置（不更改保存位置）
-        </label>
+        <div className="dialog-body">
+          <p>
+            {snapshot.modules.length} 个模组 · {snapshot.records.length} 个场次 · {snapshot.characters.length}{' '}
+            张角色卡
+          </p>
+          <p>其中 {props.preview.offlineRecords} 个场次带有已保存正文。</p>
+          {props.preview.warnings.map((w) => (
+            <SystemMessage kind="warning" message={w} key={w} />
+          ))}
+          <p>
+            将覆盖本机的模组、场次与角色卡（当前 {props.currentRecords}{' '}
+            个场次），不会自动合并，也不生成操作前副本。需要时请先手动备份；校验或提交失败保留原数据。
+          </p>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings}
+              disabled={props.busy}
+              onChange={(e) => setSettings(e.target.checked)}
+            />
+            恢复主题与阅读过滤设置（不更改保存位置）
+          </label>
+        </div>
         <div className="dialog-actions">
           <button disabled={props.busy} onClick={props.onCancel}>
             取消

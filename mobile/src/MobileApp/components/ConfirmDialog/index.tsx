@@ -56,7 +56,9 @@ export function ConfirmDialog(props: {
         aria-label="确认操作"
       >
         <h2>确认操作</h2>
-        <p>{props.message}</p>
+        <div className="dialog-body">
+          <p>{props.message}</p>
+        </div>
         <div className="dialog-actions">
           <button ref={cancel} type="button" onClick={() => props.onResolve(false)}>
             取消

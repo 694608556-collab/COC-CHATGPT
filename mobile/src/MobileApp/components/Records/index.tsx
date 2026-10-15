@@ -145,7 +145,11 @@ export function Records(props: {
                   onQuery={(query) => props.onQuery(m.id, query)}
                   onRead={props.onRead}
                 />
-                <div className="entity-actions module-actions" role="group" aria-label={m.name + '操作'}>
+                <div
+                  className={'entity-actions module-actions' + (selecting ? ' selecting-actions' : '')}
+                  role="group"
+                  aria-label={m.name + '操作'}
+                >
                   <button
                     disabled={props.busy || !records.length}
                     onClick={() => {
@@ -155,22 +159,24 @@ export function Records(props: {
                   >
                     全选此模组
                   </button>
-                  <button disabled={props.busy} onClick={() => props.onNewRecord(m.id)}>
-                    新增手动场次
-                  </button>
-                  <button disabled={props.busy} onClick={() => props.onNewOnline(m.id)}>
-                    新增在线场次
-                  </button>
-                  <button
-                    className="danger"
-                    disabled={props.busy || !ids.length}
-                    onClick={() => props.onAction({ type: 'delete-records', ids })}
-                  >
-                    批量删除
-                  </button>
+                  {!selecting && (
+                    <>
+                      <button
+                        className="primary"
+                        disabled={props.busy}
+                        onClick={() => props.onNewRecord(m.id)}
+                      >
+                        新增手动场次
+                      </button>
+                      <button disabled={props.busy} onClick={() => props.onNewOnline(m.id)}>
+                        新增在线场次
+                      </button>
+                    </>
+                  )}
                   {selecting && (
                     <>
                       <button
+                        disabled={props.busy}
                         onClick={() => {
                           setSelected([])
                           setSelecting(false)
@@ -197,6 +203,13 @@ export function Records(props: {
                       </button>
                       <button disabled={props.busy || !ids.length} onClick={() => props.onExport(ids, true)}>
                         合成导出
+                      </button>
+                      <button
+                        className="danger bulk-delete"
+                        disabled={props.busy || !ids.length}
+                        onClick={() => props.onAction({ type: 'delete-records', ids })}
+                      >
+                        批量删除
                       </button>
                       <span className="selection-count">已选 {ids.length} 场</span>
                     </>

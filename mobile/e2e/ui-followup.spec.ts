@@ -57,7 +57,7 @@ test('底部切换和长按无黑色焦点阴影，多选整行含复选框和�
 test('批量删除显示数量并确认，取消不写入，确认仅删除本模组已选场次且不增加副本', async ({ page }) => {
   await ready(page)
   const group = page.locator('.module-group').filter({ hasText: '雾港调查' })
-  await expect(group.getByRole('button', { name: '批量删除', exact: true })).toBeDisabled()
+  await expect(group.getByRole('button', { name: '批量删除', exact: true })).toHaveCount(0)
   await group.getByRole('button', { name: '全选此模组', exact: true }).click()
   const confirmation = page.getByRole('dialog', { name: '确认操作', exact: true })
   await page.removeLocatorHandler(confirmation)

@@ -34,7 +34,7 @@ test('紧凑标题、无粗紫焦点框、模组内新增归属及多选提醒�
     await group
       .locator(':scope > .gesture-row .drag-handle')
       .evaluate((node) => node.getBoundingClientRect().width)
-  ).toBe(30)
+  ).toBe(48)
   await group.getByRole('button', { name: '新增手动场次' }).click()
   await expect(page.getByRole('combobox', { name: '所属模组', exact: true })).toContainText('山间旅馆')
   await page.getByLabel('场次名称', { exact: true }).fill('归属第二模组的手动场次')
