@@ -66,6 +66,7 @@ describe('浏览器测试存储事务：自动备份与数据保存独立', () =
     const { browser, snapshot, json } = await setup()
     await browser.port.commitRestore({ json, expectedRevision: 0, confirmed: true })
     const digest = crypto.subtle.digest.bind(crypto.subtle)
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1800000000000)
     let release!: () => void, captured!: () => void
     const gate = new Promise<void>((resolve) => {
       release = resolve
@@ -84,8 +85,10 @@ describe('浏览器测试存储事务：自动备份与数据保存独立', () =
       value: { ...snapshot.modules[0]!, name: '备份期间修改' },
       expectedRevision: 1
     })
+    clock.mockReturnValue(1800000120000)
     release()
     const result = await pending
+    expect(result.savedAt).toBe(1800000120000)
     expect(result.revision).toBe(1)
     const state = await browser.port.getState()
     expect(state.revision).toBe(2)

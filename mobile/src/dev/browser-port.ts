@@ -263,14 +263,15 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
       if (!source || !before.archive.valid || before.revision !== expectedRevision)
         throw new Error('数据已变化，本次自动备份未执行。')
       const snapshot = (await previewBackup(new TextEncoder().encode(source))).snapshot
-      const savedAt = Date.now()
+      const startedAt = Date.now()
       const file = {
-        ...(await document('auto-backup-' + savedAt + '.json', 'application/json', encodeBackup(snapshot))),
+        ...(await document('auto-backup-' + startedAt + '.json', 'application/json', encodeBackup(snapshot))),
         kind: 'auto' as const,
         purpose: 'auto' as const,
-        createdAt: savedAt
+        createdAt: startedAt
       }
       const db = await database
+      let savedAt = 0
       await new Promise<void>((resolve, reject) => {
         const tx = db.transaction(['state', 'documents'], 'readwrite')
         let failure: Error | undefined
@@ -291,6 +292,7 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
               tx.abort()
               return
             }
+            savedAt = Date.now()
             states.put(
               { ...current.result, lastAutoBackupAt: savedAt, lastAutoBackupRevision: expectedRevision },
               'current'
