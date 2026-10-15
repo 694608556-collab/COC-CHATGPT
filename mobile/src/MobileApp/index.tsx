@@ -550,22 +550,22 @@ export function MobileApp({
   /**
    * 串行化用户操作并显示失败，防止重复点击并发覆盖。
    * @param action - 一个完整操作，不读取其他应用数据。
-   * @param quiet - 普通保存使用页内小状态；重要操作仍展示阶段进度。
+   * @param quiet - true 为普通保存的页内状态，read 为无进度／保存文案的读取；false 保留重要操作进度。
    * @returns 无返回值；失败展示错误且不宣称保存成功。
    */
-  async function perform(action: () => Promise<void>, quiet = false) {
+  async function perform(action: () => Promise<void>, quiet: boolean | 'read' = false) {
     if (busyLock.current) return
     busyLock.current = true
     setBusy(true)
     setError('')
     setNotice('')
-    setQuietSaving(quiet)
-    setSaveStatus(quiet ? '保存中…' : '')
+    setQuietSaving(!!quiet)
+    setSaveStatus(quiet === true ? '保存中…' : '')
     try {
       await action()
       if (quiet) {
         setNotice('')
-        setSaveStatus('已保存')
+        setSaveStatus(quiet === true ? '已保存' : '')
       }
     } catch (reason) {
       setSaveStatus('')
@@ -783,7 +783,7 @@ export function MobileApp({
           <strong>COC 跑团记录簿</strong>
           <span>安卓开发版 · 本机数据</span>
         </div>
-        <span className="version">0.2.18 · 启动试验</span>
+        <span className="version">0.2.19 · 启动试验</span>
       </header>
       <main aria-hidden={confirmation ? true : undefined}>
         {savedDocument && (
@@ -915,7 +915,7 @@ export function MobileApp({
                             const loaded = await loadContent([value.id])
                             setReaderQuery(query)
                             setRecord(loaded.records.find((r) => r.id === value.id))
-                          })
+                          }, 'read')
                         } else {
                           setReaderQuery(query)
                           setRecord(value)

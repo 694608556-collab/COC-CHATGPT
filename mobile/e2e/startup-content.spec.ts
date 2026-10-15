@@ -5,7 +5,14 @@ import { searchSample } from '../src/dev/sample'
 import { createEmptyCharacter } from '../../src/shared/coc-rules'
 import { acceptAppConfirmations, expandModules } from './helpers'
 
-type Probe = { requests: string[][]; overviewBytes: number[]; fail: string }
+type Probe = {
+  requests: string[][]
+  overviewBytes: number[]
+  fail: string
+  /** 测试边界暂停读取的继续回调；可选无参数函数，无返回值，不修改存储。 */
+  release?: () => void
+}
+/** @param page - 隔离公开样本页面。 @returns 安装存储接口的失败／暂停探针后 resolve，无返回值。 */
 async function instrument(page: Page) {
   await page.route('**/app.js', async (route) => {
     const response = await route.fetch(),
@@ -26,6 +33,7 @@ async function instrument(page: Page) {
         port.getRecordContent = async (input) => {
           probe.requests.push(input.ids);
           const mode = probe.fail; probe.fail = '';
+          if (mode === 'hold') await new Promise(resolve => { probe.release = resolve; });
           if (mode === 'error') throw new Error('公开正文读取失败');
           const value = await content(input);
           if (mode === 'stale') return { ...value, revision: value.revision + 1 };
@@ -73,12 +81,10 @@ test('75 场重开不读取正文，设置及角色编辑可用，阅读只取�
     order: index,
     rawContent: {
       ...first.rawContent!,
-      messages: first
-        .rawContent!.messages.slice(0, 100)
-        .map((message, i) => ({
-          ...message,
-          text: `公开完整正文 ${index}/${i} ` + '正文不丢失。'.repeat(35)
-        }))
+      messages: first.rawContent!.messages.slice(0, 100).map((message, i) => ({
+        ...message,
+        text: `公开完整正文 ${index}/${i} ` + '正文不丢失。'.repeat(35)
+      }))
     }
   }))
   sample.characters = [createEmptyCharacter({ edition: 7, name: '公开启动角色' })]
@@ -120,6 +126,33 @@ test('75 场重开不读取正文，设置及角色编辑可用，阅读只取�
     body: JSON.stringify(metrics, null, 2),
     contentType: 'application/json'
   })
+})
+
+test('打开正文读取期间不弹底部进度，失败仍提醒，重试能读完整正文', async ({ page }) => {
+  await seed(page)
+  await expandModules(page)
+  await page.evaluate(() => {
+    ;(window as unknown as { __startupProbe: Probe }).__startupProbe.fail = 'hold'
+  })
+  const row = page.getByRole('button', { name: /雾港调查.*第一场：灯塔线索/ })
+  await row.click()
+  await expect.poll(async () => (await probe(page)).requests.length).toBe(1)
+  expect(await page.locator('.operation-feedback [role="progressbar"]').count()).toBe(0)
+  expect(await page.getByText('正在读取已保存正文…', { exact: true }).count()).toBe(0)
+  await page.evaluate(() => {
+    ;(window as unknown as { __startupProbe: Probe }).__startupProbe.release?.()
+  })
+  await expect(page.locator('.messages .message')).toHaveCount(100)
+  await expect(page.getByLabel('普通保存状态')).toHaveCount(0)
+  await page.reload()
+  await expandModules(page)
+  await page.evaluate(() => {
+    ;(window as unknown as { __startupProbe: Probe }).__startupProbe.fail = 'error'
+  })
+  await row.click()
+  await expect(page.getByRole('alert')).toContainText('公开正文读取失败')
+  await row.click()
+  await expect(page.locator('.messages .message')).toHaveCount(100)
 })
 
 test('缺失、陈旧和失败的正文都不冒充无结果，重试后搜索完整且不串模组', async ({ page }) => {
