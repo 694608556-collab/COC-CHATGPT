@@ -141,7 +141,8 @@ public final class LogbookPlugin extends Plugin {
     @PluginMethod public void getRecordContent(PluginCall call) {
         execute(() -> {
             try {
-                Long expected = call.getLong("expectedRevision");
+                // Small JS revisions arrive as Integer; PluginCall.getLong only accepts boxed Long.
+                Long expected = call.getData().has("expectedRevision") ? call.getData().getLong("expectedRevision") : null;
                 if (expected == null || database.revision() != expected) throw new IllegalStateException("数据已变化，请重新读取。");
                 JSONArray ids = call.getArray("ids"); java.util.Set<String> selected = new java.util.HashSet<>();
                 if (ids == null || ids.length() == 0) throw new IllegalArgumentException("请选择场次。");

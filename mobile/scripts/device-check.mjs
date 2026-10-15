@@ -1,7 +1,15 @@
 import { writeFile } from 'node:fs/promises'
 import { transform } from 'esbuild'
 
-const targets = await (await fetch('http://127.0.0.1:9229/json/list')).json()
+const debugUrl = new URL(process.env.COC_DEVICE_DEBUG_URL || 'http://127.0.0.1:9229')
+if (
+  debugUrl.protocol !== 'http:' ||
+  debugUrl.hostname !== '127.0.0.1' ||
+  debugUrl.username ||
+  debugUrl.password
+)
+  throw new Error('Only a locally forwarded owned development WebView is supported')
+const targets = await (await fetch(new URL('/json/list', debugUrl))).json()
 const target = targets.find((item) => item.url.startsWith('https://localhost'))
 if (!target) throw new Error('Owned development WebView not found')
 const socket = new WebSocket(target.webSocketDebuggerUrl)
@@ -11,8 +19,45 @@ await new Promise((resolve, reject) => {
 })
 const mode = process.argv[2] || 'state'
 const expression =
-  mode === 'guards'
+  mode === 'content'
     ? `(async () => {
+  const api = window.Capacitor.Plugins.Logbook, before = await api.getState();
+  const data = before.json ? JSON.parse(before.json) : null;
+  if (!data || data.records.length !== 70 || data.modules.length !== 1 || !data.modules[0].name.includes('公开手势性能测试') || document.querySelector('.editor,[role=dialog],[role=progressbar]'))
+    throw new Error('This check requires the idle independent public gesture sample');
+  if (!Number.isInteger(before.revision) || before.revision < 1 || before.revision > 2147483647)
+    throw new Error('This regression specifically requires a small integer revision');
+  const files = (await api.listDocuments({all:true})).documents;
+  const overview = await api.getOverview(), deferred = overview.deferredRecordIds;
+  if (deferred.length < 2) throw new Error('Two saved bodies are required');
+  const ids = [deferred[0], deferred[deferred.length - 1]];
+  const result = await api.getRecordContent({ids, expectedRevision:before.revision});
+  const selected = JSON.parse(result.json).records;
+  const complete = result.revision === before.revision && selected.length === 2 && ids.every(id => {
+    const actual = selected.find(row => row.id === id), expected = data.records.find(row => row.id === id);
+    return actual && expected && actual.moduleId === expected.moduleId && actual.sourceType === expected.sourceType &&
+      JSON.stringify(actual.rawContent) === JSON.stringify(expected.rawContent) && actual.manualContent === expected.manualContent;
+  });
+  if (!complete) throw new Error('Selected complete body batch did not match committed data');
+  let rejected = 0;
+  for (const request of [
+    {ids:[ids[0], 'public-missing-body-regression'], expectedRevision:before.revision},
+    {ids:[ids[0], ids[0]], expectedRevision:before.revision},
+    {ids, expectedRevision:before.revision - 1}
+  ]) {
+    let refused = false;
+    try { await api.getRecordContent(request); } catch { refused = true; }
+    if (!refused) throw new Error('Invalid body batch accepted');
+    rejected++;
+  }
+  const after = await api.getState(), afterFiles = (await api.listDocuments({all:true})).documents;
+  return {validContent:complete, revision:before.revision, smallIntegerRevision:true, records:selected.length,
+    messages:selected.reduce((sum,row) => sum + (row.rawContent?.messages.length || 0), 0), rejected,
+    dataUnchanged:before.json === after.json && before.revision === after.revision &&
+      JSON.stringify(before.archive) === JSON.stringify(after.archive) && JSON.stringify(files) === JSON.stringify(afterFiles)};
+})()`
+    : mode === 'guards'
+      ? `(async () => {
   const api = window.Capacitor.Plugins.Logbook;
   const before = await api.getState();
   const data = JSON.stringify({schemaVersion:2,exportedAt:'2026-10-13T00:00:00.000Z',modules:[],records:[],characters:[],settings:{theme:'light',filterPreset:{}}});
@@ -26,7 +71,7 @@ const expression =
   const after=await api.getState();
   return {confirmationRejected,staleRevisionRejected,missingSafetyLocationRejected,dataUnchanged:before.json===after.json && before.revision===after.revision};
 })()`
-    : `(async () => {
+      : `(async () => {
   const state=await window.Capacitor.Plugins.Logbook.getState();
   const data=state.json ? JSON.parse(state.json) : null;
   return {networkConnected:state.networkConnected,revision:state.revision,archive:state.archive,hasData:!!data,modules:data?.modules.length||0,records:data?.records.length||0,characters:data?.characters.length||0,messages:data?.records.reduce((sum,r)=>sum+(r.rawContent?.messages.length||0),0)||0,viewportWidth:innerWidth,documentWidth:document.documentElement.scrollWidth,gateVisible:!!document.querySelector('.onboarding'),readerVisible:!!document.querySelector('.messages'),errorVisible:!!document.querySelector('.error')};
@@ -65,4 +110,6 @@ if (
     !report.dataUnchanged ||
     report.missingSafetyLocationRejected === false)
 )
+  process.exitCode = 2
+if (mode === 'content' && (!report.validContent || report.rejected !== 3 || !report.dataUnchanged))
   process.exitCode = 2
