@@ -12,6 +12,9 @@ import '../MobileApp/styles.css'
 import { waitForAppFonts } from '../data/fonts'
 import { GestureTestingContext } from '../MobileApp/components/GestureTestingContext'
 import type { GestureTestSource } from '../MobileApp/components/GestureTestingContext'
+import { AppLaunch } from '../AppLaunch'
+import { claimWelcome } from '../data/presentation'
+import { browserPresentation } from './presentation'
 
 const browser = createBrowserPort()
 function download(name: string, bytes: Uint8Array, mime: string) {
@@ -113,8 +116,18 @@ function Preview() {
   )
 }
 const root = document.getElementById('root')!
-void waitForAppFonts()
-  .then(() => createRoot(root).render(<Preview />))
+// 欢迎页浏览器验收显式启用；常规开发入口不消费展示许可，也不影响现有草稿。
+const welcome = new URLSearchParams(location.search).has('first-launch-preview')
+  ? claimWelcome(browserPresentation())
+  : Promise.resolve(false)
+void Promise.all([waitForAppFonts(), welcome])
+  .then(([, showIntro]) =>
+    createRoot(root).render(
+      <AppLaunch showIntro={showIntro}>
+        <Preview />
+      </AppLaunch>
+    )
+  )
   .catch(() => {
     root.textContent = '内置字体加载失败，请检查开发构建的字体资源并刷新。'
   })

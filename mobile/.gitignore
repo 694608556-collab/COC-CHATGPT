@@ -7,6 +7,9 @@ android/capacitor-cordova-android-plugins/build/
 android/local.properties
 *.keystore
 *.jks
+*.p12
+*.pfx
+*.password
 evidence/
 !src/data/
 !src/data/**

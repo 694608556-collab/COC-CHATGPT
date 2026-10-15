@@ -778,12 +778,11 @@ export function MobileApp({
             <path d="M15 18l-6-6 6-6" />
           </svg>
         </button>
-        <img src="icon.png" alt="" />
-        <div>
+        <div className="app-brand">
+          <img src="icon.png" alt="" />
           <strong>COC 跑团记录簿</strong>
-          <span>安卓开发版 · 本机数据</span>
         </div>
-        <span className="version">0.2.19 · 启动试验</span>
+        <span className="version">1.0.0</span>
       </header>
       <main aria-hidden={confirmation ? true : undefined}>
         {savedDocument && (
@@ -823,7 +822,7 @@ export function MobileApp({
         ) : (
           <>
             <div className="page-heading">
-              {testBackup && !editing && !record && (
+              {process.env.NODE_ENV === 'development' && testBackup && !editing && !record && (
                 <section className="panel sample-help">
                   <h2>公开搜索测试数据</h2>
                   <p>
@@ -842,7 +841,6 @@ export function MobileApp({
                   </p>
                 </section>
               )}
-              <p className="eyebrow">仅保留你确认的三个模块</p>
               <h1>{titles[page]}</h1>
               {!editing && saveStatus && (
                 <span className="inline-save-status" role="status" aria-label="普通保存状态">

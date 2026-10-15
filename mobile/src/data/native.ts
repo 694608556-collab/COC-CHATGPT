@@ -124,4 +124,4 @@ export interface LogbookPort {
   }): Promise<SavedDocument>
 }
 
-export const Native = registerPlugin<LogbookPort>('Logbook')
+export const Native = registerPlugin<LogbookPort & import('./presentation').PresentationPort>('Logbook')

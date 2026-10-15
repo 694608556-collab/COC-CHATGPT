@@ -41,6 +41,16 @@ public final class LogbookPlugin extends Plugin {
     @Override public void load() { database = new LogbookDatabase(getContext()); }
     @Override protected void handleOnDestroy() { backupWriter.shutdown(); if (database != null) database.close(); }
     private SharedPreferences prefs() { return getContext().getSharedPreferences("archive-location", 0); }
+    /** No arguments. Persist before granting one welcome display; business restore/clear never touches this file. */
+    @PluginMethod public synchronized void claimFirstLaunchIntro(PluginCall call) {
+        try {
+            SharedPreferences presentation = getContext().getSharedPreferences("app-presentation", 0);
+            boolean show = !presentation.getBoolean("first-welcome-shown", false);
+            if (show && !presentation.edit().putBoolean("first-welcome-shown", true).commit())
+                throw new IllegalStateException("Unable to persist welcome display marker.");
+            JSObject out = new JSObject(); out.put("show", show); call.resolve(out);
+        } catch (Exception error) { call.reject("Unable to claim welcome display.", error); }
+    }
     private String digest(byte[] bytes) throws Exception {
         StringBuilder result = new StringBuilder();
         for (byte b : MessageDigest.getInstance("SHA-256").digest(bytes)) result.append(String.format("%02x", b & 255));

@@ -252,23 +252,13 @@ export function DataSettings(props: {
           清空应用数据
         </button>
       </section>
-      <section className="panel">
-        <h2>开发阶段说明</h2>
-        <p>
-          已接入：模组/场次/角色编辑、删除与关联管理，日志获取、离线阅读与搜索，表格导入导出、批量/合成日志导出、明暗主题与自动本地备份、归档打开/分享。
-        </p>
-        <p className="muted">
-          安卓原生目录、网络、分享、返回键和升级保留数据仍需真机验收。浏览器可测试数据与页面逻辑。
-        </p>
-      </section>
-
-      <section className="panel" aria-label="版本说明">
-        <h2>版本说明</h2>
-        <p>0.2.19-dev · 启动试验</p>
+      <footer className="settings-version" role="region" aria-label="版本说明">
+        <p>COC 跑团记录簿 · 1.0.0</p>
+        <p>跑团记录·调查员 · 记录每一次探索</p>
         <p>数据仅本机保存、无账户</p>
         <p>仅海豹链接相关联网</p>
         <p>应用制作：亦如长风万里沙</p>
-      </section>
+      </footer>
     </>
   )
 }

@@ -1,6 +1,6 @@
 {
   "name": "coc-logbook-mobile",
-  "version": "0.2.19",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "sync": "pnpm build && cap sync android",
-    "android:build": "pnpm sync && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-android.ps1"
+    "android:build": "pnpm sync && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-android.ps1",
+    "android:release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-release.ps1"
   },
   "dependencies": {
     "@capacitor/android": "8.5.3",
