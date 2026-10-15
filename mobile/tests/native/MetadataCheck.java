@@ -19,6 +19,20 @@ public final class MetadataCheck {
     interface Throwing { void run() throws Exception; }
     public static void main(String[] args) throws Exception {
         Map<String,String> fields = JsonFields.split(Files.readString(Path.of(args[0])));
+        String originalSnapshot = JsonFields.join(fields);
+        JSONObject overview = RecordOverlay.view(fields,null);
+        JSONObject overviewData = new JSONObject(overview.getString("json"));
+        JSONArray overviewRows = overviewData.getJSONArray("records");
+        for (int i=0;i<overviewRows.length();i++) {
+            check(!overviewRows.getJSONObject(i).has("rawContent") && !overviewRows.getJSONObject(i).has("manualContent"),"overview has no log bodies");
+        }
+        String selectedId = overview.getJSONArray("deferredRecordIds").getString(0);
+        java.util.Set<String> selectedIds = new java.util.HashSet<>(); selectedIds.add(selectedId);
+        JSONObject content = RecordOverlay.view(fields,selectedIds);
+        check(new JSONObject(content.getString("json")).getJSONArray("records").length()==1,"content contains only selected record");
+        check(content.getString("json").contains("900719925474099312345"),"selected body keeps raw numeric precision");
+        selectedIds.add("missing"); rejects(() -> RecordOverlay.view(fields,selectedIds));
+        check(originalSnapshot.equals(JsonFields.join(fields)),"read projections never mutate persisted fields");
         JSONArray modules = new JSONArray(fields.get("modules")), characters = new JSONArray(fields.get("characters"));
         String now = "2026-10-15T02:00:00Z";
         JSONObject character = new JSONObject(characters.getJSONObject(0).toString());

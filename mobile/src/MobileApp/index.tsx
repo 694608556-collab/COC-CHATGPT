@@ -46,6 +46,7 @@ import {
 import { exportRecordTables } from '../../../src/shared/record-table'
 import type { AppSnapshot } from '../../../src/shared/types'
 import { useVisibleViewport } from './useVisibleViewport'
+import { deferredIds, mergeRecordContent } from '../data/deferred-records'
 
 /** @returns 初次使用的空数据，不推测或静默创建归档目录。 */
 function emptySnapshot(): MobileSnapshot {
@@ -62,15 +63,40 @@ function emptySnapshot(): MobileSnapshot {
 /** @returns 安卓三模块外壳；所有覆盖与写入仅经原生持久化接口。 */
 export function MobileApp({
   port = Native,
-  testBackup
+  testBackup,
+  initialOverview
 }: {
   port?: LogbookPort
   testBackup?: () => Uint8Array
+  initialOverview?: ReturnType<LogbookPort['getOverview']>
 }) {
   const [native, setNative] = useState<NativeState>()
   const nativeRef = useRef(native)
   nativeRef.current = native
   const [snapshot, setSnapshot] = useState<MobileSnapshot>(emptySnapshot)
+  const [deferredRecords, setDeferredRecords] = useState(new Set<string>())
+  const deferredRef = useRef(deferredRecords)
+  function replaceDeferred(ids: Set<string>) {
+    deferredRef.current = ids
+    setDeferredRecords(ids)
+  }
+  /** Reads only requested saved bodies; partial/stale/invalid results leave the overview intact. */
+  async function loadContent(ids: string[], current = snapshot): Promise<MobileSnapshot> {
+    const wanted = [...new Set(ids)].filter(
+      (id) => deferredRef.current.has(id) && current.records.some((r) => r.id === id)
+    )
+    if (!wanted.length) return current
+    if (!native) throw new Error('本机数据尚未读取。')
+    setNotice('正在读取已保存正文…')
+    const result = await port.getRecordContent({ ids: wanted, expectedRevision: native.revision })
+    if (result.revision !== native.revision) throw new Error('数据已变化，请重新读取。')
+    const checked = await readInBackground(result.json)
+    const next = mergeRecordContent(current, checked, wanted)
+    replaceDeferred(new Set([...deferredRef.current].filter((id) => !wanted.includes(id))))
+    setSnapshot(next)
+    setNotice('')
+    return next
+  }
   const [page, setPage] = useState<'records' | 'characters' | 'settings'>('records')
   const [record, setRecord] = useState<SessionRecord>()
   const [readerQuery, setReaderQuery] = useState('')
@@ -134,6 +160,8 @@ export function MobileApp({
   const [tablePreview, setTablePreview] = useState<{ data: TablePreview; revision: number }>()
   async function commit(next: MobileSnapshot) {
     if (!native) throw new Error('本机数据尚未读取。')
+    if (snapshot.records.some((r) => deferredRef.current.has(r.id)))
+      throw new Error('正文尚未完整读取，未保存不完整数据。')
     setNotice('正在后台校验并编码待保存数据…')
     const prepared = await prepareInBackground({ ...next, exportedAt: new Date().toISOString() })
     const validated = prepared.snapshot
@@ -191,7 +219,8 @@ export function MobileApp({
     setNotice(action.type === 'reorder' ? '排序已保存。' : '操作已保存。')
   }
   async function probe(ids: string[]) {
-    const next = { ...snapshot, records: [...snapshot.records] }
+    const complete = await loadContent(snapshot.records.map((r) => r.id))
+    const next = { ...complete, records: [...complete.records] }
     for (const id of ids) {
       const index = next.records.findIndex((r) => r.id === id)
       if (index < 0 || next.records[index]!.sourceType !== 'online') continue
@@ -207,7 +236,8 @@ export function MobileApp({
   }
   async function exportSelected(format: ExportFormat) {
     if (!exportRequest) return
-    const selected = snapshot.records
+    const loaded = await loadContent(exportRequest.ids)
+    const selected = loaded.records
       .filter((r) => exportRequest.ids.includes(r.id))
       .sort((a, b) => a.order - b.order)
     if (!selected.length) throw new Error('所选场次已不存在，请重新选择。')
@@ -245,7 +275,8 @@ export function MobileApp({
     if (failed.length) setError(failed.join('；'))
   }
   async function exportTables(format: 'csv' | 'xlsx') {
-    const files = exportRecordTables(snapshot as unknown as AppSnapshot, format)
+    const loaded = await loadContent(snapshot.records.map((r) => r.id))
+    const files = exportRecordTables(loaded as unknown as AppSnapshot, format)
     for (const file of files) {
       const suffix = format === 'csv' ? '.csv' : '.xlsx'
       const saved = await port.writeArchive({
@@ -261,8 +292,9 @@ export function MobileApp({
   async function previewTable(kind: 'records' | 'characters') {
     const selected = await port.openBackup({ kind: kind === 'records' ? 'record-table' : 'character-table' })
     if (selected.cancelled || !selected.base64 || !selected.name || !native) return
+    const complete = await loadContent(snapshot.records.map((r) => r.id))
     setTablePreview({
-      data: await importTable(snapshot, decodeBase64(selected.base64), selected.name, kind),
+      data: await importTable(complete, decodeBase64(selected.base64), selected.name, kind),
       revision: native.revision
     })
   }
@@ -495,12 +527,16 @@ export function MobileApp({
   }
 
   /** @returns 当前存储与授权；读取失败保留旧显示，不重置数据库。 */
-  async function reload() {
-    const state = await port.getState()
-    setNotice('正在后台读取并校验本机数据…')
+  async function reload(prefetched?: ReturnType<LogbookPort['getOverview']>) {
+    setNotice('正在读取列表与设置…')
+    const state = await (prefetched ?? port.getOverview())
     const data = state.json ? await readInBackground(state.json) : emptySnapshot()
+    const deferred = deferredIds(data, state.deferredRecordIds)
     setSnapshot(data)
-    setNative(state)
+    replaceDeferred(deferred)
+    setNative({ ...state, json: null })
+    setRecord(undefined)
+    setSelectedCharacter((id) => (data.characters.some((character) => character.id === id) ? id : ''))
     setFailedSettings(undefined)
     setSettingsStatus('')
     document.documentElement.dataset.theme = data.settings.theme
@@ -539,7 +575,7 @@ export function MobileApp({
     }
   }
   useEffect(() => {
-    void perform(reload)
+    void perform(() => reload(initialOverview))
   }, [])
 
   /** @returns 打开系统目录选择；取消不将首次配置标为成功。 */
@@ -594,7 +630,8 @@ export function MobileApp({
   }
   /** @returns 保存含已获取正文的安卓备份；不冒充已兼容旧电脑版的整库格式。 */
   async function exportBackup(includeArchives = false) {
-    let bytes = encodeBackup(snapshot)
+    const complete = await loadContent(snapshot.records.map((r) => r.id))
+    let bytes = encodeBackup(complete)
     if (includeArchives) {
       const known = (await port.listDocuments({ all: true })).documents
       const exported = known.filter(
@@ -611,7 +648,7 @@ export function MobileApp({
         const content = await port.readDocument({ uri: file.uri })
         files.push({ name: content.name, bytes: decodeBase64(content.base64) })
       }
-      bytes = await encodeArchiveBackup(snapshot, files)
+      bytes = await encodeArchiveBackup(complete, files)
     }
     const file = await port.writeArchive({
       name: 'coc-android-backup-' + Date.now() + (includeArchives ? '.zip' : '.json'),
@@ -741,7 +778,7 @@ export function MobileApp({
           <strong>COC 跑团记录簿</strong>
           <span>安卓开发版 · 本机数据</span>
         </div>
-        <span className="version">0.2.14 · 试验 3</span>
+        <span className="version">0.2.15 · 启动试验</span>
       </header>
       <main aria-hidden={confirmation ? true : undefined}>
         {savedDocument && (
@@ -839,6 +876,7 @@ export function MobileApp({
                     />
                   ) : (
                     <Records
+                      deferredRecords={deferredRecords}
                       snapshot={snapshot}
                       onNewModule={newModule}
                       onNewRecord={(moduleId) => newRecord(moduleId)}
@@ -851,10 +889,29 @@ export function MobileApp({
                       busy={busy}
                       onEditModule={(value) => startEdit({ kind: 'module', value })}
                       queries={moduleQueries}
-                      onQuery={(id, query) => setModuleQueries((current) => ({ ...current, [id]: query }))}
+                      onQuery={(id, query) => {
+                        setModuleQueries((current) => ({ ...current, [id]: query }))
+                        if (
+                          query.trim() &&
+                          snapshot.records.some((r) => r.moduleId === id && deferredRef.current.has(r.id))
+                        )
+                          void perform(async () => {
+                            await loadContent(
+                              snapshot.records.filter((r) => r.moduleId === id).map((r) => r.id)
+                            )
+                          })
+                      }}
                       onRead={(value, query = '') => {
-                        setReaderQuery(query)
-                        setRecord(value)
+                        if (deferredRef.current.has(value.id)) {
+                          void perform(async () => {
+                            const loaded = await loadContent([value.id])
+                            setReaderQuery(query)
+                            setRecord(loaded.records.find((r) => r.id === value.id))
+                          })
+                        } else {
+                          setReaderQuery(query)
+                          setRecord(value)
+                        }
                       }}
                       onImport={() => {
                         setPage('settings')
@@ -880,6 +937,11 @@ export function MobileApp({
                 )}
                 {page === 'settings' && (
                   <DataSettings
+                    savedBodyCount={
+                      snapshot.records.filter(
+                        (r) => deferredRecords.has(r.id) || r.rawContent || r.manualContent !== undefined
+                      ).length
+                    }
                     archive={native.archive}
                     snapshot={snapshot}
                     busy={busy}

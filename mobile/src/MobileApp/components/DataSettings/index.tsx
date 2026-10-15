@@ -11,6 +11,7 @@ import type { SettingsPatch } from '../../../data/settings-batch'
  * @returns 手机设置页。
  */
 export function DataSettings(props: {
+  savedBodyCount: number
   archive: ArchiveLocation
   snapshot: MobileSnapshot
   busy: boolean
@@ -47,7 +48,7 @@ export function DataSettings(props: {
           <small>场次</small>
         </strong>
         <strong>
-          {props.snapshot.records.filter((r) => r.rawContent || r.manualContent !== undefined).length}
+          {props.savedBodyCount}
           <small>已保存正文</small>
         </strong>
         <strong>
@@ -263,7 +264,7 @@ export function DataSettings(props: {
 
       <section className="panel" aria-label="版本说明">
         <h2>版本说明</h2>
-        <p>0.2.14-dev · UI 试验 3</p>
+        <p>0.2.15-dev · 启动试验</p>
         <p>数据仅本机保存、无账户</p>
         <p>仅海豹链接相关联网</p>
         <p>应用制作：亦如长风万里沙</p>

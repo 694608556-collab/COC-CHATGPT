@@ -17,6 +17,12 @@ function deviceStore(failSave = false): LogbookPort {
     archive: { uri: 'content://example/tree', label: '测试目录', valid: true }
   }
   return {
+    getOverview: async () => {
+      throw new Error('测试未调用启动读取')
+    },
+    getRecordContent: async () => {
+      throw new Error('测试未调用按需正文读取')
+    },
     getStatus: async () => ({ revision: state.revision, archive: state.archive }),
     commitEntity: async () => {
       throw new Error('测试未调用实体保存')

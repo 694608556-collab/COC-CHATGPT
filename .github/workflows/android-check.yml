@@ -1,6 +1,9 @@
 name: Android development checks
 
 on:
+  push:
+    branches: [codex/ui-optimization-experiment]
+    paths: ['mobile/**', 'src/shared/**', '.github/workflows/android-check.yml']
   pull_request:
     branches: [codex/android-port]
     paths: ['mobile/**', 'src/shared/**', '.github/workflows/android-check.yml']

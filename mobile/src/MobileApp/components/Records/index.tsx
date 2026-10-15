@@ -20,6 +20,7 @@ const STATUS_LABELS = {
  * @returns 手机记录汇总页面。
  */
 export function Records(props: {
+  deferredRecords: ReadonlySet<string>
   snapshot: MobileSnapshot
   onRead(record: SessionRecord, query?: string): void
   queries: Record<string, string>
@@ -137,6 +138,8 @@ export function Records(props: {
                   </p>
                 )}
                 <ModuleBodySearch
+                  ready={!allRecords.some((r) => props.deferredRecords.has(r.id))}
+                  busy={props.busy}
                   moduleId={m.id}
                   moduleName={m.name}
                   records={snapshot.records}
@@ -267,10 +270,18 @@ export function Records(props: {
                             <strong className="record-name">{r.name}</strong>
                             <span
                               className={
-                                r.rawContent || r.manualContent !== undefined ? 'tag available' : 'tag'
+                                props.deferredRecords.has(r.id) ||
+                                r.rawContent ||
+                                r.manualContent !== undefined
+                                  ? 'tag available'
+                                  : 'tag'
                               }
                             >
-                              {r.rawContent || r.manualContent !== undefined ? '正文已保存' : '缺少正文'}
+                              {props.deferredRecords.has(r.id) ||
+                              r.rawContent ||
+                              r.manualContent !== undefined
+                                ? '正文已保存'
+                                : '缺少正文'}
                             </span>
                           </span>
                           <span className="record-status">

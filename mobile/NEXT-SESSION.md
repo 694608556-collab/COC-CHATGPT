@@ -1,5 +1,9 @@
 # 安卓下一阶段待修改清单
 
+## 当前启动试验 0.2.15-dev / 18
+
+先读 [启动优化记录](STARTUP-PERFORMANCE-20261015.md) 和 [当前保护契约](SAFETY-POLICY.md)。冷启动改为 getOverview，阅读按场／搜索按模组取正文，重复访问复用；完整快照路径必须先取齐，禁止把概览覆盖成空正文。新概览无归档探针文件；目录选择的实际验证、持久授权、CAS 与失败保护保留。SQLite v3 未改结构，底层首次仍扫描原正文文本，是否需要持久索引须测量后决定。56 项单元、33 项 JVM 辅助、最终完整 69 项浏览器流程已通过；云端编译后补记，不等于真机通过。原 `f280892` 保留 `codex/before-startup-optimization`，其他历史待验项目继续保留。
+
 ## 新增设备兼容性
 
 先读 [设备兼容性检查](DEVICE-COMPATIBILITY-20261015.md)。Mate 40 Pro / HarmonyOS 4.2.0、红米 K80 / OS 3.0.308.0.WOKCNXM.C09、荣耀 90 / MagicOS 9 / Android 15 已纳入；用户暂时拿不到其余版本信息，保持未知并继续开发。开发／生产入口统一 `viewport-fit=contain`，由 Capacitor 8.5.3 原生处理系统栏／挖孔／IME 边距，补齐新 WebView 入口遮挡风险；控件尺寸及存储契约未变。静态／资源构建和 4 项相关浏览器流程通过；无本轮 APK、模拟器或三台真机通过结论。UI 试验 3 的 `38aa7fb` 已保存本地与 GitHub 回滚分支 `codex/ui-optimization-stage3`。

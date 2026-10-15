@@ -51,6 +51,27 @@ final class RecordOverlay {
         copy.remove("rawContent"); copy.remove("manualContent");
         return new JSONObject(JsonFields.join(copy));
     }
+    /** Read-only projection of committed fields; never persists a body-free snapshot. */
+    static JSONObject view(Map<String,String> fields, java.util.Set<String> selected) throws Exception {
+        Map<String,String> view = new LinkedHashMap<>(fields);
+        StringBuilder records = new StringBuilder("[");
+        JSONArray deferred = new JSONArray();
+        java.util.Set<String> found = new java.util.HashSet<>();
+        for (Map.Entry<String,Map<String,String>> entry : rows(fields).entrySet()) {
+            String id = entry.getKey(); Map<String,String> row = entry.getValue();
+            if (selected != null && !selected.contains(id)) continue;
+            found.add(id);
+            if (records.length() > 1) records.append(',');
+            if (selected == null) {
+                records.append(metadata(row).toString());
+                if (row.containsKey("rawContent") || row.containsKey("manualContent")) deferred.put(id);
+            } else records.append(JsonFields.join(row));
+        }
+        if (selected != null && !found.equals(selected)) throw new IllegalArgumentException("场次已变化，请重新读取。");
+        view.put("records",records.append(']').toString());
+        view.remove("recordOrders"); view.remove("recordValues"); view.remove("recordDeleted");
+        return new JSONObject().put("json",JsonFields.join(view)).put("deferredRecordIds",deferred);
+    }
     static void compose(Map<String,String> fields) throws Exception {
         StringBuilder records = new StringBuilder("[");
         for (Map<String,String> row : rows(fields).values()) {

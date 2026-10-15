@@ -112,6 +112,48 @@ public final class LogbookPlugin extends Plugin {
             } catch (Exception error) { call.reject("读取失败；未清空数据。", error); }
         });
     }
+    /** Cold-start overview: no log bodies cross the bridge and no archive probe file is created. */
+    @PluginMethod public void getOverview(PluginCall call) {
+        execute(() -> {
+            try {
+                long revision = database.revision();
+                java.util.Map<String,String> fields = database.fields();
+                JSObject out = new JSObject();
+                if (fields == null) { out.put("json",JSONObject.NULL); out.put("deferredRecordIds",new JSONArray()); }
+                else {
+                    JSONObject view = RecordOverlay.view(fields,null);
+                    out.put("json",view.getString("json")); out.put("deferredRecordIds",view.getJSONArray("deferredRecordIds"));
+                }
+                if (database.revision() != revision) throw new IllegalStateException("数据已变化，请重新读取。");
+                out.put("revision",revision);
+                ConnectivityManager connectivity = (ConnectivityManager)getContext().getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
+                out.put("networkConnected",connectivity.getActiveNetwork() != null);
+                out.put("lastAutoBackupAt",prefs().getLong("last-auto-backup",0));
+                if (prefs().contains("last-auto-backup-revision")) out.put("lastAutoBackupRevision",prefs().getLong("last-auto-backup-revision",-1));
+                JSObject archive = location(false);
+                try { requireArchivePermission(prefs().getString("tree","")); }
+                catch (Exception error) { archive.put("valid",false); }
+                out.put("archive",archive); call.resolve(out);
+            } catch (Exception error) { call.reject("读取列表失败；原数据未清空。",error); }
+        });
+    }
+    /** Read selected committed bodies at an exact revision; no writes or external file access. */
+    @PluginMethod public void getRecordContent(PluginCall call) {
+        execute(() -> {
+            try {
+                Long expected = call.getLong("expectedRevision");
+                if (expected == null || database.revision() != expected) throw new IllegalStateException("数据已变化，请重新读取。");
+                JSONArray ids = call.getArray("ids"); java.util.Set<String> selected = new java.util.HashSet<>();
+                if (ids == null || ids.length() == 0) throw new IllegalArgumentException("请选择场次。");
+                for (int i=0;i<ids.length();i++) if (!selected.add(ids.getString(i))) throw new IllegalArgumentException("场次选择重复。");
+                java.util.Map<String,String> fields = database.fields();
+                if (fields == null) throw new IllegalStateException("尚无已保存数据。");
+                JSONObject view = RecordOverlay.view(fields,selected);
+                if (database.revision() != expected) throw new IllegalStateException("数据已变化，请重新读取。");
+                JSObject out = new JSObject(); out.put("json",view.getString("json")); out.put("revision",expected); call.resolve(out);
+            } catch (Exception error) { call.reject("正文读取失败；原数据未改变。",error); }
+        });
+    }
     /** Resume checks metadata/grants without transferring or validating all log bodies again. */
     @PluginMethod public void getStatus(PluginCall call) {
         execute(() -> {

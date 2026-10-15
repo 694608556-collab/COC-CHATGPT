@@ -9,7 +9,7 @@ export interface ArchiveLocation {
   uri: string
   /** 用户可读名称；类型为 string，不作为文件系统路径使用。 */
   label: string
-  /** 本次启动实际读写验证结果；类型为 boolean。 */
+  /** 最近选目录时的读写验证或本次持久授权检查结果；实际文件写入仍独立校验。 */
   valid: boolean
 }
 /** 原生数据库与授权读取结果。 */
@@ -39,6 +39,13 @@ export interface SavedDocument {
 }
 /** 所有请求/响应与本工程 LogbookPlugin.java 一一对应，不访问推测的 HTTP 接口。 */
 export interface LogbookPort {
+  /** Cold start reads complete metadata only. Body IDs remain in native storage until requested. */
+  getOverview(): Promise<NativeState & { deferredRecordIds: string[] }>
+  /** Selected bodies at exactly the caller's revision; never returns a partial successful batch. */
+  getRecordContent(options: {
+    ids: string[]
+    expectedRevision: number
+  }): Promise<{ json: string; revision: number }>
   /** 仅提交一个角色或场次草稿；场次不接收在线正文，原生保留未变化来源的正文。 */
   commitEntity(options: {
     edit: Exclude<import('./edit').Edit, { kind: 'module' }>

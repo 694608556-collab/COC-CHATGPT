@@ -4,6 +4,8 @@ import { matchRanges, recordMessages, searchExcerpt } from '../../../data/search
 
 /** 只搜索此模组的已保存正文，不更改列表选择、排序或业务数据。 */
 export function ModuleBodySearch(props: {
+  ready: boolean
+  busy: boolean
   moduleId: string
   moduleName: string
   records: SessionRecord[]
@@ -15,7 +17,7 @@ export function ModuleBodySearch(props: {
   const input = useRef<HTMLInputElement>(null)
   const [page, setPage] = useState(0)
   const needle = props.query.trim()
-  const active = !!needle
+  const active = !!needle && props.ready
   const rows = useMemo(
     () =>
       props.records
@@ -51,6 +53,7 @@ export function ModuleBodySearch(props: {
         className="reader-search"
         onSubmit={(event) => {
           event.preventDefault()
+          if (!props.ready && !props.busy && needle) props.onQuery(props.query)
           if (hits[0]) props.onRead(hits[0].record, needle)
         }}
       >
@@ -94,6 +97,16 @@ export function ModuleBodySearch(props: {
           </span>
         </label>
       </form>
+      {!!needle && !props.ready && (
+        <section className="search-results" aria-label="模组正文搜索结果">
+          <p role="status">{props.busy ? '正在读取已保存正文…' : '正文尚未读取，重试后显示完整搜索结果。'}</p>
+          {!props.busy && (
+            <button type="button" onClick={() => props.onQuery(props.query)}>
+              重试正文搜索
+            </button>
+          )}
+        </section>
+      )}
       {active && (
         <section className="search-results" aria-label="模组正文搜索结果">
           <p role="status">

@@ -120,6 +120,30 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
     })
   }
   const port: LogbookPort = {
+    async getOverview() {
+      const state = await readState()
+      const deferredRecordIds: string[] = []
+      if (!state.json) return { ...state, deferredRecordIds }
+      const data = JSON.parse(state.json)
+      data.records = data.records.map((record: import('../../../src/shared/types').SessionRecord) => {
+        if (record.rawContent || record.manualContent !== undefined) deferredRecordIds.push(record.id)
+        const metadata = { ...record }
+        delete metadata.rawContent
+        delete metadata.manualContent
+        return metadata
+      })
+      return { ...state, json: JSON.stringify(data), deferredRecordIds }
+    },
+    async getRecordContent({ ids, expectedRevision }) {
+      const state = await readState()
+      if (state.revision !== expectedRevision || !state.json) throw new Error('数据已变化，请重新读取。')
+      const data = JSON.parse(state.json)
+      const wanted = new Set(ids)
+      data.records = data.records.filter((record: { id: string }) => wanted.has(record.id))
+      if (!ids.length || wanted.size !== ids.length || data.records.length !== ids.length)
+        throw new Error('场次选择无效，请重新读取。')
+      return { json: JSON.stringify(data), revision: state.revision }
+    },
     async getStatus() {
       const state = await readState()
       return {
