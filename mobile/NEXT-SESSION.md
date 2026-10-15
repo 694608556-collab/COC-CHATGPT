@@ -1,5 +1,9 @@
 # 安卓下一阶段待修改清单
 
+## 新增设备兼容性
+
+先读 [设备兼容性检查](DEVICE-COMPATIBILITY-20261015.md)。Mate 40 Pro / HarmonyOS 4.2.0、红米 K80 / OS 3.0.308.0.WOKCNXM.C09、荣耀 90 / MagicOS 9 / Android 15 已纳入；用户暂时拿不到其余版本信息，保持未知并继续开发。开发／生产入口统一 `viewport-fit=contain`，由 Capacitor 8.5.3 原生处理系统栏／挖孔／IME 边距，补齐新 WebView 入口遮挡风险；控件尺寸及存储契约未变。静态／资源构建和 4 项相关浏览器流程通过；无本轮 APK、模拟器或三台真机通过结论。UI 试验 3 的 `38aa7fb` 已保存本地与 GitHub 回滚分支 `codex/ui-optimization-stage3`。
+
 ## 独立 UI 试验
 
 最新为 [UI 试验 3](UI-EXPERIMENT-3-20261015.md)：补齐第五条的姓名候选可见区域定位、编辑固定操作栏和设置分区相邻排列；控件仍为用户要求的原尺寸，第三条继续排除。试验二修正版另存 `codex/ui-optimization-stage2` / `1e2d327`。软件实现与真实输入法验收分开记录。
