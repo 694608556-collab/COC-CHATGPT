@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useVisibleViewport, visibleViewport } from '../../useVisibleViewport'
 import type { CharacterData, ModuleRecord, SessionRecord } from '../../../../../src/shared/types'
 import { MODULE_PLAY_STATUS_LABELS } from '../../../../../src/shared/types'
 import { sessionNameFor } from '../../../../../src/shared/session-number'
@@ -25,6 +27,7 @@ export function Editor(props: {
   onSave(edit: Edit): Promise<void>
   onClose(): void
   onConfirm(message: string): Promise<boolean>
+  toolbarTarget: HTMLElement | null
 }) {
   // 在线正文由存储边界保留；草稿及每次输入的脏检查不复制/编码这部分数据。
   const [original] = useState<Edit>(() => {
@@ -40,6 +43,56 @@ export function Editor(props: {
   const dirty = JSON.stringify(draft) !== JSON.stringify(original)
   const title = draft.kind === 'module' ? '编辑模组' : draft.kind === 'record' ? '编辑场次' : '编辑角色卡'
   const heading = useRef<HTMLHeadingElement>(null)
+  const formId = useId()
+  const viewport = useVisibleViewport()
+  const editor = useRef<HTMLElement>(null)
+  const errorView = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!error) return
+    const frame = requestAnimationFrame(() => {
+      const box = errorView.current?.getBoundingClientRect()
+      if (!box) return
+      const view = visibleViewport()
+      const header = document.querySelector('.app-header')?.getBoundingClientRect()
+      window.scrollBy(0, box.top - Math.max(view.top + 8, (header?.bottom ?? 0) + 8))
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [error])
+  useEffect(() => {
+    let frame = 0
+    const reveal = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const active = document.activeElement
+        if (
+          !(active instanceof HTMLElement) ||
+          !active.matches('input, textarea, select') ||
+          !editor.current?.contains(active)
+        )
+          return
+        const view = visibleViewport()
+        const header = document.querySelector('.app-header')?.getBoundingClientRect()
+        const dock = document.querySelector('.navigation-dock')?.getBoundingClientRect()
+        const top = Math.max(view.top + 8, (header?.bottom ?? 0) + 8)
+        const bottom = Math.min(view.top + view.height - 8, (dock?.top ?? view.top + view.height) - 8)
+        if (bottom <= top) return
+        const box = active.getBoundingClientRect()
+        if (box.top < top) window.scrollBy(0, box.top - top)
+        else if (box.bottom > bottom) window.scrollBy(0, Math.min(box.bottom - bottom, box.top - top))
+      })
+    }
+    editor.current?.addEventListener('focusin', reveal)
+    window.addEventListener('resize', reveal)
+    window.visualViewport?.addEventListener('resize', reveal)
+    reveal()
+    const root = editor.current
+    return () => {
+      cancelAnimationFrame(frame)
+      root?.removeEventListener('focusin', reveal)
+      window.removeEventListener('resize', reveal)
+      window.visualViewport?.removeEventListener('resize', reveal)
+    }
+  }, [viewport])
   useEffect(() => {
     heading.current?.focus()
   }, [])
@@ -120,14 +173,29 @@ export function Editor(props: {
     [props.snapshot.modules, c?.moduleIds]
   )
   const limits = c ? calculateDerived(c.edition, c.attrs, c.derived.luck7) : undefined
+  const actions = (
+    <div className="dialog-actions editor-actions">
+      <button type="button" disabled={props.busy} onClick={cancel}>
+        取消编辑
+      </button>
+      <button type="submit" form={formId} disabled={props.busy} className="primary">
+        {props.busy ? '正在保存…' : '保存修改'}
+      </button>
+    </div>
+  )
   return (
-    <section className="panel editor">
+    <section className="panel editor" ref={editor}>
       <h2 ref={heading} tabIndex={-1}>
         {title}
       </h2>
       <p className="muted">保存后更新本机数据；取消不会改变已保存数据。</p>
-      {error && <SystemMessage kind="error" message={error} onDismiss={() => setError('')} />}
+      {error && (
+        <div ref={errorView}>
+          <SystemMessage kind="error" message={error} onDismiss={() => setError('')} />
+        </div>
+      )}
       <form
+        id={formId}
         onSubmit={(event) => {
           event.preventDefault()
           if (props.busy) return
@@ -572,14 +640,7 @@ export function Editor(props: {
               </div>
             </>
           )}
-          <div className="dialog-actions">
-            <button type="button" onClick={cancel}>
-              取消编辑
-            </button>
-            <button type="submit" className="primary">
-              {props.busy ? '正在保存…' : '保存修改'}
-            </button>
-          </div>
+          {props.toolbarTarget ? createPortal(actions, props.toolbarTarget) : actions}
         </fieldset>
       </form>
     </section>

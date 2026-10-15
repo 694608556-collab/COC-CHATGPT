@@ -45,6 +45,7 @@ import {
 } from '../data/background'
 import { exportRecordTables } from '../../../src/shared/record-table'
 import type { AppSnapshot } from '../../../src/shared/types'
+import { useVisibleViewport } from './useVisibleViewport'
 
 /** @returns 初次使用的空数据，不推测或静默创建归档目录。 */
 function emptySnapshot(): MobileSnapshot {
@@ -120,6 +121,8 @@ export function MobileApp({
   }, [])
   const [error, setError] = useState('')
   const [editing, setEditing] = useState<{ draft: Edit; revision: number }>()
+  const [editorToolbar, setEditorToolbar] = useState<HTMLDivElement | null>(null)
+  const viewport = useVisibleViewport()
   const [selectedCharacter, setSelectedCharacter] = useState('')
   const [savedDocument, setSavedDocument] = useState<SavedDocument>()
   const [documents, setDocuments] = useState<SavedDocument[]>([])
@@ -403,7 +406,11 @@ export function MobileApp({
     }
   }
   function startEdit(draft: Edit) {
-    if (native && !busyLock.current) setEditing({ draft, revision: native.revision })
+    if (native && !busyLock.current) {
+      setNotice('')
+      setSaveStatus('')
+      setEditing({ draft, revision: native.revision })
+    }
   }
   function newModule() {
     startEdit({
@@ -734,7 +741,7 @@ export function MobileApp({
           <strong>COC 跑团记录簿</strong>
           <span>安卓开发版 · 本机数据</span>
         </div>
-        <span className="version">0.2.14 · 试验 2</span>
+        <span className="version">0.2.14 · 试验 3</span>
       </header>
       <main aria-hidden={confirmation ? true : undefined}>
         {savedDocument && (
@@ -803,6 +810,7 @@ export function MobileApp({
             </div>
             {editing ? (
               <Editor
+                toolbarTarget={editorToolbar}
                 initial={editing.draft}
                 snapshot={snapshot}
                 busy={busy}
@@ -904,7 +912,26 @@ export function MobileApp({
           </>
         )}
       </main>
-      <div className="navigation-dock">
+      <div
+        className="navigation-dock"
+        style={
+          editing
+            ? {
+                top: viewport.top + viewport.height,
+                left: viewport.left,
+                width: viewport.width,
+                right: 'auto',
+                bottom: 'auto',
+                transform: 'translateY(-100%)'
+              }
+            : undefined
+        }
+      >
+        <div
+          ref={setEditorToolbar}
+          className="editor-toolbar-slot"
+          aria-hidden={confirmation ? true : undefined}
+        />
         <div className="operation-feedback">
           {busy && !quietSaving && !preview && !error && !confirmation && (
             <SystemMessage kind="progress" ariaLabel="数据处理进度" message={notice || '正在处理…'} />
@@ -923,7 +950,7 @@ export function MobileApp({
             <SystemMessage message={notice} autoHide onDismiss={() => setNotice('')} />
           )}
         </div>
-        <nav className="bottom-nav" aria-label="主导航">
+        <nav className="bottom-nav" aria-label="主导航" hidden={!!editing}>
           {(['records', 'characters', 'settings'] as const).map((tab) => (
             <button
               key={tab}

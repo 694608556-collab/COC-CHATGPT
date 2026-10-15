@@ -101,6 +101,26 @@ export function DataSettings(props: {
         </div>
       </section>
       <section className="panel">
+        <h2>显示主题</h2>
+        <div className="edit-actions" role="group" aria-label="显示主题">
+          <button
+            disabled={props.settingsDisabled}
+            aria-pressed={props.snapshot.settings.theme === 'light'}
+            onClick={() => props.onTheme('light')}
+          >
+            浅色模式
+          </button>
+          <button
+            disabled={props.settingsDisabled}
+            aria-pressed={props.snapshot.settings.theme === 'dark'}
+            onClick={() => props.onTheme('dark')}
+          >
+            深色模式
+          </button>
+        </div>
+        <p className="muted">保存后下次打开仍使用所选主题。</p>
+      </section>
+      <section className="panel">
         <h2>自动本地备份</h2>
         <p className="muted">
           编辑、设置、排序、删除和导入直接保存最新数据，不额外生成操作前副本。 启用自动备份后，默认至少间隔 10
@@ -152,52 +172,6 @@ export function DataSettings(props: {
         </button>
       </section>
       <section className="panel">
-        <h2>表格导入与导出</h2>
-        <button disabled={props.busy} onClick={props.onTableImport}>
-          导入场次表格
-        </button>
-        <button
-          disabled={props.busy || !props.snapshot.records.length}
-          onClick={() => props.onTableExport('csv')}
-        >
-          导出记录 CSV
-        </button>
-        <button
-          disabled={props.busy || !props.snapshot.records.length}
-          onClick={() => props.onTableExport('xlsx')}
-        >
-          导出记录 Excel
-        </button>
-      </section>
-      <section className="panel">
-        <h2>显示主题</h2>
-        <div className="edit-actions" role="group" aria-label="显示主题">
-          <button
-            disabled={props.settingsDisabled}
-            aria-pressed={props.snapshot.settings.theme === 'light'}
-            onClick={() => props.onTheme('light')}
-          >
-            浅色模式
-          </button>
-          <button
-            disabled={props.settingsDisabled}
-            aria-pressed={props.snapshot.settings.theme === 'dark'}
-            onClick={() => props.onTheme('dark')}
-          >
-            深色模式
-          </button>
-        </div>
-        <p className="muted">保存后下次打开仍使用所选主题。</p>
-      </section>
-      <section className="panel">
-        <h2>归档位置</h2>
-        <p className="location">{props.archive.label}</p>
-        <p className="muted">已通过读写验证。若使用存储卡，拔卡后需重新确认位置。</p>
-        <button disabled={props.busy} onClick={props.onChoose}>
-          更改保存位置
-        </button>
-      </section>
-      <section className="panel">
         <h2>备份与恢复</h2>
         <p>
           {props.snapshot.modules.length} 个模组 · {props.snapshot.records.length} 个场次 ·{' '}
@@ -221,21 +195,33 @@ export function DataSettings(props: {
         </p>
       </section>
       <section className="panel">
-        <h2>开发阶段说明</h2>
-        <p>
-          已接入：模组/场次/角色编辑、删除与关联管理，日志获取、离线阅读与搜索，表格导入导出、批量/合成日志导出、明暗主题与自动本地备份、归档打开/分享。
-        </p>
-        <p className="muted">
-          安卓原生目录、网络、分享、返回键和升级保留数据仍需真机验收。浏览器可测试数据与页面逻辑。
-        </p>
-      </section>
-      <section className="panel">
-        <h2>清空应用数据</h2>
-        <p>清空模组、场次和角色卡，保留设置及归档文件。不会生成操作前副本，需要时请先手动备份。</p>
-        <button disabled={props.busy} className="danger" onClick={props.onClear}>
-          清空应用数据
+        <h2>表格导入与导出</h2>
+        <button disabled={props.busy} onClick={props.onTableImport}>
+          导入场次表格
+        </button>
+        <button
+          disabled={props.busy || !props.snapshot.records.length}
+          onClick={() => props.onTableExport('csv')}
+        >
+          导出记录 CSV
+        </button>
+        <button
+          disabled={props.busy || !props.snapshot.records.length}
+          onClick={() => props.onTableExport('xlsx')}
+        >
+          导出记录 Excel
         </button>
       </section>
+
+      <section className="panel">
+        <h2>归档位置</h2>
+        <p className="location">{props.archive.label}</p>
+        <p className="muted">已通过读写验证。若使用存储卡，拔卡后需重新确认位置。</p>
+        <button disabled={props.busy} onClick={props.onChoose}>
+          更改保存位置
+        </button>
+      </section>
+
       <section className="panel">
         <h2>归档文件</h2>
         <button disabled={props.busy} onClick={props.onListDocuments}>
@@ -258,9 +244,26 @@ export function DataSettings(props: {
           </section>
         ))}
       </section>
+      <section className="panel">
+        <h2>清空应用数据</h2>
+        <p>清空模组、场次和角色卡，保留设置及归档文件。不会生成操作前副本，需要时请先手动备份。</p>
+        <button disabled={props.busy} className="danger" onClick={props.onClear}>
+          清空应用数据
+        </button>
+      </section>
+      <section className="panel">
+        <h2>开发阶段说明</h2>
+        <p>
+          已接入：模组/场次/角色编辑、删除与关联管理，日志获取、离线阅读与搜索，表格导入导出、批量/合成日志导出、明暗主题与自动本地备份、归档打开/分享。
+        </p>
+        <p className="muted">
+          安卓原生目录、网络、分享、返回键和升级保留数据仍需真机验收。浏览器可测试数据与页面逻辑。
+        </p>
+      </section>
+
       <section className="panel" aria-label="版本说明">
         <h2>版本说明</h2>
-        <p>0.2.14-dev · UI 试验 2</p>
+        <p>0.2.14-dev · UI 试验 3</p>
         <p>数据仅本机保存、无账户</p>
         <p>仅海豹链接相关联网</p>
         <p>应用制作：亦如长风万里沙</p>

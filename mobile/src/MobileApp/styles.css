@@ -360,6 +360,32 @@ main {
   padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   z-index: 10;
 }
+.bottom-nav[hidden] {
+  display: none;
+}
+.editor-toolbar-slot:empty {
+  display: none;
+}
+.dialog-actions.editor-actions {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 8px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+.editor-actions button:last-child {
+  margin-right: 0;
+}
+.editor input,
+.editor textarea {
+  scroll-margin: 90px 0;
+}
+.combo-options.viewport-name-options {
+  position: fixed;
+  right: auto;
+  margin: 0;
+  z-index: 120;
+}
 .bottom-nav button {
   flex: 1;
   min-width: 0;
