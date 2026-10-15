@@ -21,7 +21,7 @@ async function setup() {
 }
 
 describe('浏览器测试存储事务：自动备份与数据保存独立', () => {
-  it('单实体保存保留其他正文、角色全部字段和改名关联，重开持久化，旧版本拒绝', async () => {
+  it('单实体保存保留其他正文及角色字段，角色改名不改动模组 PC，旧版本拒绝', async () => {
     const { browser, name, snapshot } = await setup()
     const character = createEmptyCharacter({ edition: 7, moduleId: snapshot.modules[0]!.id, name: '原角色' })
     character.weapons = [{ name: '完整武器', damage: '1D6', range: 10 }]
@@ -45,7 +45,7 @@ describe('浏览器测试存储事务：自动备份与数据保存独立', () =
     const reopened = createBrowserPort(name)
     const state = await reopened.port.getState(),
       after = JSON.parse(state.json!)
-    expect(after.modules[0].pairs[0].pc).toBe('新角色')
+    expect(after.modules).toEqual(snapshot.modules)
     expect(after.characters[0].background).toEqual(character.background)
     expect(after.characters[0].weapons).toEqual(character.weapons)
     expect(after.records[0].rawContent).toEqual(snapshot.records[0]!.rawContent)
@@ -140,7 +140,7 @@ describe('浏览器测试存储事务：自动备份与数据保存独立', () =
     expect(after.settings).toEqual(settings)
     expect(after.records).toEqual(snapshot.records)
     expect(after.modules[0].name).toBe(value.name)
-    expect(after.modules[0].pairs[0].pc).toBe('公开关联角色')
+    expect(after.modules[0].pairs[0].pc).toBe(value.pairs[0]!.pc)
     expect(after.characters[0].moduleIds).toContain(value.id)
     expect(after.characters[0].skills).toEqual(snapshot.characters[0]!.skills)
     expect((await reopened.port.getStatus()).revision).toBe(3)

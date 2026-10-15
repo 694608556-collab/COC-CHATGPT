@@ -8,6 +8,24 @@ import type { LogbookPort } from './native'
 const load = async () =>
   (await previewBackup(new TextEncoder().encode(JSON.stringify(exampleBackup())))).snapshot
 describe('编辑数据保护', () => {
+  it('关联空 PC 模组、选择已有 PC 姓名、改名及取消关联均不增加或改变模组参与者', async () => {
+    const current = await load()
+    const c = createEmptyCharacter({ edition: 7, name: '角色', moduleIds: current.modules.map((m) => m.id) })
+    current.modules[0]!.pairs = [{ pc: '已有PC', pl: '原玩家', characterId: c.id }]
+    current.characters = [c]
+    const before = JSON.stringify(current.modules)
+    const named = await applyEdit(current, {
+      kind: 'character',
+      value: { ...c, basic: { ...c.basic, name: '已有PC' } }
+    })
+    const detached = await applyEdit(named, {
+      kind: 'character',
+      value: { ...named.characters[0]!, moduleIds: [], basic: { ...c.basic, name: '新名字' } }
+    })
+    expect(JSON.stringify(named.modules)).toBe(before)
+    expect(JSON.stringify(detached.modules)).toBe(before)
+    expect(detached.characters[0]!.moduleIds).toEqual([])
+  })
   it('角色和场次小请求不编码任何未改在线正文，失败不改变快照', async () => {
     const current = await load()
     current.characters = [createEmptyCharacter({ edition: 7, name: '公开角色' })]

@@ -94,16 +94,7 @@ export async function applyEdit(current: MobileSnapshot, edit: Edit): Promise<Mo
       : [...next.characters, value]
     value.moduleIds = [...new Set(value.moduleIds)]
     value.moduleId = value.moduleIds[0]
-    next.modules = next.modules.map((m) => ({
-      ...m,
-      pairs: m.pairs.map((p) =>
-        p.characterId === value.id
-          ? value.moduleIds.includes(m.id)
-            ? { ...p, pc: value.basic.name }
-            : { pc: p.pc, pl: p.pl }
-          : p
-      )
-    }))
+    // 角色归属/姓名独立保存；不向模组增加 PC，也不改动既有参与者。
   }
   if (edit.kind === 'module') {
     const linked = edit.value.pairs.flatMap((p) => (p.characterId ? [p.characterId] : []))
@@ -120,12 +111,7 @@ export async function applyEdit(current: MobileSnapshot, edit: Edit): Promise<Mo
       m.id === edit.value.id
         ? {
             ...m,
-            kps: m.kps.map((s) => s.trim()).filter(Boolean),
-            pairs: m.pairs.map((p) =>
-              p.characterId
-                ? { ...p, pc: next.characters.find((c) => c.id === p.characterId)?.basic.name ?? p.pc }
-                : p
-            )
+            kps: m.kps.map((s) => s.trim()).filter(Boolean)
           }
         : m
     )
@@ -149,7 +135,7 @@ export async function applyEdit(current: MobileSnapshot, edit: Edit): Promise<Mo
   ).snapshot
   return {
     ...next,
-    modules: checked.modules,
+    modules: edit.kind === 'character' ? current.modules : checked.modules,
     characters: checked.characters,
     records:
       edit.kind === 'record'

@@ -79,7 +79,7 @@ describe('删除、排序与关联完整性', () => {
     expect(next.characters[0]?.moduleIds).toEqual([current.modules[1]!.id])
     expect(JSON.stringify(current)).toBe(before)
   })
-  it('绑定、改名、移除归属及删除角色保留 PC/PL 姓名', async () => {
+  it('角色改名与归属不改动模组 PC/PL，删除角色只解除失效绑定', async () => {
     const current = searchSample()
     const c = createEmptyCharacter({ edition: 7, name: '林', moduleIds: [] })
     current.characters = [c]
@@ -88,19 +88,19 @@ describe('删除、排序与关联完整性', () => {
       value: { ...current.modules[0]!, pairs: [{ pc: '旧名字', pl: '玩家', characterId: c.id }] }
     })
     expect(linked.characters[0]?.moduleIds).toContain(current.modules[0]!.id)
-    expect(linked.modules[0]?.pairs[0]?.pc).toBe('林')
+    expect(linked.modules[0]?.pairs[0]?.pc).toBe('旧名字')
     const renamed = await applyEdit(linked, {
       kind: 'character',
       value: { ...linked.characters[0]!, basic: { ...c.basic, name: '林二' } }
     })
-    expect(renamed.modules[0]?.pairs[0]?.pc).toBe('林二')
+    expect(renamed.modules).toEqual(linked.modules)
     const deleted = await applyAction(renamed, { type: 'delete', kind: 'character', id: c.id })
-    expect(deleted.modules[0]?.pairs[0]).toEqual({ pc: '林二', pl: '玩家' })
+    expect(deleted.modules[0]?.pairs[0]).toEqual({ pc: '旧名字', pl: '玩家' })
     const detached = await applyEdit(renamed, {
       kind: 'character',
       value: { ...renamed.characters[0]!, moduleIds: [] }
     })
-    expect(detached.modules[0]?.pairs[0]?.characterId).toBeUndefined()
+    expect(detached.modules).toEqual(linked.modules)
   })
   it('换来源使旧正文失效，排序只影响当前模组、不重写场次序号', async () => {
     const current = searchSample()

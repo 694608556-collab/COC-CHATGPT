@@ -4,6 +4,7 @@ import type { ModuleRecord, SessionRecord } from '../../../../../src/shared/type
 import type { MobileSnapshot } from '../../../data/types'
 import type { DataAction } from '../../../data/actions'
 import { GestureRow } from '../GestureRow'
+import { ModuleBodySearch } from './ModuleBodySearch'
 
 const STATUS_LABELS = {
   pending: '未检测',
@@ -20,7 +21,9 @@ const STATUS_LABELS = {
  */
 export function Records(props: {
   snapshot: MobileSnapshot
-  onRead(record: SessionRecord): void
+  onRead(record: SessionRecord, query?: string): void
+  queries: Record<string, string>
+  onQuery(moduleId: string, query: string): void
   onImport(): void
   onNewModule(): void
   onNewRecord(moduleId: string): void
@@ -32,9 +35,8 @@ export function Records(props: {
   busy: boolean
 }) {
   const { snapshot } = props
-  const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<string[]>(() =>
-    snapshot.modules.length === 1 ? [snapshot.modules[0]!.id] : []
+    snapshot.modules.filter((m) => snapshot.modules.length === 1 || props.queries[m.id]).map((m) => m.id)
   )
   const [selected, setSelected] = useState<string[]>([])
   const [selecting, setSelecting] = useState(false)
@@ -72,16 +74,7 @@ export function Records(props: {
     collapseTimers.current.delete(value.id)
     props.onEditModule(value)
   }
-  const needle = query.trim().toLowerCase()
-  const modules = snapshot.modules
-    .slice()
-    .sort((a, b) => a.order - b.order)
-    .filter(
-      (m) =>
-        !needle ||
-        m.name.toLowerCase().includes(needle) ||
-        snapshot.records.some((r) => r.moduleId === m.id && r.name.toLowerCase().includes(needle))
-    )
+  const modules = snapshot.modules.slice().sort((a, b) => a.order - b.order)
   return (
     <>
       <div className="edit-actions">
@@ -91,15 +84,6 @@ export function Records(props: {
       </div>
       {!!snapshot.modules.length && (
         <>
-          <label className="field">
-            搜索模组或场次
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="输入名称"
-            />
-          </label>
           <p className="muted gesture-hint">
             点击模组展开 · 双击名称编辑 · 左滑删除、右滑收回 · 拖动右侧手柄排序；场次长按后松开进入多选
           </p>
@@ -109,10 +93,8 @@ export function Records(props: {
         const allRecords = snapshot.records
           .filter((r) => r.moduleId === m.id)
           .sort((a, b) => a.order - b.order)
-        const records = allRecords.filter(
-          (r) => !needle || m.name.toLowerCase().includes(needle) || r.name.toLowerCase().includes(needle)
-        )
-        const open = !!needle || expanded.includes(m.id)
+        const records = allRecords
+        const open = expanded.includes(m.id)
         const ids = records.filter((r) => selected.includes(r.id)).map((r) => r.id)
         return (
           <section key={m.id} className="module-group panel">
@@ -154,6 +136,15 @@ export function Records(props: {
                     {m.pairs.map((p) => p.pc + '/' + p.pl).join('、') || '未填写'}
                   </p>
                 )}
+                <ModuleBodySearch
+                  moduleId={m.id}
+                  moduleName={m.name}
+                  records={snapshot.records}
+                  preset={snapshot.settings.filterPreset}
+                  query={props.queries[m.id] ?? ''}
+                  onQuery={(query) => props.onQuery(m.id, query)}
+                  onRead={props.onRead}
+                />
                 <div className="entity-actions module-actions" role="group" aria-label={m.name + '操作'}>
                   <button
                     disabled={props.busy || !records.length}
@@ -282,15 +273,12 @@ export function Records(props: {
                     </GestureRow>
                   ))}
                 </div>
-                {!records.length && (
-                  <p className="muted">{needle ? '没有匹配的场次。' : '此模组暂无场次。'}</p>
-                )}
+                {!records.length && <p className="muted">此模组暂无场次。</p>}
               </div>
             )}
           </section>
         )
       })}
-      {!modules.length && !!snapshot.modules.length && <p className="muted">没有匹配的模组或场次。</p>}
       {!snapshot.records.length && (
         <section className="panel empty">
           <h2>暂无场次</h2>

@@ -1492,10 +1492,10 @@ input[type='checkbox']:checked::after {
   position: relative;
   display: block;
 }
-.reader-search .search-input-wrap input {
+.search-input-wrap input {
   padding-right: 34px;
 }
-.reader-search input::-webkit-search-cancel-button {
+.search-input-wrap input::-webkit-search-cancel-button {
   -webkit-appearance: none;
 }
 .search-clear {
@@ -1512,6 +1512,24 @@ input[type='checkbox']:checked::after {
   display: flex;
   justify-content: center;
   align-items: center;
+}
+.module-body-search {
+  margin: 8px 0;
+  min-width: 0;
+}
+.module-body-search input {
+  width: 100%;
+  margin-top: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  box-shadow: none;
+}
+.module-body-search .module-search-field {
+  margin: 0;
+}
+.module-body-search input::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 .format-picker {
   position: relative;

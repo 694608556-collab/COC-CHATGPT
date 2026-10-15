@@ -13,8 +13,8 @@ export function NavIcon({ page }: { page: 'records' | 'characters' | 'settings' 
     >
       {page === 'records' ? (
         <>
-          <path d="M7 3h12v18H7a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3Z" />
-          <path d="M7 3v18M10 8h6M10 12h6M10 16h4" />
+          <rect x="3" y="4" width="18" height="16" rx="3" />
+          <path d="M8 8h8M8 12h8M8 16h8" />
         </>
       ) : page === 'characters' ? (
         <>

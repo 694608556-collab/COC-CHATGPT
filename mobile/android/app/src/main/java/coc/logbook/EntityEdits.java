@@ -62,15 +62,7 @@ final class EntityEdits {
         boolean found = false;
         for (int i = 0; i < characters.length(); i++) if (id.equals(characters.getJSONObject(i).getString("id"))) { value.put("createdAt",characters.getJSONObject(i).getString("createdAt")); characters.put(i,value); found = true; break; }
         value.put("updatedAt",now); if (!found) characters.put(value);
-        for (int i = 0; i < modules.length(); i++) {
-            JSONObject module = modules.getJSONObject(i); JSONArray pairs = module.getJSONArray("pairs");
-            for (int j = 0; j < pairs.length(); j++) {
-                JSONObject pair = pairs.getJSONObject(j);
-                if (id.equals(pair.optString("characterId"))) {
-                    if (selected.contains(module.getString("id"))) pair.put("pc",name); else pair.remove("characterId");
-                }
-            }
-        }
+        // Character ownership and name are independent of module PC/PL entries.
     }
     static JSONObject record(JSONObject value, Map<String,String> old, JSONArray modules, Map<String,Map<String,String>> rows, String now) throws Exception {
         shape(value, "id,moduleId,name,sequenceNo,sourceType,status,dateSource,order,createdAt,updatedAt", "link,previousStatus,playDate,manualContent,lastError");

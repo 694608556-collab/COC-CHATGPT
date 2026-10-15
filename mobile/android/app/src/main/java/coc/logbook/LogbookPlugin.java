@@ -464,8 +464,6 @@ public final class LogbookPlugin extends Plugin {
                         String cid = pair.getString("characterId");
                         if (!characterIds.contains(cid)) throw new IllegalArgumentException("角色关联失效。");
                         linked.add(cid);
-                        for (int j = 0; j < characters.length(); j++) if (cid.equals(characters.getJSONObject(j).getString("id")))
-                            pair.put("pc", characters.getJSONObject(j).getJSONObject("basic").getString("name"));
                     }
                 }
                 String exportedAt = java.time.Instant.now().toString();
@@ -515,7 +513,7 @@ public final class LogbookPlugin extends Plugin {
                 java.util.Map<String,String> changes = new java.util.LinkedHashMap<>();
                 if ("character".equals(kind)) {
                     EntityEdits.character(value, modules, characters, now);
-                    changes.put("modules", modules.toString()); changes.put("characters",characters.toString());
+                    changes.put("characters",characters.toString());
                 } else if ("record".equals(kind)) {
                     java.util.Map<String,java.util.Map<String,String>> rows = RecordOverlay.rows(fields);
                     String id = value.getString("id");

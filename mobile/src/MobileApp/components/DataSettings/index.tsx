@@ -245,7 +245,7 @@ export function DataSettings(props: {
       </section>
       <section className="panel" aria-label="版本说明">
         <h2>版本说明</h2>
-        <p>0.2.13-dev</p>
+        <p>0.2.14-dev</p>
         <p>数据仅本机保存、无账户</p>
         <p>仅海豹链接相关联网</p>
         <p>应用制作：亦如长风万里沙</p>

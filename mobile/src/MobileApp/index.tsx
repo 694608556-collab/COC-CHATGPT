@@ -71,6 +71,8 @@ export function MobileApp({
   const [snapshot, setSnapshot] = useState<MobileSnapshot>(emptySnapshot)
   const [page, setPage] = useState<'records' | 'characters' | 'settings'>('records')
   const [record, setRecord] = useState<SessionRecord>()
+  const [readerQuery, setReaderQuery] = useState('')
+  const [moduleQueries, setModuleQueries] = useState<Record<string, string>>({})
   const [preview, setPreview] = useState<ImportPreview>()
   const [busy, setBusy] = useState(false)
   const [confirmation, setConfirmation] = useState('')
@@ -681,7 +683,7 @@ export function MobileApp({
           <strong>COC 跑团记录簿</strong>
           <span>安卓开发版 · 本机数据</span>
         </div>
-        <span className="version">0.2.13</span>
+        <span className="version">0.2.14</span>
       </header>
       <main aria-hidden={confirmation ? true : undefined}>
         {savedDocument && (
@@ -764,6 +766,7 @@ export function MobileApp({
                     <LogReader
                       key={record.id}
                       record={record}
+                      initialQuery={readerQuery}
                       preset={snapshot.settings.filterPreset}
                       busy={busy}
                       onBack={() => setRecord(undefined)}
@@ -788,7 +791,12 @@ export function MobileApp({
                       }
                       busy={busy}
                       onEditModule={(value) => startEdit({ kind: 'module', value })}
-                      onRead={setRecord}
+                      queries={moduleQueries}
+                      onQuery={(id, query) => setModuleQueries((current) => ({ ...current, [id]: query }))}
+                      onRead={(value, query = '') => {
+                        setReaderQuery(query)
+                        setRecord(value)
+                      }}
                       onImport={() => {
                         setPage('settings')
                       }}

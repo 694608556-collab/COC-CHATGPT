@@ -10,8 +10,8 @@
 
 ## 本地接口
 
-- commitModule({value, expectedRevision})：只传已校验模组字段，不传正文；原生同步参与者绑定，返回 revision/exportedAt。
-- commitEntity({edit, expectedRevision})：单个完整角色或场次草稿，不接收在线正文；原生校验字段与关联，保留未变来源正文、变更来源清除旧正文，返回 revision/exportedAt。角色改名／解除模组同步参与者。手动正文仍完整保存。
+- commitModule({value, expectedRevision})：只传已校验模组字段，不传正文；验证显式参与者绑定，保留请求中的 PC/PL 姓名，不从角色隐式回写，返回 revision/exportedAt。
+- commitEntity({edit, expectedRevision})：单个完整角色或场次草稿，不接收在线正文；原生校验字段与关联，保留未变来源正文、变更来源清除旧正文，返回 revision/exportedAt。0.2.14 起角色归属、改名、取消归属只写角色，不改模组 PC/PL；姓名候选仅复制已选模组 PC 姓名。手动正文仍完整保存。
 - commitSettings({settings, expectedRevision})：完整白名单小设置，返回 revision/exportedAt。
 - commitAction({action, expectedRevision})：排序立即保存小顺序覆盖；删除／批量删除／清空／重置走元数据事务，不解析或重写未改正文。批量全部目标校验后一次提交。
 - commitEdit / commitRestore：完整已校验 JSON；恢复须 confirmed=true，附件创建新文件，失败清理本次附件。成功只返回新版本，不创建 safetyBackup。

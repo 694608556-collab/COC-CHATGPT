@@ -1,7 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { FilterPreset, SessionRecord } from '../../../../../src/shared/types'
-import { applyLogFilters } from '../../../../../src/shared/log-filter'
-import { matchRanges, searchExcerpt } from '../../../data/search'
+import { matchRanges, recordMessages, searchExcerpt } from '../../../data/search'
 import { SystemMessage } from '../SystemMessage'
 
 function Highlight({ text, query }: { text: string; query: string }) {
@@ -27,6 +26,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
 /** Search keeps the full filtered context; jumping selects the page containing the original message. */
 export function LogReader(props: {
   record: SessionRecord
+  initialQuery?: string
   preset: FilterPreset
   busy: boolean
   onBack(): void
@@ -37,7 +37,8 @@ export function LogReader(props: {
   onExportMore(filters: FilterPreset): void
 }) {
   const filters = props.preset
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(props.initialQuery ?? '')
+  const initialJump = useRef(false)
   const [page, setPage] = useState(0)
   const [selectedHit, setSelectedHit] = useState<number | null>(null)
   const [resultPage, setResultPage] = useState(0)
@@ -45,17 +46,7 @@ export function LogReader(props: {
   const messageNodes = useRef(new Map<number, HTMLElement>())
   const searchInput = useRef<HTMLInputElement>(null)
   const needle = query.trim()
-  const messages = useMemo(
-    () =>
-      props.record.rawContent
-        ? applyLogFilters(props.record.rawContent, filters)
-        : props.record.manualContent !== undefined
-          ? props.record.manualContent
-              .split(/\r?\n/)
-              .map((text, i) => ({ id: 'manual-' + i, header: '', text, images: [] }))
-          : [],
-    [props.record, filters]
-  )
+  const messages = useMemo(() => recordMessages(props.record, filters), [props.record, filters])
   const hits = useMemo(
     () =>
       needle
@@ -84,6 +75,12 @@ export function LogReader(props: {
     setPage(Math.floor(index / 100))
     setJumpRequest((previous) => ({ index, serial: (previous?.serial ?? 0) + 1 }))
   }
+  useEffect(() => {
+    if (props.initialQuery && hits.length && !initialJump.current) {
+      initialJump.current = true
+      jump(0)
+    }
+  }, [props.initialQuery, hits])
   useEffect(() => {
     if (!jumpRequest) return
     const node = messageNodes.current.get(jumpRequest.index)

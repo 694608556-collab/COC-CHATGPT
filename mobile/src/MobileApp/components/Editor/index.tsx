@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CharacterData, ModuleRecord, SessionRecord } from '../../../../../src/shared/types'
 import { MODULE_PLAY_STATUS_LABELS } from '../../../../../src/shared/types'
 import { sessionNameFor } from '../../../../../src/shared/session-number'
@@ -16,6 +16,7 @@ import { BACKGROUND_LABELS, WEAPON_LABELS } from '../../characterLabels'
 import { useItemLayout } from '../../useItemLayout'
 import { SystemMessage } from '../SystemMessage'
 import { SelectField } from '../SelectField'
+import { NameSuggest } from './components/NameSuggest'
 
 export function Editor(props: {
   initial: Edit
@@ -108,6 +109,16 @@ export function Editor(props: {
     setDraft({ kind: 'character', value })
   }
   const c = draft.kind === 'character' ? draft.value : undefined
+  const pcNames = useMemo(
+    () => [
+      ...new Set(
+        props.snapshot.modules
+          .filter((module) => c?.moduleIds.includes(module.id))
+          .flatMap((module) => module.pairs.map((pair) => pair.pc.trim()).filter(Boolean))
+      )
+    ],
+    [props.snapshot.modules, c?.moduleIds]
+  )
   const limits = c ? calculateDerived(c.edition, c.attrs, c.derived.luck7) : undefined
   return (
     <section className="panel editor">
@@ -326,7 +337,7 @@ export function Editor(props: {
                   {m.name}
                 </label>
               ))}
-              <p className="muted">移除归属会解除该模组内的角色关联，保留 PC/PL 姓名。</p>
+              <p className="muted">关联模组仅用于角色归属，不会新增或修改该模组的 PC/PL。</p>
               <div className="edit-grid basic-fields">
                 {Object.entries({
                   name: '姓名',
@@ -336,8 +347,17 @@ export function Editor(props: {
                   birthplace: '出生地',
                   residence: '居住地'
                 }).map(([key, label]) =>
-                  field(label, c.basic[key as keyof typeof c.basic], (value) =>
-                    character({ ...c, basic: { ...c.basic, [key]: value } })
+                  key === 'name' ? (
+                    <NameSuggest
+                      key={key}
+                      value={c.basic.name}
+                      names={pcNames}
+                      onChange={(name) => character({ ...c, basic: { ...c.basic, name } })}
+                    />
+                  ) : (
+                    field(label, c.basic[key as keyof typeof c.basic], (value) =>
+                      character({ ...c, basic: { ...c.basic, [key]: value } })
+                    )
                   )
                 )}
               </div>

@@ -24,9 +24,13 @@ public final class MetadataCheck {
         JSONObject character = new JSONObject(characters.getJSONObject(0).toString());
         String cid = character.getString("id");
         modules.getJSONObject(0).getJSONArray("pairs").put(new JSONObject().put("pc","old").put("pl","player").put("characterId",cid));
+        String originalModules = modules.toString();
         character.getJSONObject("basic").put("name","新角色");
         EntityEdits.character(character,modules,characters,now);
-        check("新角色".equals(modules.getJSONObject(0).getJSONArray("pairs").getJSONObject(modules.getJSONObject(0).getJSONArray("pairs").length()-1).getString("pc")),"PC rename association");
+        check(originalModules.equals(modules.toString()),"character rename does not alter module participants");
+        JSONObject detached = new JSONObject(character.toString()).put("moduleIds",new JSONArray());
+        EntityEdits.character(detached,modules,characters,now);
+        check(originalModules.equals(modules.toString()),"character ownership does not alter module participants");
         check(character.getJSONArray("weapons").getJSONObject(0).getString("damage").equals("1D6"),"weapon fields");
         check(character.getJSONObject("background").getString("自定义,背景").equals("保留全文"),"custom background");
         rejects(() -> EntityEdits.character(new JSONObject(character.toString()).put("edition",8),modules,characters,now));
