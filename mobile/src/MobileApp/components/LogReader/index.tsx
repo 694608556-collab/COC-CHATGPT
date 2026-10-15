@@ -1,41 +1,119 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { FilterPreset, SessionRecord } from '../../../../../src/shared/types'
-import { applyLogFilters } from '../../../../../src/shared/log-filter'
+import { matchRanges, recordMessages, searchExcerpt } from '../../../data/search'
+import { SystemMessage } from '../SystemMessage'
 
-/**
- * 本地正文阅读器；全正文搜索，分页渲染，图片只保留链接不下载。
- * @param props - 场次、已有过滤设置、忙状态及返回/文本导出事件。
- * @returns 可离线阅读的正文或明确的缺失提示。
- */
+function Highlight({ text, query }: { text: string; query: string }) {
+  const ranges = matchRanges(text, query)
+  let previous = 0
+  return (
+    <>
+      {ranges.map(({ start, end }) => {
+        const prefix = text.slice(previous, start)
+        previous = end
+        return (
+          <Fragment key={start}>
+            {prefix}
+            <mark>{text.slice(start, end)}</mark>
+          </Fragment>
+        )
+      })}
+      {text.slice(previous)}
+    </>
+  )
+}
+
+/** Search keeps the full filtered context; jumping selects the page containing the original message. */
 export function LogReader(props: {
   record: SessionRecord
+  initialQuery?: string
   preset: FilterPreset
   busy: boolean
   onBack(): void
+  onEdit(): void
+  onFetch(): void
+  onReset(): void
   onExport(filters: FilterPreset): void
+  onExportMore(filters: FilterPreset): void
 }) {
-  const [filters, setFilters] = useState(props.preset)
-  const [query, setQuery] = useState('')
+  const filters = props.preset
+  const [query, setQuery] = useState(props.initialQuery ?? '')
+  const initialJump = useRef(false)
   const [page, setPage] = useState(0)
-  const messages = useMemo(
+  const [selectedHit, setSelectedHit] = useState<number | null>(null)
+  const [resultPage, setResultPage] = useState(0)
+  const [jumpRequest, setJumpRequest] = useState<{ index: number; serial: number }>()
+  const messageNodes = useRef(new Map<number, HTMLElement>())
+  const searchInput = useRef<HTMLInputElement>(null)
+  const needle = query.trim()
+  const messages = useMemo(() => recordMessages(props.record, filters), [props.record, filters])
+  const hits = useMemo(
     () =>
-      props.record.rawContent
-        ? applyLogFilters(props.record.rawContent, filters).filter(
-            (m) => !query || `${m.header}\n${m.text}`.toLowerCase().includes(query.toLowerCase())
-          )
+      needle
+        ? messages.reduce<number[]>((found, message, index) => {
+            if (matchRanges(message.header, needle).length || matchRanges(message.text, needle).length)
+              found.push(index)
+            return found
+          }, [])
         : [],
-    [props.record, filters, query]
+    [messages, needle]
   )
   const pages = Math.max(1, Math.ceil(messages.length / 100))
   const currentPage = Math.min(page, pages - 1)
+  const resultPages = Math.max(1, Math.ceil(hits.length / 20))
   const hasBody = !!props.record.rawContent || props.record.manualContent !== undefined
+  function resetSearchPosition() {
+    setSelectedHit(null)
+    setResultPage(0)
+    setJumpRequest(undefined)
+  }
+  function jump(hit: number) {
+    const index = hits[hit]
+    if (index === undefined) return
+    setSelectedHit(hit)
+    setResultPage(Math.floor(hit / 20))
+    setPage(Math.floor(index / 100))
+    setJumpRequest((previous) => ({ index, serial: (previous?.serial ?? 0) + 1 }))
+  }
+  useEffect(() => {
+    if (props.initialQuery && hits.length && !initialJump.current) {
+      initialJump.current = true
+      jump(0)
+    }
+  }, [props.initialQuery, hits])
+  useEffect(() => {
+    if (!jumpRequest) return
+    const node = messageNodes.current.get(jumpRequest.index)
+    if (node) {
+      node.focus({ preventScroll: true })
+      node.scrollIntoView({ block: 'center', behavior: 'auto' })
+    }
+  }, [jumpRequest, currentPage])
   return (
     <>
       <div className="reader-actions">
         <button onClick={props.onBack}>返回场次</button>
+        <button disabled={props.busy} onClick={props.onEdit}>
+          编辑场次
+        </button>
         <button className="primary" disabled={props.busy || !hasBody} onClick={() => props.onExport(filters)}>
           导出 TXT
         </button>
+        <button disabled={props.busy || !hasBody} onClick={() => props.onExportMore(filters)}>
+          更多导出格式
+        </button>
+      </div>
+      <div className="entity-actions">
+        {props.record.sourceType === 'online' && (
+          <>
+            <button disabled={props.busy} onClick={props.onFetch}>
+              获取/刷新正文
+            </button>
+            <button disabled={props.busy} onClick={props.onReset}>
+              重置链接状态
+            </button>
+          </>
+        )}
       </div>
       <section className="panel">
         <h2>{props.record.name}</h2>
@@ -44,69 +122,190 @@ export function LogReader(props: {
         </p>
         {props.record.link && <p className="source-link">来源：{props.record.link}</p>}
         {!hasBody && (
-          <p className="warning">
-            此备份只有场次登记，没有日志正文。联网获取尚未接入，不能显示未保存的内容。
-          </p>
+          <SystemMessage
+            kind="warning"
+            message="此场次尚未保存正文。在线场次可获取正文，手动场次可通过编辑填写正文。"
+          />
         )}
       </section>
-      {props.record.rawContent && (
+      {hasBody && (
         <>
-          <label className="field">
-            搜索整场正文
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value)
-                setPage(0)
-              }}
-              placeholder="发言者或正文文字"
-            />
-          </label>
-          <div className="filters">
-            {(['hideDiceCommands', 'hideOffTopic', 'hideTime'] as const).map((key) => (
-              <label className="check" key={key}>
+          <form
+            className="reader-search"
+            onSubmit={(e) => {
+              e.preventDefault()
+              jump(0)
+            }}
+          >
+            <label className="field">
+              搜索整场正文
+              <span className="search-input-wrap">
                 <input
-                  type="checkbox"
-                  checked={filters[key]}
+                  type="search"
+                  ref={searchInput}
+                  enterKeyHint="search"
+                  value={query}
                   onChange={(e) => {
-                    setFilters({ ...filters, [key]: e.target.checked })
-                    setPage(0)
+                    setQuery(e.target.value)
+                    resetSearchPosition()
                   }}
+                  placeholder="发言者或正文文字"
                 />
-                {{ hideDiceCommands: '隐藏骰指令', hideOffTopic: '隐藏题外话', hideTime: '隐藏时间' }[key]}
-              </label>
-            ))}
-          </div>
-          <p className="muted">显示 {messages.length} 条 · 每页最多 100 条。图片链接未离线下载。</p>
+                {query && (
+                  <button
+                    type="button"
+                    className="search-clear"
+                    aria-label="清空正文搜索"
+                    onClick={() => {
+                      setQuery('')
+                      resetSearchPosition()
+                      searchInput.current?.focus()
+                    }}
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      aria-hidden="true"
+                    >
+                      <path d="m6 6 12 12M18 6 6 18" />
+                    </svg>
+                  </button>
+                )}
+              </span>
+            </label>
+          </form>
+          {needle && (
+            <section className="panel search-results" aria-label="搜索结果">
+              <p role="status">
+                匹配 {hits.length} 条{selectedHit !== null ? ' · 当前第 ' + (selectedHit + 1) + ' 条' : ''}
+                。按当前过滤条件搜索。
+              </p>
+              {!hits.length ? (
+                <p>没有找到匹配内容，可修改关键词，或到数据与设置调整隐藏规则。</p>
+              ) : (
+                <>
+                  <div className="edit-actions">
+                    <button
+                      disabled={selectedHit === null || selectedHit === 0}
+                      onClick={() => jump((selectedHit ?? 0) - 1)}
+                    >
+                      上一处
+                    </button>
+                    <button
+                      disabled={selectedHit !== null && selectedHit >= hits.length - 1}
+                      onClick={() => jump(selectedHit === null ? 0 : selectedHit + 1)}
+                    >
+                      下一处
+                    </button>
+                  </div>
+                  {hits.slice(resultPage * 20, (resultPage + 1) * 20).map((index, offset) => {
+                    const hit = resultPage * 20 + offset
+                    const message = messages[index]!
+                    return (
+                      <button
+                        className="search-result"
+                        key={index}
+                        aria-current={selectedHit === hit ? 'location' : undefined}
+                        onClick={() => jump(hit)}
+                      >
+                        <span>
+                          结果 {hit + 1} · 正文第 {Math.floor(index / 100) + 1} 页
+                        </span>
+                        <span>
+                          <Highlight
+                            text={searchExcerpt(message.header + '\n' + message.text, needle)}
+                            query={needle}
+                          />
+                        </span>
+                      </button>
+                    )
+                  })}
+                  {resultPages > 1 && (
+                    <div className="pagination">
+                      <button disabled={!resultPage} onClick={() => setResultPage(resultPage - 1)}>
+                        上一组结果
+                      </button>
+                      <span>
+                        {resultPage + 1} / {resultPages}
+                      </span>
+                      <button
+                        disabled={resultPage + 1 >= resultPages}
+                        onClick={() => setResultPage(resultPage + 1)}
+                      >
+                        下一组结果
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </section>
+          )}
+          <p className="muted">
+            正文共 {messages.length} {props.record.rawContent ? '条' : '行'} · 每页最多 100
+            条。搜索跳转保留上下文，图片链接未离线下载。
+          </p>
           <div className="messages">
-            {messages.slice(currentPage * 100, (currentPage + 1) * 100).map((m, i) => (
-              <article className="message" key={`${m.id}-${i}`}>
-                <header>{m.header}</header>
-                <p>{m.text}</p>
-                {m.images.map((image, index) => (
-                  <p className="source-link" key={index}>
-                    [图片链接] {image.url}
+            {messages.slice(currentPage * 100, (currentPage + 1) * 100).map((message, offset) => {
+              const index = currentPage * 100 + offset
+              return (
+                <article
+                  tabIndex={-1}
+                  data-message-index={index}
+                  className={
+                    'message' + (selectedHit !== null && hits[selectedHit] === index ? ' search-target' : '')
+                  }
+                  key={index}
+                  ref={(node) => {
+                    if (node) messageNodes.current.set(index, node)
+                    else messageNodes.current.delete(index)
+                  }}
+                >
+                  {message.header && (
+                    <header>
+                      <Highlight text={message.header} query={needle} />
+                    </header>
+                  )}
+                  <p>
+                    <Highlight text={message.text || '\u00a0'} query={needle} />
                   </p>
-                ))}
-              </article>
-            ))}
+                  {message.images.map((image, i) => (
+                    <p className="source-link" key={i}>
+                      [图片链接] {image.url}
+                    </p>
+                  ))}
+                </article>
+              )
+            })}
           </div>
-          <div className="pagination">
-            <button disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>
+          <div className="pagination" aria-label="正文分页">
+            <button
+              disabled={currentPage === 0}
+              onClick={() => {
+                setPage(currentPage - 1)
+                setJumpRequest(undefined)
+              }}
+            >
               上一页
             </button>
             <span>
               {currentPage + 1} / {pages}
             </span>
-            <button disabled={currentPage + 1 >= pages} onClick={() => setPage(currentPage + 1)}>
+            <button
+              disabled={currentPage + 1 >= pages}
+              onClick={() => {
+                setPage(currentPage + 1)
+                setJumpRequest(undefined)
+              }}
+            >
               下一页
             </button>
           </div>
         </>
-      )}
-      {!props.record.rawContent && props.record.manualContent !== undefined && (
-        <section className="panel preserve-text">{props.record.manualContent}</section>
       )}
     </>
   )

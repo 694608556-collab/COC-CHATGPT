@@ -1,9 +1,28 @@
 import { describe, expect, it } from 'vitest'
-import { previewBackup, encodeBackup } from './backup'
+import { previewBackup, encodeBackup, encodeArchiveBackup } from './backup'
 import { exampleBackup } from './fixtures'
 import { zipSync, strToU8 } from 'fflate'
 
 describe('安卓备份校验公共边界', () => {
+  it('旧备份的首行缩进及深色导出标记被禁用', async () => {
+    const payload = exampleBackup()
+    payload.settings.filterPreset = { indentFirstLine: true, darkDisplay: true }
+    const preview = await previewBackup(strToU8(JSON.stringify(payload)))
+    expect(preview.snapshot.settings.filterPreset).toMatchObject({
+      indentFirstLine: false,
+      darkDisplay: false
+    })
+  })
+  it('ZIP 归档往返包含校验过的附件，数据快照不携带外部 URI', async () => {
+    const current = (await previewBackup(strToU8(JSON.stringify(exampleBackup())))).snapshot
+    current.settings.autoBackup = { enabled: true, interval: 'weekly', retention: 10 }
+    const encoded = await encodeArchiveBackup(current, [{ name: '公开正文.txt', bytes: strToU8('公开正文') }])
+    const preview = await previewBackup(encoded)
+    expect(preview.attachments).toHaveLength(1)
+    expect(new TextDecoder().decode(preview.attachments![0]!.bytes)).toBe('公开正文')
+    expect(preview.snapshot.settings.autoBackup?.enabled).toBe(true)
+    expect(JSON.stringify(preview.snapshot)).not.toContain('archives/')
+  })
   it('不接受未知版本，也不静默转换为可导入数据', async () => {
     const bytes = new TextEncoder().encode(
       JSON.stringify({ schemaVersion: 99, modules: [], records: [], characters: [] })
@@ -23,7 +42,7 @@ describe('安卓备份校验公共边界', () => {
     payload.records.push({ ...payload.records[0]! })
     await expect(previewBackup(new TextEncoder().encode(JSON.stringify(payload)))).rejects.toThrow('重复')
   })
-  it('即使不导入附件，也拒绝附件内容与清单摘要不符的 ZIP', async () => {
+  it('拒绝附件内容与清单摘要不符的 ZIP', async () => {
     const payload = {
       ...exampleBackup(),
       manifest: [

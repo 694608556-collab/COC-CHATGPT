@@ -1,9 +1,12 @@
 {
   "name": "coc-logbook-mobile",
-  "version": "0.1.0",
+  "version": "0.2.14",
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "node scripts/dev-web.mjs",
+    "test:e2e": "playwright test",
+    "format:check": "prettier --check src scripts package.json playwright.config.ts",
     "build": "node scripts/build-web.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -12,19 +15,26 @@
   },
   "dependencies": {
     "@capacitor/android": "8.5.3",
+    "@capacitor/app": "^8.1.2",
     "@capacitor/core": "8.5.3",
     "core-js": "3.50.0",
+    "docx": "9.7.1",
     "fflate": "0.8.2",
+    "jspdf": "4.2.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "xlsx": "0.18.5",
     "zod": "4.6.1"
   },
   "devDependencies": {
     "@capacitor/cli": "8.5.3",
+    "@playwright/test": "^1.64.0",
     "@types/node": "22.20.1",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.7",
     "esbuild": "0.28.2",
+    "fake-indexeddb": "^6.2.5",
+    "prettier": "^3.6.2",
     "typescript": "5.9.2",
     "vitest": "5.0.0"
   }

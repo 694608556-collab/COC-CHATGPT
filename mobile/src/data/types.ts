@@ -13,11 +13,16 @@ export interface MobileSnapshot {
   /** 完整角色业务字段；类型为 CharacterData[]。 */
   characters: CharacterData[]
   /** 可恢复显示设置；目录授权独立管理，不来自备份。 */
-  settings: { theme: 'light' | 'dark'; filterPreset: FilterPreset }
+  settings: {
+    theme: 'light' | 'dark'
+    filterPreset: FilterPreset
+    autoBackup?: { enabled: boolean; interval: 'idle' | 'daily' | 'weekly'; retention: 10 }
+  }
 }
 
 /** 只读导入预览，用户确认之前不得持久化 snapshot。 */
 export interface ImportPreview {
+  attachments?: Array<{ name: string; mime: string; bytes: Uint8Array }>
   /** 已校验并排除电脑专属模块的数据；类型为 MobileSnapshot。 */
   snapshot: MobileSnapshot
   /** 有实际正文的场次数量；类型为 number，非链接数量。 */

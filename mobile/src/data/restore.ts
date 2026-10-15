@@ -1,5 +1,6 @@
 import type { ImportPreview, MobileSnapshot } from './types'
 import type { LogbookPort } from './native'
+import { encodeBase64 } from './native'
 
 /** 明确的恢复选择，不恢复文件夹授权或桌面私有设置。 */
 export interface RestoreOptions {
@@ -11,13 +12,15 @@ export interface RestoreOptions {
   revision: number
   /** 预览时的当前数据；类型为 MobileSnapshot。 */
   current: MobileSnapshot
+  /** 可选后台编码器；不改变确认、版本或安全提交规则。 */
+  serialize?: (snapshot: MobileSnapshot) => Promise<string>
 }
 /**
- * 从预览进入原生安全覆盖流程。
- * @param port - 手机原生持久化与安全备份边界。
+ * 从预览进入原生确认后事务覆盖流程。
+ * @param port - 手机原生事务持久化边界。
  * @param preview - 校验通过的备份预览。
  * @param options - 用户明确选择及预览时的状态。
- * @returns 完成后的版本与安全副本证明。
+ * @returns 完成后的版本；校验或提交失败保留原数据。
  */
 export async function restoreBackup(port: LogbookPort, preview: ImportPreview, options: RestoreOptions) {
   if (!options.confirmed) throw new Error('需要用户明确确认覆盖。')
@@ -26,8 +29,13 @@ export async function restoreBackup(port: LogbookPort, preview: ImportPreview, o
     settings: options.restoreSettings ? preview.snapshot.settings : options.current.settings
   }
   return port.commitRestore({
-    json: JSON.stringify(snapshot),
+    json: options.serialize ? await options.serialize(snapshot) : JSON.stringify(snapshot),
     expectedRevision: options.revision,
-    confirmed: true
+    confirmed: true,
+    attachments: preview.attachments?.map((file) => ({
+      name: file.name,
+      mime: file.mime,
+      base64: encodeBase64(file.bytes)
+    }))
   })
 }

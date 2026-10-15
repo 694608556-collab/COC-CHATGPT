@@ -18,7 +18,8 @@ const expression =
   const data = JSON.stringify({schemaVersion:2,exportedAt:'2026-10-13T00:00:00.000Z',modules:[],records:[],characters:[],settings:{theme:'light',filterPreset:{}}});
   let confirmationRejected=false, staleRevisionRejected=false, missingSafetyLocationRejected=null;
   try { await api.commitRestore({json:data,expectedRevision:before.revision,confirmed:false}); } catch(error) { confirmationRejected=true; }
-  try { await api.commitRestore({json:data,expectedRevision:before.revision+1,confirmed:true}); } catch(error) { staleRevisionRejected=true; }
+  // A future revision could become current during a concurrent save. A past revision is always stale.
+  try { await api.commitRestore({json:data,expectedRevision:before.revision-1,confirmed:true}); } catch(error) { staleRevisionRejected=true; }
   if (before.json===null && !before.archive.uri && before.revision===0) {
     try { await api.commitRestore({json:data,expectedRevision:0,confirmed:true}); } catch(error) { missingSafetyLocationRejected=true; }
   }

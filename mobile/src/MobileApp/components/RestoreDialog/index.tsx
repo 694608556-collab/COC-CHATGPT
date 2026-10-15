@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ImportPreview } from '../../../data/types'
+import { SystemMessage } from '../SystemMessage'
 
 /**
  * 显式覆盖确认；不勾选时保留本机显示设置，取消不调用原生恢复。
@@ -10,6 +11,10 @@ export function RestoreDialog(props: {
   preview: ImportPreview
   currentRecords: number
   busy: boolean
+  /** 当前真实导入阶段，类型为 string。 */
+  stage: string
+  /** 导入失败说明，类型为 string；弹窗不隐藏错误。 */
+  error: string
   onCancel(): void
   onConfirm(restoreSettings: boolean): void
 }) {
@@ -24,19 +29,25 @@ export function RestoreDialog(props: {
         aria-labelledby="restore-title"
       >
         <h2 id="restore-title">确认导入范围</h2>
+        {props.busy && (
+          <SystemMessage
+            kind="progress"
+            ariaLabel="安全导入进度"
+            message={props.stage || '正在准备安全导入…'}
+          />
+        )}
+        {props.error && <SystemMessage kind="error" message={props.error} />}
         <p>
           {snapshot.modules.length} 个模组 · {snapshot.records.length} 个场次 · {snapshot.characters.length}{' '}
           张角色卡
         </p>
         <p>其中 {props.preview.offlineRecords} 个场次带有已保存正文。</p>
         {props.preview.warnings.map((w) => (
-          <p className="warning" key={w}>
-            {w}
-          </p>
+          <SystemMessage kind="warning" message={w} key={w} />
         ))}
         <p>
           将覆盖本机的模组、场次与角色卡（当前 {props.currentRecords}{' '}
-          个场次），不会自动合并。确认后先在归档目录生成并回读安全备份；失败则不继续覆盖。
+          个场次），不会自动合并，也不生成操作前副本。需要时请先手动备份；校验或提交失败保留原数据。
         </p>
         <label className="check">
           <input
