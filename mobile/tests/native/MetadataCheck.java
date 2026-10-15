@@ -8,6 +8,11 @@ import org.json.JSONObject;
 
 /** Standalone JVM contract checks; deliberately does not stand in for Android/SQLite/SAF tests. */
 public final class MetadataCheck {
+    /** Count real target lookups instead of relying on machine-dependent millisecond limits. */
+    private static final class CountedRows extends JSONArray {
+        int reads;
+        @Override public JSONObject getJSONObject(int index) { reads++; return super.getJSONObject(index); }
+    }
     private static int checks;
     private static void check(boolean ok, String message) {
         if (!ok) throw new AssertionError(message); checks++;
@@ -18,6 +23,21 @@ public final class MetadataCheck {
     }
     interface Throwing { void run() throws Exception; }
     public static void main(String[] args) throws Exception {
+        CountedRows batchRows = new CountedRows();
+        JSONArray selected = new JSONArray();
+        for (int i=0;i<1000;i++) {
+            batchRows.put(new JSONObject().put("id","batch-"+i));
+            if (i<999) selected.put("batch-"+i);
+        }
+        JSONObject batch = new JSONObject().put("modules",new JSONArray()).put("records",batchRows).put("characters",new JSONArray());
+        LogbookActions.apply(batch,new JSONObject().put("type","delete-records").put("ids",selected));
+        check(batchRows.reads<=4000,"batch target checks must not repeatedly scan the whole list: "+batchRows.reads);
+        check(batch.getJSONArray("records").length()==1,"batch removes only selected targets");
+        check(batchRows.length()==1000,"batch does not mutate original array");
+        batch.put("records",batchRows);
+        rejects(() -> LogbookActions.apply(batch,new JSONObject().put("type","delete-records").put("ids",new JSONArray().put("batch-0").put("missing"))));
+        check(batch.getJSONArray("records")==batchRows && batchRows.length()==1000,"missing final target cannot partially delete");
+        rejects(() -> LogbookActions.apply(batch,new JSONObject().put("type","delete-records").put("ids",new JSONArray().put("batch-0").put("batch-0"))));
         Map<String,String> fields = JsonFields.split(Files.readString(Path.of(args[0])));
         String originalSnapshot = JsonFields.join(fields);
         JSONObject overview = RecordOverlay.view(fields,null);

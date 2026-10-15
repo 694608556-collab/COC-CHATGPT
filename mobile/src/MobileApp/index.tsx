@@ -80,11 +80,15 @@ export function MobileApp({
     deferredRef.current = ids
     setDeferredRecords(ids)
   }
-  /** Reads only requested saved bodies; partial/stale/invalid results leave the overview intact. */
+  /**
+   * 按需读取并整批核对正文，失败不将概览误作完整正文。
+   * @param ids - 请求读取的场次 ID；重复、已读和已不存在的目标不会重复请求。
+   * @param current - 本次操作基于的已校验快照，默认使用当前界面快照。
+   * @returns 包含所选正文的新快照；无待取正文时返回原对象。
+   */
   async function loadContent(ids: string[], current = snapshot): Promise<MobileSnapshot> {
-    const wanted = [...new Set(ids)].filter(
-      (id) => deferredRef.current.has(id) && current.records.some((r) => r.id === id)
-    )
+    const existing = new Set(current.records.map((record) => record.id))
+    const wanted = [...new Set(ids)].filter((id) => deferredRef.current.has(id) && existing.has(id))
     if (!wanted.length) return current
     if (!native) throw new Error('本机数据尚未读取。')
     setNotice('正在读取已保存正文…')
@@ -92,7 +96,8 @@ export function MobileApp({
     if (result.revision !== native.revision) throw new Error('数据已变化，请重新读取。')
     const checked = await readInBackground(result.json)
     const next = mergeRecordContent(current, checked, wanted)
-    replaceDeferred(new Set([...deferredRef.current].filter((id) => !wanted.includes(id))))
+    const loaded = new Set(wanted)
+    replaceDeferred(new Set([...deferredRef.current].filter((id) => !loaded.has(id))))
     setSnapshot(next)
     setNotice('')
     return next

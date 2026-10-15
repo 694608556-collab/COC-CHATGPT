@@ -25,9 +25,10 @@ export async function applyAction(current: MobileSnapshot, action: DataAction): 
     if (!Array.isArray(action.ids) || !action.ids.length) throw new Error('至少选择一个场次。')
     const ids = new Set(action.ids)
     if (ids.size !== action.ids.length) throw new Error('场次选择无效，请重新选择。')
+    // Build once: validating a large selection must not scan the entire record list per target.
+    const existing = new Set(current.records.map((record) => record.id))
     for (const id of ids) {
-      if (typeof id !== 'string' || !current.records.some((r) => r.id === id))
-        throw new Error('目标已不存在，请重新读取。')
+      if (typeof id !== 'string' || !existing.has(id)) throw new Error('目标已不存在，请重新读取。')
     }
     next.records = current.records.filter((r) => !ids.has(r.id))
   } else if (action.type === 'delete') {

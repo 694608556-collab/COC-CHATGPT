@@ -5,6 +5,30 @@ import { applyEdit } from './edit'
 import { searchSample } from '../dev/sample'
 import { createEmptyCharacter } from '../../../src/shared/coc-rules'
 describe('删除、排序与关联完整性', () => {
+  it('批量删除的目标核对按场次数量线性增长，保留未选正文且不更改原数组', async () => {
+    const current = searchSample(),
+      template = current.records[0]!
+    let reads = 0
+    current.records = Array.from({ length: 1000 }, (_, index) => ({
+      ...template,
+      get id() {
+        reads++
+        return `batch-${index}`
+      }
+    }))
+    const before = current.records
+    const selected = Array.from({ length: 999 }, (_, index) => `batch-${index}`)
+    const next = await applyAction(current, { type: 'delete-records', ids: selected })
+    expect(reads).toBeLessThanOrEqual(current.records.length * 4)
+    expect(next.records).toEqual([before[999]])
+    expect(next.records[0]!.rawContent).toBe(template.rawContent)
+    expect(current.records).toBe(before)
+    for (const ids of [[], ['batch-0', 'batch-0'], ['batch-0', 'missing']]) {
+      await expect(applyAction(current, { type: 'delete-records', ids })).rejects.toThrow()
+      expect(current.records).toBe(before)
+      expect(current.records).toHaveLength(1000)
+    }
+  })
   it('75 场大正文排序及时完成，保留正文且不改动原顺序', async () => {
     const current = searchSample()
     const template = current.records[0]!

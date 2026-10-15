@@ -27,11 +27,13 @@ final class LogbookActions {
             JSONArray selection = action.getJSONArray("ids");
             if (selection.length() == 0) throw new IllegalArgumentException("至少选择一个场次。");
             Set<String> ids = new HashSet<>();
+            Set<String> existing = new HashSet<>();
+            for (int i = 0; i < records.length(); i++) existing.add(records.getJSONObject(i).getString("id"));
             // Validate every target before mutating the private candidate; missing IDs cannot partially delete.
             for (int i = 0; i < selection.length(); i++) {
                 String id = selection.getString(i);
                 if (!ids.add(id)) throw new IllegalArgumentException("场次选择无效，请重新选择。");
-                find(records, id);
+                if (!existing.contains(id)) throw new IllegalArgumentException("目标已不存在，请重新读取。");
             }
             JSONArray remaining = new JSONArray();
             for (int i = 0; i < records.length(); i++) {

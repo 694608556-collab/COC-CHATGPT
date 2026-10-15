@@ -10,7 +10,13 @@ export function deferredIds(snapshot: MobileSnapshot, ids: unknown): Set<string>
   return result
 }
 
-/** Only accept the entire requested batch, with unchanged ownership and no unrelated records. */
+/**
+ * 完整核对所选正文批次，不为每个场次重复扫描列表；失败时不修改当前快照。
+ * @param current - 已校验的当前概览，可包含尚未读取的正文。
+ * @param content - 经正文读取边界校验的完整返回批次。
+ * @param ids - 本次请求的唯一场次 ID；必须全部返回且归属、来源不变。
+ * @returns 合并全部已核对正文的新快照；设置和未选实体保留原对象。
+ */
 export function mergeRecordContent(
   current: MobileSnapshot,
   content: MobileSnapshot,
@@ -24,8 +30,9 @@ export function mergeRecordContent(
     [...rows.keys()].some((id) => !wanted.has(id))
   )
     throw new Error('正文读取不完整，请重试。')
+  const existing = new Map(current.records.map((record) => [record.id, record]))
   for (const id of wanted) {
-    const before = current.records.find((record) => record.id === id),
+    const before = existing.get(id),
       after = rows.get(id)
     if (
       !before ||
