@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FilterPreset, SessionRecord } from '../../../../../src/shared/types'
 import { matchRanges, recordMessages, searchExcerpt } from '../../../data/search'
 import { SystemMessage } from '../SystemMessage'
@@ -47,6 +47,10 @@ export function LogReader(props: {
   const [jumpRequest, setJumpRequest] = useState<{ index: number; serial: number }>()
   const messageNodes = useRef(new Map<number, HTMLElement>())
   const searchInput = useRef<HTMLInputElement>(null)
+  // 列表与详情共用窗口滚动；只在进入场次时回顶，早于下方主动搜索定位且不打断阅读／分页。
+  useLayoutEffect(() => {
+    window.scrollTo(0, 0)
+  }, [props.record.id])
   const needle = query.trim()
   const messages = useMemo(() => recordMessages(props.record, filters), [props.record, filters])
   const hits = useMemo(

@@ -783,7 +783,7 @@ export function MobileApp({
           <strong>COC 跑团记录簿</strong>
           <span>安卓开发版 · 本机数据</span>
         </div>
-        <span className="version">0.2.17 · 启动试验</span>
+        <span className="version">0.2.18 · 启动试验</span>
       </header>
       <main aria-hidden={confirmation ? true : undefined}>
         {savedDocument && (
