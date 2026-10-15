@@ -13,6 +13,7 @@ export function DataSettings(props: {
   archive: ArchiveLocation
   snapshot: MobileSnapshot
   busy: boolean
+  backingUp: boolean
   onChoose(): void
   onImport(): void
   onBackup(): void
@@ -131,8 +132,8 @@ export function DataSettings(props: {
             ? '上次成功：' + new Date(props.lastAutoBackupAt).toLocaleString()
             : '尚未生成自动备份'}
         </p>
-        <button disabled={props.busy} onClick={props.onAutoBackup}>
-          立即生成自动备份
+        <button disabled={props.busy || props.backingUp} onClick={props.onAutoBackup}>
+          {props.backingUp ? '自动备份中…' : '立即生成自动备份'}
         </button>
       </section>
       <section className="panel">
@@ -244,7 +245,7 @@ export function DataSettings(props: {
       </section>
       <section className="panel" aria-label="版本说明">
         <h2>版本说明</h2>
-        <p>0.2.12-dev</p>
+        <p>0.2.13-dev</p>
         <p>数据仅本机保存、无账户</p>
         <p>仅海豹链接相关联网</p>
         <p>应用制作：亦如长风万里沙</p>

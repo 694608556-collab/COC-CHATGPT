@@ -8,6 +8,51 @@ import type { LogbookPort } from './native'
 const load = async () =>
   (await previewBackup(new TextEncoder().encode(JSON.stringify(exampleBackup())))).snapshot
 describe('编辑数据保护', () => {
+  it('角色和场次小请求不编码任何未改在线正文，失败不改变快照', async () => {
+    const current = await load()
+    current.characters = [createEmptyCharacter({ edition: 7, name: '公开角色' })]
+    const body = current.records[0]!.rawContent!
+    Object.defineProperty(body, 'toJSON', {
+      value: () => {
+        throw new Error('正文不应编码')
+      }
+    })
+    const port: Pick<LogbookPort, 'commitModule' | 'commitEntity'> = {
+      commitModule: async () => {
+        throw new Error('不应调用模组')
+      },
+      commitEntity: async ({ edit, expectedRevision }) => {
+        expect(expectedRevision).toBe(4)
+        expect(JSON.stringify(edit)).not.toContain('离线正文')
+        return { revision: 5, exportedAt: '2026-10-15T01:00:00Z' }
+      }
+    }
+    const record = await saveEdit(
+      port,
+      current,
+      { kind: 'record', value: { ...current.records[0]!, name: '小请求' } },
+      4
+    )
+    expect(record.snapshot.records[0]!.rawContent).toBe(body)
+    expect(record.snapshot.records[0]!.updatedAt).toBe('2026-10-15T01:00:00Z')
+    const character = await saveEdit(port, current, { kind: 'character', value: current.characters[0]! }, 4)
+    expect(character.snapshot.records[0]!.rawContent).toBe(body)
+    expect(character.json).toBeNull()
+    await expect(
+      saveEdit(
+        {
+          ...port,
+          commitEntity: async () => {
+            throw new Error('事务失败')
+          }
+        },
+        current,
+        { kind: 'record', value: { ...current.records[0]!, name: '失败草稿' } },
+        4
+      )
+    ).rejects.toThrow('事务失败')
+    expect(current.records[0]!.name).not.toBe('失败草稿')
+  })
   it('模组小请求不编码未改正文，保存确认后返回完整未改内容', async () => {
     const current = await load()
     const body = current.records[0]!.rawContent!
@@ -17,7 +62,7 @@ describe('编辑数据保护', () => {
       }
     })
     const port = {
-      commitEdit: async () => {
+      commitEntity: async () => {
         throw new Error('模组不应提交完整正文')
       },
       commitModule: async (options: { value: unknown; expectedRevision: number }) => {
@@ -133,11 +178,11 @@ describe('编辑数据保护', () => {
         expect(options.expectedRevision).toBe(9)
         throw new Error('存储失败')
       },
-      commitEdit: async (options: { expectedRevision: number }) => {
+      commitEntity: async (options: { expectedRevision: number }) => {
         expect(options.expectedRevision).toBe(9)
-        throw new Error('安全副本失败')
+        throw new Error('存储失败')
       }
-    } satisfies Pick<LogbookPort, 'commitEdit' | 'commitModule'>
+    } satisfies Pick<LogbookPort, 'commitEntity' | 'commitModule'>
     await expect(
       saveEdit(port, current, { kind: 'module', value: { ...current.modules[0]!, name: '修改' } }, 9)
     ).rejects.toThrow('存储失败')

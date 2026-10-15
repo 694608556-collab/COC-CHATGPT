@@ -15,6 +15,7 @@ export interface ArchiveLocation {
 /** 原生数据库与授权读取结果。 */
 export interface NativeState {
   lastAutoBackupAt?: number
+  lastAutoBackupRevision?: number
   /** 当前是否有活动网络；类型为 boolean，不表示远程日志网站一定可达。 */
   networkConnected: boolean
   /** 最近读取的快照缓存；类型为 string | null，初次或轻量提交后缓存失效时为空。 */
@@ -38,13 +39,20 @@ export interface SavedDocument {
 }
 /** 所有请求/响应与本工程 LogbookPlugin.java 一一对应，不访问推测的 HTTP 接口。 */
 export interface LogbookPort {
+  /** 仅提交一个角色或场次草稿；场次不接收在线正文，原生保留未变化来源的正文。 */
+  commitEntity(options: {
+    edit: Exclude<import('./edit').Edit, { kind: 'module' }>
+    expectedRevision: number
+  }): Promise<{ revision: number; exportedAt: string }>
   /** @param options - 已校验的模组及读取版本，不带正文。 @returns 事务确认的新版本及时间。 */
   commitModule(options: {
     value: import('../../../src/shared/types').ModuleRecord
     expectedRevision: number
   }): Promise<{ revision: number; exportedAt: string }>
   /** @returns 轻量版本/授权状态；不传输正文、不创建文件。 */
-  getStatus(): Promise<Pick<NativeState, 'revision' | 'archive' | 'lastAutoBackupAt'>>
+  getStatus(): Promise<
+    Pick<NativeState, 'revision' | 'archive' | 'lastAutoBackupAt' | 'lastAutoBackupRevision'>
+  >
   /**
    * 仅提交完整设置；原生校验当前数据并事务更新设置及时间，不接收实体或生成全量副本。
    * @param options - 小设置对象及已读取版本；保留目录授权与 CAS 检查。
@@ -60,7 +68,7 @@ export interface LogbookPort {
   automaticBackup(options: {
     json?: string
     expectedRevision: number
-  }): Promise<{ document: SavedDocument; savedAt: number; warning?: string }>
+  }): Promise<{ document: SavedDocument; savedAt: number; revision: number; warning?: string }>
   openDocument(options: { uri: string }): Promise<void>
   shareDocument(options: { uri: string }): Promise<void>
   /**

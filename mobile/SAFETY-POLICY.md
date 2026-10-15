@@ -6,20 +6,21 @@
 
 自动备份沿用设置 interval 的 idle/daily/weekly 契约：idle 现在代表十分钟周期，不再是修改后 1.5 秒。启用时默认十分钟，有修改才生成；关闭时不生成。首次以已提交数据时间为起点，已有备份以上次成功时间为起点。每日/每周按用户选择执行。页面/前台切换不重置周期；未改变的数据不会重复备份。用户主动“立即生成自动备份”不受定时等待限制。应用关闭或系统挂起时不承诺定时运行。
 
-自动任务使用安静反馈，失败明确提示。当前自动备份期间仍使用串行写入锁，短暂禁用数据操作；后续如优化为并行任务，必须锁定准确的已备份版本，不能把期间的新修改误标为已备份。
+自动任务使用安静反馈，失败明确提示。0.2.13 起，自动备份在存储队列捕获确定 revision 的完整快照与目录，再由独立写入线程创建新文件、回读并轮换；数据编辑不因文件写入而禁用，同一时间只执行一项自动备份。成功记录 lastAutoBackupRevision，完成回调不替换当前业务快照／版本。期间产生的新 revision 仍是未备份修改，即使修改和备份发生在同一毫秒。目录变化／写入失败不把当前数据标记为已备份。
 
 ## 本地接口
 
 - commitModule({value, expectedRevision})：只传已校验模组字段，不传正文；原生同步参与者绑定，返回 revision/exportedAt。
+- commitEntity({edit, expectedRevision})：单个完整角色或场次草稿，不接收在线正文；原生校验字段与关联，保留未变来源正文、变更来源清除旧正文，返回 revision/exportedAt。角色改名／解除模组同步参与者。手动正文仍完整保存。
 - commitSettings({settings, expectedRevision})：完整白名单小设置，返回 revision/exportedAt。
-- commitAction({action, expectedRevision})：排序仅保存小顺序覆盖；批量删除一次事务，其余动作仍修改候选快照。
+- commitAction({action, expectedRevision})：排序立即保存小顺序覆盖；删除／批量删除／清空／重置走元数据事务，不解析或重写未改正文。批量全部目标校验后一次提交。
 - commitEdit / commitRestore：完整已校验 JSON；恢复须 confirmed=true，附件创建新文件，失败清理本次附件。成功只返回新版本，不创建 safetyBackup。
 - getStatus()：轻量版本、目录持久授权、上次自动备份时间；回前台使用此接口。getState() 初次/重开仍读取全部正文并做原有验证。
 
 可选 safetyBackup 类型暂留作旧调用兼容，但当前实现不创建/返回它。SavedDocument.purpose 的 safety 仍用于读取旧文件登记。
 
-## SQLite v1 升级到 v2
+## SQLite 内部 v3（从 v1／v2 保留升级）
 
 新增 snapshot_fields 分块表，保留原 app_state 和 snapshot_chunks。每次元数据更新只写小覆盖值，与 revision 的 CAS 检查在同一事务；排序保存 recordOrders 字典，不生成逐次历史记录。getState、导出和备份把覆盖值与原正文组合，外部快照仍是 schemaVersion 2、同一业务结构。
 
-完整编辑/恢复在同一事务替换正文块并清除覆盖。大字段继续 65536 字符分块，边界不切开 UTF-16 代理对。JsonFields 仅切片已有验证的存储文本，不充当输入校验器；未知输入仍走严格 JSON/业务校验。升级到数据库 v2 后，不应安装只认识 v1 的旧 APK 作为回退方案。
+v3 复用原表，新增场次值覆盖与删除集合的语义；v1 仅创建字段表、v2 不改原表，均保留 app_state、正文块、revision。完整编辑／恢复在同一事务替换正文块并清除覆盖。大字段继续 65536 字符分块，边界不切开 UTF-16 代理对。JsonFields 仅切片已有验证的存储文本，不充当输入校验器；未知输入仍走严格 JSON／业务校验。升级到数据库 v3 后，不应安装只认识 v1／v2 的旧 APK 回退；SQLite 默认拒绝降级，不清库。外部备份仍为 schemaVersion 2，不暴露内部覆盖字段。

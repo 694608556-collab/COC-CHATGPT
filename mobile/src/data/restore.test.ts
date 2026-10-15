@@ -18,6 +18,9 @@ function deviceStore(failSave = false): LogbookPort {
   }
   return {
     getStatus: async () => ({ revision: state.revision, archive: state.archive }),
+    commitEntity: async () => {
+      throw new Error('测试未调用实体保存')
+    },
     commitModule: async () => {
       throw new Error('测试未调用模组保存')
     },

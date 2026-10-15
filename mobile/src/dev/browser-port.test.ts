@@ -4,7 +4,7 @@ import { createBrowserPort } from './browser-port'
 import { previewBackup } from '../data/backup'
 import { exampleBackup } from '../data/fixtures'
 import { createEmptyCharacter } from '../../../src/shared/coc-rules'
-import { encodeBase64 } from '../data/native'
+import { encodeBase64, decodeBase64 } from '../data/native'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -21,6 +21,82 @@ async function setup() {
 }
 
 describe('浏览器测试存储事务：自动备份与数据保存独立', () => {
+  it('单实体保存保留其他正文、角色全部字段和改名关联，重开持久化，旧版本拒绝', async () => {
+    const { browser, name, snapshot } = await setup()
+    const character = createEmptyCharacter({ edition: 7, moduleId: snapshot.modules[0]!.id, name: '原角色' })
+    character.weapons = [{ name: '完整武器', damage: '1D6', range: 10 }]
+    character.background['自定义背景'] = '保留原文'
+    snapshot.characters = [character]
+    snapshot.modules[0]!.pairs = [{ pc: character.basic.name, pl: '玩家', characterId: character.id }]
+    await browser.port.commitRestore({ json: JSON.stringify(snapshot), expectedRevision: 0, confirmed: true })
+    await browser.port.commitEntity({
+      edit: { kind: 'character', value: { ...character, basic: { ...character.basic, name: '新角色' } } },
+      expectedRevision: 1
+    })
+    const record = {
+      ...snapshot.records[0]!,
+      name: '场次改名',
+      rawContent: undefined,
+      cacheSourceUrl: undefined,
+      fetchedAt: undefined
+    }
+    await browser.port.commitEntity({ edit: { kind: 'record', value: record }, expectedRevision: 2 })
+    await browser.close()
+    const reopened = createBrowserPort(name)
+    const state = await reopened.port.getState(),
+      after = JSON.parse(state.json!)
+    expect(after.modules[0].pairs[0].pc).toBe('新角色')
+    expect(after.characters[0].background).toEqual(character.background)
+    expect(after.characters[0].weapons).toEqual(character.weapons)
+    expect(after.records[0].rawContent).toEqual(snapshot.records[0]!.rawContent)
+    await expect(
+      reopened.port.commitEntity({ edit: { kind: 'record', value: record }, expectedRevision: 2 })
+    ).rejects.toThrow('变化')
+    await expect(
+      reopened.port.commitEntity({
+        edit: { kind: 'record', value: { ...record, moduleId: 'missing' } },
+        expectedRevision: 3
+      })
+    ).rejects.toThrow('关联')
+    expect((await reopened.port.getState()).json).toBe(state.json)
+    expect(await reopened.documents()).toHaveLength(0)
+    await reopened.close()
+  })
+  it('备份写入期间可提交新修改，文件固定旧版本，新数据和版本不被完成回调覆盖', async () => {
+    const { browser, snapshot, json } = await setup()
+    await browser.port.commitRestore({ json, expectedRevision: 0, confirmed: true })
+    const digest = crypto.subtle.digest.bind(crypto.subtle)
+    let release!: () => void, captured!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const started = new Promise<void>((resolve) => {
+      captured = resolve
+    })
+    vi.spyOn(crypto.subtle, 'digest').mockImplementationOnce(async (...args) => {
+      captured()
+      await gate
+      return digest(...args)
+    })
+    const pending = browser.port.automaticBackup({ expectedRevision: 1 })
+    await started
+    await browser.port.commitModule({
+      value: { ...snapshot.modules[0]!, name: '备份期间修改' },
+      expectedRevision: 1
+    })
+    release()
+    const result = await pending
+    expect(result.revision).toBe(1)
+    const state = await browser.port.getState()
+    expect(state.revision).toBe(2)
+    expect(state.lastAutoBackupRevision).toBe(1)
+    expect(JSON.parse(state.json!).modules[0].name).toBe('备份期间修改')
+    const file = (await browser.documents())[0]!
+    const saved = JSON.parse(new TextDecoder().decode(decodeBase64(file.base64)))
+    expect(saved.snapshot.modules[0].name).toBe(snapshot.modules[0]!.name)
+    expect(saved.snapshot.records).toEqual(snapshot.records)
+    await browser.close()
+  })
   it('轻量设置拒绝非法类型、夹带实体和陈旧版本，失败不改变数据或文件', async () => {
     const { browser, json, snapshot } = await setup()
     await browser.port.commitRestore({ json, expectedRevision: 0, confirmed: true })

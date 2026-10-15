@@ -8,7 +8,7 @@ import android.database.sqlite.SQLiteOpenHelper;
 /** Versioned Android-owned snapshot store, never opens the desktop database. */
 final class LogbookDatabase extends SQLiteOpenHelper {
     private java.util.Map<String, String> baseFields;
-    LogbookDatabase(Context context) { super(context, "coc-logbook.sqlite", null, 2); }
+    LogbookDatabase(Context context) { super(context, "coc-logbook.sqlite", null, 3); }
     @Override public void onCreate(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE app_state(id INTEGER PRIMARY KEY CHECK(id=1), json TEXT, revision INTEGER NOT NULL)");
         db.execSQL("INSERT INTO app_state VALUES(1,NULL,0)");
@@ -16,7 +16,8 @@ final class LogbookDatabase extends SQLiteOpenHelper {
         createFields(db);
     }
     @Override public void onUpgrade(SQLiteDatabase db, int before, int after) {
-        if (before == 1 && after == 2) createFields(db);
+        if (before == 1 && after == 3) createFields(db);
+        else if (before == 2 && after == 3) { /* Existing chunks/fields are retained byte for byte. */ }
         else throw new IllegalStateException("数据库版本暂不兼容，未清空任何数据。");
     }
     private void createFields(SQLiteDatabase db) {
@@ -62,21 +63,8 @@ final class LogbookDatabase extends SQLiteOpenHelper {
             if (!rows.moveToFirst()) return baseSnapshot();
         }
         java.util.Map<String,String> fields = fields();
-        String ordersText = fields.remove("recordOrders");
-        if (ordersText != null) {
-            try {
-                org.json.JSONObject orders = new org.json.JSONObject(ordersText);
-                StringBuilder records = new StringBuilder("[");
-                for (String raw : JsonFields.elements(fields.get("records"))) {
-                    java.util.Map<String,String> record = JsonFields.split(raw);
-                    String id = new org.json.JSONArray("[" + record.get("id") + "]").getString(0);
-                    if (orders.has(id)) record.put("order", orders.get(id).toString());
-                    if (records.length() > 1) records.append(',');
-                    records.append(JsonFields.join(record));
-                }
-                fields.put("records", records.append(']').toString());
-            } catch (org.json.JSONException error) { throw new IllegalStateException("排序数据不完整，未重置数据。", error); }
-        }
+        try { RecordOverlay.compose(fields); }
+        catch (Exception error) { throw new IllegalStateException("场次数据不完整，未重置数据。", error); }
         return JsonFields.join(fields);
     }
     /** Only trusted native-produced fields reach here. CAS and all field updates share one transaction. */

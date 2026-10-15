@@ -25,10 +25,18 @@ export function Editor(props: {
   onClose(): void
   onConfirm(message: string): Promise<boolean>
 }) {
-  const [draft, setDraft] = useState<Edit>(() => JSON.parse(JSON.stringify(props.initial)))
+  // 在线正文由存储边界保留；草稿及每次输入的脏检查不复制/编码这部分数据。
+  const [original] = useState<Edit>(() => {
+    const initial =
+      props.initial.kind === 'record'
+        ? { ...props.initial, value: { ...props.initial.value, rawContent: undefined } }
+        : props.initial
+    return JSON.parse(JSON.stringify(initial))
+  })
+  const [draft, setDraft] = useState<Edit>(original)
   const [error, setError] = useState('')
   const itemLayout = useItemLayout()
-  const dirty = JSON.stringify(draft) !== JSON.stringify(props.initial)
+  const dirty = JSON.stringify(draft) !== JSON.stringify(original)
   const title = draft.kind === 'module' ? '编辑模组' : draft.kind === 'record' ? '编辑场次' : '编辑角色卡'
   const heading = useRef<HTMLHeadingElement>(null)
   useEffect(() => {

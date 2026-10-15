@@ -9,6 +9,8 @@ it('十分钟到期、有修改才备份；回前台不提前，无修改/关闭
   data.exportedAt = new Date(start).toISOString()
   data.settings.autoBackup = { enabled: true, interval: 'idle', retention: 10 }
   expect(automaticBackupDelay(data, undefined, start)).toBe(600000)
+  expect(automaticBackupDelay(data, start, start, 8, 7)).toBe(600000)
+  expect(automaticBackupDelay(data, start, start + 700000, 8, 8)).toBeUndefined()
   expect(automaticBackupDelay(data, undefined, start + 1000)).toBe(599000)
   expect(automaticBackupDelay(data, undefined, start + 600000)).toBe(0)
   expect(automaticBackupDelay(data, start, start + 700000)).toBeUndefined()

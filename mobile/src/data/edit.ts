@@ -137,7 +137,12 @@ export async function applyEdit(current: MobileSnapshot, edit: Edit): Promise<Mo
       new TextEncoder().encode(
         JSON.stringify({
           ...next,
-          records: edit.kind === 'record' ? next.records.filter((row) => row.id === edit.value.id) : []
+          records:
+            edit.kind === 'record'
+              ? next.records
+                  .filter((row) => row.id === edit.value.id)
+                  .map((row) => ({ ...row, rawContent: undefined }))
+              : []
         })
       )
     )
@@ -148,21 +153,23 @@ export async function applyEdit(current: MobileSnapshot, edit: Edit): Promise<Mo
     characters: checked.characters,
     records:
       edit.kind === 'record'
-        ? next.records.map((row) => (row.id === edit.value.id ? checked.records[0]! : row))
+        ? next.records.map((row) =>
+            row.id === edit.value.id ? { ...checked.records[0]!, rawContent: row.rawContent } : row
+          )
         : next.records
   }
 }
 
 /**
  * 保存校验后的编辑，并仅在存储确认后返回同一候选供界面展示，避免即时全量重读。
- * @param port - 持久化边界，负责版本检查、授权及事务；模组使用小请求。
+ * @param port - 持久化边界，负责版本检查、授权及事务；仅发送本次实体。
  * @param current - 当前已读取的快照，不原地修改。
  * @param edit - 待保存草稿。
  * @param revision - 打开编辑时的持久化版本。
- * @returns 已提交版本与候选快照；模组不缓存大 JSON，失败不返回候选。
+ * @returns 已提交版本与完整候选快照；不缓存大 JSON，失败不返回候选。
  */
 export async function saveEdit(
-  port: Pick<LogbookPort, 'commitEdit' | 'commitModule'>,
+  port: Pick<LogbookPort, 'commitEntity' | 'commitModule'>,
   current: MobileSnapshot,
   edit: Edit,
   revision: number
@@ -182,10 +189,27 @@ export async function saveEdit(
     }
     return { ...result, snapshot, json: null, safetyBackup: undefined }
   }
-  const json = JSON.stringify(next)
-  const result = await port.commitEdit({
-    json,
+  const value =
+    edit.kind === 'record'
+      ? {
+          ...next.records.find((row) => row.id === edit.value.id)!,
+          rawContent: undefined,
+          cacheSourceUrl: undefined,
+          fetchedAt: undefined
+        }
+      : next.characters.find((row) => row.id === edit.value.id)!
+  const result = await port.commitEntity({
+    edit: { kind: edit.kind, value } as Exclude<Edit, { kind: 'module' }>,
     expectedRevision: revision
   })
-  return { ...result, snapshot: next, json }
+  const snapshot = { ...next, exportedAt: result.exportedAt }
+  if (edit.kind === 'record')
+    snapshot.records = next.records.map((row) =>
+      row.id === edit.value.id ? { ...row, updatedAt: result.exportedAt } : row
+    )
+  else
+    snapshot.characters = next.characters.map((row) =>
+      row.id === edit.value.id ? { ...row, updatedAt: result.exportedAt } : row
+    )
+  return { ...result, snapshot, json: null }
 }

@@ -92,6 +92,8 @@ export function MobileApp({
     resolve?.(confirmed)
   }
   const busyLock = useRef(false)
+  const autoBackupLock = useRef(false)
+  const [backingUp, setBackingUp] = useState(false)
   const [notice, setNotice] = useState('')
   const [quietSaving, setQuietSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState('')
@@ -117,7 +119,7 @@ export function MobileApp({
       expectedRevision: native.revision
     })
     setSnapshot(validated)
-    setNative({ ...native, json: prepared.json, revision: result.revision })
+    setNative((current) => current && { ...current, json: prepared.json, revision: result.revision })
     document.documentElement.dataset.theme = validated.settings.theme
   }
   /**
@@ -157,7 +159,7 @@ export function MobileApp({
     }
     // 安全提交后确认时间/版本；失效的大 JSON 缓存不用于自动备份。
     setSnapshot({ ...next, exportedAt: result.exportedAt })
-    setNative({ ...native, json: null, revision: result.revision })
+    setNative((current) => current && { ...current, json: null, revision: result.revision })
     if (action.type === 'delete' || action.type === 'clear' || action.type === 'delete-records') {
       setRecord((current) => current && next.records.find((item) => item.id === current.id))
       setSelectedCharacter((current) => (next.characters.some((item) => item.id === current) ? current : ''))
@@ -248,39 +250,53 @@ export function MobileApp({
     setNotice('表格数据已添加并保存。')
   }
   async function runAutoBackup(manual = false) {
-    if (!native || busyLock.current || !native.archive.valid) return
-    busyLock.current = true
-    setBusy(true)
-    setQuietSaving(!manual)
-    setSaveStatus('')
+    const started = nativeRef.current
+    if (!started || busyLock.current || autoBackupLock.current || !started.archive.valid) return
+    autoBackupLock.current = true
+    setBackingUp(true)
     try {
       const result = await port.automaticBackup({
-        expectedRevision: native.revision
+        expectedRevision: started.revision
       })
-      setNative({ ...native, lastAutoBackupAt: result.savedAt })
+      setNative((current) =>
+        current && current.archive.uri === started.archive.uri
+          ? { ...current, lastAutoBackupAt: result.savedAt, lastAutoBackupRevision: result.revision }
+          : current
+      )
       if (manual)
         setNotice('自动备份已保存：' + result.document.name + (result.warning ? '。' + result.warning : ''))
       else if (result.warning) setError(result.warning)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '自动备份失败，请检查保存位置。')
     } finally {
-      busyLock.current = false
-      setBusy(false)
-      setQuietSaving(false)
+      autoBackupLock.current = false
+      setBackingUp(false)
     }
   }
   useEffect(() => {
     if (!native?.archive.valid) return
-    const due = automaticBackupDelay(snapshot, native.lastAutoBackupAt, Date.now())
+    const due = automaticBackupDelay(
+      snapshot,
+      native.lastAutoBackupAt,
+      Date.now(),
+      native.revision,
+      native.lastAutoBackupRevision
+    )
     if (due === undefined) return
     let timer: ReturnType<typeof setTimeout>
     const attempt = () => {
-      if (busyLock.current) timer = setTimeout(attempt, 1000)
+      if (busyLock.current || autoBackupLock.current) timer = setTimeout(attempt, 1000)
       else void runAutoBackup()
     }
     timer = setTimeout(attempt, Math.min(due, 2147483647))
     return () => clearTimeout(timer)
-  }, [snapshot, native?.revision, native?.archive.valid, native?.lastAutoBackupAt])
+  }, [
+    snapshot,
+    native?.revision,
+    native?.archive.valid,
+    native?.lastAutoBackupAt,
+    native?.lastAutoBackupRevision
+  ])
   const backHandler = useRef<() => void>(() => {})
   useNavigationGestures(() => backHandler.current(), requestHome)
   /** @returns 无返回值；回桌面仅后台化，不清除草稿；写入期间拒绝应用内退出。 */
@@ -353,7 +369,13 @@ export function MobileApp({
       if (status.revision !== current.revision) {
         if (!document.querySelector('.editor')) await perform(reload, true)
         // 草稿仍基于旧快照，不能把新版本序号配给旧数据；保存时应拒绝陈旧覆盖。
-        else setNative({ ...current, archive: status.archive, lastAutoBackupAt: status.lastAutoBackupAt })
+        else
+          setNative({
+            ...current,
+            archive: status.archive,
+            lastAutoBackupAt: status.lastAutoBackupAt,
+            lastAutoBackupRevision: status.lastAutoBackupRevision
+          })
       } else setNative({ ...current, ...status })
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '保存位置检查失败。')
@@ -584,7 +606,7 @@ export function MobileApp({
     try {
       const result = await port.commitSettings({ settings, expectedRevision: native.revision })
       setSnapshot({ ...snapshot, settings, exportedAt: result.exportedAt })
-      setNative({ ...native, json: null, revision: result.revision })
+      setNative((current) => current && { ...current, json: null, revision: result.revision })
     } catch (reason) {
       setSnapshot(before)
       document.documentElement.dataset.theme = before.settings.theme
@@ -659,7 +681,7 @@ export function MobileApp({
           <strong>COC 跑团记录簿</strong>
           <span>安卓开发版 · 本机数据</span>
         </div>
-        <span className="version">0.2.12</span>
+        <span className="version">0.2.13</span>
       </header>
       <main aria-hidden={confirmation ? true : undefined}>
         {savedDocument && (
@@ -795,6 +817,7 @@ export function MobileApp({
                     snapshot={snapshot}
                     busy={busy}
                     onChoose={() => void perform(chooseArchive)}
+                    backingUp={backingUp}
                     onImport={() => void perform(chooseBackup)}
                     onBackup={() => void perform(exportBackup)}
                     onZipBackup={() => void perform(() => exportBackup(true))}

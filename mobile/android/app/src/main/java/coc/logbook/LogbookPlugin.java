@@ -36,8 +36,10 @@ import org.json.JSONObject;
 public final class LogbookPlugin extends Plugin {
     private static final int MAX_BYTES = 64 * 1024 * 1024;
     private LogbookDatabase database;
+    private final java.util.concurrent.ExecutorService backupWriter = java.util.concurrent.Executors.newSingleThreadExecutor();
+    private final java.util.concurrent.atomic.AtomicBoolean backupRunning = new java.util.concurrent.atomic.AtomicBoolean();
     @Override public void load() { database = new LogbookDatabase(getContext()); }
-    @Override protected void handleOnDestroy() { if (database != null) database.close(); }
+    @Override protected void handleOnDestroy() { backupWriter.shutdown(); if (database != null) database.close(); }
     private SharedPreferences prefs() { return getContext().getSharedPreferences("archive-location", 0); }
     private String digest(byte[] bytes) throws Exception {
         StringBuilder result = new StringBuilder();
@@ -105,6 +107,7 @@ public final class LogbookPlugin extends Plugin {
                 ConnectivityManager connectivity = (ConnectivityManager)getContext().getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
                 out.put("networkConnected", connectivity.getActiveNetwork() != null);
                 out.put("lastAutoBackupAt", prefs().getLong("last-auto-backup", 0));
+                if (prefs().contains("last-auto-backup-revision")) out.put("lastAutoBackupRevision",prefs().getLong("last-auto-backup-revision",-1));
                 out.put("archive", location(true)); call.resolve(out);
             } catch (Exception error) { call.reject("读取失败；未清空数据。", error); }
         });
@@ -118,6 +121,7 @@ public final class LogbookPlugin extends Plugin {
                 try { requireArchivePermission(prefs().getString("tree", "")); }
                 catch (Exception error) { archive.put("valid", false); }
                 out.put("archive", archive); out.put("lastAutoBackupAt", prefs().getLong("last-auto-backup", 0));
+                if (prefs().contains("last-auto-backup-revision")) out.put("lastAutoBackupRevision",prefs().getLong("last-auto-backup-revision",-1));
                 call.resolve(out);
             } catch (Exception error) { call.reject("状态检查失败；未清空数据。", error); }
         });
@@ -171,8 +175,10 @@ public final class LogbookPlugin extends Plugin {
         return write(name, mime, bytes, "export");
     }
     private JSObject write(String name, String mime, byte[] bytes, String purpose) throws Exception {
+        return write(name,mime,bytes,purpose,prefs().getString("tree", ""));
+    }
+    private JSObject write(String name, String mime, byte[] bytes, String purpose, String location) throws Exception {
         if (bytes.length > MAX_BYTES || name.length() > 120 || name.isEmpty() || name.contains("..") || name.matches(".*[/\\\\\u0000-\u001f].*")) throw new IllegalArgumentException("文件名或文件大小不合法。");
-        String location = prefs().getString("tree", "");
         if (location.isEmpty()) throw new IllegalStateException("请先选择并确认归档文件夹。");
         Uri tree = Uri.parse(location); validateTree(tree);
         Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
@@ -302,35 +308,44 @@ public final class LogbookPlugin extends Plugin {
         });
     }
     @PluginMethod public void automaticBackup(PluginCall call) {
+        if (!backupRunning.compareAndSet(false,true)) { call.reject("自动备份正在进行，请稍候。"); return; }
         execute(() -> {
             try {
                 Long expected = call.getData().has("expectedRevision") ? call.getData().getLong("expectedRevision") : null;
                 if (expected == null || expected != database.revision()) throw new IllegalStateException("数据已变化，请稍后备份。");
                 String current = database.snapshot();
                 if (current == null) throw new IllegalStateException("尚无已保存数据。");
-                JSONObject envelope = new JSONObject(); envelope.put("format", "coc.logbook.android"); envelope.put("formatVersion", 1);
-                envelope.put("exportedAt", java.time.Instant.now().toString()); envelope.put("restoreScope", new JSONArray(Arrays.asList("modules","records","characters")));
-                envelope.put("snapshot", new JSONObject(current));
-                long savedAt = System.currentTimeMillis();
-                JSObject saved = write("auto-backup-" + savedAt + ".json", "application/json", envelope.toString().getBytes(StandardCharsets.UTF_8), "auto");
-                JSONObject owned = new JSONObject(saved.toString()); owned.put("tree", prefs().getString("tree", "")); owned.put("createdAt", savedAt);
-                JSONArray registry = new JSONArray(prefs().getString("automatic-documents", "[]")); registry.put(owned);
-                if (!prefs().edit().putString("automatic-documents", registry.toString()).putLong("last-auto-backup", savedAt).commit())
-                    throw new IllegalStateException("自动备份已写入，但轮换登记失败。");
-                JSONArray retained = new JSONArray(); String warning = "";
-                for (int i = 0; i < registry.length(); i++) {
-                    JSONObject item = registry.getJSONObject(i);
-                    if (i >= registry.length() - 10 || !item.getString("tree").equals(prefs().getString("tree", ""))) { retained.put(item); continue; }
-                    try {
-                        Uri uri = Uri.parse(item.getString("uri"));
-                        if (!digest(read(uri)).equals(item.getString("sha256"))) { warning = "部分旧备份被修改，已保留。"; continue; }
-                        if (!DocumentsContract.deleteDocument(getContext().getContentResolver(), uri)) { retained.put(item); warning = "部分旧备份无法删除，已保留。"; }
-                    } catch (Exception error) { retained.put(item); warning = "部分旧备份不可访问，已保留。"; }
-                }
-                prefs().edit().putString("automatic-documents", retained.toString()).commit();
-                JSObject reply = new JSObject(); reply.put("document", saved); reply.put("savedAt", savedAt); reply.put("warning", warning); call.resolve(reply);
-            } catch (Exception error) { call.reject("自动备份未完成：" + error.getMessage(), error); }
+                String tree = prefs().getString("tree", ""); requireArchivePermission(tree);
+                // Capture the exact immutable version, then release the storage queue before card I/O.
+                backupWriter.execute(() -> finishAutomaticBackup(call,current,expected,tree));
+            } catch (Exception error) { backupRunning.set(false); call.reject("自动备份未完成：" + error.getMessage(), error); }
         });
+    }
+    private void finishAutomaticBackup(PluginCall call, String current, long expected, String tree) {
+        try {
+            requireArchivePermission(tree);
+            String envelope = "{\"format\":\"coc.logbook.android\",\"formatVersion\":1,\"exportedAt\":" + JSONObject.quote(java.time.Instant.now().toString()) + ",\"restoreScope\":[\"modules\",\"records\",\"characters\"],\"snapshot\":" + current + "}";
+            JSObject saved = write("auto-backup-" + System.currentTimeMillis() + ".json", "application/json", envelope.getBytes(StandardCharsets.UTF_8), "auto",tree);
+            if (!tree.equals(prefs().getString("tree", ""))) throw new IllegalStateException("保存位置已变化；旧位置文件保留，本次未标记为已备份。");
+            long savedAt = System.currentTimeMillis();
+            JSONObject owned = new JSONObject(saved.toString()); owned.put("tree", tree); owned.put("createdAt", savedAt);
+            JSONArray registry = new JSONArray(prefs().getString("automatic-documents", "[]")); registry.put(owned);
+            if (!prefs().edit().putString("automatic-documents", registry.toString()).putLong("last-auto-backup", savedAt).putLong("last-auto-backup-revision",expected).commit())
+                throw new IllegalStateException("自动备份已写入，但轮换登记失败。");
+            JSONArray retained = new JSONArray(); String warning = "";
+            for (int i = 0; i < registry.length(); i++) {
+                JSONObject item = registry.getJSONObject(i);
+                if (i >= registry.length() - 10 || !item.getString("tree").equals(tree)) { retained.put(item); continue; }
+                try {
+                    Uri uri = Uri.parse(item.getString("uri"));
+                    if (!digest(read(uri)).equals(item.getString("sha256"))) { warning = "部分旧备份被修改，已保留。"; continue; }
+                    if (!DocumentsContract.deleteDocument(getContext().getContentResolver(), uri)) { retained.put(item); warning = "部分旧备份无法删除，已保留。"; }
+                } catch (Exception error) { retained.put(item); warning = "部分旧备份不可访问，已保留。"; }
+            }
+            if (!prefs().edit().putString("automatic-documents", retained.toString()).commit()) warning = "自动备份已保存，但轮换登记未更新。";
+            JSObject reply = new JSObject(); reply.put("document", saved); reply.put("savedAt", savedAt); reply.put("revision",expected); reply.put("warning", warning); call.resolve(reply);
+        } catch (Exception error) { call.reject("自动备份未完成：" + error.getMessage(), error); }
+        finally { backupRunning.set(false); }
     }
     private Set<String> entityIds(JSONArray rows) throws Exception {
         Set<String> ids = new HashSet<>();
@@ -483,6 +498,41 @@ public final class LogbookPlugin extends Plugin {
             } catch (Exception error) { call.reject("模组未保存：" + error.getMessage(), error); }
         });
     }
+    /** One validated entity and associated metadata, without serializing unrelated log bodies. */
+    @PluginMethod public void commitEntity(PluginCall call) {
+        execute(() -> {
+            try {
+                Long expected = call.getData().has("expectedRevision") ? call.getData().getLong("expectedRevision") : null;
+                if (expected == null || expected != database.revision()) throw new IllegalStateException("数据已变化，请重新读取。");
+                requireArchivePermission(prefs().getString("tree", ""));
+                JSONObject edit = call.getObject("edit");
+                if (edit == null || edit.length() != 2 || edit.toString().getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) throw new IllegalArgumentException("实体请求不完整或过大。");
+                String kind = edit.getString("kind"); JSONObject value = edit.getJSONObject("value");
+                java.util.Map<String,String> fields = database.fields(); boolean empty = fields == null;
+                if (empty) fields = JsonFields.split(emptySnapshot().toString());
+                JSONArray modules = new JSONArray(fields.get("modules")), characters = new JSONArray(fields.get("characters"));
+                String now = java.time.Instant.now().toString();
+                java.util.Map<String,String> changes = new java.util.LinkedHashMap<>();
+                if ("character".equals(kind)) {
+                    EntityEdits.character(value, modules, characters, now);
+                    changes.put("modules", modules.toString()); changes.put("characters",characters.toString());
+                } else if ("record".equals(kind)) {
+                    java.util.Map<String,java.util.Map<String,String>> rows = RecordOverlay.rows(fields);
+                    String id = value.getString("id");
+                    JSONObject entry = EntityEdits.record(value, rows.get(id), modules, rows, now);
+                    JSONObject values = new JSONObject(fields.containsKey("recordValues") ? fields.get("recordValues") : "{}"); values.put(id,entry);
+                    JSONArray deleted = new JSONArray(fields.containsKey("recordDeleted") ? fields.get("recordDeleted") : "[]"), retained = new JSONArray();
+                    for (int i = 0; i < deleted.length(); i++) if (!id.equals(deleted.getString(i))) retained.put(deleted.getString(i));
+                    changes.put("recordValues",values.toString()); changes.put("recordDeleted",retained.toString());
+                } else throw new IllegalArgumentException("不支持此实体类型。");
+                changes.put("exportedAt",JSONObject.quote(now));
+                long revision;
+                if (empty) { fields.putAll(changes); RecordOverlay.compose(fields); revision = database.replace(JsonFields.join(fields),expected); }
+                else revision = database.replaceFields(changes,expected);
+                JSObject result = new JSObject(); result.put("revision",revision); result.put("exportedAt",now); call.resolve(result);
+            } catch (Exception error) { call.reject("编辑未保存：" + error.getMessage(),error); }
+        });
+    }
     /** Android's JSONObject parser is lenient. Raw text may be persisted only after a strict JSON syntax check. */
     private void validateJsonText(String json) throws Exception {
         try (android.util.JsonReader reader = new android.util.JsonReader(new java.io.StringReader(json))) {
@@ -493,7 +543,7 @@ public final class LogbookPlugin extends Plugin {
             if (reader.peek() != android.util.JsonToken.END_DOCUMENT) throw new IllegalArgumentException("JSON 包含多余内容。");
         }
     }
-    /** Even settings/windowed saves must fail after a SAF grant is revoked. */
+    /** All writes must fail after a SAF grant is revoked. */
     private void requireArchivePermission(String tree) {
         boolean authorized = false;
         for (android.content.UriPermission permission : getContext().getContentResolver().getPersistedUriPermissions()) {
@@ -501,13 +551,53 @@ public final class LogbookPlugin extends Plugin {
         }
         if (!authorized) throw new IllegalStateException("保存位置授权已失效，请重新选择。");
     }
-    /** Only validated reorders skip the dedicated safety copy; all actions retain CAS and transactions. */
+    /** All list operations retain CAS and transactions without processing complete body objects. */
     @PluginMethod public void commitAction(PluginCall call) {
         JSONObject action = call.getObject("action");
         if (action != null && "reorder".equals(action.optString("type"))) {
             commitReorder(call, action); return;
         }
-        commitSnapshot(call, false, true);
+        commitListMetadata(call, action);
+    }
+    private void commitListMetadata(PluginCall call, JSONObject action) {
+        execute(() -> {
+            try {
+                Long expected = call.getData().has("expectedRevision") ? call.getData().getLong("expectedRevision") : null;
+                if (expected == null || expected != database.revision()) throw new IllegalStateException("数据已变化，请重新读取。");
+                requireArchivePermission(prefs().getString("tree", ""));
+                java.util.Map<String,String> fields = database.fields();
+                if (fields == null || action == null) throw new IllegalArgumentException("列表操作或已保存数据缺失。");
+                java.util.Map<String,java.util.Map<String,String>> rows = RecordOverlay.rows(fields);
+                JSONObject data = new JSONObject(); JSONArray records = new JSONArray();
+                for (java.util.Map<String,String> row : rows.values()) records.put(RecordOverlay.metadata(row));
+                data.put("modules",new JSONArray(fields.get("modules"))); data.put("characters",new JSONArray(fields.get("characters"))); data.put("records",records);
+                LogbookActions.apply(data,action);
+                java.util.Map<String,String> changes = new java.util.LinkedHashMap<>();
+                changes.put("modules",data.getJSONArray("modules").toString()); changes.put("characters",data.getJSONArray("characters").toString());
+                if ("clear".equals(action.getString("type"))) {
+                    changes.put("records","[]"); changes.put("recordValues","{}"); changes.put("recordOrders","{}"); changes.put("recordDeleted","[]");
+                } else {
+                    Set<String> remaining = entityIds(data.getJSONArray("records"));
+                    JSONArray deleted = new JSONArray(fields.containsKey("recordDeleted") ? fields.get("recordDeleted") : "[]");
+                    JSONObject values = new JSONObject(fields.containsKey("recordValues") ? fields.get("recordValues") : "{}");
+                    JSONObject orders = new JSONObject(fields.containsKey("recordOrders") ? fields.get("recordOrders") : "{}");
+                    for (String id : rows.keySet()) if (!remaining.contains(id)) { deleted.put(id); values.remove(id); orders.remove(id); }
+                    if ("reset".equals(action.getString("type"))) {
+                        String id = action.getString("id"); java.util.Map<String,String> original = rows.get(id);
+                        JSONObject metadata = RecordOverlay.metadata(original);
+                        if ("online".equals(metadata.getString("sourceType"))) {
+                            java.util.Map<String,String> value = new java.util.LinkedHashMap<>(original); value.remove("rawContent"); value.remove("cacheSourceUrl"); value.remove("fetchedAt");
+                            value.put("previousStatus",value.get("status")); value.put("status",JSONObject.quote("pending")); value.remove("lastError");
+                            JSONObject entry = new JSONObject(); entry.put("value",new JSONObject(JsonFields.join(value))); entry.put("keepBody",original.containsKey("rawContent")); values.put(id,entry);
+                        }
+                    }
+                    changes.put("recordDeleted",deleted.toString()); changes.put("recordValues",values.toString()); changes.put("recordOrders",orders.toString());
+                }
+                String now = data.getString("exportedAt"); changes.put("exportedAt",JSONObject.quote(now));
+                long revision = database.replaceFields(changes,expected);
+                JSObject result = new JSObject(); result.put("revision",revision); result.put("exportedAt",now); call.resolve(result);
+            } catch (Exception error) { call.reject("操作未保存：" + error.getMessage(),error); }
+        });
     }
     /** Sorting stores only small order values. Bodies are reconstructed exactly at read/export boundaries. */
     private void commitReorder(PluginCall call, JSONObject action) {
@@ -523,8 +613,7 @@ public final class LogbookPlugin extends Plugin {
                 JSONArray records = new JSONArray();
                 JSONObject orders = new JSONObject(fields.containsKey("recordOrders") ? fields.get("recordOrders") : "{}");
                 String kind = action.getString("kind");
-                if ("record".equals(kind)) for (String raw : JsonFields.elements(fields.get("records"))) {
-                    java.util.Map<String,String> row = JsonFields.split(raw);
+                if ("record".equals(kind)) for (java.util.Map<String,String> row : RecordOverlay.rows(fields).values()) {
                     JSONObject metadata = new JSONObject("{\"id\":" + row.get("id") + ",\"moduleId\":" + row.get("moduleId") + ",\"order\":" + row.get("order") + "}");
                     String id = metadata.getString("id"); if (orders.has(id)) metadata.put("order", orders.get(id));
                     records.put(metadata);
@@ -545,9 +634,6 @@ public final class LogbookPlugin extends Plugin {
         });
     }
     private void commitSnapshot(PluginCall call, boolean restoring) {
-        commitSnapshot(call, restoring, false);
-    }
-    private void commitSnapshot(PluginCall call, boolean restoring, boolean actionOnly) {
         execute(() -> {
             java.util.List<Uri> imported = new java.util.ArrayList<>();
             boolean committed = false;
@@ -555,17 +641,10 @@ public final class LogbookPlugin extends Plugin {
                 if (restoring && !Boolean.TRUE.equals(call.getBoolean("confirmed", false))) throw new IllegalStateException("需要用户明确确认覆盖。");
                 Long expected = call.getData().has("expectedRevision") ? call.getData().getLong("expectedRevision") : null;
                 if (expected == null || expected != database.revision()) throw new IllegalStateException("数据已变化，请重新预览。");
-                String current = actionOnly ? database.snapshot() : null;
-                if (actionOnly && current == null) throw new IllegalStateException("尚无已保存数据。");
-                String json = actionOnly ? current : call.getString("json", "");
+                String json = call.getString("json", "");
                 if (json.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) throw new IllegalArgumentException("数据超过首阶段大小上限。");
-                if (!actionOnly) validateJsonText(json);
+                validateJsonText(json);
                 JSONObject next = new JSONObject(json); validateSnapshot(next);
-                if (actionOnly) {
-                    JSONObject action = call.getObject("action");
-                    if (action == null) throw new IllegalArgumentException("列表操作缺失。");
-                    LogbookActions.apply(next, action); validateSnapshot(next);
-                }
                 String tree = prefs().getString("tree", "");
                 requireArchivePermission(tree);
                 JSONArray files = restoring ? call.getArray("attachments") : null;
@@ -582,11 +661,10 @@ public final class LogbookPlugin extends Plugin {
                     }
                 }
                 // Full snapshot requests have already been parsed and validated; keep their original text and numeric precision.
-                // Only native list actions mutate the parsed candidate and therefore require serialization here.
-                long revision = database.replace(actionOnly ? next.toString() : json, expected);
+                long revision = database.replace(json, expected);
                 committed = true;
                 JSObject out = new JSObject(); out.put("revision", revision);
-                if (actionOnly) out.put("exportedAt", next.getString("exportedAt"));
+
                 call.resolve(out);
             } catch (Exception error) {
                 if (!committed) for (Uri uri : imported) try { DocumentsContract.deleteDocument(getContext().getContentResolver(), uri); } catch (Exception ignored) { }

@@ -122,7 +122,59 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
   const port: LogbookPort = {
     async getStatus() {
       const state = await readState()
-      return { revision: state.revision, archive: state.archive, lastAutoBackupAt: state.lastAutoBackupAt }
+      return {
+        revision: state.revision,
+        archive: state.archive,
+        lastAutoBackupAt: state.lastAutoBackupAt,
+        lastAutoBackupRevision: state.lastAutoBackupRevision
+      }
+    },
+    async commitEntity({ edit, expectedRevision }) {
+      if (
+        !['record', 'character'].includes(edit.kind) ||
+        (edit.kind === 'record' && edit.value.rawContent !== undefined)
+      )
+        throw new Error('实体请求不合法。')
+      const before = await readState()
+      if (!before.archive.valid || before.revision !== expectedRevision)
+        throw new Error('数据或测试存储已变化，请重新读取。')
+      const next = await applyEdit(
+        before.json
+          ? JSON.parse(before.json)
+          : {
+              schemaVersion: 2,
+              exportedAt: new Date().toISOString(),
+              modules: [],
+              records: [],
+              characters: [],
+              settings: { theme: 'light', filterPreset: DEFAULT_FILTER_PRESET }
+            },
+        edit
+      )
+      const db = await database
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('state', 'readwrite'),
+          states = tx.objectStore('state')
+        let failure: Error | undefined
+        const request = states.get('current')
+        request.onsuccess = () => {
+          const latest: NativeState = request.result ?? initial
+          if (
+            !latest.archive.valid ||
+            latest.archive.uri !== before.archive.uri ||
+            latest.revision !== expectedRevision
+          ) {
+            failure = new Error('数据或测试存储已变化，请重新读取。')
+            tx.abort()
+            return
+          }
+          states.put({ ...latest, json: JSON.stringify(next), revision: expectedRevision + 1 }, 'current')
+        }
+        tx.oncomplete = () => resolve()
+        tx.onabort = () => reject(failure ?? tx.error ?? new Error('编辑未保存。'))
+        tx.onerror = () => reject(tx.error)
+      })
+      return { revision: expectedRevision + 1, exportedAt: next.exportedAt }
     },
     /** @param options - 模组草稿与当前版本。 @returns 提交后的版本/时间；不生成副本或改动正文。 */
     async commitModule({ value, expectedRevision }) {
@@ -206,8 +258,10 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
     },
     async automaticBackup({ json, expectedRevision }) {
       const before = await readState()
-      const source = json ?? before.json
-      if (!source || before.revision !== expectedRevision) throw new Error('数据已变化，本次自动备份未执行。')
+      const source = before.json
+      if (json !== undefined && json !== source) throw new Error('数据已变化，本次自动备份未执行。')
+      if (!source || !before.archive.valid || before.revision !== expectedRevision)
+        throw new Error('数据已变化，本次自动备份未执行。')
       const snapshot = (await previewBackup(new TextEncoder().encode(source))).snapshot
       const savedAt = Date.now()
       const file = {
@@ -224,11 +278,7 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
         const documents = tx.objectStore('documents')
         const current = states.get('current')
         current.onsuccess = () => {
-          if (
-            !current.result?.archive.valid ||
-            current.result.revision !== expectedRevision ||
-            current.result.json !== source
-          ) {
+          if (!current.result?.archive.valid || current.result.archive.uri !== before.archive.uri) {
             failure = new Error('数据或目录已变化，本次自动备份未执行。')
             tx.abort()
             return
@@ -241,7 +291,10 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
               tx.abort()
               return
             }
-            states.put({ ...current.result, lastAutoBackupAt: savedAt }, 'current')
+            states.put(
+              { ...current.result, lastAutoBackupAt: savedAt, lastAutoBackupRevision: expectedRevision },
+              'current'
+            )
             const all = documents.getAll()
             all.onsuccess = () => {
               const owned: BrowserDocument[] = all.result.filter((f: BrowserDocument) => f.kind === 'auto')
@@ -254,7 +307,7 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
         tx.onabort = () => reject(failure ?? tx.error)
         tx.onerror = () => reject(tx.error)
       })
-      return { document: file, savedAt }
+      return { document: file, savedAt, revision: expectedRevision }
     },
     async openDocument({ uri }) {
       const db = await database
@@ -438,7 +491,7 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
       const before = await readState()
       if (before.revision !== expectedRevision) throw new Error('数据已变化，请重新操作。')
       if (!before.json) throw new Error('尚无已保存数据。')
-      const current = (await previewBackup(new TextEncoder().encode(before.json))).snapshot
+      const current = JSON.parse(before.json)
       const next = await applyAction(current, action)
       if (action.type === 'reorder') {
         // 排序只更新顺序；同一事务重新核对版本与授权，不创建或删除安全副本。
