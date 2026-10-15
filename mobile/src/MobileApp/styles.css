@@ -1456,9 +1456,6 @@ input[type='checkbox']:checked::after {
   border-top: 1px solid var(--line);
   padding-top: 8px;
 }
-.module-actions .bulk-delete {
-  margin-left: auto;
-}
 .participant-summary,
 .gesture-hint {
   font-size: 11px;

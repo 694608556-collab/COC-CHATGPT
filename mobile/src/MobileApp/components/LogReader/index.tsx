@@ -33,6 +33,8 @@ export function LogReader(props: {
   onEdit(): void
   onFetch(): void
   onReset(): void
+  /** 请求删除当前场次；父级负责确认及事务保护，无返回值。 */
+  onDelete(): void
   onExport(filters: FilterPreset): void
   onExportMore(filters: FilterPreset): void
 }) {
@@ -114,6 +116,9 @@ export function LogReader(props: {
             </button>
           </>
         )}
+        <button className="danger" disabled={props.busy} onClick={props.onDelete}>
+          删除场次
+        </button>
       </div>
       <section className="panel">
         <h2>{props.record.name}</h2>

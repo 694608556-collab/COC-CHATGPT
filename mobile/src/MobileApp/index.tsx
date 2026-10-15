@@ -783,7 +783,7 @@ export function MobileApp({
           <strong>COC 跑团记录簿</strong>
           <span>安卓开发版 · 本机数据</span>
         </div>
-        <span className="version">0.2.16 · 启动试验</span>
+        <span className="version">0.2.17 · 启动试验</span>
       </header>
       <main aria-hidden={confirmation ? true : undefined}>
         {savedDocument && (
@@ -874,6 +874,9 @@ export function MobileApp({
                       onEdit={() => startEdit({ kind: 'record', value: record })}
                       onFetch={() => void perform(() => probe([record.id]))}
                       onReset={() => void perform(() => act({ type: 'reset', id: record.id }))}
+                      onDelete={() =>
+                        void perform(() => act({ type: 'delete', kind: 'record', id: record.id }))
+                      }
                       onExport={(filters) => void perform(() => exportText(record, filters))}
                       onExportMore={(filters) =>
                         setExportRequest({ ids: [record.id], combined: false, filters })
