@@ -141,5 +141,5 @@ test('已选模组 PC 姓名候选去重、键盘选择，关联改名及取消�
   ).toEqual([])
   const icon = page.getByRole('button', { name: '跑团记录', exact: true }).locator('svg')
   await expect(icon.locator('rect')).toHaveAttribute('rx', '3')
-  await expect(icon.locator('path')).toHaveAttribute('d', 'M8 8h8M8 12h8M8 16h8')
+  await expect(icon.locator('path')).toHaveAttribute('d', 'M9 8h6M9 12h6M9 16h6')
 })
