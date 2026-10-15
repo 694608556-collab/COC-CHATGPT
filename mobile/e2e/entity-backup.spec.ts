@@ -111,7 +111,7 @@ test('自动备份写入期间设置仍可保存；十分钟后备份新增修�
   await page.clock.install()
   await page.getByRole('button', { name: '数据与设置', exact: true }).click()
   await page.getByLabel('启用自动备份').check()
-  await expect(page.getByRole('status', { name: '普通保存状态' })).toHaveText('已保存')
+  await expect(page.getByRole('button', { name: '保存安卓备份', exact: true })).toBeEnabled()
   await page.evaluate(() => {
     const digest = crypto.subtle.digest.bind(crypto.subtle)
     let first = true
@@ -129,7 +129,7 @@ test('自动备份写入期间设置仍可保存；十分钟后备份新增修�
   await expect(page.getByRole('button', { name: '自动备份中…', exact: true })).toBeDisabled()
   await expect(page.getByLabel('隐藏时间')).toBeEnabled()
   await page.getByLabel('隐藏时间').check()
-  await expect(page.getByRole('status', { name: '普通保存状态' })).toHaveText('已保存')
+  await expect(page.getByRole('button', { name: '保存安卓备份', exact: true })).toBeEnabled()
   await page.evaluate(() => (window as unknown as { releaseBackup: () => void }).releaseBackup())
   await expect(page.getByRole('button', { name: '立即生成自动备份', exact: true })).toBeEnabled()
   await expect(page.getByLabel('隐藏时间')).toBeChecked()

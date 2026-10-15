@@ -17,7 +17,8 @@ import { LogReader } from './components/LogReader'
 import { Editor } from './components/Editor'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { saveEdit } from '../data/edit'
-import { validateSettings } from '../data/settings'
+import { SettingsBatch } from '../data/settings-batch'
+import type { SettingsPatch } from '../data/settings-batch'
 import { automaticBackupDelay } from '../data/automatic-backup'
 import type { Edit } from '../data/edit'
 import { createEmptyCharacter } from '../../../src/shared/coc-rules'
@@ -99,6 +100,24 @@ export function MobileApp({
   const [notice, setNotice] = useState('')
   const [quietSaving, setQuietSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState('')
+  const settingsBatch = useRef<SettingsBatch | null>(null)
+  const [settingsSaving, setSettingsSaving] = useState(false)
+  const [settingsStatus, setSettingsStatus] = useState('')
+  const [failedSettings, setFailedSettings] = useState<MobileSnapshot['settings']>()
+  const settingsStatusTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (settingsBatch.current) {
+        event.preventDefault()
+        event.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => {
+      clearTimeout(settingsStatusTimer.current)
+      window.removeEventListener('beforeunload', warn)
+    }
+  }, [])
   const [error, setError] = useState('')
   const [editing, setEditing] = useState<{ draft: Edit; revision: number }>()
   const [selectedCharacter, setSelectedCharacter] = useState('')
@@ -475,6 +494,8 @@ export function MobileApp({
     const data = state.json ? await readInBackground(state.json) : emptySnapshot()
     setSnapshot(data)
     setNative(state)
+    setFailedSettings(undefined)
+    setSettingsStatus('')
     document.documentElement.dataset.theme = data.settings.theme
     setNotice('')
   }
@@ -594,25 +615,55 @@ export function MobileApp({
     setSavedDocument(file)
     setNotice(`备份已保存并回读校验：${file.name}`)
   }
-  /**
-   * 只把完整小设置送过桥；提交成功后更新版本，失败恢复原设置。
-   * @param changes - 来自设置页的字段变化，不包含场次正文或目录。
-   * @returns 无返回值；只有原生事务确认后才能展示“已保存”。
-   */
-  async function persistSettings(changes: Partial<MobileSnapshot['settings']>) {
-    if (!native) throw new Error('本机数据尚未读取。')
-    const before = snapshot
-    const settings = validateSettings({ ...snapshot.settings, ...changes })
-    setSnapshot({ ...snapshot, settings })
-    document.documentElement.dataset.theme = settings.theme
+  /** 设置可连续点选；等待中的更改合并，其他写操作仍由同一锁保护。 */
+  async function persistSettings(changes: SettingsPatch) {
+    if (!native || (busyLock.current && !settingsBatch.current)) return
+    const existing = settingsBatch.current
+    const batch = existing ?? new SettingsBatch(snapshot.settings, native.revision, snapshot.exportedAt)
+    batch.update(changes)
+    setSnapshot((current) => ({ ...current, settings: batch.desired }))
+    document.documentElement.dataset.theme = batch.desired.theme
+    if (existing) return
+    settingsBatch.current = batch
+    busyLock.current = true
+    setBusy(true)
+    setSettingsSaving(true)
+    setQuietSaving(true)
+    setSaveStatus('')
+    setNotice('')
+    setError('')
+    setFailedSettings(undefined)
+    setSettingsStatus('')
+    clearTimeout(settingsStatusTimer.current)
+    let showedWaiting = false
+    settingsStatusTimer.current = setTimeout(() => {
+      showedWaiting = true
+      setSettingsStatus('保存中…')
+    }, 350)
     try {
-      const result = await port.commitSettings({ settings, expectedRevision: native.revision })
-      setSnapshot({ ...snapshot, settings, exportedAt: result.exportedAt })
-      setNative((current) => current && { ...current, json: null, revision: result.revision })
+      await batch.flush(
+        (options) => port.commitSettings(options),
+        () => {
+          setSnapshot((current) => ({ ...current, settings: batch.desired, exportedAt: batch.exportedAt }))
+          setNative((current) => current && { ...current, json: null, revision: batch.revision })
+        }
+      )
+      clearTimeout(settingsStatusTimer.current)
+      setSettingsStatus(showedWaiting ? '已保存' : '')
+      if (showedWaiting) settingsStatusTimer.current = setTimeout(() => setSettingsStatus(''), 1500)
     } catch (reason) {
-      setSnapshot(before)
-      document.documentElement.dataset.theme = before.settings.theme
-      throw reason
+      clearTimeout(settingsStatusTimer.current)
+      setFailedSettings(batch.desired)
+      setSnapshot((current) => ({ ...current, settings: batch.committed, exportedAt: batch.exportedAt }))
+      document.documentElement.dataset.theme = batch.committed.theme
+      setSettingsStatus('未保存，已恢复上次成功设置')
+      setError(reason instanceof Error ? reason.message : '设置未保存，请重试。')
+    } finally {
+      settingsBatch.current = null
+      busyLock.current = false
+      setBusy(false)
+      setSettingsSaving(false)
+      setQuietSaving(false)
     }
   }
   /**
@@ -683,7 +734,7 @@ export function MobileApp({
           <strong>COC 跑团记录簿</strong>
           <span>安卓开发版 · 本机数据</span>
         </div>
-        <span className="version">0.2.14</span>
+        <span className="version">0.2.14 · 试验</span>
       </header>
       <main aria-hidden={confirmation ? true : undefined}>
         {savedDocument && (
@@ -824,13 +875,17 @@ export function MobileApp({
                     archive={native.archive}
                     snapshot={snapshot}
                     busy={busy}
+                    settingsDisabled={busy && !settingsSaving}
+                    saveStatus={settingsStatus}
+                    canRetry={!!failedSettings}
+                    onRetry={() => failedSettings && void persistSettings(failedSettings)}
                     onChoose={() => void perform(chooseArchive)}
                     backingUp={backingUp}
                     onImport={() => void perform(chooseBackup)}
                     onBackup={() => void perform(exportBackup)}
                     onZipBackup={() => void perform(() => exportBackup(true))}
-                    onTheme={(theme) => void perform(() => persistSettings({ theme }), true)}
-                    onSettings={(settings) => void perform(() => persistSettings(settings), true)}
+                    onTheme={(theme) => void persistSettings({ theme })}
+                    onSettings={(settings) => void persistSettings(settings)}
                     onAutoBackup={() => void runAutoBackup(true)}
                     lastAutoBackupAt={native.lastAutoBackupAt}
                     onClear={() => void perform(() => act({ type: 'clear' }))}

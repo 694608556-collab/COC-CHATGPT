@@ -3,6 +3,7 @@ import type { SavedDocument } from '../../../data/native'
 import type { MobileSnapshot } from '../../../data/types'
 import { SystemMessage } from '../SystemMessage'
 import { SelectField } from '../SelectField'
+import type { SettingsPatch } from '../../../data/settings-batch'
 
 /**
  * 数据恢复/手动备份及目录管理入口；未完成能力明确列出。
@@ -13,13 +14,17 @@ export function DataSettings(props: {
   archive: ArchiveLocation
   snapshot: MobileSnapshot
   busy: boolean
+  settingsDisabled: boolean
+  saveStatus: string
+  canRetry: boolean
+  onRetry(): void
   backingUp: boolean
   onChoose(): void
   onImport(): void
   onBackup(): void
   onZipBackup(): void
   onTheme(theme: 'light' | 'dark'): void
-  onSettings(settings: Partial<MobileSnapshot['settings']>): void
+  onSettings(settings: SettingsPatch): void
   onAutoBackup(): void
   lastAutoBackupAt?: number
   onClear(): void
@@ -51,7 +56,21 @@ export function DataSettings(props: {
         </strong>
       </section>
       <section className="panel">
-        <h2>阅读与导出默认设置</h2>
+        <div className="settings-section-heading">
+          <h2>阅读与导出默认设置</h2>
+          <span
+            className="settings-save-status"
+            role={props.saveStatus ? 'status' : undefined}
+            aria-label="设置保存状态"
+          >
+            {props.saveStatus}
+          </span>
+        </div>
+        {props.canRetry && (
+          <button disabled={props.busy} onClick={props.onRetry}>
+            重试保存设置
+          </button>
+        )}
         <div className="settings-option-grid">
           {Object.entries({
             hideDiceCommands: '隐藏骰指令',
@@ -63,7 +82,7 @@ export function DataSettings(props: {
           }).map(([key, label]) => (
             <label className="check" key={key}>
               <input
-                disabled={props.busy}
+                disabled={props.settingsDisabled}
                 type="checkbox"
                 checked={
                   props.snapshot.settings.filterPreset[
@@ -72,7 +91,7 @@ export function DataSettings(props: {
                 }
                 onChange={(e) =>
                   props.onSettings({
-                    filterPreset: { ...props.snapshot.settings.filterPreset, [key]: e.target.checked }
+                    filterPreset: { [key]: e.target.checked }
                   })
                 }
               />
@@ -89,15 +108,13 @@ export function DataSettings(props: {
         </p>
         <label className="check">
           <input
-            disabled={props.busy}
+            disabled={props.settingsDisabled}
             type="checkbox"
             checked={props.snapshot.settings.autoBackup?.enabled ?? false}
             onChange={(e) =>
               props.onSettings({
                 autoBackup: {
-                  enabled: e.target.checked,
-                  interval: props.snapshot.settings.autoBackup?.interval ?? 'idle',
-                  retention: 10
+                  enabled: e.target.checked
                 }
               })
             }
@@ -106,14 +123,12 @@ export function DataSettings(props: {
         </label>
         <SelectField
           label="自动备份周期"
-          disabled={props.busy}
+          disabled={props.settingsDisabled}
           value={props.snapshot.settings.autoBackup?.interval ?? 'idle'}
           onChange={(value) =>
             props.onSettings({
               autoBackup: {
-                enabled: props.snapshot.settings.autoBackup?.enabled ?? false,
-                interval: value as 'idle' | 'daily' | 'weekly',
-                retention: 10
+                interval: value as 'idle' | 'daily' | 'weekly'
               }
             })
           }
@@ -158,14 +173,14 @@ export function DataSettings(props: {
         <h2>显示主题</h2>
         <div className="edit-actions" role="group" aria-label="显示主题">
           <button
-            disabled={props.busy}
+            disabled={props.settingsDisabled}
             aria-pressed={props.snapshot.settings.theme === 'light'}
             onClick={() => props.onTheme('light')}
           >
             浅色模式
           </button>
           <button
-            disabled={props.busy}
+            disabled={props.settingsDisabled}
             aria-pressed={props.snapshot.settings.theme === 'dark'}
             onClick={() => props.onTheme('dark')}
           >
@@ -245,7 +260,7 @@ export function DataSettings(props: {
       </section>
       <section className="panel" aria-label="版本说明">
         <h2>版本说明</h2>
-        <p>0.2.14-dev</p>
+        <p>0.2.14-dev · UI 试验版</p>
         <p>数据仅本机保存、无账户</p>
         <p>仅海豹链接相关联网</p>
         <p>应用制作：亦如长风万里沙</p>

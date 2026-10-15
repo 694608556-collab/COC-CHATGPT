@@ -145,7 +145,7 @@ test('海豹压缩协议获取、失败保留正文、自动备份和多格式�
   await page.getByRole('button', { name: '数据与设置', exact: true }).click()
   await page.clock.install()
   await page.getByLabel('启用自动备份').check()
-  await expect(page.getByRole('status', { name: '普通保存状态' })).toHaveText('已保存')
+  await expect(page.getByRole('button', { name: '保存安卓备份', exact: true })).toBeEnabled()
   await page.clock.fastForward(590000)
   await expect(page.getByText('尚未生成自动备份', { exact: true })).toBeVisible()
   await page.clock.fastForward(10000)

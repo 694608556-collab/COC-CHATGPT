@@ -48,7 +48,7 @@ test('公开样本预览、跨页高亮跳转、过滤和手动正文搜索', as
   await expect(page.getByLabel('隐藏骰指令')).toHaveCount(0)
   await page.getByRole('button', { name: '数据与设置', exact: true }).click()
   await page.getByLabel('隐藏骰指令').check()
-  await expect(page.getByRole('status', { name: '普通保存状态' })).toHaveText('已保存')
+  await expect(page.getByRole('button', { name: '保存安卓备份', exact: true })).toBeEnabled()
   await page.getByRole('button', { name: '跑团记录', exact: true }).click()
   await expandModules(page)
   await page.getByRole('button', { name: /雾港调查.*第一场：灯塔线索/ }).click()

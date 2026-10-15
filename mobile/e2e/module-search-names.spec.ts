@@ -68,7 +68,7 @@ test('模组正文搜索替代名称搜索，跨场次结果跳转与清空，�
   await expect(results.locator('.search-result')).toHaveCount(1)
   await page.getByRole('button', { name: '数据与设置', exact: true }).click()
   await page.getByLabel('隐藏骰指令').check()
-  await expect(page.getByRole('status', { name: '普通保存状态' })).toHaveText('已保存')
+  await expect(page.getByRole('button', { name: '保存安卓备份', exact: true })).toBeEnabled()
   await page.getByRole('button', { name: '跑团记录', exact: true }).click()
   await expect(module.getByRole('region', { name: '模组正文搜索结果' })).toContainText('没有找到匹配正文')
   for (const width of [280, 412, 840]) {
@@ -78,7 +78,7 @@ test('模组正文搜索替代名称搜索，跨场次结果跳转与清空，�
   await page.setViewportSize({ width: 412, height: 915 })
   await page.getByRole('button', { name: '数据与设置', exact: true }).click()
   await page.getByRole('button', { name: '深色模式', exact: true }).click()
-  await expect(page.getByRole('status', { name: '普通保存状态' })).toHaveText('已保存')
+  await expect(page.getByRole('button', { name: '保存安卓备份', exact: true })).toBeEnabled()
   await page.getByRole('button', { name: '跑团记录', exact: true }).click()
   await input.fill('')
   await input.press('Tab')

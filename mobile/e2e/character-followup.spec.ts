@@ -173,7 +173,7 @@ test('成功提示可关闭或三秒后渐隐；静态警告和保存错误关�
   await expect(warning).toHaveCount(0)
   await expect(page.getByRole('button', { name: '保存安卓备份', exact: true })).toBeEnabled()
   await page.getByLabel('隐藏骰指令').check()
-  await expect(page.getByRole('status', { name: '普通保存状态' })).toHaveText('已保存')
+  await expect(page.getByRole('button', { name: '保存安卓备份', exact: true })).toBeEnabled()
   await expect(notice).toHaveCount(0)
   await page.getByRole('button', { name: '保存安卓备份', exact: true }).click()
   await expect(notice).toContainText('备份已保存')

@@ -1,14 +1,16 @@
 import { expect, test } from '@playwright/test'
 import { acceptAppConfirmations, expandModules } from './helpers'
 
-test('普通设置使用页内真实保存状态，不弹底部校验提示，重开保留设置', async ({ page }) => {
+test('快速设置不闪保存成功提示，重开保留设置', async ({ page }) => {
   page.on('dialog', (dialog) => dialog.accept())
   await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '数据与设置', exact: true }).click()
   await page.getByLabel('隐藏骰指令').check()
-  await expect(page.getByRole('status', { name: '普通保存状态' })).toHaveText('已保存')
+  await expect(page.getByRole('button', { name: '保存安卓备份', exact: true })).toBeEnabled()
+  await expect(page.getByRole('status', { name: '普通保存状态' })).toHaveCount(0)
+  await expect(page.getByLabel('设置保存状态', { exact: true })).toBeEmpty()
   await expect(
     page.locator('.operation-feedback [role="status"], .operation-feedback [role="progressbar"]')
   ).toHaveCount(0)
