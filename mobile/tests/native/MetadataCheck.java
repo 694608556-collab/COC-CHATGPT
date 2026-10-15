@@ -64,7 +64,11 @@ public final class MetadataCheck {
         check(metadata.getJSONArray("records").length()==rows.size(),"batch validation precedes mutation");
         fields.put("recordDeleted",new JSONArray().put(id).toString());
         check(!RecordOverlay.rows(fields).containsKey(id),"deleted record excluded");
+        long bytes = RecordOverlay.bytes(fields);
         RecordOverlay.compose(fields);
+        check(bytes == JsonFields.join(fields).getBytes(java.nio.charset.StandardCharsets.UTF_8).length,"snapshot size counts composed body without allocating byte copy");
+        String unicode = "中文😀\\\"\uD800";
+        check(JsonFields.bytes(unicode) == unicode.getBytes(java.nio.charset.StandardCharsets.UTF_8).length,"UTF-8 size with surrogate edge");
         check(!fields.containsKey("recordValues") && !fields.containsKey("recordDeleted") && !fields.containsKey("recordOrders"),"internal metadata absent from export");
         check(!JsonFields.join(fields).contains("小请求改名"),"deleted record cannot reappear in backup");
         System.out.println("Native metadata helpers: " + checks + " checks passed. Android bridge/SQLite/SAF/device not exercised.");

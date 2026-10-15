@@ -5,6 +5,27 @@ import java.util.Map;
 
 /** Slices already validated JSON without decoding unchanged log messages. Not an input validator. */
 final class JsonFields {
+    /** Counts UTF-8 bytes without allocating a second copy of a large body. */
+    static long bytes(String text) {
+        long count = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c < 0x80) count++;
+            else if (c < 0x800) count += 2;
+            else if (Character.isHighSurrogate(c) && i + 1 < text.length() && Character.isLowSurrogate(text.charAt(i + 1))) { count += 4; i++; }
+            else if (Character.isSurrogate(c)) count++;
+            else count += 3;
+        }
+        return count;
+    }
+    static long objectBytes(Map<String,String> fields) {
+        long count = 2;
+        for (Map.Entry<String,String> field : fields.entrySet()) {
+            if (count > 2) count++;
+            count += bytes("\"" + field.getKey().replace("\\", "\\\\").replace("\"", "\\\"") + "\":") + bytes(field.getValue());
+        }
+        return count;
+    }
     static Map<String, String> split(String json) {
         Map<String, String> fields = new LinkedHashMap<>();
         int i = space(json, 0);

@@ -7,6 +7,18 @@ import org.json.JSONObject;
 
 /** Native-owned record fragments. Unchanged bodies never enter JSONObject or metadata writes. */
 final class RecordOverlay {
+    /** Applies the existing 64 MB snapshot limit without assembling or encoding all body text. */
+    static long bytes(Map<String,String> fields) throws Exception {
+        long records = 2;
+        for (Map<String,String> row : rows(fields).values()) {
+            if (records > 2) records++;
+            records += JsonFields.objectBytes(row);
+        }
+        Map<String,String> metadata = new LinkedHashMap<>(fields);
+        metadata.remove("recordValues"); metadata.remove("recordDeleted"); metadata.remove("recordOrders");
+        metadata.put("records","[]");
+        return JsonFields.objectBytes(metadata) - 2 + records;
+    }
     static String id(Map<String,String> row) throws Exception {
         return new JSONArray("[" + row.get("id") + "]").getString(0);
     }

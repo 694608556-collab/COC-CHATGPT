@@ -68,11 +68,16 @@ final class LogbookDatabase extends SQLiteOpenHelper {
         return JsonFields.join(fields);
     }
     /** Only trusted native-produced fields reach here. CAS and all field updates share one transaction. */
-    synchronized long replaceFields(java.util.Map<String, String> fields, long expected) {
+    synchronized long replaceFields(java.util.Map<String, String> fields, long expected) throws Exception {
         SQLiteDatabase db = getWritableDatabase();
         db.beginTransaction();
         try {
             if (revision() != expected) throw new IllegalStateException("数据已变化，请重新读取。");
+            java.util.Map<String,String> candidate = fields();
+            if (candidate != null) {
+                candidate.putAll(fields);
+                if (RecordOverlay.bytes(candidate) > 64L * 1024 * 1024) throw new IllegalArgumentException("数据超过首阶段大小上限。");
+            }
             try (Cursor row = db.rawQuery("SELECT json IS NOT NULL FROM app_state WHERE id=1", null)) {
                 if (!row.moveToFirst() || row.getInt(0) != 1) throw new IllegalStateException("尚无已保存数据。");
             }
