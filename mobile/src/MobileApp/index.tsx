@@ -918,7 +918,7 @@ export function MobileApp({
           <section className="restore-dialog panel" role="dialog" aria-modal="true" aria-label="表格导入预览">
             <h2>表格导入预览</h2>
             <p>新增 {tablePreview.data.names.length} 项；当前业务数据保留。</p>
-            {tablePreview.data.names.slice(0, 50).map((name, i) => (
+            {tablePreview.data.names.map((name, i) => (
               <p key={i}>{name}</p>
             ))}
             {tablePreview.data.warnings.map((warning, i) => (

@@ -112,3 +112,51 @@ test('大备份预览期间动画持续，取消保留数据，确认后及时�
   await expect(page.getByRole('region', { name: '数据统计' })).toContainText('75')
   await client.send('Emulation.setCPUThrottlingRate', { rate: 1 })
 })
+
+test('75 场表格预览完整显示，取消不写入，确认和重开保留第 51–75 场', async ({ page }) => {
+  page.on('dialog', (dialog) => dialog.accept())
+  await acceptAppConfirmations(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: '选择并确认保存位置' }).click()
+  await page.getByRole('button', { name: '载入公开测试数据' }).click()
+  await page.getByRole('button', { name: '确认覆盖并导入' }).click()
+  await page.getByRole('button', { name: '数据与设置', exact: true }).click()
+  const csv = [
+    '模组名,场次名',
+    ...Array.from({ length: 75 }, (_, i) => `公开完整场次模组,第 ${i + 1} 场`)
+  ].join('\n')
+  const dialog = page.getByRole('dialog', { name: '表格导入预览', exact: true })
+  async function previewTable() {
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByRole('button', { name: '导入场次表格', exact: true }).click()
+    await (await chooser).setFiles({ name: 'public-75.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) })
+    await expect(dialog).toContainText('新增 75 项')
+    await expect(dialog.locator('p').filter({ hasText: /^公开完整场次模组 \/ 第 \d+ 场$/ })).toHaveCount(75)
+  }
+  await previewTable()
+  for (const width of [320, 840]) {
+    await page.setViewportSize({ width, height: 915 })
+    await dialog.getByText('公开完整场次模组 / 第 51 场', { exact: true }).scrollIntoViewIfNeeded()
+    await expect(dialog.getByText('公开完整场次模组 / 第 51 场', { exact: true })).toBeVisible()
+    await dialog.getByText('公开完整场次模组 / 第 75 场', { exact: true }).scrollIntoViewIfNeeded()
+    await expect(dialog.getByText('公开完整场次模组 / 第 75 场', { exact: true })).toBeVisible()
+  }
+  await page.screenshot({ path: test.info().outputPath('table-preview-after-50.png') })
+  await dialog.getByRole('button', { name: '取消', exact: true }).click()
+  await expect(
+    page.getByRole('region', { name: '数据统计' }).locator('strong').filter({ hasText: '场次' })
+  ).toHaveText('4场次')
+  await previewTable()
+  await dialog.getByRole('button', { name: '确认添加表格数据', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(
+    page.getByRole('region', { name: '数据统计' }).locator('strong').filter({ hasText: '场次' })
+  ).toHaveText('79场次')
+  await page.reload()
+  const module = page.locator('.module-group').filter({ hasText: '公开完整场次模组' })
+  await module.getByRole('button', { name: '模组 公开完整场次模组', exact: true }).click()
+  await expect(module.locator('.session-row')).toHaveCount(75)
+  for (const i of [1, 51, 75]) await expect(module.getByText(`第 ${i} 场`, { exact: true })).toBeVisible()
+  await module.getByRole('button', { name: /公开完整场次模组 第 75 场/ }).click()
+  await expect(page.getByRole('heading', { name: '第 75 场', exact: true })).toBeVisible()
+})
