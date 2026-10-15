@@ -43,4 +43,10 @@
 
 ## 阶段上传与最终检查
 
-独立试验分支的 push 现触发既有 Android development checks，供原生接口编译验证；产物仅为开发调试包，不创建 Release、不分发正式版本。本轮最终源码提交、编译结果和回滚点后续补记。
+独立试验分支的 push 现触发既有 Android development checks，供原生接口编译验证；产物仅为开发调试包，不创建 Release、不分发正式版本。
+
+源码已阶段上传 `5b16ddb72a8c8e1b57e17979aeab25731f5d6d93`，GitHub tree `d7661892f204a11a7cfb2b393d3c65a984ca7a93` 与通过本机检查的完整工作树相同。Git 直连／LFS 锁查询失败后改用 GitHub 接口上传并核对；没有覆盖或删除本机数据。`codex/before-startup-optimization` 的 `f280892` 已同时保存本机与远端。
+
+[Android development checks #18](https://github.com/694608556-collab/COC-CHATGPT/actions/runs/38717321443) 对上述源码完成并成功：frozen-lockfile 安装、类型、56 项单元、网页构建、cap sync 和 `assembleDebug`；开发包产物 `coc-logbook-debug-apk` 已生成。最终本机完整 69 项浏览器、33 项 JVM 辅助检查亦通过。此后仅补记文档，使用 `[skip ci]` 避免对相同源码重复构建；没有再次修改实现。
+
+Android 编译证明新桥接接口可构建；未安装到 S9 或新增三台手机，所有启动实际耗时、真实键盘和文件 I/O 验收仍保持未完成。
