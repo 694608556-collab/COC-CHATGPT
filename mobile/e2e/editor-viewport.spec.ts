@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 import { searchSample } from '../src/dev/sample'
 import { acceptAppConfirmations } from './helpers'
 
+/** @param page - 独立测试页面。 @returns 导入完成后的公开样本，不在页面切换中提前开始断言。 */
 async function ready(page: Page) {
   page.on('dialog', (dialog) => dialog.accept())
   await acceptAppConfirmations(page)
@@ -24,6 +25,7 @@ async function ready(page: Page) {
     buffer: Buffer.from(JSON.stringify(sample))
   })
   await page.getByRole('button', { name: '确认覆盖并导入' }).click()
+  await expect(page.getByRole('status')).toContainText('导入完成')
   return sample
 }
 
@@ -105,6 +107,7 @@ test('无 VisualViewport 时回退短窗口；保存失败保留草稿且错误�
     await route.fulfill({ response, body })
   })
   const sample = await ready(page)
+  await page.getByRole('button', { name: '数据与设置', exact: true }).click()
   const headings = await page.locator('main h2').allTextContents()
   expect(headings.indexOf('显示主题')).toBe(headings.indexOf('阅读与导出默认设置') + 1)
   expect(headings.indexOf('备份与恢复')).toBe(headings.indexOf('自动本地备份') + 1)
