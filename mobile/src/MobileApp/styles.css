@@ -659,9 +659,6 @@ main {
   padding-top: 10px;
   margin-top: 10px;
 }
-.restore-dialog > .dialog-actions button {
-  min-height: 48px;
-}
 .confirm-backdrop {
   z-index: 150;
 }
@@ -852,7 +849,6 @@ input[type='checkbox']:checked::after {
 }
 .settings-option-grid .check {
   margin: 0;
-  min-height: 48px;
 }
 .skills-display-grid {
   display: grid;
@@ -1116,8 +1112,8 @@ input[type='checkbox']:checked::after {
 }
 .app-back {
   flex-shrink: 0;
-  min-height: 48px;
-  min-width: 48px;
+  min-height: 44px;
+  min-width: 44px;
   padding: 8px;
   border: 0;
   background: transparent;
@@ -1272,9 +1268,9 @@ input[type='checkbox']:checked::after {
   background: var(--soft);
 }
 .drag-handle {
-  flex: 0 0 48px;
-  width: 48px;
-  min-height: 48px;
+  flex: 0 0 30px;
+  width: 30px;
+  min-height: 44px;
   padding: 0;
   margin: 0;
   border: 0;
@@ -1361,9 +1357,9 @@ input[type='checkbox']:checked::after {
   right: 8px;
   top: 50%;
   transform: translateY(-50%);
-  width: 48px;
-  min-height: 48px;
-  height: 48px;
+  width: 40px;
+  min-height: 40px;
+  height: 40px;
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--muted);
@@ -1427,7 +1423,7 @@ input[type='checkbox']:checked::after {
 }
 .module-actions button {
   font-size: 12px;
-  min-height: 48px;
+  min-height: 30px;
   padding: 4px 7px;
 }
 .selecting-actions {
@@ -1523,19 +1519,18 @@ input[type='checkbox']:checked::after {
   display: block;
 }
 .search-input-wrap input {
-  padding-right: 50px;
-  min-height: 48px;
+  padding-right: 34px;
 }
 .search-input-wrap input::-webkit-search-cancel-button {
   -webkit-appearance: none;
 }
 .search-clear {
   position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 48px;
-  min-height: 48px;
+  right: 2px;
+  top: 1px;
+  bottom: 1px;
+  width: 30px;
+  min-height: 30px;
   padding: 0;
   border: 0;
   background: transparent;

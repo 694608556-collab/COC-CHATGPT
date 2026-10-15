@@ -2,7 +2,7 @@
 
 ## 独立 UI 试验
 
-最新为 [UI 试验 2](UI-EXPERIMENT-2-20261015.md)：触摸按钮扩大、普通／多选操作分组、长弹窗固定操作区。试验一保留 `codex/ui-optimization-stage1` / `bf0b4fd`；原版仍为 `codex/android-browser-edit` / `14efc29`。用户尚未接受本轮外观，真机疑问继续保留。
+最新为 [UI 试验 2 修正](UI-EXPERIMENT-2-20261015.md)：用户明确拒绝放大按钮，已全部恢复试验一尺寸；普通／多选操作分组与长弹窗固定操作区保留，后续不得重新放大。试验一保留 `codex/ui-optimization-stage1` / `bf0b4fd`；原版仍为 `codex/android-browser-edit` / `14efc29`。真机疑问继续保留。
 
 当前分支试验内容和回滚方法见 [UI-EXPERIMENT-20261015.md](UI-EXPERIMENT-20261015.md)。原版保留于 `codex/android-browser-edit` 的 `14efc29`；本轮缩窄全局卡片间距、合并等待期间的最新设置并减少保存提示。未经用户接受不得合入原开发分支。
 

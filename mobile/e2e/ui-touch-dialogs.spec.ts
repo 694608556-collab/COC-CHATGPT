@@ -12,18 +12,18 @@ async function ready(page: Page) {
   await page.getByLabel('显示鼠标手势辅助').uncheck()
 }
 
-test('触摸入口扩大且不覆盖正文，新增与多选工具栏切换保持原数据和选择', async ({ page }, info) => {
+test('恢复原控件尺寸且不覆盖正文，新增与多选工具栏切换保持原数据和选择', async ({ page }, info) => {
   await ready(page)
   await expandModules(page)
   const group = page.locator('.module-group').filter({ hasText: '雾港调查' })
-  for (const target of [
-    page.getByRole('button', { name: '返回上一页', exact: true }),
-    group.locator('.drag-handle').first(),
-    group.getByRole('button', { name: '清空模组正文搜索', exact: true })
-  ]) {
+  for (const [target, width, minHeight] of [
+    [page.getByRole('button', { name: '返回上一页', exact: true }), 44, 44],
+    [group.locator('.drag-handle').first(), 30, 44],
+    [group.getByRole('button', { name: '清空模组正文搜索', exact: true }), 30, 30]
+  ] as const) {
     const box = (await target.boundingBox())!
-    expect(box.width).toBeGreaterThanOrEqual(48)
-    expect(box.height).toBeGreaterThanOrEqual(48)
+    expect(box.width).toBe(width)
+    expect(box.height).toBeGreaterThanOrEqual(minHeight)
   }
   const row = group.locator('.record-list .gesture-row').first()
   const text = (await row.locator('.record-card').boundingBox())!
@@ -31,7 +31,7 @@ test('触摸入口扩大且不覆盖正文，新增与多选工具栏切换保�
   expect(text.x + text.width).toBeLessThanOrEqual(handle.x + 1)
   await swipeLeft(page, row)
   const remove = row.locator('.swipe-delete')
-  expect((await remove.boundingBox())!.width).toBe(48)
+  expect((await remove.boundingBox())!.width).toBe(40)
   await remove.press('Escape')
   await expect(remove).not.toBeVisible()
   await expect(row.locator('.gesture-content')).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)')
@@ -79,7 +79,7 @@ test('长导入弹窗只滚动正文，确认取消在窄屏和短视口内持�
       expect(footer.y + footer.height).toBeLessThanOrEqual(viewport.height)
       for (const button of await dialog.locator('.dialog-actions button').all()) {
         await expect(button).toBeInViewport()
-        expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(48)
+        expect((await button.boundingBox())!.height).toBe(34)
       }
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
