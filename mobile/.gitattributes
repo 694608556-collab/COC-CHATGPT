@@ -1,5 +1,6 @@
 * text=auto eol=lf
 *.bat text eol=crlf
 *.apk -text
+*.ipa -text
 *.png -text
 *.jar -text
