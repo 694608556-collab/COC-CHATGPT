@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-test('正式界面显示 1.0.1，无开发提示，页尾版本说明和数据风险提醒保留', async ({ page }, info) => {
+test('正式界面显示 1.0.2，无开发提示，页尾版本说明和数据风险提醒保留', async ({ page }, info) => {
   page.on('dialog', (dialog) => dialog.accept())
   await page.goto('/')
   const app = page.locator('.mobile-shell')
@@ -12,14 +12,14 @@ test('正式界面显示 1.0.1，无开发提示，页尾版本说明和数据�
   expect(logo.x - back.x - back.width).toBeGreaterThanOrEqual(0)
   expect(logo.x - back.x - back.width).toBeLessThanOrEqual(16)
   expect(Math.abs(logo.y + logo.height / 2 - title.y - title.height / 2)).toBeLessThan(1)
-  await expect(app.locator('.app-header .version')).toHaveText('1.0.1')
+  await expect(app.locator('.app-header .version')).toHaveText('1.0.2')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   for (const tab of ['跑团记录', '角色卡', '数据与设置']) {
     await app.getByRole('button', { name: tab, exact: true }).click()
     await expect(app.getByText(/安卓开发版|启动试验|仅保留你确认的三个模块|开发阶段说明/)).toHaveCount(0)
   }
   const version = app.getByRole('region', { name: '版本说明', exact: true })
-  await expect(version).toContainText('1.0.1')
+  await expect(version).toContainText('1.0.2')
   await expect(version).toContainText('应用制作：亦如长风万里沙')
   await expect(version).not.toContainText('记录每一次探索')
   expect(await version.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('0px')
