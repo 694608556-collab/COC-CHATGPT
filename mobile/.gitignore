@@ -16,3 +16,16 @@ evidence/
 www-dev/
 test-results/
 playwright-report/
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/App/App/config.xml
+ios/build/
+ios/DerivedData/
+ios/archives/
+ios/**/*.xcuserstate
+ios/**/xcuserdata/
+ios/**/.build/
+ios/**/.swiftpm/
+*.mobileprovision
+*.provisionprofile
+*.ipa

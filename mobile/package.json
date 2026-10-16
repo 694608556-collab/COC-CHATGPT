@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "sync": "pnpm build && cap sync android",
+    "ios:sync": "node scripts/sync-ios.mjs",
     "android:build": "pnpm sync && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-android.ps1",
     "android:release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-release.ps1"
   },
@@ -18,6 +19,7 @@
     "@capacitor/android": "8.5.3",
     "@capacitor/app": "^8.1.2",
     "@capacitor/core": "8.5.3",
+    "@capacitor/ios": "8.5.3",
     "core-js": "3.50.0",
     "docx": "9.7.1",
     "fflate": "0.8.2",

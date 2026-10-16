@@ -193,7 +193,7 @@ export async function previewBackup(bytes: Uint8Array): Promise<ImportPreview> {
   const androidEnvelope = root.format === 'coc.logbook.android'
   if (root.format === 'coc.logbook.android') {
     if (root.formatVersion !== 1 || !root.snapshot || typeof root.snapshot !== 'object')
-      throw new Error('安卓备份版本不兼容。')
+      throw new Error('手机备份版本不兼容。')
     root = root.snapshot as Record<string, unknown>
   }
   if (root.schemaVersion !== 1 && root.schemaVersion !== 2) throw new Error('备份版本不兼容。')
@@ -294,7 +294,7 @@ export async function previewBackup(bytes: Uint8Array): Promise<ImportPreview> {
     }
   }
   const warnings = [
-    '安卓不保留资料汇总与跑团闲记。',
+    '手机版不保留资料汇总与跑团闲记。',
     attachments.length
       ? '将恢复 ' + attachments.length + ' 份跑团记录/模组归档文件，创建新文件，不覆盖同名文件。'
       : '此备份不含可恢复的跑团归档附件。'

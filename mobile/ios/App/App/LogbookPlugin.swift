@@ -1,0 +1,225 @@
+import Foundation
+import Capacitor
+import UIKit
+import UniformTypeIdentifiers
+import QuickLook
+import Network
+
+@objc(LogbookPlugin)
+public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDelegate, QLPreviewControllerDataSource {
+    public let identifier = "LogbookPlugin"
+    public let jsName = "Logbook"
+    public let pluginMethods = ["claimFirstLaunchIntro", "getOverview", "getState", "getStatus", "getRecordContent", "commitSettings", "commitModule", "commitEntity", "commitAction", "commitEdit", "commitRestore", "selectArchive", "openBackup", "writeArchive", "readDocument", "listDocuments", "openDocument", "shareDocument", "fetchLog", "automaticBackup"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise) }
+    private let work = DispatchQueue(label: "coc.logbook.storage", qos: .userInitiated)
+    private let backupWriter = DispatchQueue(label: "coc.logbook.automatic-backup", qos: .utility)
+    private let monitor = NWPathMonitor()
+    private var connected = true
+    private var store: LogbookStore?
+    private var archive: LogbookArchive?
+    private var backupRunning = false
+    private var pickerCall: CAPPluginCall?
+    private var choosingFolder = false
+    private var previewURL: URL?
+    public override func load() {
+        monitor.pathUpdateHandler = { [weak self] path in self?.work.async { self?.connected = path.status == .satisfied } }
+        monitor.start(queue: DispatchQueue(label: "coc.logbook.network"))
+    }
+    deinit { monitor.cancel() }
+    private func resources() throws -> (LogbookStore, LogbookArchive) {
+        let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("COCLogbook", isDirectory: true)
+        if store == nil { store = try LogbookStore(url: directory.appendingPathComponent("logbook.sqlite")) }
+        if archive == nil { archive = try LogbookArchive(directory: directory) }
+        return (store!, archive!)
+    }
+    private func run(_ call: CAPPluginCall, _ action: @escaping (LogbookStore, LogbookArchive) throws -> LogbookJSON) {
+        work.async {
+            do { let (store, archive) = try self.resources(); call.resolve(try action(store, archive)) }
+            catch { call.reject(error.localizedDescription) }
+        }
+    }
+    private func expected(_ call: CAPPluginCall) throws -> Int {
+        guard LogbookValidation.number(call.options["expectedRevision"]), let value = call.options["expectedRevision"] as? NSNumber, value.doubleValue >= 0, value.doubleValue < 9007199254740991, value.doubleValue.rounded(.down) == value.doubleValue else { throw LogbookFailure("数据版本参数不合法。") }
+        return value.intValue
+    }
+    private func state(_ store: LogbookStore, _ archive: LogbookArchive) throws -> LogbookJSON {
+        var result: LogbookJSON = ["revision": try store.revision(), "archive": archive.location(), "networkConnected": connected, "lastAutoBackupAt": 0]
+        if let saved = archive.preferences.dictionary(forKey: "coc.automatic-backup") { result["lastAutoBackupAt"] = saved["savedAt"]; result["lastAutoBackupRevision"] = saved["revision"] }
+        return result
+    }
+    @objc func claimFirstLaunchIntro(_ call: CAPPluginCall) {
+        run(call) { _, archive in
+            let preferences = archive.preferences, key = "coc.presentation.first-welcome-shown"
+            let show = !preferences.bool(forKey: key)
+            if show { preferences.set(true, forKey: key); guard preferences.synchronize() else { throw LogbookFailure("首次欢迎状态未保存。") } }
+            return ["show": show]
+        }
+    }
+    @objc func getOverview(_ call: CAPPluginCall) {
+        run(call) { store, archive in
+            var result = try self.state(store, archive); result["json"] = NSNull()
+            if let snapshot = try store.metadata() { result["json"] = try logbookText(snapshot) }
+            result["deferredRecordIds"] = try store.deferredIDs(); return result
+        }
+    }
+    @objc func getState(_ call: CAPPluginCall) {
+        run(call) { store, archive in
+            var result = try self.state(store, archive); result["json"] = NSNull()
+            if let snapshot = try store.fullSnapshot() { result["json"] = try logbookText(snapshot) }
+            return result
+        }
+    }
+    @objc func getStatus(_ call: CAPPluginCall) { run(call) { try self.state($0, $1) } }
+    @objc func getRecordContent(_ call: CAPPluginCall) {
+        run(call) { store, _ in
+            let expected = try self.expected(call); try store.check(expected)
+            guard let ids = call.options["ids"] as? [String], !ids.isEmpty, Set(ids).count == ids.count, ids.count <= 50000, let snapshot = try store.fullSnapshot(selected: ids) else { throw LogbookFailure("所选场次无效或尚未保存。") }
+            try store.check(expected); return ["json": try logbookText(snapshot), "revision": expected]
+        }
+    }
+    private func mutate(_ call: CAPPluginCall, _ operation: @escaping (inout LogbookJSON) throws -> Void) {
+        run(call) { store, archive in
+            try archive.requirePermission()
+            let (revision, now) = try store.mutate(expected: self.expected(call), operation)
+            return ["revision": revision, "exportedAt": now]
+        }
+    }
+    @objc func commitSettings(_ call: CAPPluginCall) {
+        mutate(call) { data in
+            guard let settings = call.getObject("settings"), try logbookData(settings).count <= 16384 else { throw LogbookFailure("设置缺失或过大。") }
+            try LogbookValidation.settings(settings); data["settings"] = settings
+        }
+    }
+    @objc func commitModule(_ call: CAPPluginCall) {
+        mutate(call) { data in
+            guard let value = call.getObject("value"), try logbookData(value).count <= 1024 * 1024 else { throw LogbookFailure("模组数据缺失或过大。") }
+            try LogbookMutations.module(value, data: &data)
+        }
+    }
+    @objc func commitEntity(_ call: CAPPluginCall) {
+        mutate(call) { data in
+            guard let edit = call.getObject("edit"), try logbookData(edit).count <= logbookMaximumBytes else { throw LogbookFailure("编辑数据缺失或过大。") }
+            try LogbookMutations.entity(edit, data: &data)
+        }
+    }
+    @objc func commitAction(_ call: CAPPluginCall) {
+        mutate(call) { data in guard let action = call.getObject("action") else { throw LogbookFailure("操作参数缺失。") }; try LogbookMutations.action(action, data: &data) }
+    }
+    @objc func commitEdit(_ call: CAPPluginCall) { commitSnapshot(call, restoring: false) }
+    @objc func commitRestore(_ call: CAPPluginCall) { commitSnapshot(call, restoring: true) }
+    private func commitSnapshot(_ call: CAPPluginCall, restoring: Bool) {
+        run(call) { store, archive in
+            if restoring && call.getBool("confirmed") != true { throw LogbookFailure("需要明确确认覆盖数据。") }
+            let expected = try self.expected(call); try store.check(expected)
+            guard let json = call.getString("json"), json.utf8.count <= logbookMaximumBytes else { throw LogbookFailure("数据缺失或超过 64 MB。") }
+            let snapshot = try logbookObject(json); try LogbookValidation.snapshot(snapshot); try archive.requirePermission()
+            let attachments = restoring ? (call.options["attachments"] as? [LogbookJSON] ?? []) : []
+            guard attachments.count <= 2000 else { throw LogbookFailure("归档附件数量过多。") }
+            var imported: [String] = [], total = 0
+            do {
+                for attachment in attachments {
+                    guard let encoded = attachment["base64"] as? String, let bytes = Data(base64Encoded: encoded), let name = attachment["name"] as? String, let mime = attachment["mime"] as? String else { throw LogbookFailure("归档附件不合法。") }
+                    total += bytes.count; guard total <= 128 * 1024 * 1024 else { throw LogbookFailure("归档附件超过 128 MB。") }
+                    let document = try archive.write(name: name, mime: mime, bytes: bytes, purpose: "import")
+                    imported.append(document["uri"] as! String)
+                }
+                return ["revision": try store.replace(snapshot, expected: expected)]
+            } catch { for uri in imported { try? archive.removeOwned(uri) }; throw error }
+        }
+    }
+    private func presentPicker(_ call: CAPPluginCall, folder: Bool) {
+        DispatchQueue.main.async {
+            guard self.pickerCall == nil, let controller = self.bridge?.viewController, controller.presentedViewController == nil else { call.reject("请先关闭当前系统窗口。"); return }
+            self.pickerCall = call; self.choosingFolder = folder
+            let picker = UIDocumentPickerViewController(forOpeningContentTypes: folder ? [.folder] : [.data], asCopy: !folder)
+            picker.allowsMultipleSelection = false; picker.delegate = self
+            controller.present(picker, animated: true)
+        }
+    }
+    @objc func selectArchive(_ call: CAPPluginCall) { presentPicker(call, folder: true) }
+    @objc func openBackup(_ call: CAPPluginCall) { presentPicker(call, folder: false) }
+    public func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { pickerCall?.resolve(["cancelled": true]); pickerCall = nil }
+    public func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let call = pickerCall else { return }
+        let folder = choosingFolder; pickerCall = nil
+        guard let url = urls.first else { call.resolve(["cancelled": true]); return }
+        run(call) { _, archive in
+            if folder { return ["cancelled": false, "archive": try archive.choose(url)] }
+            return ["cancelled": false, "name": url.lastPathComponent, "base64": try archive.readPicked(url).base64EncodedString()]
+        }
+    }
+    @objc func writeArchive(_ call: CAPPluginCall) {
+        run(call) { _, archive in
+            guard let name = call.getString("name"), let mime = call.getString("mime"), let encoded = call.getString("base64"), encoded.count <= 90 * 1024 * 1024, let bytes = Data(base64Encoded: encoded) else { throw LogbookFailure("文件参数不合法。") }
+            let purpose = call.getString("purpose") ?? "export"
+            guard ["export", "backup"].contains(purpose) else { throw LogbookFailure("文件用途不合法。") }
+            return try archive.write(name: name, mime: mime, bytes: bytes, purpose: purpose)
+        }
+    }
+    @objc func listDocuments(_ call: CAPPluginCall) { run(call) { _, archive in ["documents": try archive.documents(all: call.getBool("all") == true)] } }
+    @objc func readDocument(_ call: CAPPluginCall) {
+        run(call) { _, archive in
+            let (bytes, name, mime) = try archive.read(call.getString("uri") ?? "")
+            return ["base64": bytes.base64EncodedString(), "name": name, "mime": mime]
+        }
+    }
+    @objc func openDocument(_ call: CAPPluginCall) { launch(call, sharing: false) }
+    @objc func shareDocument(_ call: CAPPluginCall) { launch(call, sharing: true) }
+    private func launch(_ call: CAPPluginCall, sharing: Bool) {
+        work.async {
+            do {
+                let (_, archive) = try self.resources(), (bytes, name, _) = try archive.read(call.getString("uri") ?? "")
+                let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coc-share-" + UUID().uuidString, isDirectory: true)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let file = directory.appendingPathComponent(name); try bytes.write(to: file, options: [.withoutOverwriting])
+                DispatchQueue.main.async {
+                    guard let controller = self.bridge?.viewController, controller.presentedViewController == nil else { call.reject("请先关闭当前系统窗口。"); return }
+                    if sharing {
+                        let share = UIActivityViewController(activityItems: [file], applicationActivities: nil)
+                        share.popoverPresentationController?.sourceView = controller.view
+                        share.popoverPresentationController?.sourceRect = CGRect(x: controller.view.bounds.midX, y: controller.view.bounds.midY, width: 1, height: 1)
+                        controller.present(share, animated: true) { call.resolve() }
+                    } else {
+                        self.previewURL = file
+                        let preview = QLPreviewController(); preview.dataSource = self
+                        controller.present(preview, animated: true) { call.resolve() }
+                    }
+                }
+            } catch { call.reject(error.localizedDescription) }
+        }
+    }
+    public func numberOfPreviewItems(in controller: QLPreviewController) -> Int { previewURL == nil ? 0 : 1 }
+    public func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem { previewURL! as NSURL }
+    @objc func fetchLog(_ call: CAPPluginCall) {
+        guard let raw = call.getString("url"), let url = URL(string: raw) else { call.reject("日志网址无效。"); return }
+        LogbookFetch().start(url) { result in
+            switch result { case .success(let value): call.resolve(value); case .failure(let error): call.reject(error.localizedDescription) }
+        }
+    }
+    @objc func automaticBackup(_ call: CAPPluginCall) {
+        work.async {
+            do {
+                guard !self.backupRunning else { throw LogbookFailure("自动备份正在进行。") }
+                let (store, archive) = try self.resources(), expected = try self.expected(call)
+                try store.check(expected); try archive.requirePermission()
+                guard let snapshot = try store.fullSnapshot() else { throw LogbookFailure("尚无已保存数据。") }
+                let bookmark = try archive.bookmark()
+                let bytes = try logbookData(["format": "coc.logbook.android", "formatVersion": 1, "exportedAt": logbookNow(), "restoreScope": ["modules", "records", "characters"], "snapshot": snapshot])
+                self.backupRunning = true
+                self.backupWriter.async {
+                    defer { self.work.async { self.backupRunning = false } }
+                    do {
+                        let document = try archive.write(name: "auto-backup-\(Int(Date().timeIntervalSince1970 * 1000)).json", mime: "application/json", bytes: bytes, purpose: "auto", bookmark: bookmark)
+                        let savedAt = try self.work.sync { () throws -> Int in
+                            guard try archive.bookmark() == bookmark else { throw LogbookFailure("保存位置已变化；文件保留，未标记新位置已备份。") }
+                            let savedAt = Int(Date().timeIntervalSince1970 * 1000)
+                            archive.preferences.set(["savedAt": savedAt, "revision": expected], forKey: "coc.automatic-backup")
+                            guard archive.preferences.synchronize() else { throw LogbookFailure("备份已写入，但成功状态未保存。") }
+                            return savedAt
+                        }
+                        call.resolve(["document": document, "savedAt": savedAt, "revision": expected, "warning": archive.rotateAutomatic(bookmark: bookmark)])
+                    } catch { call.reject(error.localizedDescription) }
+                }
+            } catch { call.reject(error.localizedDescription) }
+        }
+    }
+}

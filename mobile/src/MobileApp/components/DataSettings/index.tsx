@@ -3,6 +3,7 @@ import type { SavedDocument } from '../../../data/native'
 import type { MobileSnapshot } from '../../../data/types'
 import { SelectField } from '../SelectField'
 import type { SettingsPatch } from '../../../data/settings-batch'
+import { Capacitor } from '@capacitor/core'
 
 /**
  * 数据恢复/手动备份及目录管理入口；未完成能力明确列出。
@@ -181,7 +182,7 @@ export function DataSettings(props: {
           选择备份并预览
         </button>
         <button disabled={props.busy} onClick={props.onBackup}>
-          保存安卓备份
+          {Capacitor.getPlatform() === 'ios' ? '保存手机备份' : '保存安卓备份'}
         </button>
         <button disabled={props.busy} onClick={props.onZipBackup}>
           保存含归档 ZIP 备份

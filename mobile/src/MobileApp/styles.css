@@ -62,6 +62,21 @@
   color: var(--text);
   background: var(--bg);
 }
+/* iOS owns a full-screen WKWebView; Android continues using its native inset handling. */
+:root[data-platform='ios'] .app-header {
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  padding-left: calc(12px + env(safe-area-inset-left, 0px));
+  padding-right: calc(12px + env(safe-area-inset-right, 0px));
+}
+:root[data-platform='ios'] main {
+  padding-left: calc(12px + env(safe-area-inset-left, 0px));
+  padding-right: calc(12px + env(safe-area-inset-right, 0px));
+}
+:root[data-platform='ios'] input:not([type='checkbox']):not([type='radio']),
+:root[data-platform='ios'] textarea,
+:root[data-platform='ios'] button {
+  -webkit-appearance: none;
+}
 mark {
   background: #ffe083;
   color: #392900;

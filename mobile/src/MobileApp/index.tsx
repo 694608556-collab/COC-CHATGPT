@@ -383,14 +383,14 @@ export function MobileApp({
     else if (record) setRecord(undefined)
     else if (selectedCharacter) setSelectedCharacter('')
     else if (page !== 'records') setPage('records')
-    else if (Capacitor.isNativePlatform()) void CapacitorApp.minimizeApp()
+    else if (Capacitor.getPlatform() === 'android') void CapacitorApp.minimizeApp()
   }
   useEffect(() => {
     const browserBack = () => backHandler.current()
     window.addEventListener('logbook-back', browserBack)
     let disposed = false
     let remove: (() => Promise<void>) | undefined
-    if (Capacitor.isNativePlatform())
+    if (Capacitor.getPlatform() === 'android')
       void CapacitorApp.addListener('backButton', browserBack).then((handle) => {
         if (disposed) void handle.remove()
         else remove = () => handle.remove()
@@ -647,7 +647,10 @@ export function MobileApp({
       bytes = await encodeArchiveBackup(complete, files)
     }
     const file = await port.writeArchive({
-      name: 'coc-android-backup-' + Date.now() + (includeArchives ? '.zip' : '.json'),
+      name:
+        (Capacitor.getPlatform() === 'ios' ? 'coc-ios-backup-' : 'coc-android-backup-') +
+        Date.now() +
+        (includeArchives ? '.zip' : '.json'),
       mime: includeArchives ? 'application/zip' : 'application/json',
       base64: encodeBase64(bytes),
       purpose: 'backup'

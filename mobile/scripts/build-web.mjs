@@ -3,6 +3,7 @@ import { mkdir, copyFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 await mkdir('www', { recursive: true })
+const ios = process.env.COC_PLATFORM === 'ios'
 await copyFile('../build/icon.png', 'www/icon.png')
 await build({
   entryPoints: { app: 'src/main.tsx', 'snapshot-worker': 'src/data/snapshot-worker.ts' },
@@ -22,5 +23,5 @@ await build({
 // Generated HTML only loads packaged local assets: there is no remote dev server or sample embedded in the APK.
 await writeFile(
   'www/index.html',
-  `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=contain"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'"><title>COC 跑团记录簿</title><link rel="stylesheet" href="app.css"></head><body><div id="root"></div><script>window.globalThis=window;</script><script src="app.js"></script></body></html>`
+  `<!doctype html><html lang="zh-CN"${ios ? ' data-platform="ios"' : ''}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=${ios ? 'cover' : 'contain'}"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'"><title>COC 跑团记录簿</title><link rel="stylesheet" href="app.css"></head><body><div id="root"></div><script>window.globalThis=window;</script><script src="app.js"></script></body></html>`
 )

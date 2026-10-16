@@ -1,0 +1,81 @@
+import Foundation
+
+@main struct IOSNativeChecks {
+    static var checks = 0
+    static func require(_ value: @autoclosure () throws -> Bool, _ message: String) throws {
+        guard try value() else { throw LogbookFailure("Native check failed: " + message) }; checks += 1
+    }
+    static func rejects(_ message: String, _ action: () throws -> Void) throws {
+        do { try action() } catch { checks += 1; return }
+        throw LogbookFailure("Expected rejection: " + message)
+    }
+    static func main() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("coc-ios-tests-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = try logbookObject(String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8))
+        let store = try LogbookStore(url: root.appendingPathComponent("db/state.sqlite"))
+        try require(try store.metadata() == nil, "fresh database")
+        try require(try store.replace(fixture, expected: 0) == 1, "initial restore")
+        let initial = try store.fullSnapshot()!, initialBytes = try logbookData(initial)
+        let metadata = try store.metadata()!
+        try require((metadata["records"] as! [LogbookJSON]).allSatisfy { $0["rawContent"] == nil && $0["manualContent"] == nil }, "body-free overview")
+        try require(!(try store.deferredIDs()).isEmpty, "deferred body IDs")
+        let records = fixture["records"] as! [LogbookJSON]
+        let first = records.first(where: { $0["rawContent"] != nil })!, firstID = first["id"] as! String
+        let read = try store.fullSnapshot(selected: [firstID])!
+        try require(try logbookData((read["records"] as! [LogbookJSON])[0]["rawContent"]!) == logbookData(first["rawContent"]!), "complete selected body")
+        try rejects("missing record") { _ = try store.fullSnapshot(selected: ["missing"]) }
+        try rejects("stale restore") { _ = try store.replace(fixture, expected: 0) }
+        try require(try logbookData(store.fullSnapshot()!) == initialBytes, "stale request leaves every field")
+        try rejects("batch deletion validates every ID") { _ = try store.mutate(expected: 1) { try LogbookMutations.action(["type": "delete-records", "ids": [firstID, "missing"]], data: &$0) } }
+        try require(try store.revision() == 1, "failed batch preserves revision")
+        var character = (metadata["characters"] as! [LogbookJSON])[0]
+        let module = (metadata["modules"] as! [LogbookJSON])[0], moduleID = module["id"] as! String
+        character["moduleIds"] = [moduleID]; character["moduleId"] = moduleID
+        _ = try store.mutate(expected: 1) { try LogbookMutations.entity(["kind": "character", "value": character], data: &$0) }
+        try require(try logbookData((store.metadata()!["modules"] as! [LogbookJSON])[0]["pairs"]!) == logbookData(module["pairs"]!), "character association does not create PC entries")
+        var draft = first
+        for key in ["rawContent", "cacheSourceUrl", "fetchedAt"] { draft.removeValue(forKey: key) }
+        draft["name"] = "iOS 元数据编辑"
+        _ = try store.mutate(expected: 2) { try LogbookMutations.entity(["kind": "record", "value": draft], data: &$0) }
+        let afterEdit = (try store.fullSnapshot(selected: [firstID])!["records"] as! [LogbookJSON])[0]
+        try require(try logbookData(afterEdit["rawContent"]!) == logbookData(first["rawContent"]!), "record edit preserves complete body")
+        let manual = records.first(where: { $0["sourceType"] as? String == "manual" })!
+        var manualEdit = manual; manualEdit["manualContent"] = "第一行\n第二行\n最后一行完整保留"
+        for key in ["rawContent", "cacheSourceUrl", "fetchedAt"] { manualEdit.removeValue(forKey: key) }
+        _ = try store.mutate(expected: 3) { try LogbookMutations.entity(["kind": "record", "value": manualEdit], data: &$0) }
+        let manualRead = (try store.fullSnapshot(selected: [manual["id"] as! String])!["records"] as! [LogbookJSON])[0]
+        try require(manualRead["manualContent"] as? String == manualEdit["manualContent"] as? String, "manual body saved fully")
+        let beforeFailure = try logbookData(store.fullSnapshot()!)
+        try store.execute("CREATE TRIGGER refuse_state BEFORE UPDATE ON state BEGIN SELECT RAISE(ABORT,'injected'); END")
+        try rejects("SQLite failure during full replacement") { _ = try store.replace(fixture, expected: 4) }
+        try require(try store.revision() == 4 && logbookData(store.fullSnapshot()!) == beforeFailure, "SQLite rollback restores deleted/inserted bodies and revision")
+        try store.execute("DROP TRIGGER refuse_state")
+        let sameModule = records.filter { $0["moduleId"] as? String == first["moduleId"] as? String }
+        _ = try store.mutate(expected: 4) { try LogbookMutations.action(["type": "reorder", "kind": "record", "id": firstID, "targetId": sameModule.last!["id"]!], data: &$0) }
+        try require(try logbookData((store.fullSnapshot(selected: [firstID])!["records"] as! [LogbookJSON])[0]["rawContent"]!) == logbookData(first["rawContent"]!), "sorting preserves body")
+        let reopened = try LogbookStore(url: root.appendingPathComponent("db/state.sqlite"))
+        try require(try reopened.revision() == 5, "restart revision")
+        try require(try logbookData(reopened.fullSnapshot()!) == logbookData(store.fullSnapshot()!), "restart retains complete state")
+        let suite = "coc-native-tests-" + UUID().uuidString
+        let preferences = UserDefaults(suiteName: suite)!
+        defer { preferences.removePersistentDomain(forName: suite) }
+        let archive = try LogbookArchive(directory: root.appendingPathComponent("registry"), preferences: preferences)
+        let folder = root.appendingPathComponent("exports")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        _ = try archive.choose(folder)
+        let original = try archive.write(name: "公开正文.txt", mime: "text/plain", bytes: Data("原正文".utf8), purpose: "export")
+        let duplicate = try archive.write(name: "公开正文.txt", mime: "text/plain", bytes: Data("新正文".utf8), purpose: "export")
+        try require(duplicate["name"] as? String == "公开正文 (2).txt", "collision numbered")
+        try require(try archive.read(original["uri"] as! String).0 == Data("原正文".utf8), "old document retained")
+        try rejects("path traversal") { _ = try archive.write(name: "../escape", mime: "text/plain", bytes: Data(), purpose: "export") }
+        try Data("用户改动".utf8).write(to: folder.appendingPathComponent("公开正文.txt"))
+        try rejects("changed exported document") { _ = try archive.read(original["uri"] as! String) }
+        for index in 0..<12 { _ = try archive.write(name: "auto-\(index).json", mime: "application/json", bytes: Data("{}".utf8), purpose: "auto") }
+        _ = archive.rotateAutomatic(bookmark: try archive.bookmark())
+        try require(try archive.documents(all: true).filter { $0["purpose"] as? String == "auto" }.count == 10, "only ten unchanged automatic backups retained")
+        try require(FileManager.default.fileExists(atPath: folder.appendingPathComponent("公开正文.txt").path), "rotation does not delete manual or modified exports")
+        print("iOS native core: \(checks) checks passed; macOS test folders only, no phone or system picker tested.")
+    }
+}

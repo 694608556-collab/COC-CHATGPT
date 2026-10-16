@@ -1,0 +1,50 @@
+name: iOS IPA development
+on:
+  push:
+    branches: [codex/ios-ipa-adaptation]
+    paths: ['mobile/**', 'src/shared/**', '.github/workflows/ios-check.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ios:
+    runs-on: xcode-27
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.3.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: mobile/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck && pnpm test
+      - name: Check iOS native transactions, bodies and local archive protection
+        run: |
+          node scripts/ios-native-fixture.mjs
+          swiftc -swift-version 5 ios/App/App/LogbookStore.swift ios/App/App/LogbookValidation.swift ios/App/App/LogbookMutations.swift ios/App/App/LogbookArchive.swift scripts/ios-native-tests.swift -o ios/build/native-checks
+          ios/build/native-checks ios/build/native-sample.json
+      - run: pnpm ios:sync && node scripts/check-release-web.mjs
+      - name: Build device arm64 IPA without Apple credentials
+        run: bash scripts/package-ios.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coc-logbook-ios-arm64-unsigned-ipa
+          path: |
+            mobile/ios/build/*.ipa
+            mobile/ios/build/*.sha256
+            mobile/ios/build/INSTALL-IPA.txt
+            mobile/ios/build/xcode-version.txt
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ios-build-diagnostics
+          path: mobile/ios/build/*.log
+          if-no-files-found: ignore
