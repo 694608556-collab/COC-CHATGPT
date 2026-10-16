@@ -9,6 +9,7 @@ import {
   renderWordHtml
 } from '../shared/document-renderer'
 import { AppError } from '../shared/errors'
+import { recordExportName, combinedExportName } from '../shared/export-filenames'
 import type { ArchiveEntry, NormalizedLog, SessionRecord } from '../shared/types'
 import { ArchivePathService } from './archive-path'
 import { JobManager, type JobSnapshot } from './job-manager'
@@ -23,19 +24,6 @@ export interface CombinedExportResult {
   entry: ArchiveEntry
   included: string[]
   failed: Array<{ id: string; reason: string }>
-}
-
-function extensionFor(format: RecordExportFormat | CombinedExportFormat): string {
-  if (format === 'raw') return 'json'
-  if (format === 'dialogue-doc') return 'doc'
-  return format
-}
-
-function recordNameSuffix(format: RecordExportFormat): string {
-  if (format === 'doc') return '\u5e26\u56fe'
-  if (format === 'dialogue-doc') return '\u5bf9\u8bdd'
-  if (format === 'raw') return '\u539f\u59cb'
-  return ''
 }
 
 function manualLog(record: SessionRecord): NormalizedLog {
@@ -69,10 +57,9 @@ export class FileService {
     const log = this.exportableLog(record)
     const settings = this.repository.getSettings()
     const pathService = new ArchivePathService(() => settings.archiveDirectory)
-    const date = record.playDate?.replace(/-/g, '') || '日期未知'
     const destination = pathService.availableFile(
       module.name,
-      `${date}${module.name}${record.name}${recordNameSuffix(format)}.${extensionFor(format)}`
+      recordExportName(module.name, record.name, record.playDate, format)
     )
     const temporary = `${destination}.${process.pid}.tmp`
     try {
@@ -95,14 +82,9 @@ export class FileService {
           'utf8'
         )
       else if (format === 'docx')
-        fs.writeFileSync(
-          temporary,
-          await createCombinedDocx(module, session, settings.filterPreset, noCover)
-        )
+        fs.writeFileSync(temporary, await createCombinedDocx(module, session, settings.filterPreset, noCover))
       else {
-        const pdf = await this.pdfPrinter(
-          renderCombinedHtml(module, session, settings.filterPreset, noCover)
-        )
+        const pdf = await this.pdfPrinter(renderCombinedHtml(module, session, settings.filterPreset, noCover))
         if (pdf.subarray(0, 4).toString() !== '%PDF') throw new Error('PDF 文件头无效')
         fs.writeFileSync(temporary, pdf)
       }
@@ -141,10 +123,9 @@ export class FileService {
     if (!included.length)
       throw new AppError('COMBINE_NO_CONTENT', 'CONVERSION', '所选场次均无可用正文，未生成合集。')
     const settings = this.repository.getSettings()
-    const generatedDate = new Date().toISOString().slice(0, 10).replace(/-/g, '')
     const destination = new ArchivePathService(() => settings.archiveDirectory).batchFile(
       module.name,
-      `${generatedDate}${module.name}合集.${format}`
+      combinedExportName(module.name, format)
     )
     const temporary = `${destination}.${process.pid}.tmp`
     try {

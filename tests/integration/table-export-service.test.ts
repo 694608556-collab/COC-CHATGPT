@@ -22,6 +22,17 @@ beforeEach(() => {
 afterEach(() => database.close())
 
 describe('table export service', () => {
+  it('keeps both CSV files when module names sanitize to the same entry', async () => {
+    const first = repository.createModule({ name: '同/名', playStatus: 'not_started' })
+    const second = repository.createModule({ name: '同:名', playStatus: 'not_started' })
+    repository.createRecord({ moduleId: first.id, name: '场次甲', manualContent: '甲' })
+    repository.createRecord({ moduleId: second.id, name: '场次乙', manualContent: '乙' })
+    const exported = await new TableExportService(repository).export('csv')
+    const archive = await unzipper.Open.buffer(fs.readFileSync(exported.path))
+    expect(archive.files.map((file) => file.path)).toEqual(['同＿名.csv', '同＿名 (2).csv'])
+    expect((await archive.files[0]!.buffer()).toString('utf8')).toContain('场次甲')
+    expect((await archive.files[1]!.buffer()).toString('utf8')).toContain('场次乙')
+  })
   it('writes multiple modules to separate XLSX worksheets', async () => {
     const first = repository.createModule({ name: '模组甲', playStatus: 'not_started' })
     const second = repository.createModule({ name: '模组乙', playStatus: 'not_started' })

@@ -145,7 +145,10 @@ button[aria-pressed='true'] {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 9px;
-  resize: vertical;
+  resize: none;
+}
+.editor textarea::-webkit-resizer {
+  display: none;
 }
 .editor textarea:focus {
   outline: 0;
@@ -210,8 +213,8 @@ select {
   color: inherit;
 }
 button {
-  min-height: 34px;
-  padding: 6px 10px;
+  min-height: 30px;
+  padding: 4px 10px;
   font-size: 13px;
   line-height: 1.4;
   max-width: 100%;
@@ -298,8 +301,8 @@ p {
   justify-content: flex-start;
 }
 .settings-version {
-  padding: 16px 13px 0;
-  margin: 0;
+  padding: 16px 11px 0;
+  margin: auto 0 0;
   color: var(--muted);
   font-size: 11px;
   line-height: 1.7;
@@ -323,11 +326,21 @@ main {
   max-width: 760px;
   margin: auto;
 }
+.settings-page {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 59px);
+  width: 100%;
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+}
+.settings-page > * {
+  flex-shrink: 0;
+}
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 14px;
-  padding: 12px;
+  padding: 10px;
   margin-bottom: 8px;
 }
 .panel > button {
@@ -475,7 +488,7 @@ main {
 .summary strong {
   flex: 1;
   text-align: center;
-  padding: 14px 8px;
+  padding: 10px 8px;
   font-size: 24px;
   color: var(--accent);
 }
@@ -496,8 +509,8 @@ main {
   display: block;
   width: 100%;
   margin-top: 4px;
-  padding: 7px 9px;
-  min-height: 34px;
+  padding: 5px 9px;
+  min-height: 32px;
   font-size: 14px;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -508,7 +521,7 @@ main {
   display: block;
   width: 100%;
   text-align: left;
-  padding: 11px;
+  padding: 8px 10px;
   border-radius: 12px;
   margin-bottom: 8px;
 }
@@ -519,7 +532,7 @@ main {
 .record-title {
   display: flex !important;
   align-items: center;
-  margin: 3px 0 7px;
+  margin: 3px 0 5px;
 }
 .recent-saved-title {
   display: flex;
@@ -585,7 +598,7 @@ main {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 14px;
+  padding: 10px;
   margin-bottom: 8px;
 }
 /* 正文选中使用原卡片圆角边界；WebView 默认 outline 不随圆角且会显示橙框。 */
@@ -596,13 +609,19 @@ main {
 .message header {
   color: var(--accent);
   font-size: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 .message p,
 .preserve-text {
   white-space: pre-wrap;
   overflow-wrap: break-word;
   margin-bottom: 4px;
+}
+.message p {
+  margin-top: 0;
+}
+.panel > :last-child {
+  margin-bottom: 0;
 }
 .pagination {
   display: flex;
@@ -858,8 +877,8 @@ input[type='checkbox']:checked::after {
   color: var(--accent);
 }
 .editor textarea {
-  min-height: 84px;
-  padding: 8px;
+  min-height: 72px;
+  padding: 6px 8px;
 }
 .editor summary {
   min-height: 32px;
@@ -1026,8 +1045,8 @@ input[type='checkbox']:checked::after {
 .item-edit-row input {
   width: 100%;
   min-width: 0;
-  min-height: 34px;
-  padding: 6px 8px;
+  min-height: 32px;
+  padding: 4px 8px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--panel);
@@ -1611,7 +1630,7 @@ input[type='checkbox']:checked::after {
   justify-content: space-between;
   text-align: left;
   font-size: 14px;
-  padding: 7px 9px;
+  padding: 5px 9px;
 }
 .format-options {
   margin-top: 5px;

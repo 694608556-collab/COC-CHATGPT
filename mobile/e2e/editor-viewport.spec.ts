@@ -66,7 +66,7 @@ test('模拟可见区域缩小和偏移时姓名菜单及保存栏避让，候�
   expect(menuBox.y).toBeGreaterThanOrEqual(78)
   expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(toolbar.y)
   expect(menuBox.y + menuBox.height).toBeLessThanOrEqual((await input.boundingBox())!.y)
-  expect((await page.getByRole('button', { name: '保存修改', exact: true }).boundingBox())!.height).toBe(34)
+  expect((await page.getByRole('button', { name: '保存修改', exact: true }).boundingBox())!.height).toBe(30)
   await input.press('ArrowDown')
   await input.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', isComposing: true })
   await expect(input).toHaveValue('')

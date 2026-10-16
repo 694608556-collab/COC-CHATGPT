@@ -33,8 +33,8 @@ if (fixture.status) throw new Error(fixture.stderr)
 const json = fixture.stdout.replace('"RAW_PRECISION"', '900719925474099312345')
 await writeFile(join(work, 'sample.json'), json)
 const source = resolve('android/app/src/main/java/coc/logbook')
-const sources = ['JsonFields', 'RecordOverlay', 'EntityEdits', 'LogbookActions'].map((name) =>
-  join(source, name + '.java')
+const sources = ['JsonFields', 'RecordOverlay', 'EntityEdits', 'LogbookActions', 'DocumentNames'].map(
+  (name) => join(source, name + '.java')
 )
 const javac = join(process.env.JAVA_HOME, 'bin', process.platform === 'win32' ? 'javac.exe' : 'javac')
 const java = join(process.env.JAVA_HOME, 'bin', process.platform === 'win32' ? 'java.exe' : 'java')

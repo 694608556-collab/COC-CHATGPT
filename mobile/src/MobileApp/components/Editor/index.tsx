@@ -148,7 +148,7 @@ export function Editor(props: {
     return (
       <label className="field" key={label}>
         {label}
-        <textarea rows={4} value={value} onChange={(e) => change(e.target.value)} />
+        <textarea rows={3} value={value} onChange={(e) => change(e.target.value)} />
       </label>
     )
   }

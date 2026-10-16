@@ -6,6 +6,7 @@ import { applyAction } from '../data/actions'
 import { encodeInBackground } from '../data/background'
 import { validateSettings } from '../data/settings'
 import { applyEdit } from '../data/edit'
+import { nextExportName } from '../../../src/shared/export-filenames'
 
 export interface BrowserDocument extends SavedDocument {
   kind?: 'auto'
@@ -43,10 +44,11 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
   async function document(name: string, mime: string, bytes: Uint8Array): Promise<BrowserDocument> {
     if (
       !name ||
-      name.length > 120 ||
+      name.length > 255 ||
       /[/\\]/.test(name) ||
       Array.from(name).some((c) => c.charCodeAt(0) < 32) ||
-      name.includes('..')
+      name === '.' ||
+      name === '..'
     )
       throw new Error('文件名不合法。')
     if (bytes.length > 64 * 1024 * 1024) throw new Error('文件超过 64 MB。')
@@ -446,12 +448,19 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
             return
           }
           const documents = tx.objectStore('documents')
-          documents.add(file)
-          const back = documents.get(file.uri)
-          back.onsuccess = () => {
-            if (back.result?.base64 !== file.base64) {
-              failure = new Error('测试文件回读失败。')
-              tx.abort()
+          const existing = documents.getAll()
+          existing.onsuccess = () => {
+            file.name = nextExportName(
+              existing.result.map((entry: BrowserDocument) => entry.name),
+              file.name
+            )
+            documents.add(file)
+            const back = documents.get(file.uri)
+            back.onsuccess = () => {
+              if (back.result?.base64 !== file.base64) {
+                failure = new Error('测试文件回读失败。')
+                tx.abort()
+              }
             }
           }
         }

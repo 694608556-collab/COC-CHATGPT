@@ -79,7 +79,7 @@ test('长导入弹窗只滚动正文，确认取消在窄屏和短视口内持�
       expect(footer.y + footer.height).toBeLessThanOrEqual(viewport.height)
       for (const button of await dialog.locator('.dialog-actions button').all()) {
         await expect(button).toBeInViewport()
-        expect((await button.boundingBox())!.height).toBe(34)
+        expect((await button.boundingBox())!.height).toBe(30)
       }
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)

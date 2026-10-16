@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { DEFAULT_FILTER_PRESET } from '../../../src/shared/types'
 import type { FilterPreset, SessionRecord } from '../../../src/shared/types'
-import { renderLogText } from '../../../src/shared/document-renderer'
 import { Native, decodeBase64, encodeBase64 } from '../data/native'
 import type { LogbookPort, NativeState } from '../data/native'
 import { encodeBackup, encodeArchiveBackup } from '../data/backup'
@@ -32,7 +31,7 @@ import type { SavedDocument } from '../data/native'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 import { ExportDialog } from './components/ExportDialog'
-import { createExport, safeName } from '../data/export'
+import { createExport } from '../data/export'
 import type { ExportFormat } from '../data/export'
 import { importTable } from '../data/tables'
 import type { TablePreview } from '../data/tables'
@@ -43,8 +42,7 @@ import {
   readInBackground,
   serializeInBackground
 } from '../data/background'
-import { exportRecordTables } from '../../../src/shared/record-table'
-import type { AppSnapshot } from '../../../src/shared/types'
+import { createRecordTableExport } from '../data/table-export'
 import { useVisibleViewport } from './useVisibleViewport'
 import { deferredIds, mergeRecordContent } from '../data/deferred-records'
 
@@ -281,18 +279,11 @@ export function MobileApp({
   }
   async function exportTables(format: 'csv' | 'xlsx') {
     const loaded = await loadContent(snapshot.records.map((r) => r.id))
-    const files = exportRecordTables(loaded as unknown as AppSnapshot, format)
-    for (const file of files) {
-      const suffix = format === 'csv' ? '.csv' : '.xlsx'
-      const saved = await port.writeArchive({
-        name: safeName(file.name.slice(0, -suffix.length)) + suffix,
-        mime:
-          format === 'csv' ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        base64: encodeBase64(file.bytes)
-      })
-      setSavedDocument(saved)
-    }
-    setNotice('记录表格已保存并回读校验：' + files.length + ' 个文件。')
+    const file = createRecordTableExport(loaded, format)
+    setSavedDocument(
+      await port.writeArchive({ name: file.name, mime: file.mime, base64: encodeBase64(file.bytes) })
+    )
+    setNotice('记录表格已保存并回读校验：1 个文件。')
   }
   async function previewTable(kind: 'records' | 'characters') {
     const selected = await port.openBackup({ kind: kind === 'records' ? 'record-table' : 'character-table' })
@@ -722,18 +713,13 @@ export function MobileApp({
    * @returns 无返回值，成功显示实际文档名。
    */
   async function exportText(target: SessionRecord, filters: FilterPreset) {
-    const text = target.rawContent ? renderLogText(target.rawContent, filters) : target.manualContent
-    if (text === undefined) throw new Error('此场次没有已保存正文，不能导出。')
-    const name =
-      Array.from(target.name)
-        .map((c) => (c.charCodeAt(0) < 32 ? '_' : c))
-        .join('')
-        .replace(/[\\/:*?"<>|.]/g, '_')
-        .slice(0, 60) || '场次'
+    const module = snapshot.modules.find((row) => row.id === target.moduleId)
+    if (!module) throw new Error('所属模组已不存在，请重新读取。')
+    const exported = await createExport(module, [target], filters, 'txt')
     const file = await port.writeArchive({
-      name: `${name}.txt`,
-      mime: 'text/plain',
-      base64: encodeBase64(new TextEncoder().encode(text))
+      name: exported.name,
+      mime: exported.mime,
+      base64: encodeBase64(exported.bytes)
     })
     setSavedDocument(file)
     setNotice(`TXT 已保存并回读校验：${file.name}`)
@@ -782,9 +768,12 @@ export function MobileApp({
           <img src="icon.png" alt="" />
           <strong>COC 跑团记录簿</strong>
         </div>
-        <span className="version">1.0.0</span>
+        <span className="version">1.0.1</span>
       </header>
-      <main aria-hidden={confirmation ? true : undefined}>
+      <main
+        className={page === 'settings' && !editing ? 'settings-page' : undefined}
+        aria-hidden={confirmation ? true : undefined}
+      >
         {savedDocument && (
           <section className="panel">
             <div className="recent-saved-title">

@@ -231,17 +231,15 @@ public final class LogbookPlugin extends Plugin {
         return write(name,mime,bytes,purpose,prefs().getString("tree", ""));
     }
     private JSObject write(String name, String mime, byte[] bytes, String purpose, String location) throws Exception {
-        if (bytes.length > MAX_BYTES || name.length() > 120 || name.isEmpty() || name.contains("..") || name.matches(".*[/\\\\\u0000-\u001f].*")) throw new IllegalArgumentException("文件名或文件大小不合法。");
+        if (bytes.length > MAX_BYTES || name.length() > 255 || name.isEmpty() || name.equals(".") || name.equals("..") || name.matches(".*[/\\\\\u0000-\u001f].*")) throw new IllegalArgumentException("文件名或文件大小不合法。");
         if (location.isEmpty()) throw new IllegalStateException("请先选择并确认归档文件夹。");
         Uri tree = Uri.parse(location); validateTree(tree);
-        Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
-        // Unique suffix means an existing user document is never opened for overwrite.
-        int dot = name.lastIndexOf('.');
-        String savedName = (dot > 0 ? name.substring(0, dot) : name) + "-" + UUID.randomUUID().toString().substring(0, 8) + (dot > 0 ? name.substring(dot) : "");
-        Uri destination = DocumentsContract.createDocument(getContext().getContentResolver(), parent, mime, savedName);
+        Uri destination = createNamedDocument(tree,mime,name);
         if (destination == null) throw new IllegalStateException("无法在所选目录创建文件。");
         boolean success = false;
         try {
+            String savedName = displayName(destination);
+            if (savedName.isEmpty() || savedName.equals("已选择的文件夹")) throw new IllegalStateException("无法确认新文件名称。");
             try (OutputStream output = getContext().getContentResolver().openOutputStream(destination, "w")) {
                 if (output == null) throw new IllegalStateException("目录不可写，请重新选择。");
                 output.write(bytes);
@@ -252,6 +250,18 @@ public final class LogbookPlugin extends Plugin {
             out.put("bytes", back.length); out.put("sha256", digest(back)); out.put("purpose", purpose);
             rememberDocument(out, mime); success = true; return out;
         } finally { if (!success) DocumentsContract.deleteDocument(getContext().getContentResolver(), destination); }
+    }
+    /** Reserve a new document under a short naming lock; bulk I/O stays outside it. */
+    private synchronized Uri createNamedDocument(Uri tree, String mime, String requested) throws Exception {
+        String id = DocumentsContract.getTreeDocumentId(tree);
+        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree,id);
+        java.util.List<String> names = new java.util.ArrayList<>();
+        try (Cursor cursor = getContext().getContentResolver().query(children,new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME},null,null,null)) {
+            if (cursor == null) throw new IllegalStateException("无法检查已有文件，未覆盖任何文件。");
+            while (cursor.moveToNext()) if (!cursor.isNull(0)) names.add(cursor.getString(0));
+        }
+        Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree,id);
+        return DocumentsContract.createDocument(getContext().getContentResolver(),parent,mime,DocumentNames.available(names,requested));
     }
     @PluginMethod public void writeArchive(PluginCall call) {
         execute(() -> {

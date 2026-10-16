@@ -4,6 +4,7 @@ import { renderLogText, renderWordHtml } from '../../../src/shared/document-rend
 import { applyLogFilters } from '../../../src/shared/log-filter'
 import type { FilterPreset, SessionRecord, ModuleRecord, NormalizedLog } from '../../../src/shared/types'
 import { waitForAppFonts } from './fonts'
+import { recordExportName, combinedExportName } from '../../../src/shared/export-filenames'
 export type ExportFormat = 'raw' | 'txt' | 'doc' | 'dialogue-doc' | 'docx' | 'pdf'
 export const EXPORT_LABELS: Record<ExportFormat, string> = {
   raw: '原始 JSON',
@@ -12,15 +13,6 @@ export const EXPORT_LABELS: Record<ExportFormat, string> = {
   'dialogue-doc': '纯对话 DOC',
   docx: 'DOCX',
   pdf: 'PDF'
-}
-export function safeName(value: string) {
-  return (
-    Array.from(value)
-      .map((c) => (c.charCodeAt(0) < 32 ? '_' : c))
-      .join('')
-      .replace(/[\\/:*?"<>|.]/g, '_')
-      .slice(0, 60) || '场次'
-  )
 }
 export function asLog(record: SessionRecord): NormalizedLog {
   if (record.rawContent) return record.rawContent
@@ -51,10 +43,12 @@ export async function createExport(
   filters = { ...filters, indentFirstLine: false, darkDisplay: false }
   if (!records.length) throw new Error('没有选中场次。')
   const sessions = records.map((record) => ({ record, log: asLog(record) }))
-  const name = safeName(combined ? module.name + '-合成' : records[0]!.name)
+  const name = combined
+    ? combinedExportName(module.name, format)
+    : recordExportName(module.name, records[0]!.name, records[0]!.playDate, format)
   if (format === 'raw')
     return {
-      name: name + '.json',
+      name,
       mime: 'application/json',
       bytes: new TextEncoder().encode(
         JSON.stringify(
@@ -81,11 +75,10 @@ export async function createExport(
           (s.record.rawContent ? renderLogText(s.log, filters) : s.record.manualContent)
       )
       .join('\r\n\r\n')
-  if (format === 'txt')
-    return { name: name + '.txt', mime: 'text/plain', bytes: new TextEncoder().encode(text) }
+  if (format === 'txt') return { name, mime: 'text/plain', bytes: new TextEncoder().encode(text) }
   if (format === 'doc' || format === 'dialogue-doc')
     return {
-      name: name + '.doc',
+      name,
       mime: 'application/msword',
       bytes: new TextEncoder().encode(
         renderWordHtml(module, sessions, filters, format === 'doc', { cover: combined })
@@ -120,12 +113,12 @@ export async function createExport(
     })
     const blob = await Packer.toBlob(new Document({ sections: [{ children }] }))
     return {
-      name: name + '.docx',
+      name,
       mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       bytes: new Uint8Array(await blob.arrayBuffer())
     }
   }
-  return { name: name + '.pdf', mime: 'application/pdf', bytes: await textPdf(text) }
+  return { name, mime: 'application/pdf', bytes: await textPdf(text) }
 }
 
 /** Raster pages use the same embedded font faces as the app, without depending on system font settings. */

@@ -30,7 +30,7 @@ export function ExportDialog(props: {
             options={formats.map((value) => ({ value, label: EXPORT_LABELS[value] }))}
           />
           <p className="muted">
-            按当前过滤设置导出。带图 DOC 引用远程图片链接；PDF
+            <strong>按当前过滤设置导出。</strong>带图 DOC 引用远程图片链接；PDF
             使用应用内置字体生成页面图像，保留中文，但文字无法复制搜索。未保存正文的场次会报告失败。
           </p>
         </div>
