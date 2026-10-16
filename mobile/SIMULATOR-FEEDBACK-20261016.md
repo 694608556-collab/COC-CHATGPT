@@ -1,6 +1,6 @@
 # 模拟器六项反馈：1.0.1 / versionCode 26
 
-接续 `codex/ui-optimization-experiment` 的 `9f709a2` / 1.0.0 / 25；已核对 GitHub 与本机一致、工作树原先干净，并将完整历史保存在工作区外层 `preserved-local-20261016/before-simulator-feedback-9f709a2.bundle`（已验证）。本机回滚分支为 `codex/before-simulator-feedback-20261016`。没有卸载、清库、安装手机或改写用户浏览器数据；旧 APK、签名材料及 `releases/1.0.0` 文件不变。
+接续 `codex/ui-optimization-experiment` 的 `9f709a2` / 1.0.0 / 25；已核对 GitHub 与本机一致、工作树原先干净，并将完整历史保存在工作区外层 `preserved-local-20261016/before-simulator-feedback-9f709a2.bundle`（已验证）。本机与 GitHub 均保留回滚分支 `codex/before-simulator-feedback-20261016`。没有卸载、清库、安装手机或改写用户浏览器数据；旧 APK、签名材料及 `releases/1.0.0` 文件不变。
 
 ## 六项实施情况
 
@@ -24,7 +24,8 @@
 
 - 63 项移动单元、14 项桌面共享命名／导出集成检查、42 项 JVM 原生辅助检查通过；桌面和移动类型、相关 ESLint、移动格式、网页构建及 cap sync 通过。
 - 新增公开浏览器流程验证文本域无缩放、长文字保存重开、原字体、单场／合成／XLSX／多模组 CSV ZIP 命名、重复文件内容相同且旧文件保留、导出首句字重；原欢迎页首次／重开／后台行为仍通过。
-- 首轮完整浏览器回归 80 项通过，1 项仍使用旧 PDF／DOCX 文件名的断言超时；改为桌面名称后，最终完整 **81 项浏览器流程通过**，证据为本机忽略的 `evidence/simulator-final-verified-20261016`。Android 云端编译结果后续补记。
+- 首轮完整浏览器回归 80 项通过，1 项仍使用旧 PDF／DOCX 文件名的断言超时；改为桌面名称后，最终完整 **81 项浏览器流程通过**，证据为本机忽略的 `evidence/simulator-final-verified-20261016`。
+- 源码提交 `2c1046fc0b797a2c70190a0d86977080fde02681` 已上传 `codex/ui-optimization-experiment`；对应 [Android 云端构建 #29](https://github.com/694608556-collab/COC-CHATGPT/actions/runs/38865431175) 成功，产物为 `coc-logbook-debug-apk`（artifact 12031201437）。该产物为调试包，未覆盖 `releases/1.0.0` 正式签名包、未安装；后续仅文档提交不改变已编译源码。云端产物受 Actions 保留期限限制。
 - 本轮没有 Android SDK／模拟器或手机执行证据；浏览器不能验证系统启动窗口、实际 SAF 重名创建或旧 WebView 的原生控件。图片反馈为用户提供的复现，不当作本轮修正后通过。
 - SQLite v3、按需正文读取、角色／模组关联独立、CAS／事务、排序即时保存、十分钟有修改才自动备份和无操作前副本规则不变。已有 S9 接受结论保留原版本和范围，不扩大为本轮新外观或其他手机通过。
 
