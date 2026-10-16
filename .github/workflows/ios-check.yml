@@ -42,6 +42,17 @@ jobs:
             mobile/ios/build/INSTALL-IPA.txt
             mobile/ios/build/xcode-version.txt
           retention-days: 14
+      - name: Check fresh native WKWebView startup in cloud simulator
+        run: python3 scripts/ios-simulator-smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-simulator-startup-evidence
+          path: |
+            mobile/ios/build/ios-initial-screen.png
+            mobile/ios/build/ios-smoke-result.json
+            mobile/ios/build/simulator-environment.json
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
