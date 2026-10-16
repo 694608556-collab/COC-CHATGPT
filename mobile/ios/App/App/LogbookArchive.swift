@@ -42,10 +42,12 @@ final class LogbookArchive {
             defer { try? FileManager.default.removeItem(at: probe) }
             guard try Data(contentsOf: probe) == bytes else { throw LogbookFailure("文件夹回读校验失败。") }
         }
-        let previous = preferences.data(forKey: "coc.archive.bookmark"), label = preferences.string(forKey: "coc.archive.label")
+        let previous = preferences.data(forKey: "coc.archive.bookmark"), label = preferences.string(forKey: "coc.archive.label"), automatic = preferences.dictionary(forKey: "coc.automatic-backup")
         preferences.set(bookmark, forKey: "coc.archive.bookmark"); preferences.set(url.lastPathComponent, forKey: "coc.archive.label")
+        if previous != bookmark { preferences.removeObject(forKey: "coc.automatic-backup") }
         guard preferences.synchronize() else {
             preferences.set(previous, forKey: "coc.archive.bookmark"); preferences.set(label, forKey: "coc.archive.label")
+            preferences.set(automatic, forKey: "coc.automatic-backup")
             throw LogbookFailure("文件夹授权未保存，请重试。")
         }
         return location()
@@ -147,10 +149,22 @@ final class LogbookArchive {
     }
     func removeOwned(_ uri: String) throws {
         registryLock.lock(); defer { registryLock.unlock() }
-        _ = try read(uri)
         let row = try known(uri), document = row["document"] as! LogbookJSON
         let bookmark = Data(base64Encoded: row["bookmark"] as! String)!
-        try access(bookmark) { directory in try FileManager.default.removeItem(at: directory.appendingPathComponent(document["name"] as! String)) }
+        try access(bookmark) { directory in
+            let file = directory.appendingPathComponent(document["name"] as! String)
+            var failure: NSError?, outcome: Result<Void, Error>?
+            NSFileCoordinator().coordinate(writingItemAt: file, options: [.forDeleting], error: &failure) { file in
+                outcome = Result {
+                    let bytes = try self.readBounded(file)
+                    guard Self.digest(bytes) == document["sha256"] as? String, bytes.count == (document["bytes"] as? NSNumber)?.intValue else { throw LogbookFailure("旧文件已改变，已保留。") }
+                    try FileManager.default.removeItem(at: file)
+                }
+            }
+            if let failure { throw failure }
+            guard let outcome else { throw LogbookFailure("文件删除未完成。") }
+            try outcome.get()
+        }
         try persist(try registry().filter { ($0["document"] as? LogbookJSON)?["uri"] as? String != uri })
     }
     func rotateAutomatic(bookmark: Data) -> String {

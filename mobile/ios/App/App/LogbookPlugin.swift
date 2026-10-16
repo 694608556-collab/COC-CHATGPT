@@ -9,7 +9,7 @@ import Network
 public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDelegate, QLPreviewControllerDataSource {
     public let identifier = "LogbookPlugin"
     public let jsName = "Logbook"
-    public let pluginMethods = ["claimFirstLaunchIntro", "getOverview", "getState", "getStatus", "getRecordContent", "commitSettings", "commitModule", "commitEntity", "commitAction", "commitEdit", "commitRestore", "selectArchive", "openBackup", "writeArchive", "readDocument", "listDocuments", "openDocument", "shareDocument", "fetchLog", "automaticBackup"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise) }
+    public let pluginMethods: [CAPPluginMethod] = ["claimFirstLaunchIntro", "getOverview", "getState", "getStatus", "getRecordContent", "commitSettings", "commitModule", "commitEntity", "commitAction", "commitEdit", "commitRestore", "selectArchive", "openBackup", "writeArchive", "readDocument", "listDocuments", "openDocument", "shareDocument", "fetchLog", "automaticBackup"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise)! }
     private let work = DispatchQueue(label: "coc.logbook.storage", qos: .userInitiated)
     private let backupWriter = DispatchQueue(label: "coc.logbook.automatic-backup", qos: .utility)
     private let monitor = NWPathMonitor()
@@ -46,6 +46,15 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         if let saved = archive.preferences.dictionary(forKey: "coc.automatic-backup") { result["lastAutoBackupAt"] = saved["savedAt"]; result["lastAutoBackupRevision"] = saved["revision"] }
         return result
     }
+    private func systemTheme(_ theme: String?) {
+        DispatchQueue.main.async {
+            guard let controller = self.bridge?.viewController as? CAPBridgeViewController else { return }
+            let dark = theme == "dark"
+            controller.statusBarStyle = dark ? .lightContent : .darkContent
+            controller.overrideUserInterfaceStyle = dark ? .dark : .light
+            controller.setNeedsStatusBarAppearanceUpdate()
+        }
+    }
     @objc func claimFirstLaunchIntro(_ call: CAPPluginCall) {
         run(call) { _, archive in
             let preferences = archive.preferences, key = "coc.presentation.first-welcome-shown"
@@ -57,7 +66,10 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
     @objc func getOverview(_ call: CAPPluginCall) {
         run(call) { store, archive in
             var result = try self.state(store, archive); result["json"] = NSNull()
-            if let snapshot = try store.metadata() { result["json"] = try logbookText(snapshot) }
+            if let snapshot = try store.metadata() {
+                result["json"] = try logbookText(snapshot)
+                self.systemTheme((snapshot["settings"] as? LogbookJSON)?["theme"] as? String)
+            } else { self.systemTheme("light") }
             result["deferredRecordIds"] = try store.deferredIDs(); return result
         }
     }
@@ -80,6 +92,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         run(call) { store, archive in
             try archive.requirePermission()
             let (revision, now) = try store.mutate(expected: self.expected(call), operation)
+            if call.methodName == "commitSettings" { self.systemTheme(call.getObject("settings")?["theme"] as? String) }
             return ["revision": revision, "exportedAt": now]
         }
     }
@@ -122,7 +135,9 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
                     let document = try archive.write(name: name, mime: mime, bytes: bytes, purpose: "import")
                     imported.append(document["uri"] as! String)
                 }
-                return ["revision": try store.replace(snapshot, expected: expected)]
+                let revision = try store.replace(snapshot, expected: expected)
+                self.systemTheme((snapshot["settings"] as? LogbookJSON)?["theme"] as? String)
+                return ["revision": revision]
             } catch { for uri in imported { try? archive.removeOwned(uri) }; throw error }
         }
     }
@@ -132,6 +147,10 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
             self.pickerCall = call; self.choosingFolder = folder
             let picker = UIDocumentPickerViewController(forOpeningContentTypes: folder ? [.folder] : [.data], asCopy: !folder)
             picker.allowsMultipleSelection = false; picker.delegate = self
+            if folder, let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                do { try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true); picker.directoryURL = documents }
+                catch { self.pickerCall = nil; call.reject("本机文件位置无法打开。"); return }
+            }
             controller.present(picker, animated: true)
         }
     }
