@@ -3,7 +3,7 @@ import { decodeBase64, encodeBase64 } from '../data/native'
 import { encodeBackup, previewBackup } from '../data/backup'
 import { DEFAULT_FILTER_PRESET } from '../../../src/shared/types'
 import { applyAction } from '../data/actions'
-import { encodeInBackground } from '../data/background'
+import { checkJsonInBackground, encodeInBackground } from '../data/background'
 import { validateSettings } from '../data/settings'
 import { applyEdit } from '../data/edit'
 import { nextExportName } from '../../../src/shared/export-filenames'
@@ -74,7 +74,7 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
     expectedRevision: number,
     attachments: Array<{ name: string; mime: string; base64: string }> = []
   ) {
-    const next = (await previewBackup(new TextEncoder().encode(json))).snapshot
+    const checkedJson = await checkJsonInBackground(json)
     const before = await readState()
     if (!before.archive.valid) throw new Error('请先启用浏览器测试存储。')
     if (before.revision !== expectedRevision) throw new Error('数据已变化，请重新打开编辑或导入预览。')
@@ -108,7 +108,7 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
           states.put(
             {
               ...current,
-              json: JSON.stringify(next),
+              json: checkedJson,
               revision: expectedRevision + 1
             },
             'current'

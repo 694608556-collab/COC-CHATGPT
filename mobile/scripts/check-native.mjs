@@ -61,3 +61,19 @@ const result = spawnSync(
 )
 process.stdout.write(result.stdout)
 if (result.status) throw new Error(result.stderr)
+const networkCompiled = spawnSync(
+  javac,
+  [
+    '-encoding',
+    'UTF-8',
+    '-d',
+    work,
+    join(source, 'NetworkQueue.java'),
+    resolve('tests/native/NetworkQueueCheck.java')
+  ],
+  { encoding: 'utf8' }
+)
+if (networkCompiled.status) throw new Error(networkCompiled.stderr)
+const networkResult = spawnSync(java, ['-cp', work, 'coc.logbook.NetworkQueueCheck'], { encoding: 'utf8' })
+process.stdout.write(networkResult.stdout)
+if (networkResult.status) throw new Error(networkResult.stderr)

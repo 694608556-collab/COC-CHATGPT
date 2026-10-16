@@ -161,7 +161,7 @@ test('手填伤害不被属性及版次覆盖；短物品三列、长名称加�
   })
 })
 
-test('成功提示可关闭或三秒后渐隐；静态警告和保存错误关闭不改数据或草稿', async ({ page }) => {
+test('成功提示可关闭或三秒后渐隐；已移除备份警告，保存错误关闭不改草稿', async ({ page }) => {
   await ready(page)
   const notice = page.locator('.operation-feedback .notice')
   await expect(notice.getByRole('button', { name: '关闭提示' })).toBeVisible()
@@ -169,7 +169,6 @@ test('成功提示可关闭或三秒后渐隐；静态警告和保存错误关�
   await expect(notice).toHaveCount(0)
   await page.getByRole('button', { name: '数据与设置', exact: true }).click()
   const warning = page.locator('.system-message.warning')
-  await warning.getByRole('button', { name: '关闭提示' }).click()
   await expect(warning).toHaveCount(0)
   await expect(page.getByRole('button', { name: '保存安卓备份', exact: true })).toBeEnabled()
   await page.getByLabel('隐藏骰指令').check()

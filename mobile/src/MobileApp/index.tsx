@@ -26,7 +26,7 @@ import { SystemMessage } from './components/SystemMessage'
 import { RemoveButton } from './components/RemoveButton'
 import { applyAction } from '../data/actions'
 import type { DataAction } from '../data/actions'
-import { fetchRecord } from '../data/network'
+import { fetchRecords } from './fetch-records'
 import type { SavedDocument } from '../data/native'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
@@ -221,19 +221,22 @@ export function MobileApp({
     }
     setNotice(action.type === 'reorder' ? '排序已保存。' : '操作已保存。')
   }
+  /** @param ids - 用户选定的场次；只获取在线目标。 @returns 获取全部结束后一次校验／事务提交，失败不发布未保存结果。 */
   async function probe(ids: string[]) {
     const complete = await loadContent(snapshot.records.map((r) => r.id))
-    const next = { ...complete, records: [...complete.records] }
-    for (const id of ids) {
-      const index = next.records.findIndex((r) => r.id === id)
-      if (index < 0 || next.records[index]!.sourceType !== 'online') continue
-      next.records[index] = await fetchRecord(port, next.records[index]!)
-    }
+    const wanted = new Set(ids)
+    const targets = complete.records.filter((item) => wanted.has(item.id) && item.sourceType === 'online')
+    const fetched = await fetchRecords(port, targets, {
+      onProgress: ({ completed, total, succeeded, failed }) =>
+        setNotice(`正在获取正文：${completed}/${total}，成功 ${succeeded}，失败 ${failed}。尚未保存。`)
+    })
+    const updates = new Map(fetched.map((item) => [item.id, item]))
+    const next = { ...complete, records: complete.records.map((item) => updates.get(item.id) ?? item) }
     await commit(next)
     if (record) setRecord(next.records.find((r) => r.id === record.id))
-    const failures = next.records.filter((r) => ids.includes(r.id) && r.status !== 'valid').length
+    const failures = fetched.filter((r) => r.status !== 'valid').length
     const summary =
-      '获取完成：' + (ids.length - failures) + ' 个成功，' + failures + ' 个失败。已有正文在失败时保留。'
+      '获取完成：' + (fetched.length - failures) + ' 个成功，' + failures + ' 个失败。已有正文在失败时保留。'
     if (failures) setError(summary)
     else setNotice(summary)
   }

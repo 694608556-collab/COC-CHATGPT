@@ -36,10 +36,11 @@ import org.json.JSONObject;
 public final class LogbookPlugin extends Plugin {
     private static final int MAX_BYTES = 64 * 1024 * 1024;
     private LogbookDatabase database;
+    private final NetworkQueue networkQueue = new NetworkQueue();
     private final java.util.concurrent.ExecutorService backupWriter = java.util.concurrent.Executors.newSingleThreadExecutor();
     private final java.util.concurrent.atomic.AtomicBoolean backupRunning = new java.util.concurrent.atomic.AtomicBoolean();
     @Override public void load() { database = new LogbookDatabase(getContext()); }
-    @Override protected void handleOnDestroy() { backupWriter.shutdown(); if (database != null) database.close(); }
+    @Override protected void handleOnDestroy() { networkQueue.close(); backupWriter.shutdown(); if (database != null) database.close(); }
     private SharedPreferences prefs() { return getContext().getSharedPreferences("archive-location", 0); }
     /** No arguments. Persist before granting one welcome display; business restore/clear never touches this file. */
     @PluginMethod public synchronized void claimFirstLaunchIntro(PluginCall call) {
@@ -331,7 +332,7 @@ public final class LogbookPlugin extends Plugin {
         });
     }
     @PluginMethod public void fetchLog(PluginCall call) {
-        execute(() -> {
+        networkQueue.execute(() -> {
             try {
                 URL url = new URL(call.getString("url", ""));
                 if (!"https".equals(url.getProtocol()) || !"dice-api.weizaima.com".equals(url.getHost()) ||
@@ -368,7 +369,7 @@ public final class LogbookPlugin extends Plugin {
                 }
                 throw new IllegalStateException("日志跳转次数过多。");
             } catch (Exception error) { call.reject("日志网络请求失败。", error); }
-        });
+        }, () -> call.reject("日志请求队列已满或已关闭，请稍后重试。"));
     }
     @PluginMethod public void automaticBackup(PluginCall call) {
         if (!backupRunning.compareAndSet(false,true)) { call.reject("自动备份正在进行，请稍候。"); return; }

@@ -1,6 +1,7 @@
 import { performSnapshotJob } from './snapshot-job'
 import type { SnapshotJob } from './snapshot-job'
 import type { ImportPreview, MobileSnapshot } from './types'
+import type { NormalizedLog } from '../../../src/shared/types'
 
 /** 任务成功/失败回调，按 number 序号配对，不存放文件权限。 */
 interface PendingJob {
@@ -12,6 +13,23 @@ interface PendingJob {
 let worker: Worker | undefined
 let sequence = 0
 const pending = new Map<number, PendingJob>()
+// 解析一次只向 Worker 投递一份响应，避免并发下载后在 Worker／桥接间堆积多份大对象。
+let seaQueue: Promise<void> = Promise.resolve()
+
+/**
+ * 将海豹解压／解析排入单通道后台任务，不在界面同步降级解析。
+ * @param text - 完整网络响应 JSON；仅当前最多 2–4 个流水线槽位持有。
+ * @param sourceUrl - 正文的原场次来源地址。
+ * @returns 完整正文及摘要；失败释放解析槽位并拒绝，调用方保留旧正文。
+ */
+export function parseSeaInBackground(text: string, sourceUrl?: string): Promise<NormalizedLog> {
+  const result = seaQueue.then(() => runJob<NormalizedLog>({ type: 'sea-response', text, sourceUrl }))
+  seaQueue = result.then(
+    () => undefined,
+    () => undefined
+  )
+  return result
+}
 
 /**
  * 投递到本地打包的工作线程，避免界面处理整份正文。
@@ -62,6 +80,14 @@ export function previewBase64InBackground(base64: string): Promise<ImportPreview
 /** @param json - 原生快照缓存。 @returns 重读并校验的完整业务快照。 */
 export async function readInBackground(json: string): Promise<MobileSnapshot> {
   return (await runJob<ImportPreview>({ type: 'read', json })).snapshot
+}
+/**
+ * 模拟原生存储的后台完整校验，不把整份正文对象传回界面。
+ * @param json - 浏览器开发存储的候选完整快照。
+ * @returns 通过既有导入校验的规范 JSON；失败不写入，不跳过任何正文。
+ */
+export function checkJsonInBackground(json: string): Promise<string> {
+  return runJob({ type: 'checked-json', json })
 }
 /** @param snapshot - 待提交数据。 @returns 校验后的快照及对应 JSON，不执行写入。 */
 export function prepareInBackground(
