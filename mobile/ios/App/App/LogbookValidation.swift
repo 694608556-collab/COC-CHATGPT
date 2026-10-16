@@ -89,7 +89,14 @@ enum LogbookValidation {
         try self.settings(settings)
         let modules = try objects(value["modules"]), records = try objects(value["records"]), characters = try objects(value["characters"])
         let mids = try ids(modules), cids = try ids(characters); _ = try ids(records)
-        for module in modules { try self.module(module); for pair in try objects(module["pairs"]) { if let id = pair["characterId"] as? String { guard cids.contains(id) else { try fail("参与者关联失效。") } } }
+        for module in modules {
+            try self.module(module)
+            for pair in try objects(module["pairs"]) {
+                if let id = pair["characterId"] as? String {
+                    guard cids.contains(id) else { try fail("参与者关联失效。") }
+                }
+            }
+        }
         for character in characters {
             try self.character(character)
             let linked = character["moduleIds"] as! [String]
