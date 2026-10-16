@@ -1,7 +1,6 @@
 import type { ArchiveLocation } from '../../../data/native'
 import type { SavedDocument } from '../../../data/native'
 import type { MobileSnapshot } from '../../../data/types'
-import { SystemMessage } from '../SystemMessage'
 import { SelectField } from '../SelectField'
 import type { SettingsPatch } from '../../../data/settings-batch'
 
@@ -187,10 +186,6 @@ export function DataSettings(props: {
         <button disabled={props.busy} onClick={props.onZipBackup}>
           保存含归档 ZIP 备份
         </button>
-        <SystemMessage
-          kind="warning"
-          message="安卓备份包含已保存正文，但当前电脑版尚未支持安全恢复此格式。请勿用旧电脑版整库恢复流程导入。"
-        />
         <p className="muted">
           卸载会删除应用内部数据库，卸载前请导出备份。导出的 TXT 文档不能替代完整数据备份。
         </p>

@@ -78,7 +78,7 @@ export function Records(props: {
   const modules = snapshot.modules.slice().sort((a, b) => a.order - b.order)
   return (
     <>
-      <div className="edit-actions">
+      <div className="edit-actions records-create-actions">
         <button disabled={props.busy} onClick={props.onNewModule}>
           新增模组
         </button>

@@ -361,9 +361,6 @@ main {
 .settings-panel .field {
   margin-bottom: 6px;
 }
-.settings-panel > .system-message {
-  margin: 4px 0 6px;
-}
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -1530,6 +1527,15 @@ input[type='checkbox']:checked::after {
   font-size: 11px;
   margin: 3px 0 10px;
   overflow-wrap: break-word;
+}
+.records-create-actions {
+  margin-bottom: 6px;
+}
+.records-create-actions > button {
+  margin-bottom: 0;
+}
+.records-create-actions + .gesture-hint {
+  margin-top: 0;
 }
 .selection-count {
   flex: 0 0 100%;
