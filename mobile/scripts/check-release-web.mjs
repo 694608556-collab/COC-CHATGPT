@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 
 const webDirectory = fileURLToPath(new URL('../www/', import.meta.url))
+const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 const source = (await readFile(resolve(webDirectory, 'app.js'), 'utf8')).replace(
   /\\u([0-9a-f]{4})/gi,
   (_, value) => String.fromCharCode(parseInt(value, 16))
@@ -26,7 +27,7 @@ for (const text of [
   '重新构建安装包'
 ])
   assert(!source.includes(text), `Development-only content in production bundle: ${text}`)
-assert(source.includes('1.0.0'), 'Release version missing')
+assert(source.includes(version), `Release version missing: ${version}`)
 assert(source.includes('亦如长风万里沙'), 'Creator credit missing')
 const assets = await readdir(webDirectory, { recursive: true })
 assert(!assets.some((name) => name.endsWith('.map')), 'Production source maps must not be shipped')

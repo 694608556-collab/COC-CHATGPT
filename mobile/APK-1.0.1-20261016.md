@@ -1,0 +1,25 @@
+# 1.0.1 / 26 模拟器测试 APK
+
+用户要求生成 APK 后，已基于最新界面源码 `edf7b57` 及构建提交 `f4dbf2ba9772d22b9350de5c4c6ce5582177823a` 完成打包。包括六项模拟器反馈修正和追加的设置／最近保存卡片间距。沿用原正式签名，仅交付测试安装包，不创建 GitHub Release、不合并 PR、不安装或操作模拟器／手机数据。
+
+## 交付文件
+
+- 本机：`C:/Users/Administrator/Documents/Codex/11/apk-delivery/1.0.1-26-settings-20261016/coc-logbook-1.0.1-26.apk`，相邻 `.apk.sha256` 已生成。
+- 大小：32,076,032 字节，约 30.6 MiB。
+- SHA-256：`40fb0b89a47bc6b5ee967edc9b38b14e099c7d9b3065c79c99ec2126611c7792`。
+- 包名 `coc.logbook`，versionName `1.0.1`，versionCode `26`，最低 Android 9 / API 28，targetSdk 36，`debuggable=false`。
+- 签名证书 SHA-256：`cc3020afe7446589b5dff92eb9fe69b7593af18f614445b1d8e5805e853143e7`；已直接核对与保留的 1.0.0 / 25 APK 相同，支持同签名正式包覆盖升级，无须卸载。开发版 `.debug` 是另一包名。
+- 原 1.0.0 APK 及其他历史包保留；本次未把新签名材料上传云端，也未更换签名。
+
+## 构建与验证
+
+- [Android 云端构建 #30](https://github.com/694608556-collab/COC-CHATGPT/actions/runs/38868559420) 成功：冻结锁文件安装、类型、63 项移动单元、网页构建、Capacitor 同步、Debug／Release 编译及未签名 Release 的 16KB 页面 zipalign 检查通过。
+- 云端仅准备对齐后的未签名 APK 和 SDK 自带 `apksigner.jar`；产物 `coc-logbook-unsigned-release-for-local-signing` 的 ZIP SHA-256 `0188b0c2ea5b6c97c6c469c7d1e3f358f6cab74adbbd3e31aa38bb81f715ed85` 下载后已匹配。该产物与 Debug 产物均受 7 天保留期限限制，不能把未签名包当作最终交付。
+- 本机使用仓库外的原签名材料签署，`apksigner verify` 通过（v3、RSA 4096）；新旧证书一致。使用 SDK 内置二进制 XML 读取器直接核对最终 APK 包名、版本、minSdk／targetSdk 及非调试状态。
+- 原校验脚本仍硬编码 1.0.0，已改为读取 package.json 当前版本；生产包不含开发提示、样本入口、源码映射或开发服务器地址。
+- 本机同时安装桌面及 mobile 依赖，普通本地构建会从上级目录解析重复依赖，主 JS 摘要与云端只安装 mobile 的环境不同。另在独立目录用同一源码、编译配置及 mobile 依赖复建后，四份网页资源与最终 APK **逐字节一致**；八份字体与原桌面字体逐字节一致，无私有数据库、备份样本或签名材料进入 APK。未用忽略差异的方式放宽校验。
+- 后续仅校验脚本及本记录更新不改变本 APK 的应用代码。先前 81 项完整浏览器及追加 9 项间距相关流程保持其原范围，本轮不称重新运行全部浏览器测试。
+
+## 待模拟器／真机验证
+
+本轮仅生成并校验 APK，未安装。请在保留数据升级后复查：系统启动第一帧与欢迎／重开、设置页与提示卡片间距、角色文本框角标和长文字、导出首句、单场／合成／表格命名、目录中重名编号和失败清理。读取正文、版本检查、事务与自动备份保护继续保留；不清库、不卸载来制造测试通过，不能把构建结论改写为模拟器或 S9／其他机型已通过。
