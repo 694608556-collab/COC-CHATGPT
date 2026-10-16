@@ -41,9 +41,20 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck && pnpm test && pnpm build
       - run: pnpm exec cap sync android
-      - run: chmod +x android/gradlew && cd android && ./gradlew assembleDebug --no-daemon --console=plain
+      - run: chmod +x android/gradlew && cd android && ./gradlew assembleDebug assembleRelease --no-daemon --console=plain
+      - name: Prepare unsigned release for local signing
+        run: |
+          mkdir -p android/app/build/outputs/local-signing
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -P 16 -f 4 android/app/build/outputs/apk/release/app-release-unsigned.apk android/app/build/outputs/local-signing/app-release-aligned-unsigned.apk
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 4 android/app/build/outputs/local-signing/app-release-aligned-unsigned.apk
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" android/app/build/outputs/local-signing/apksigner.jar
       - uses: actions/upload-artifact@v4
         with:
           name: coc-logbook-debug-apk
           path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coc-logbook-unsigned-release-for-local-signing
+          path: mobile/android/app/build/outputs/local-signing/*
           retention-days: 7
