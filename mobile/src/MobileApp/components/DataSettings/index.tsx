@@ -56,7 +56,7 @@ export function DataSettings(props: {
           <small>角色卡</small>
         </strong>
       </section>
-      <section className="panel">
+      <section className="panel settings-panel">
         <div className="settings-section-heading">
           <h2>阅读与导出默认设置</h2>
           <span
@@ -101,7 +101,7 @@ export function DataSettings(props: {
           ))}
         </div>
       </section>
-      <section className="panel">
+      <section className="panel settings-panel">
         <h2>显示主题</h2>
         <div className="edit-actions" role="group" aria-label="显示主题">
           <button
@@ -121,7 +121,7 @@ export function DataSettings(props: {
         </div>
         <p className="muted">保存后下次打开仍使用所选主题。</p>
       </section>
-      <section className="panel">
+      <section className="panel settings-panel">
         <h2>自动本地备份</h2>
         <p className="muted">
           编辑、设置、排序、删除和导入直接保存最新数据，不额外生成操作前副本。 启用自动备份后，默认至少间隔 10
@@ -172,7 +172,7 @@ export function DataSettings(props: {
           {props.backingUp ? '自动备份中…' : '立即生成自动备份'}
         </button>
       </section>
-      <section className="panel">
+      <section className="panel settings-panel">
         <h2>备份与恢复</h2>
         <p>
           {props.snapshot.modules.length} 个模组 · {props.snapshot.records.length} 个场次 ·{' '}
@@ -195,7 +195,7 @@ export function DataSettings(props: {
           卸载会删除应用内部数据库，卸载前请导出备份。导出的 TXT 文档不能替代完整数据备份。
         </p>
       </section>
-      <section className="panel">
+      <section className="panel settings-panel">
         <h2>表格导入与导出</h2>
         <button disabled={props.busy} onClick={props.onTableImport}>
           导入场次表格
@@ -214,7 +214,7 @@ export function DataSettings(props: {
         </button>
       </section>
 
-      <section className="panel">
+      <section className="panel settings-panel">
         <h2>归档位置</h2>
         <p className="location">{props.archive.label}</p>
         <p className="muted">已通过读写验证。若使用存储卡，拔卡后需重新确认位置。</p>
@@ -223,7 +223,7 @@ export function DataSettings(props: {
         </button>
       </section>
 
-      <section className="panel">
+      <section className="panel settings-panel">
         <h2>归档文件</h2>
         <button disabled={props.busy} onClick={props.onListDocuments}>
           刷新归档文件
@@ -245,7 +245,7 @@ export function DataSettings(props: {
           </section>
         ))}
       </section>
-      <section className="panel">
+      <section className="panel settings-panel">
         <h2>清空应用数据</h2>
         <p>清空模组、场次和角色卡，保留设置及归档文件。不会生成操作前副本，需要时请先手动备份。</p>
         <button disabled={props.busy} className="danger" onClick={props.onClear}>

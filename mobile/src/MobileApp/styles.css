@@ -336,6 +336,34 @@ main {
 .settings-page > * {
   flex-shrink: 0;
 }
+.settings-panel > h2,
+.settings-panel .settings-section-heading h2 {
+  margin-bottom: 6px;
+}
+.settings-panel > p {
+  margin: 6px 0 8px;
+}
+.panel.settings-panel > button {
+  margin: 0 6px 4px 0;
+  vertical-align: top;
+}
+.settings-panel > button:last-child {
+  margin-bottom: 0;
+}
+.settings-panel > button + p {
+  margin-top: 2px;
+}
+.settings-panel > .edit-actions,
+.settings-panel > .edit-actions + p {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.settings-panel .field {
+  margin-bottom: 6px;
+}
+.settings-panel > .system-message {
+  margin: 4px 0 6px;
+}
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -537,11 +565,17 @@ main {
 .recent-saved-title {
   display: flex;
   align-items: center;
+  margin-bottom: 6px;
 }
 .recent-saved-title p {
   flex: 1;
   min-width: 0;
+  margin: 0;
   overflow-wrap: break-word;
+}
+.panel.recent-saved > button {
+  margin: 0 6px 0 0;
+  vertical-align: top;
 }
 .record-name {
   flex: 1;

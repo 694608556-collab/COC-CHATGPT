@@ -775,7 +775,7 @@ export function MobileApp({
         aria-hidden={confirmation ? true : undefined}
       >
         {savedDocument && (
-          <section className="panel">
+          <section className="panel recent-saved">
             <div className="recent-saved-title">
               <p>最近保存：{savedDocument.name}</p>
               <RemoveButton label="关闭最近保存" onClick={() => setSavedDocument(undefined)} />
