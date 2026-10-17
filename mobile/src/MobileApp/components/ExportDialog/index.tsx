@@ -43,7 +43,7 @@ export function ExportDialog(props: {
           />
           <p className="muted">
             <strong>按当前过滤设置导出。</strong>带图 DOC 引用远程图片链接；PDF
-            使用应用内置字体生成页面图像，保留中文，但文字无法复制搜索。未保存正文的场次会报告失败。
+            使用应用内置字体保留中文与完整正文，不代替可编辑文字备份。未保存正文的场次会报告失败。
           </p>
           {props.busy && props.progress && (
             <div
@@ -60,7 +60,7 @@ export function ExportDialog(props: {
                 ? '正在取消并清理临时文件…'
                 : props.progress.stage === 'layout'
                   ? '正在排版完整正文…'
-                  : `${props.progress.stage === 'save' ? '正在保存并校验' : '正在生成 PDF'}：${props.progress.completed}/${props.progress.total} 页`}
+                  : `${props.progress.stage === 'save' ? '正在保存并校验' : props.progress.stage === 'encode' ? '正在编码完整 PDF' : '正在生成 PDF'}：${props.progress.completed}/${props.progress.total} 页`}
             </div>
           )}
         </div>

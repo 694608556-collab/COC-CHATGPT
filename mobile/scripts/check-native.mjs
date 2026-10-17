@@ -85,6 +85,8 @@ const pdfCompiled = spawnSync(
     '-d',
     work,
     join(source, 'PdfSpool.java'),
+    join(source, 'TextPdfJobs.java'),
+    resolve('tests/native/TextPdfJobsCheck.java'),
     resolve('tests/native/PdfSpoolCheck.java')
   ],
   { encoding: 'utf8' }
@@ -93,3 +95,6 @@ if (pdfCompiled.status) throw new Error(pdfCompiled.stderr)
 const pdfResult = spawnSync(java, ['-cp', work, 'coc.logbook.PdfSpoolCheck'], { encoding: 'utf8' })
 process.stdout.write(pdfResult.stdout)
 if (pdfResult.status) throw new Error(pdfResult.stderr)
+const textPdfResult = spawnSync(java, ['-cp', work, 'coc.logbook.TextPdfJobsCheck'], { encoding: 'utf8' })
+process.stdout.write(textPdfResult.stdout)
+if (textPdfResult.status) throw new Error(textPdfResult.stderr)

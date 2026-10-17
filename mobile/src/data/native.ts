@@ -39,6 +39,19 @@ export interface SavedDocument {
 }
 /** 所有请求/响应与本工程 LogbookPlugin.java 一一对应，不访问推测的 HTTP 接口。 */
 export interface LogbookPort {
+  /** @param options - 已完成的 UTF-8 正文暂存标识。 @returns 后台原字体 PDF 任务启动确认；不发布文件。仅 Android 实现。 */
+  renderTextPdf(options: { id: string }): Promise<void>
+  /** @param options - 当前 PDF 任务标识。 @returns 真实排版/已绘页数/写文件状态；不等待整个生成过程。 */
+  getTextPdfProgress(options: { id: string }): Promise<{
+    /** 当前阶段；ready 才能发布，failed/cancelled 不生成外部文件。 */
+    stage: 'layout' | 'render' | 'write' | 'ready' | 'failed' | 'cancelled'
+    /** 当前已绘制页数；类型为 number。 */
+    pages: number
+    /** 排版确定的总页数；类型为 number，排版时为 0。 */
+    total: number
+    /** 失败或取消的说明；类型为 string，成功处理中为空。 */
+    error: string
+  }>
   /** @returns 新的私有 PDF 暂存标识；不创建外部文件、不修改业务数据。最多同时一份。 */
   beginPdfArchive(): Promise<{ id: string }>
   /** @param options - 暂存标识和至多 256 KiB 的顺序 Base64 字节。 @returns 写入确认，累计不超过 64 MB。 */

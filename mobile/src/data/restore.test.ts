@@ -17,6 +17,12 @@ function deviceStore(failSave = false): LogbookPort {
     archive: { uri: 'content://example/tree', label: '测试目录', valid: true }
   }
   return {
+    renderTextPdf: async () => {
+      throw new Error('not used by restore')
+    },
+    getTextPdfProgress: async () => {
+      throw new Error('not used by restore')
+    },
     beginPdfArchive: async () => {
       throw new Error('测试未调用 PDF 导出')
     },

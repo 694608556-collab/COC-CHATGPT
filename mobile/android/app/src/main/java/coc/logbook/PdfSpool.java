@@ -49,6 +49,23 @@ final class PdfSpool implements AutoCloseable {
     /** Publisher receives a complete closed file; it must roll back its own new destination on failure. */
     interface Publisher<T> { T publish(File source, String tree, String name, long size, String sha256) throws Exception; }
 
+    /** Transfers a sealed private input to a background renderer; the receiver must delete it. */
+    static final class Sealed {
+        final File file;
+        final String id, tree;
+        Sealed(File file, String id, String tree) { this.file = file; this.id = id; this.tree = tree; }
+    }
+    Sealed take(String token) throws Exception {
+        require(token);
+        try {
+            output.flush(); output.getFD().sync(); output.close(); output = null;
+            if (file.length() != size) throw new IllegalStateException("正文临时文件不完整。");
+            Sealed result = new Sealed(file, id, tree);
+            file = null; id = null; tree = null; size = 0;
+            return result;
+        } catch (Exception error) { close(); throw error; }
+    }
+
     /** Seals, verifies completeness and publishes once; always removes the private spool. */
     <T> T finish(String token, String name, Publisher<T> publisher) throws Exception {
         return finish(token, name, true, publisher);
@@ -58,14 +75,22 @@ final class PdfSpool implements AutoCloseable {
     <T> T finish(String token, String name, boolean pdf, Publisher<T> publisher) throws Exception {
         require(token);
         try {
+            output.flush(); output.getFD().sync(); output.close(); output = null;
+            if (file.length() != size) throw new IllegalStateException("导出临时文件不完整。");
+            return publish(file, tree, name, pdf, publisher);
+        } finally { close(); }
+    }
+
+    /** Shared verification/commit boundary for both browser raster and native text PDF files. */
+    static <T> T publish(File file, String tree, String name, boolean pdf, Publisher<T> publisher) throws Exception {
+            long size = file.length();
             if (name == null || name.isEmpty() || name.equals(".") || name.equals("..") || name.length() > 255 || (pdf && !name.endsWith(".pdf")) || name.matches(".*[/\\\\\u0000-\u001f].*"))
                 throw new IllegalArgumentException("导出文件名不合法。");
-            output.flush(); output.getFD().sync(); output.close(); output = null;
-            if ((pdf && size < 16) || file.length() != size) throw new IllegalStateException("导出临时文件不完整。");
+            if ((pdf && size < 16) || size > MAX_BYTES) throw new IllegalStateException("导出临时文件不完整或超过大小限制。");
             if (pdf) try (RandomAccessFile input = new RandomAccessFile(file, "r")) {
                 byte[] header = new byte[5]; input.readFully(header);
                 byte[] tail = new byte[(int)Math.min(32, size)]; input.seek(size - tail.length); input.readFully(tail);
-                if (!"%PDF-".equals(new String(header, StandardCharsets.US_ASCII)) || !new String(tail, StandardCharsets.US_ASCII).endsWith("%%EOF\n"))
+                if (!"%PDF-".equals(new String(header, StandardCharsets.US_ASCII)) || !new String(tail, StandardCharsets.US_ASCII).trim().endsWith("%%EOF"))
                     throw new IllegalStateException("PDF 不完整，未保存。");
             }
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -76,7 +101,6 @@ final class PdfSpool implements AutoCloseable {
             StringBuilder hash = new StringBuilder();
             for (byte b : digest.digest()) hash.append(String.format("%02x", b & 255));
             return publisher.publish(file, tree, name, size, hash.toString());
-        } finally { close(); }
     }
 
     /** Idempotent cancellation cannot remove another export or an already published document. */

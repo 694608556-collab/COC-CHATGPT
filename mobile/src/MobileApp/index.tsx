@@ -32,6 +32,7 @@ import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 import { ExportDialog } from './components/ExportDialog'
 import { createExport } from '../data/export'
+import { generateNativePdf } from './native-pdf'
 import { saveGeneratedExport } from '../data/export-archive'
 import type { ExportFormat } from '../data/export'
 import { checkPdfCancellation } from '../data/pdf'
@@ -280,23 +281,38 @@ export function MobileApp({
           let latest: PdfProgress = { stage: 'layout', completed: 0, total: 0 }
           const file =
             format === 'pdf'
-              ? await createExport(
-                  module,
-                  available,
-                  exportRequest.filters,
-                  format,
-                  exportRequest.combined,
-                  controller
-                    ? {
-                        signal: controller.signal,
-                        onProgress: (progress) => {
-                          latest = { ...progress, fileIndex: groupIndex + 1, fileTotal: groups.length }
-                          setPdfProgress(latest)
-                        },
-                        write: (bytes) => port.appendPdfArchive({ id: staging!, base64: encodeBase64(bytes) })
-                      }
-                    : undefined
-                )
+              ? Capacitor.isNativePlatform()
+                ? await generateNativePdf(
+                    port,
+                    staging!,
+                    module,
+                    available,
+                    exportRequest.filters,
+                    exportRequest.combined,
+                    controller!.signal,
+                    (progress) => {
+                      latest = { ...progress, fileIndex: groupIndex + 1, fileTotal: groups.length }
+                      setPdfProgress(latest)
+                    }
+                  )
+                : await createExport(
+                    module,
+                    available,
+                    exportRequest.filters,
+                    format,
+                    exportRequest.combined,
+                    controller
+                      ? {
+                          signal: controller.signal,
+                          onProgress: (progress) => {
+                            latest = { ...progress, fileIndex: groupIndex + 1, fileTotal: groups.length }
+                            setPdfProgress(latest)
+                          },
+                          write: (bytes) =>
+                            port.appendPdfArchive({ id: staging!, base64: encodeBase64(bytes) })
+                        }
+                      : undefined
+                  )
               : await exportInBackground(
                   module,
                   available,

@@ -160,6 +160,12 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
     })
   }
   const port: LogbookPort = {
+    async renderTextPdf() {
+      throw new Error('浏览器使用原有逐页 PDF 路径，不提供 Android 字体排版。')
+    },
+    async getTextPdfProgress() {
+      throw new Error('浏览器没有 Android PDF 任务。')
+    },
     async beginPdfArchive() {
       const state = await readState()
       if (!state.archive.valid) throw new Error('请先确认归档文件夹。')

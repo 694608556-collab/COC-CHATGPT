@@ -24,6 +24,9 @@ public final class PdfSpoolCheck {
             return "published";
         });
         if (!result.equals("published") || directory.list().length != 0) throw new AssertionError("Success leaked spool");
+        String nativeId = spool.begin("native-tree");
+        spool.append(nativeId, "%PDF-1.4\nnative complete file\n%%EOF".getBytes(StandardCharsets.US_ASCII));
+        spool.finish(nativeId, "native.pdf", (a,b,c,d,e) -> "complete");
         String textId = spool.begin("text-tree");
         byte[] text = "{\"text\":\"完整中文😀\"}".getBytes(StandardCharsets.UTF_8);
         spool.append(textId, text);

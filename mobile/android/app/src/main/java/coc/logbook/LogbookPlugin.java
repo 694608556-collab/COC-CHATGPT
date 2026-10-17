@@ -38,6 +38,7 @@ public final class LogbookPlugin extends Plugin {
     private LogbookDatabase database;
     private ArchiveRegistry archives;
     private PdfSpool pdfSpool;
+    private volatile TextPdfJobs textPdfJobs;
     // Burst-local naming snapshot only; document creation, never an existing URI, remains the publication primitive.
     private String namingLocation;
     private Set<String> namingNames;
@@ -48,7 +49,7 @@ public final class LogbookPlugin extends Plugin {
     @Override public void load() { database = new LogbookDatabase(getContext()); archives = new ArchiveRegistry(getContext()); }
     @Override protected void handleOnDestroy() {
         networkQueue.close(); backupWriter.shutdown();
-        execute(() -> { try { if (pdfSpool != null) pdfSpool.close(); } catch (Exception ignored) { } finally { if (archives != null) archives.close(); } });
+        execute(() -> { try { if (textPdfJobs != null) textPdfJobs.close(); if (pdfSpool != null) pdfSpool.close(); } catch (Exception ignored) { } finally { if (archives != null) archives.close(); } });
         if (database != null) database.close();
     }
     private SharedPreferences prefs() { return getContext().getSharedPreferences("archive-location", 0); }
@@ -302,6 +303,7 @@ public final class LogbookPlugin extends Plugin {
             try {
                 String tree = prefs().getString("tree", ""); requireArchivePermission(tree); validateTree(Uri.parse(tree));
                 if (pdfSpool == null) pdfSpool = new PdfSpool(new java.io.File(getContext().getCacheDir(), "pdf-exports"));
+                if (textPdfJobs != null && textPdfJobId != null) throw new IllegalStateException("已有 PDF 正在导出。");
                 JSObject result = new JSObject(); result.put("id", pdfSpool.begin(tree)); call.resolve(result);
             } catch (Exception error) { call.reject("PDF 暂存失败：" + error.getMessage(), error); }
         });
@@ -316,10 +318,33 @@ public final class LogbookPlugin extends Plugin {
         });
     }
     @PluginMethod public void cancelPdfArchive(PluginCall call) {
+        String token = call.getString("id", "");
+        if (textPdfJobs != null) textPdfJobs.requestCancel(token);
         execute(() -> {
-            try { if (pdfSpool != null) pdfSpool.cancel(call.getString("id", "")); call.resolve(); }
+            try { if (textPdfJobs != null) textPdfJobs.cancel(token); if (token.equals(textPdfJobId)) textPdfJobId = null; if (pdfSpool != null) pdfSpool.cancel(token); call.resolve(); }
             catch (Exception error) { call.reject("PDF 清理失败：" + error.getMessage(), error); }
         });
+    }
+    private String textPdfJobId;
+    /** Starts native original-font rendering from the caller's sealed private UTF-8 spool. */
+    @PluginMethod public void renderTextPdf(PluginCall call) {
+        execute(() -> {
+            try {
+                if (pdfSpool == null) throw new IllegalStateException("PDF 正文暂存已失效。");
+                if (textPdfJobs == null) textPdfJobs = new TextPdfJobs(new java.io.File(getContext().getCacheDir(), "text-pdf-exports"), new NativeTextPdf(getContext()));
+                String id = call.getString("id", "");
+                textPdfJobs.start(pdfSpool.take(id)); textPdfJobId = id; call.resolve();
+            } catch (Exception error) { call.reject("PDF 排版启动失败：" + error.getMessage(), error); }
+        });
+    }
+    /** A thread-safe snapshot, deliberately not queued behind rendering or file publication. */
+    @PluginMethod public void getTextPdfProgress(PluginCall call) {
+        try {
+            if (textPdfJobs == null) throw new IllegalStateException("PDF 任务已失效。");
+            TextPdfJobs.Status state = textPdfJobs.status(call.getString("id", ""));
+            JSObject result = new JSObject(); result.put("stage", state.stage); result.put("pages", state.pages);
+            result.put("total", state.total); result.put("error", state.error); call.resolve(result);
+        } catch (Exception error) { call.reject(error.getMessage(), error); }
     }
     /** Publication is the commit point: unique new name, streaming copy/readback and registration. */
     @PluginMethod public void finishPdfArchive(PluginCall call) {
@@ -337,7 +362,7 @@ public final class LogbookPlugin extends Plugin {
         execute(() -> {
             try {
                 if (pdfSpool == null) throw new IllegalStateException("PDF 暂存已失效。");
-                call.resolve(pdfSpool.finish(call.getString("id", ""), call.getString("name", ""), pdf, (source, location, name, size, hash) -> {
+                PdfSpool.Publisher<JSObject> publisher = (source, location, name, size, hash) -> {
                     if (!location.equals(prefs().getString("tree", ""))) throw new IllegalStateException("归档位置已变化，请重新导出。");
                     requireArchivePermission(location);
                     Uri tree = Uri.parse(location); validateTree(tree);
@@ -372,7 +397,12 @@ public final class LogbookPlugin extends Plugin {
                         if (!success && !DocumentsContract.deleteDocument(getContext().getContentResolver(), destination))
                             throw new IllegalStateException("新 PDF 清理失败，请检查所选目录；已有文件未覆盖。");
                     }
-                }));
+                };
+                String id = call.getString("id", ""), name = call.getString("name", "");
+                if (pdf && textPdfJobs != null && textPdfJobs.owns(id)) {
+                    try { call.resolve(textPdfJobs.finish(id, name, publisher)); }
+                    finally { textPdfJobId = null; }
+                } else call.resolve(pdfSpool.finish(id, name, pdf, publisher));
             } catch (Exception error) { call.reject("PDF 保存失败：" + error.getMessage(), error); }
         });
     }

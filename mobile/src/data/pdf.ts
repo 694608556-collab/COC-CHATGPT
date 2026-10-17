@@ -9,7 +9,7 @@ export interface PdfProgress {
   /** 本次待导出的文件总数；类型为 number | undefined，不是场次数或页数。 */
   fileTotal?: number
   /** 当前阶段：排版、逐页绘制、保存回读。 */
-  stage: 'layout' | 'render' | 'save'
+  stage: 'layout' | 'render' | 'encode' | 'save'
   /** 已完成页数；排版时为 0。 */
   completed: number
   /** 排版完成后的实际总页数；排版时为 0。 */
