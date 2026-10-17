@@ -36,14 +36,19 @@ import org.json.JSONObject;
 public final class LogbookPlugin extends Plugin {
     private static final int MAX_BYTES = 64 * 1024 * 1024;
     private LogbookDatabase database;
+    private ArchiveRegistry archives;
     private PdfSpool pdfSpool;
+    // Burst-local naming snapshot only; document creation, never an existing URI, remains the publication primitive.
+    private String namingLocation;
+    private Set<String> namingNames;
+    private long namingReadAt;
     private final NetworkQueue networkQueue = new NetworkQueue();
     private final java.util.concurrent.ExecutorService backupWriter = java.util.concurrent.Executors.newSingleThreadExecutor();
     private final java.util.concurrent.atomic.AtomicBoolean backupRunning = new java.util.concurrent.atomic.AtomicBoolean();
-    @Override public void load() { database = new LogbookDatabase(getContext()); }
+    @Override public void load() { database = new LogbookDatabase(getContext()); archives = new ArchiveRegistry(getContext()); }
     @Override protected void handleOnDestroy() {
         networkQueue.close(); backupWriter.shutdown();
-        execute(() -> { try { if (pdfSpool != null) pdfSpool.close(); } catch (Exception ignored) { } });
+        execute(() -> { try { if (pdfSpool != null) pdfSpool.close(); } catch (Exception ignored) { } finally { if (archives != null) archives.close(); } });
         if (database != null) database.close();
     }
     private SharedPreferences prefs() { return getContext().getSharedPreferences("archive-location", 0); }
@@ -260,14 +265,30 @@ public final class LogbookPlugin extends Plugin {
     /** Reserve a new document under a short naming lock; bulk I/O stays outside it. */
     private synchronized Uri createNamedDocument(Uri tree, String mime, String requested) throws Exception {
         String id = DocumentsContract.getTreeDocumentId(tree);
-        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree,id);
-        java.util.List<String> names = new java.util.ArrayList<>();
-        try (Cursor cursor = getContext().getContentResolver().query(children,new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME},null,null,null)) {
-            if (cursor == null) throw new IllegalStateException("无法检查已有文件，未覆盖任何文件。");
-            while (cursor.moveToNext()) if (!cursor.isNull(0)) names.add(cursor.getString(0));
+        long now = android.os.SystemClock.elapsedRealtime();
+        // The Android external-storage provider creates a unique NEW file even for a concurrent collision.
+        // Reuse its directory listing for a short burst; other providers retain the original per-file query.
+        boolean reusable = "com.android.externalstorage.documents".equals(tree.getAuthority());
+        try {
+            if (!reusable || namingNames == null || !tree.toString().equals(namingLocation) || now - namingReadAt >= 2000) {
+                Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree,id);
+                Set<String> names = new HashSet<>();
+                try (Cursor cursor = getContext().getContentResolver().query(children,new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME},null,null,null)) {
+                    if (cursor == null) throw new IllegalStateException("无法检查已有文件，未覆盖任何文件。");
+                    while (cursor.moveToNext()) if (!cursor.isNull(0)) names.add(cursor.getString(0));
+                }
+                namingNames = names; namingLocation = tree.toString(); namingReadAt = now;
+            }
+            String name = DocumentNames.available(namingNames,requested);
+            Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree,id);
+            Uri created = DocumentsContract.createDocument(getContext().getContentResolver(),parent,mime,name);
+            if (created == null) namingNames = null;
+            else namingNames.add(name);
+            return created;
+        } catch (Exception error) {
+            namingNames = null;
+            throw error;
         }
-        Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree,id);
-        return DocumentsContract.createDocument(getContext().getContentResolver(),parent,mime,DocumentNames.available(names,requested));
     }
     @PluginMethod public void writeArchive(PluginCall call) {
         execute(() -> {
@@ -356,21 +377,15 @@ public final class LogbookPlugin extends Plugin {
         });
     }
     private synchronized void rememberDocument(JSObject file, String mime) throws Exception {
-        JSONArray documents = new JSONArray(prefs().getString("created-documents", "[]"));
         JSONObject entry = new JSONObject(file.toString()); entry.put("mime", mime);
-        documents.put(entry);
-        if (!prefs().edit().putString("created-documents", documents.toString()).commit())
-            throw new IllegalStateException("文件已写入，但登记失败。");
+        archives.add(entry, prefs().getString("created-documents", "[]"));
     }
     private JSONObject knownDocument(String uri) throws Exception {
-        JSONArray documents = new JSONArray(prefs().getString("created-documents", "[]"));
-        for (int i = documents.length() - 1; i >= 0; i--) {
-            JSONObject item = documents.getJSONObject(i);
-            if (uri.equals(item.getString("uri"))) {
-                if (!digest(read(Uri.parse(uri))).equals(item.getString("sha256")))
-                    throw new IllegalStateException("文件已改变或无法读取，请重新导出。");
-                return item;
-            }
+        JSONObject item = archives.find(uri, prefs().getString("created-documents", "[]"));
+        if (item != null) {
+            if (!digest(read(Uri.parse(uri))).equals(item.getString("sha256")))
+                throw new IllegalStateException("文件已改变或无法读取，请重新导出。");
+            return item;
         }
         throw new IllegalArgumentException("仅打开或分享本应用创建并校验的文件。");
     }
@@ -387,7 +402,7 @@ public final class LogbookPlugin extends Plugin {
     @PluginMethod public void listDocuments(PluginCall call) {
         execute(() -> {
         try {
-            JSONArray all = new JSONArray(prefs().getString("created-documents", "[]"));
+            JSONArray all = archives.list(Boolean.TRUE.equals(call.getBoolean("all", false)), prefs().getString("created-documents", "[]"));
             JSONArray latest = new JSONArray();
             int limit = Boolean.TRUE.equals(call.getBoolean("all", false)) ? all.length() : 30;
             for (int i = all.length() - 1; i >= Math.max(0, all.length() - limit); i--) {
