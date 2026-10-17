@@ -1,4 +1,4 @@
-import { previewBackup } from './backup'
+import { previewBackup, encodeBackup, encodeArchiveBackup } from './backup'
 import { decodeBase64, encodeBase64 } from './bytes'
 import type { MobileSnapshot } from './types'
 import { decodeSeaResponse } from './sea-response'
@@ -12,6 +12,14 @@ export type SnapshotJob =
   | { type: 'prepare'; snapshot: MobileSnapshot }
   | { type: 'serialize'; snapshot: MobileSnapshot }
   | { type: 'encode'; bytes: Uint8Array }
+  | {
+      /** 完整文字或含附件的只读备份生成，不持有目录权限。 */
+      type: 'backup-export'
+      /** 完整业务快照，包含全部正文和关联。 */
+      snapshot: MobileSnapshot
+      /** 未提供为 JSON，提供（包括空数组）为 ZIP；附件已在存储边界校验。 */
+      files?: Array<{ name: string; bytes: Uint8Array }>
+    }
   | {
       /** 只读海豹响应解析任务。 */
       type: 'sea-response'
@@ -27,6 +35,8 @@ export type SnapshotJob =
  * @returns 校验预览、编码文本、完整海豹正文或校验后的快照与 JSON。
  */
 export async function performSnapshotJob(job: SnapshotJob) {
+  if (job.type === 'backup-export')
+    return job.files ? encodeArchiveBackup(job.snapshot, job.files) : encodeBackup(job.snapshot)
   if (job.type === 'sea-response') return decodeSeaResponse(job.text, job.sourceUrl)
   if (job.type === 'preview') return previewBackup(job.bytes)
   if (job.type === 'preview-base64') return previewBackup(decodeBase64(job.base64))

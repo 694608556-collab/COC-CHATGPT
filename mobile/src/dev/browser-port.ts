@@ -212,13 +212,14 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
     async cancelPdfArchive({ id }) {
       if (pdf?.id === id) pdf = undefined
     },
-    async finishExportArchive({ id, name, mime }) {
+    async finishExportArchive({ id, name, mime, purpose = 'export' }) {
       if (!pdf || pdf.id !== id) throw new Error('导出暂存已失效。')
       const current = pdf
       try {
         if (
           ![
             'application/json',
+            'application/zip',
             'text/plain',
             'application/msword',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
@@ -231,10 +232,7 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
           bytes.set(chunk, offset)
           offset += chunk.length
         }
-        return await storeDocument(
-          { ...(await document(name, mime, bytes)), purpose: 'export' },
-          current.tree
-        )
+        return await storeDocument({ ...(await document(name, mime, bytes)), purpose }, current.tree)
       } finally {
         pdf = undefined
       }

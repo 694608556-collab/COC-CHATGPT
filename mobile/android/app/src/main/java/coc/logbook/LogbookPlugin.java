@@ -353,12 +353,14 @@ public final class LogbookPlugin extends Plugin {
     /** Text exports use the same bounded private spool, never a whole large Base64 bridge message. */
     @PluginMethod public void finishExportArchive(PluginCall call) {
         String mime = call.getString("mime", "");
-        if (!Arrays.asList("application/json", "text/plain", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document").contains(mime)) {
+        if (!Arrays.asList("application/json", "application/zip", "text/plain", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document").contains(mime)) {
             call.reject("不支持此导出类型。"); return;
         }
         finishExport(call, mime, false);
     }
     private void finishExport(PluginCall call, String mime, boolean pdf) {
+        String purpose = pdf ? "export" : call.getString("purpose", "export");
+        if (!Arrays.asList("export", "backup").contains(purpose)) { call.reject("文件用途不合法。"); return; }
         execute(() -> {
             try {
                 if (pdfSpool == null) throw new IllegalStateException("PDF 暂存已失效。");
@@ -391,7 +393,7 @@ public final class LogbookPlugin extends Plugin {
                         for (byte b : digest.digest()) backHash.append(String.format("%02x", b & 255));
                         if (readSize != size || !hash.equals(backHash.toString())) throw new IllegalStateException("PDF 保存回读校验失败。");
                         JSObject result = new JSObject(); result.put("uri", destination.toString()); result.put("name", savedName);
-                        result.put("bytes", readSize); result.put("sha256", hash); result.put("purpose", "export");
+                        result.put("bytes", readSize); result.put("sha256", hash); result.put("purpose", purpose);
                         rememberDocument(result, mime); success = true; return result;
                     } finally {
                         if (!success && !DocumentsContract.deleteDocument(getContext().getContentResolver(), destination))

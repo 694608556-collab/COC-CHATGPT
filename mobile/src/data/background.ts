@@ -126,6 +126,19 @@ export function encodeInBackground(bytes: Uint8Array): Promise<string> {
 }
 
 /**
+ * 在只读工作线程中编码完整备份及压缩附件，不在触屏线程 stringify/ZIP 大正文。
+ * @param snapshot - 已按版本加载全部正文的完整快照。
+ * @param files - 未提供为 JSON，提供为含全部已校验附件的 ZIP；不传目录 URI。
+ * @returns 完整备份字节，转移缓冲回调用方；失败不写业务数据或外部文件。
+ */
+export function backupInBackground(
+  snapshot: MobileSnapshot,
+  files?: Array<{ name: string; bytes: Uint8Array }>
+): Promise<Uint8Array> {
+  return runJob({ type: 'backup-export', snapshot, files })
+}
+
+/**
  * 在后台生成文字类导出，避免 DOCX 构建/ZIP 阻塞触屏；文件编码由发布边界另行处理。
  * @param module - 已加载的所属模组，不读写持久数据。
  * @param records - 按导出顺序排列的完整场次，只包含当前文件所需正文。

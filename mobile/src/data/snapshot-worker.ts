@@ -11,7 +11,9 @@ async function processMessage(event: MessageEvent<{ id: number; job: SnapshotJob
   const { id, job } = event.data
   try {
     const result = await performSnapshotJob(job)
-    self.postMessage({ id, result })
+    if (result instanceof Uint8Array)
+      self.postMessage({ id, result }, { transfer: [result.buffer as ArrayBuffer] })
+    else self.postMessage({ id, result })
   } catch (reason) {
     self.postMessage({ id, error: reason instanceof Error ? reason.message : '后台校验失败，未写入数据。' })
   }

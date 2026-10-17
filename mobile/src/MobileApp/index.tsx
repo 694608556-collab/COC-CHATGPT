@@ -3,7 +3,6 @@ import { DEFAULT_FILTER_PRESET } from '../../../src/shared/types'
 import type { FilterPreset, SessionRecord } from '../../../src/shared/types'
 import { Native, decodeBase64, encodeBase64 } from '../data/native'
 import type { LogbookPort, NativeState } from '../data/native'
-import { encodeBackup, encodeArchiveBackup } from '../data/backup'
 import { restoreBackup } from '../data/restore'
 import type { ImportPreview, MobileSnapshot } from '../data/types'
 import { Records } from './components/Records'
@@ -45,7 +44,8 @@ import {
   previewInBackground,
   readInBackground,
   serializeInBackground,
-  exportInBackground
+  exportInBackground,
+  backupInBackground
 } from '../data/background'
 import { createRecordTableExport } from '../data/table-export'
 import { useVisibleViewport } from './useVisibleViewport'
@@ -700,7 +700,7 @@ export function MobileApp({
   /** @returns 保存含已获取正文的安卓备份；不冒充已兼容旧电脑版的整库格式。 */
   async function exportBackup(includeArchives = false) {
     const complete = await loadContent(snapshot.records.map((r) => r.id))
-    let bytes = encodeBackup(complete)
+    let files: Array<{ name: string; bytes: Uint8Array }> | undefined
     if (includeArchives) {
       const known = (await port.listDocuments({ all: true })).documents
       const exported = known.filter(
@@ -709,7 +709,7 @@ export function MobileApp({
           file.purpose === 'import' ||
           (!file.purpose && !/^(before-|auto-backup-|coc-android-backup-)/.test(file.name))
       )
-      const files = []
+      files = []
       let total = 0
       for (const file of exported) {
         total += file.bytes
@@ -717,14 +717,17 @@ export function MobileApp({
         const content = await port.readDocument({ uri: file.uri })
         files.push({ name: content.name, bytes: decodeBase64(content.base64) })
       }
-      bytes = await encodeArchiveBackup(complete, files)
     }
-    const file = await port.writeArchive({
-      name: 'coc-android-backup-' + Date.now() + (includeArchives ? '.zip' : '.json'),
-      mime: includeArchives ? 'application/zip' : 'application/json',
-      base64: encodeBase64(bytes),
-      purpose: 'backup'
-    })
+    const bytes = await backupInBackground(complete, files)
+    const file = await saveGeneratedExport(
+      port,
+      {
+        name: 'coc-android-backup-' + Date.now() + (includeArchives ? '.zip' : '.json'),
+        mime: includeArchives ? 'application/zip' : 'application/json',
+        bytes
+      },
+      'backup'
+    )
     setSavedDocument(file)
     setNotice(`备份已保存并回读校验：${file.name}`)
   }

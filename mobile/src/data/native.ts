@@ -59,7 +59,12 @@ export interface LogbookPort {
   /** @param options - 完整暂存标识和安全文件名。 @returns 新建且回读校验的文件；失败删除本次新文件，不覆盖旧文件。 */
   finishPdfArchive(options: { id: string; name: string }): Promise<SavedDocument>
   /** @param options - 同一有界私有暂存、文件名和已生成文字格式 MIME。 @returns 流式发布与回读证明，不把整个大文件 Base64 传过桥。 */
-  finishExportArchive(options: { id: string; name: string; mime: string }): Promise<SavedDocument>
+  finishExportArchive(options: {
+    id: string
+    name: string
+    mime: string
+    purpose?: 'export' | 'backup'
+  }): Promise<SavedDocument>
   /** @param options - 本次私有暂存标识。 @returns 清理确认；已清理标识可重复取消，不删除已发布文件。 */
   cancelPdfArchive(options: { id: string }): Promise<void>
   /** Cold start reads complete metadata only. Body IDs remain in native storage until requested. */
