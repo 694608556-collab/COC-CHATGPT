@@ -21,6 +21,44 @@ async function setup() {
 }
 
 describe('浏览器测试存储事务：自动备份与数据保存独立', () => {
+  it('文字导出顺序分段后完整发布，同名不覆盖，失败不修改业务数据', async () => {
+    const { browser, json } = await setup()
+    await browser.port.commitRestore({ json, expectedRevision: 0, confirmed: true })
+    const before = await browser.port.getState()
+    const original = await browser.port.writeArchive({
+      name: '完整.json',
+      mime: 'application/json',
+      base64: btoa('OLD')
+    })
+    const bytes = new TextEncoder().encode(JSON.stringify({ text: '首尾完整中文'.repeat(70000) }))
+    const token = await browser.port.beginPdfArchive()
+    for (let offset = 0; offset < bytes.length; offset += 256 * 1024)
+      await browser.port.appendPdfArchive({
+        id: token.id,
+        base64: encodeBase64(bytes.subarray(offset, offset + 256 * 1024))
+      })
+    const saved = await browser.port.finishExportArchive({
+      id: token.id,
+      name: '完整.json',
+      mime: 'application/json'
+    })
+    expect(decodeBase64((await browser.port.readDocument(saved)).base64)).toEqual(bytes)
+    expect(saved.name).not.toBe(original.name)
+    expect((await browser.port.readDocument(original)).base64).toBe(btoa('OLD'))
+    const completed = await browser.documents()
+    const cancelled = await browser.port.beginPdfArchive()
+    await browser.port.appendPdfArchive({ id: cancelled.id, base64: btoa('PARTIAL') })
+    await browser.port.cancelPdfArchive(cancelled)
+    expect(await browser.documents()).toEqual(completed)
+    const invalid = await browser.port.beginPdfArchive()
+    await browser.port.appendPdfArchive({ id: invalid.id, base64: btoa('PARTIAL') })
+    await expect(
+      browser.port.finishExportArchive({ id: invalid.id, name: 'bad.bin', mime: 'application/x-unknown' })
+    ).rejects.toThrow('不支持')
+    expect(await browser.documents()).toEqual(completed)
+    expect(await browser.port.getState()).toEqual(before)
+    await browser.close()
+  })
   it('PDF 取消和失败不发布半成品，成功同名另存且不改变场次、版本或已有文件', async () => {
     const { browser, json } = await setup()
     await browser.port.commitRestore({ json, expectedRevision: 0, confirmed: true })

@@ -1,9 +1,8 @@
-import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx'
 import { renderLogText, renderWordHtml } from '../../../src/shared/document-renderer'
-import { applyLogFilters } from '../../../src/shared/log-filter'
 import type { FilterPreset, SessionRecord, ModuleRecord, NormalizedLog } from '../../../src/shared/types'
 import { textPdf } from './pdf'
 import type { PdfOptions } from './pdf'
+import { createTextDocx } from './docx'
 export { textPdf } from './pdf'
 import { recordExportName, combinedExportName } from '../../../src/shared/export-filenames'
 export type ExportFormat = 'raw' | 'txt' | 'doc' | 'dialogue-doc' | 'docx' | 'pdf'
@@ -69,6 +68,22 @@ export async function createExport(
       module.pairs.map((p) => 'PC：' + p.pc + ' PL：' + p.pl).join('\r\n') +
       '\r\n\r\n'
     : ''
+  if (format === 'doc' || format === 'dialogue-doc')
+    return {
+      name,
+      mime: 'application/msword',
+      bytes: new TextEncoder().encode(
+        renderWordHtml(module, sessions, filters, format === 'doc', { cover: combined })
+      )
+    }
+  if (format === 'docx') {
+    return {
+      name,
+      mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      bytes: await createTextDocx(module, sessions, filters, combined)
+    }
+  }
+  // 只有 TXT/PDF 需要纯文本；DOC/DOCX 不再重复过滤、拼接一份不会使用的大字符串。
   const text =
     header +
     sessions
@@ -79,47 +94,5 @@ export async function createExport(
       )
       .join('\r\n\r\n')
   if (format === 'txt') return { name, mime: 'text/plain', bytes: new TextEncoder().encode(text) }
-  if (format === 'doc' || format === 'dialogue-doc')
-    return {
-      name,
-      mime: 'application/msword',
-      bytes: new TextEncoder().encode(
-        renderWordHtml(module, sessions, filters, format === 'doc', { cover: combined })
-      )
-    }
-  if (format === 'docx') {
-    const children: Paragraph[] = []
-    if (combined) {
-      children.push(
-        new Paragraph({ text: module.name, heading: HeadingLevel.TITLE }),
-        new Paragraph({ text: 'KP：' + module.kps.join('、') })
-      )
-      module.pairs.forEach((p) => children.push(new Paragraph({ text: 'PC：' + p.pc + ' PL：' + p.pl })))
-    }
-    sessions.forEach((s, i) => {
-      children.push(
-        new Paragraph({
-          text: s.record.name,
-          heading: HeadingLevel.HEADING_1,
-          pageBreakBefore: combined && i === 0
-        })
-      )
-      applyLogFilters(s.log, filters).forEach((m) => {
-        if (m.header)
-          children.push(new Paragraph({ children: [new TextRun({ text: m.header, bold: true })] }))
-        m.text
-          .replace(/\r\n?/g, '\n')
-          .split('\n')
-          .forEach((line) => children.push(new Paragraph({ text: line })))
-        m.images.forEach((image) => children.push(new Paragraph({ text: '[图片链接] ' + image.url })))
-      })
-    })
-    const blob = await Packer.toBlob(new Document({ sections: [{ children }] }))
-    return {
-      name,
-      mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      bytes: new Uint8Array(await blob.arrayBuffer())
-    }
-  }
   return { name, mime: 'application/pdf', bytes: await textPdf(text, pdf) }
 }

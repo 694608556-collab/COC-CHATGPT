@@ -1,16 +1,22 @@
 import { performSnapshotJob } from './snapshot-job'
 import type { SnapshotJob } from './snapshot-job'
 import type { ImportPreview, MobileSnapshot } from './types'
-import type { NormalizedLog } from '../../../src/shared/types'
+import type { NormalizedLog, ModuleRecord, SessionRecord, FilterPreset } from '../../../src/shared/types'
+import type { ExportFormat } from './export'
+import type { ExportJob } from './export-job'
+import { combinedExportName } from '../../../src/shared/export-filenames'
 
 /** 任务成功/失败回调，按 number 序号配对，不存放文件权限。 */
 interface PendingJob {
+  /** 任务所属只读工作通道；单个线程失败不拒绝另一个通道的正常任务。 */
+  channel: 'snapshot' | 'export'
   /** 接收只读计算结果的回调。 */
   resolve(value: unknown): void
   /** 接收校验/工作线程错误的回调。 */
   reject(reason: Error): void
 }
 let worker: Worker | undefined
+let exportWorker: Worker | undefined
 let sequence = 0
 const pending = new Map<number, PendingJob>()
 // 解析一次只向 Worker 投递一份响应，避免并发下载后在 Worker／桥接间堆积多份大对象。
@@ -36,32 +42,47 @@ export function parseSeaInBackground(text: string, sourceUrl?: string): Promise<
  * @param job - 不包含写入/确认操作的任务。
  * @returns 只读结果；工作线程失败拒绝，不降级为阻塞界面的计算。
  */
-async function runJob<T>(job: SnapshotJob): Promise<T> {
+async function runJob<T>(job: SnapshotJob | ExportJob): Promise<T> {
   // Node-only storage tests reuse the same algorithm; browser/Android must use a real worker.
-  if (typeof document === 'undefined') return (await performSnapshotJob(job)) as T
+  if (typeof document === 'undefined') {
+    return (
+      job.type === 'export'
+        ? await (await import('./export-job')).performExportJob(job)
+        : await performSnapshotJob(job)
+    ) as T
+  }
   if (typeof Worker === 'undefined') throw new Error('此 WebView 不支持后台校验，未写入数据。')
-  if (!worker) {
-    worker = new Worker('snapshot-worker.js')
-    worker.onmessage = (event: MessageEvent<{ id: number; result?: unknown; error?: string }>) => {
+  const channel = job.type === 'export' ? 'export' : 'snapshot'
+  let target = channel === 'export' ? exportWorker : worker
+  if (!target) {
+    target = new Worker(channel === 'export' ? 'export-worker.js' : 'snapshot-worker.js')
+    if (channel === 'export') exportWorker = target
+    else worker = target
+    target.onmessage = (event: MessageEvent<{ id: number; result?: unknown; error?: string }>) => {
       const request = pending.get(event.data.id)
       if (!request) return
       pending.delete(event.data.id)
       if (event.data.error) request.reject(new Error(event.data.error))
       else request.resolve(event.data.result)
     }
-    worker.onerror = () => {
+    const active = target
+    target.onerror = () => {
       const error = new Error('后台校验启动或运行失败，未写入数据。')
-      for (const request of pending.values()) request.reject(error)
-      pending.clear()
-      worker?.terminate()
-      worker = undefined
+      for (const [id, request] of pending)
+        if (request.channel === channel) {
+          request.reject(error)
+          pending.delete(id)
+        }
+      active.terminate()
+      if (channel === 'export') exportWorker = undefined
+      else worker = undefined
     }
   }
   const id = ++sequence
   return new Promise<T>((resolve, reject) => {
-    pending.set(id, { resolve: (result) => resolve(result as T), reject })
+    pending.set(id, { channel, resolve: (result) => resolve(result as T), reject })
     try {
-      worker!.postMessage({ id, job })
+      target!.postMessage({ id, job })
     } catch (reason) {
       pending.delete(id)
       reject(reason)
@@ -102,4 +123,33 @@ export function serializeInBackground(snapshot: MobileSnapshot): Promise<string>
 /** @param bytes - 浏览器文件字节。 @returns Base64 文件内容，不在界面逐块编码。 */
 export function encodeInBackground(bytes: Uint8Array): Promise<string> {
   return runJob({ type: 'encode', bytes })
+}
+
+/**
+ * 在后台生成文字类导出，避免 DOCX 构建/ZIP 阻塞触屏；文件编码由发布边界另行处理。
+ * @param module - 已加载的所属模组，不读写持久数据。
+ * @param records - 按导出顺序排列的完整场次，只包含当前文件所需正文。
+ * @param filters - 用户的导出过滤设置。
+ * @param format - 不依赖页面画布的格式；PDF 仍走有界流式路径。
+ * @param combined - 是否按模组合成。
+ * @returns 文件名、MIME 与完整字节；Worker 转移字节所有权，失败不创建文件，不在界面同步降级。
+ */
+export async function exportInBackground(
+  module: ModuleRecord,
+  records: SessionRecord[],
+  filters: FilterPreset,
+  format: Exclude<ExportFormat, 'pdf'>,
+  combined: boolean
+): Promise<{ name: string; mime: string; bytes: Uint8Array }> {
+  // 在点击所在界面捕获日期；Worker 的独立时钟/跨午夜处理不得改变用户确认的命名日期。
+  const name = combined ? combinedExportName(module.name, format) : undefined
+  const file = await runJob<{ name: string; mime: string; bytes: Uint8Array }>({
+    type: 'export',
+    module,
+    records,
+    filters,
+    format,
+    combined
+  })
+  return name ? { ...file, name } : file
 }

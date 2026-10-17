@@ -72,15 +72,52 @@ export async function textPdf(text: string, options: PdfOptions = {}): Promise<U
   try {
     ctx.font = '24px "SF Pro Text", "PingFang SC"'
     const lines: string[] = []
+    // 只缓存短串，限制内存；同一发言人/常见前缀不反复跨 Canvas 测量边界。
+    const widths = new Map<string, number>()
+    /** @param value - 使用原字号/字体的完整候选行。 @returns 实际画布宽度，不按字符个数近似。 */
+    function width(value: string): number {
+      const known = widths.get(value)
+      if (known !== undefined) return known
+      const measured = ctx!.measureText(value).width
+      if (value.length <= 128) {
+        if (widths.size >= 8192) widths.clear()
+        widths.set(value, measured)
+      }
+      return measured
+    }
     let checkpoint = performance.now()
-    // 短行一次测宽，长段落保留逐字符换行；两条路径都分片，不跳过任何文字。
+    // 短行一次测宽，普通长段落二分断行；复杂文字保留逐码点路径，三者都不跳过文字。
     for (const paragraph of text.replace(/\r\n?/g, '\n').split('\n')) {
-      if (paragraph.length <= 256 && ctx.measureText(paragraph).width <= 1068) {
+      if (paragraph.length <= 256 && width(paragraph) <= 1068) {
         lines.push(paragraph)
+      } else if (/^[\x20-\x7e\u3000-\u3029\u4e00-\u9fff\uff01-\uff60]+$/.test(paragraph)) {
+        // 原字体中无连接/组合字符的中西文走有界指数探测和二分，仍按实际整行宽度贪心断行。
+        // 连字脚本、组合音标、代理对等继续下面的原逐码点路径，不按 UTF-16 切开它们。
+        let start = 0
+        while (start < paragraph.length) {
+          let low = start,
+            high = Math.min(start + 16, paragraph.length)
+          while (width(paragraph.slice(start, high)) <= 1068) {
+            low = high
+            if (high === paragraph.length) break
+            high = Math.min(start + (high - start) * 2, paragraph.length)
+          }
+          while (low + 1 < high) {
+            const middle = Math.floor((low + high) / 2)
+            if (width(paragraph.slice(start, middle)) <= 1068) low = middle
+            else high = middle
+          }
+          lines.push(paragraph.slice(start, low))
+          start = low
+          if (performance.now() - checkpoint >= 8) {
+            await yieldForPdf(options.signal)
+            checkpoint = performance.now()
+          }
+        }
       } else {
         let value = ''
         for (const ch of paragraph) {
-          if (ctx.measureText(value + ch).width > 1068) {
+          if (width(value + ch) > 1068) {
             lines.push(value)
             value = ch
           } else value += ch

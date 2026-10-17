@@ -51,13 +51,18 @@ final class PdfSpool implements AutoCloseable {
 
     /** Seals, verifies completeness and publishes once; always removes the private spool. */
     <T> T finish(String token, String name, Publisher<T> publisher) throws Exception {
+        return finish(token, name, true, publisher);
+    }
+
+    /** Same bounded transaction for generated non-PDF exports; no external paths or byte truncation. */
+    <T> T finish(String token, String name, boolean pdf, Publisher<T> publisher) throws Exception {
         require(token);
         try {
-            if (name == null || name.length() > 255 || !name.endsWith(".pdf") || name.matches(".*[/\\\\\u0000-\u001f].*"))
-                throw new IllegalArgumentException("PDF 文件名不合法。");
+            if (name == null || name.isEmpty() || name.equals(".") || name.equals("..") || name.length() > 255 || (pdf && !name.endsWith(".pdf")) || name.matches(".*[/\\\\\u0000-\u001f].*"))
+                throw new IllegalArgumentException("导出文件名不合法。");
             output.flush(); output.getFD().sync(); output.close(); output = null;
-            if (size < 16 || file.length() != size) throw new IllegalStateException("PDF 临时文件不完整。");
-            try (RandomAccessFile input = new RandomAccessFile(file, "r")) {
+            if ((pdf && size < 16) || file.length() != size) throw new IllegalStateException("导出临时文件不完整。");
+            if (pdf) try (RandomAccessFile input = new RandomAccessFile(file, "r")) {
                 byte[] header = new byte[5]; input.readFully(header);
                 byte[] tail = new byte[(int)Math.min(32, size)]; input.seek(size - tail.length); input.readFully(tail);
                 if (!"%PDF-".equals(new String(header, StandardCharsets.US_ASCII)) || !new String(tail, StandardCharsets.US_ASCII).endsWith("%%EOF\n"))

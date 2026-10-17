@@ -24,6 +24,22 @@ public final class PdfSpoolCheck {
             return "published";
         });
         if (!result.equals("published") || directory.list().length != 0) throw new AssertionError("Success leaked spool");
+        String textId = spool.begin("text-tree");
+        byte[] text = "{\"text\":\"完整中文😀\"}".getBytes(StandardCharsets.UTF_8);
+        spool.append(textId, text);
+        long published = spool.finish(textId, "public.json", false, (source, tree, name, size, hash) -> {
+            if (!Arrays.equals(Files.readAllBytes(source.toPath()), text) || !tree.equals("text-tree"))
+                throw new AssertionError("Text spool altered complete bytes/location");
+            return size;
+        });
+        if (published != text.length || directory.list().length != 0) throw new AssertionError("Text publication leaked spool");
+        for (String invalidName : new String[]{".", ".."}) {
+            String invalidId = spool.begin("text-tree"); spool.append(invalidId, text);
+            boolean denied = false;
+            try { spool.finish(invalidId, invalidName, false, (a,b,c,d,e) -> { throw new AssertionError("Unsafe text name published"); }); }
+            catch (IllegalArgumentException expected) { denied = true; }
+            if (!denied || directory.list().length != 0) throw new AssertionError("Invalid name leaked spool");
+        }
         spool.cancel(id);
         id = spool.begin("test-tree"); spool.append(id, complete); spool.cancel(id); spool.cancel(id);
         if (directory.list().length != 0) throw new AssertionError("Cancel leaked spool");

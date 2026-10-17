@@ -21,3 +21,26 @@ export function encodeBase64(bytes: Uint8Array): string {
     chunks.push(String.fromCharCode(...bytes.subarray(i, i + 16384)))
   return btoa(chunks.join(''))
 }
+
+/**
+ * 让浏览器原生文件读取器编码中等文件，避免界面逐字节构造二进制字符串。
+ * @param bytes - 完整文件字节；不会修改调用方缓冲。
+ * @returns 不含 data URL 前缀的 Base64；浏览器失败明确拒绝，Node 校验使用同一字节算法。
+ */
+export async function encodeFileBase64(bytes: Uint8Array): Promise<string> {
+  if (typeof document === 'undefined') return encodeBase64(bytes)
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result
+      if (typeof result !== 'string' || !result.startsWith('data:application/octet-stream;base64,')) {
+        reject(new Error('文件编码失败，未保存。'))
+        return
+      }
+      resolve(result.slice(result.indexOf(',') + 1))
+    }
+    reader.onerror = () => reject(new Error('文件编码失败，未保存。'))
+    reader.onabort = () => reject(new Error('文件编码已取消，未保存。'))
+    reader.readAsDataURL(new Blob([new Uint8Array(bytes).buffer], { type: 'application/octet-stream' }))
+  })
+}

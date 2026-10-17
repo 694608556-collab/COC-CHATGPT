@@ -32,6 +32,7 @@ import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 import { ExportDialog } from './components/ExportDialog'
 import { createExport } from '../data/export'
+import { saveGeneratedExport } from '../data/export-archive'
 import type { ExportFormat } from '../data/export'
 import { checkPdfCancellation } from '../data/pdf'
 import type { PdfProgress } from '../data/pdf'
@@ -42,7 +43,8 @@ import {
   previewBase64InBackground,
   previewInBackground,
   readInBackground,
-  serializeInBackground
+  serializeInBackground,
+  exportInBackground
 } from '../data/background'
 import { createRecordTableExport } from '../data/table-export'
 import { useVisibleViewport } from './useVisibleViewport'
@@ -276,32 +278,37 @@ export function MobileApp({
           if (controller) staging = (await port.beginPdfArchive()).id
           const module = snapshot.modules.find((m) => m.id === available[0]!.moduleId)!
           let latest: PdfProgress = { stage: 'layout', completed: 0, total: 0 }
-          const file = await createExport(
-            module,
-            available,
-            exportRequest.filters,
-            format,
-            exportRequest.combined,
-            controller
-              ? {
-                  signal: controller.signal,
-                  onProgress: (progress) => {
-                    latest = { ...progress, fileIndex: groupIndex + 1, fileTotal: groups.length }
-                    setPdfProgress(latest)
-                  },
-                  write: (bytes) => port.appendPdfArchive({ id: staging!, base64: encodeBase64(bytes) })
-                }
-              : undefined
-          )
+          const file =
+            format === 'pdf'
+              ? await createExport(
+                  module,
+                  available,
+                  exportRequest.filters,
+                  format,
+                  exportRequest.combined,
+                  controller
+                    ? {
+                        signal: controller.signal,
+                        onProgress: (progress) => {
+                          latest = { ...progress, fileIndex: groupIndex + 1, fileTotal: groups.length }
+                          setPdfProgress(latest)
+                        },
+                        write: (bytes) => port.appendPdfArchive({ id: staging!, base64: encodeBase64(bytes) })
+                      }
+                    : undefined
+                )
+              : await exportInBackground(
+                  module,
+                  available,
+                  exportRequest.filters,
+                  format,
+                  exportRequest.combined
+                )
           checkPdfCancellation(controller?.signal)
           if (controller) setPdfProgress({ ...latest, stage: 'save' })
           const saved = staging
             ? await port.finishPdfArchive({ id: staging, name: file.name })
-            : await port.writeArchive({
-                name: file.name,
-                mime: file.mime,
-                base64: encodeBase64(file.bytes)
-              })
+            : await saveGeneratedExport(port, file)
           setSavedDocument(saved)
           count++
         } catch (reason) {
@@ -762,12 +769,8 @@ export function MobileApp({
   async function exportText(target: SessionRecord, filters: FilterPreset) {
     const module = snapshot.modules.find((row) => row.id === target.moduleId)
     if (!module) throw new Error('所属模组已不存在，请重新读取。')
-    const exported = await createExport(module, [target], filters, 'txt')
-    const file = await port.writeArchive({
-      name: exported.name,
-      mime: exported.mime,
-      base64: encodeBase64(exported.bytes)
-    })
+    const exported = await exportInBackground(module, [target], filters, 'txt', false)
+    const file = await saveGeneratedExport(port, exported)
     setSavedDocument(file)
     setNotice(`TXT 已保存并回读校验：${file.name}`)
   }

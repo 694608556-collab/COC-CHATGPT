@@ -302,14 +302,25 @@ public final class LogbookPlugin extends Plugin {
     }
     /** Publication is the commit point: unique new name, streaming copy/readback and registration. */
     @PluginMethod public void finishPdfArchive(PluginCall call) {
+        finishExport(call, "application/pdf", true);
+    }
+    /** Text exports use the same bounded private spool, never a whole large Base64 bridge message. */
+    @PluginMethod public void finishExportArchive(PluginCall call) {
+        String mime = call.getString("mime", "");
+        if (!Arrays.asList("application/json", "text/plain", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document").contains(mime)) {
+            call.reject("不支持此导出类型。"); return;
+        }
+        finishExport(call, mime, false);
+    }
+    private void finishExport(PluginCall call, String mime, boolean pdf) {
         execute(() -> {
             try {
                 if (pdfSpool == null) throw new IllegalStateException("PDF 暂存已失效。");
-                call.resolve(pdfSpool.finish(call.getString("id", ""), call.getString("name", ""), (source, location, name, size, hash) -> {
+                call.resolve(pdfSpool.finish(call.getString("id", ""), call.getString("name", ""), pdf, (source, location, name, size, hash) -> {
                     if (!location.equals(prefs().getString("tree", ""))) throw new IllegalStateException("归档位置已变化，请重新导出。");
                     requireArchivePermission(location);
                     Uri tree = Uri.parse(location); validateTree(tree);
-                    Uri destination = createNamedDocument(tree, "application/pdf", name);
+                    Uri destination = createNamedDocument(tree, mime, name);
                     if (destination == null) throw new IllegalStateException("无法创建 PDF 文件。");
                     boolean success = false;
                     try {
@@ -335,7 +346,7 @@ public final class LogbookPlugin extends Plugin {
                         if (readSize != size || !hash.equals(backHash.toString())) throw new IllegalStateException("PDF 保存回读校验失败。");
                         JSObject result = new JSObject(); result.put("uri", destination.toString()); result.put("name", savedName);
                         result.put("bytes", readSize); result.put("sha256", hash); result.put("purpose", "export");
-                        rememberDocument(result, "application/pdf"); success = true; return result;
+                        rememberDocument(result, mime); success = true; return result;
                     } finally {
                         if (!success && !DocumentsContract.deleteDocument(getContext().getContentResolver(), destination))
                             throw new IllegalStateException("新 PDF 清理失败，请检查所选目录；已有文件未覆盖。");
@@ -374,6 +385,7 @@ public final class LogbookPlugin extends Plugin {
         });
     }
     @PluginMethod public void listDocuments(PluginCall call) {
+        execute(() -> {
         try {
             JSONArray all = new JSONArray(prefs().getString("created-documents", "[]"));
             JSONArray latest = new JSONArray();
@@ -386,6 +398,7 @@ public final class LogbookPlugin extends Plugin {
             }
             JSObject result = new JSObject(); result.put("documents", latest); call.resolve(result);
         } catch (Exception error) { call.reject("读取归档登记失败。", error); }
+        });
     }
     @PluginMethod public void shareDocument(PluginCall call) { launchDocument(call, true); }
     private void launchDocument(PluginCall call, boolean share) {

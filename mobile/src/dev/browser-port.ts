@@ -206,6 +206,33 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
     async cancelPdfArchive({ id }) {
       if (pdf?.id === id) pdf = undefined
     },
+    async finishExportArchive({ id, name, mime }) {
+      if (!pdf || pdf.id !== id) throw new Error('导出暂存已失效。')
+      const current = pdf
+      try {
+        if (
+          ![
+            'application/json',
+            'text/plain',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          ].includes(mime)
+        )
+          throw new Error('不支持此导出类型。')
+        const bytes = new Uint8Array(current.bytes)
+        let offset = 0
+        for (const chunk of current.chunks) {
+          bytes.set(chunk, offset)
+          offset += chunk.length
+        }
+        return await storeDocument(
+          { ...(await document(name, mime, bytes)), purpose: 'export' },
+          current.tree
+        )
+      } finally {
+        pdf = undefined
+      }
+    },
     async getOverview() {
       const state = await readState()
       const deferredRecordIds: string[] = []

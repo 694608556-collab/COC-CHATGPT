@@ -26,6 +26,9 @@ function deviceStore(failSave = false): LogbookPort {
     finishPdfArchive: async () => {
       throw new Error('测试未调用 PDF 导出')
     },
+    finishExportArchive: async () => {
+      throw new Error('测试未调用文字导出')
+    },
     cancelPdfArchive: async () => {
       throw new Error('测试未调用 PDF 导出')
     },
