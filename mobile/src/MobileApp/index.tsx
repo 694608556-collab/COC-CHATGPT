@@ -348,8 +348,11 @@ export function MobileApp({
     }
   }
   async function exportTables(format: 'csv' | 'xlsx') {
-    const loaded = await loadContent(snapshot.records.map((r) => r.id))
-    const file = createRecordTableExport(loaded, format)
+    // 表格只有元数据列，不为导出名称/链接而冷读全部正文。
+    const file = createRecordTableExport(
+      { ...snapshot, records: [...snapshot.records].sort((a, b) => a.order - b.order) },
+      format
+    )
     setSavedDocument(
       await port.writeArchive({ name: file.name, mime: file.mime, base64: encodeBase64(file.bytes) })
     )
