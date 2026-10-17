@@ -271,7 +271,7 @@ public final class LogbookPlugin extends Plugin {
         // Reuse its directory listing for a short burst; other providers retain the original per-file query.
         boolean reusable = "com.android.externalstorage.documents".equals(tree.getAuthority());
         try {
-            if (!reusable || namingNames == null || !tree.toString().equals(namingLocation) || now - namingReadAt >= 2000) {
+            if (!reusable || namingNames == null || !tree.toString().equals(namingLocation) || now - namingReadAt >= 30000) {
                 Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree,id);
                 Set<String> names = new HashSet<>();
                 try (Cursor cursor = getContext().getContentResolver().query(children,new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME},null,null,null)) {
