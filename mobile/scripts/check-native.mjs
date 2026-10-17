@@ -77,3 +77,19 @@ if (networkCompiled.status) throw new Error(networkCompiled.stderr)
 const networkResult = spawnSync(java, ['-cp', work, 'coc.logbook.NetworkQueueCheck'], { encoding: 'utf8' })
 process.stdout.write(networkResult.stdout)
 if (networkResult.status) throw new Error(networkResult.stderr)
+const pdfCompiled = spawnSync(
+  javac,
+  [
+    '-encoding',
+    'UTF-8',
+    '-d',
+    work,
+    join(source, 'PdfSpool.java'),
+    resolve('tests/native/PdfSpoolCheck.java')
+  ],
+  { encoding: 'utf8' }
+)
+if (pdfCompiled.status) throw new Error(pdfCompiled.stderr)
+const pdfResult = spawnSync(java, ['-cp', work, 'coc.logbook.PdfSpoolCheck'], { encoding: 'utf8' })
+process.stdout.write(pdfResult.stdout)
+if (pdfResult.status) throw new Error(pdfResult.stderr)

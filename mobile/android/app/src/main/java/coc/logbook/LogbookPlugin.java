@@ -36,11 +36,16 @@ import org.json.JSONObject;
 public final class LogbookPlugin extends Plugin {
     private static final int MAX_BYTES = 64 * 1024 * 1024;
     private LogbookDatabase database;
+    private PdfSpool pdfSpool;
     private final NetworkQueue networkQueue = new NetworkQueue();
     private final java.util.concurrent.ExecutorService backupWriter = java.util.concurrent.Executors.newSingleThreadExecutor();
     private final java.util.concurrent.atomic.AtomicBoolean backupRunning = new java.util.concurrent.atomic.AtomicBoolean();
     @Override public void load() { database = new LogbookDatabase(getContext()); }
-    @Override protected void handleOnDestroy() { networkQueue.close(); backupWriter.shutdown(); if (database != null) database.close(); }
+    @Override protected void handleOnDestroy() {
+        networkQueue.close(); backupWriter.shutdown();
+        execute(() -> { try { if (pdfSpool != null) pdfSpool.close(); } catch (Exception ignored) { } });
+        if (database != null) database.close();
+    }
     private SharedPreferences prefs() { return getContext().getSharedPreferences("archive-location", 0); }
     /** No arguments. Persist before granting one welcome display; business restore/clear never touches this file. */
     @PluginMethod public synchronized void claimFirstLaunchIntro(PluginCall call) {
@@ -268,6 +273,75 @@ public final class LogbookPlugin extends Plugin {
         execute(() -> {
             try { call.resolve(write(call.getString("name", ""), call.getString("mime", "application/octet-stream"), Base64.decode(call.getString("base64", ""), Base64.DEFAULT), call.getString("purpose", "export"))); }
             catch (Exception error) { call.reject("保存失败：" + error.getMessage(), error); }
+        });
+    }
+    /** PDF chunks stay in private cache; no entire PDF/Base64 crosses the bridge at once. */
+    @PluginMethod public void beginPdfArchive(PluginCall call) {
+        execute(() -> {
+            try {
+                String tree = prefs().getString("tree", ""); requireArchivePermission(tree); validateTree(Uri.parse(tree));
+                if (pdfSpool == null) pdfSpool = new PdfSpool(new java.io.File(getContext().getCacheDir(), "pdf-exports"));
+                JSObject result = new JSObject(); result.put("id", pdfSpool.begin(tree)); call.resolve(result);
+            } catch (Exception error) { call.reject("PDF 暂存失败：" + error.getMessage(), error); }
+        });
+    }
+    @PluginMethod public void appendPdfArchive(PluginCall call) {
+        execute(() -> {
+            try {
+                String base64 = call.getString("base64", "");
+                if (pdfSpool == null || base64.length() > 349528) throw new IllegalArgumentException("PDF 分段不合法。");
+                pdfSpool.append(call.getString("id", ""), Base64.decode(base64, Base64.NO_WRAP)); call.resolve();
+            } catch (Exception error) { call.reject("PDF 写入失败：" + error.getMessage(), error); }
+        });
+    }
+    @PluginMethod public void cancelPdfArchive(PluginCall call) {
+        execute(() -> {
+            try { if (pdfSpool != null) pdfSpool.cancel(call.getString("id", "")); call.resolve(); }
+            catch (Exception error) { call.reject("PDF 清理失败：" + error.getMessage(), error); }
+        });
+    }
+    /** Publication is the commit point: unique new name, streaming copy/readback and registration. */
+    @PluginMethod public void finishPdfArchive(PluginCall call) {
+        execute(() -> {
+            try {
+                if (pdfSpool == null) throw new IllegalStateException("PDF 暂存已失效。");
+                call.resolve(pdfSpool.finish(call.getString("id", ""), call.getString("name", ""), (source, location, name, size, hash) -> {
+                    if (!location.equals(prefs().getString("tree", ""))) throw new IllegalStateException("归档位置已变化，请重新导出。");
+                    requireArchivePermission(location);
+                    Uri tree = Uri.parse(location); validateTree(tree);
+                    Uri destination = createNamedDocument(tree, "application/pdf", name);
+                    if (destination == null) throw new IllegalStateException("无法创建 PDF 文件。");
+                    boolean success = false;
+                    try {
+                        String savedName = displayName(destination);
+                        if (savedName.isEmpty() || savedName.equals("已选择的文件夹")) throw new IllegalStateException("无法确认新文件名称。");
+                        try (InputStream input = new java.io.FileInputStream(source);
+                             OutputStream output = getContext().getContentResolver().openOutputStream(destination, "w")) {
+                            if (output == null) throw new IllegalStateException("文件夹不可写。");
+                            byte[] chunk = new byte[32768]; int n;
+                            while ((n = input.read(chunk)) != -1) output.write(chunk, 0, n);
+                        }
+                        MessageDigest digest = MessageDigest.getInstance("SHA-256"); long readSize = 0;
+                        try (InputStream input = getContext().getContentResolver().openInputStream(destination)) {
+                            if (input == null) throw new IllegalStateException("无法回读 PDF。");
+                            byte[] chunk = new byte[32768]; int n;
+                            while ((n = input.read(chunk)) != -1) {
+                                readSize += n; if (readSize > MAX_BYTES) throw new IllegalStateException("PDF 回读大小超限。");
+                                digest.update(chunk, 0, n);
+                            }
+                        }
+                        StringBuilder backHash = new StringBuilder();
+                        for (byte b : digest.digest()) backHash.append(String.format("%02x", b & 255));
+                        if (readSize != size || !hash.equals(backHash.toString())) throw new IllegalStateException("PDF 保存回读校验失败。");
+                        JSObject result = new JSObject(); result.put("uri", destination.toString()); result.put("name", savedName);
+                        result.put("bytes", readSize); result.put("sha256", hash); result.put("purpose", "export");
+                        rememberDocument(result, "application/pdf"); success = true; return result;
+                    } finally {
+                        if (!success && !DocumentsContract.deleteDocument(getContext().getContentResolver(), destination))
+                            throw new IllegalStateException("新 PDF 清理失败，请检查所选目录；已有文件未覆盖。");
+                    }
+                }));
+            } catch (Exception error) { call.reject("PDF 保存失败：" + error.getMessage(), error); }
         });
     }
     private synchronized void rememberDocument(JSObject file, String mime) throws Exception {

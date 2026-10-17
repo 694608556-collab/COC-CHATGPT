@@ -33,6 +33,8 @@ import { Capacitor } from '@capacitor/core'
 import { ExportDialog } from './components/ExportDialog'
 import { createExport } from '../data/export'
 import type { ExportFormat } from '../data/export'
+import { checkPdfCancellation } from '../data/pdf'
+import type { PdfProgress } from '../data/pdf'
 import { importTable } from '../data/tables'
 import type { TablePreview } from '../data/tables'
 import {
@@ -154,6 +156,10 @@ export function MobileApp({
   const viewport = useVisibleViewport()
   const [selectedCharacter, setSelectedCharacter] = useState('')
   const [savedDocument, setSavedDocument] = useState<SavedDocument>()
+  const pdfController = useRef<AbortController | undefined>(undefined)
+  const [pdfProgress, setPdfProgress] = useState<PdfProgress>()
+  const [pdfCancelling, setPdfCancelling] = useState(false)
+  useEffect(() => () => pdfController.current?.abort(), [])
   const [documents, setDocuments] = useState<SavedDocument[]>([])
   const [exportRequest, setExportRequest] = useState<{
     ids: string[]
@@ -240,45 +246,83 @@ export function MobileApp({
     if (failures) setError(summary)
     else setNotice(summary)
   }
+  /** @param format - 确认的格式。 @returns 已校验文件发布后显示完成；PDF 逐页写私有暂存，取消/失败不发布当前文件。 */
   async function exportSelected(format: ExportFormat) {
     if (!exportRequest) return
-    const loaded = await loadContent(exportRequest.ids)
-    const selected = loaded.records
-      .filter((r) => exportRequest.ids.includes(r.id))
-      .sort((a, b) => a.order - b.order)
-    if (!selected.length) throw new Error('所选场次已不存在，请重新选择。')
-    const groups = exportRequest.combined
-      ? snapshot.modules.map((m) => selected.filter((r) => r.moduleId === m.id)).filter((rows) => rows.length)
-      : selected.map((r) => [r])
-    const failed: string[] = []
-    let count = 0
-    for (const group of groups) {
-      const available = group.filter((r) => r.rawContent || r.manualContent !== undefined)
-      failed.push(...group.filter((r) => !available.includes(r)).map((r) => r.name + '：没有正文'))
-      if (!available.length) continue
-      try {
-        const module = snapshot.modules.find((m) => m.id === available[0]!.moduleId)!
-        const file = await createExport(
-          module,
-          available,
-          exportRequest.filters,
-          format,
-          exportRequest.combined
-        )
-        const saved = await port.writeArchive({
-          name: file.name,
-          mime: file.mime,
-          base64: encodeBase64(file.bytes)
-        })
-        setSavedDocument(saved)
-        count++
-      } catch (reason) {
-        failed.push(group[0]!.name + '：' + (reason instanceof Error ? reason.message : '导出失败'))
+    const controller = format === 'pdf' ? new AbortController() : undefined
+    pdfController.current = controller
+    setPdfCancelling(false)
+    if (controller) setPdfProgress({ stage: 'layout', completed: 0, total: 0 })
+    try {
+      const loaded = await loadContent(exportRequest.ids)
+      const selected = loaded.records
+        .filter((r) => exportRequest.ids.includes(r.id))
+        .sort((a, b) => a.order - b.order)
+      if (!selected.length) throw new Error('所选场次已不存在，请重新选择。')
+      const groups = exportRequest.combined
+        ? snapshot.modules
+            .map((m) => selected.filter((r) => r.moduleId === m.id))
+            .filter((rows) => rows.length)
+        : selected.map((r) => [r])
+      const failed: string[] = []
+      let count = 0
+      for (const [groupIndex, group] of groups.entries()) {
+        checkPdfCancellation(controller?.signal)
+        const available = group.filter((r) => r.rawContent || r.manualContent !== undefined)
+        failed.push(...group.filter((r) => !available.includes(r)).map((r) => r.name + '：没有正文'))
+        if (!available.length) continue
+        let staging: string | undefined
+        try {
+          if (controller) staging = (await port.beginPdfArchive()).id
+          const module = snapshot.modules.find((m) => m.id === available[0]!.moduleId)!
+          let latest: PdfProgress = { stage: 'layout', completed: 0, total: 0 }
+          const file = await createExport(
+            module,
+            available,
+            exportRequest.filters,
+            format,
+            exportRequest.combined,
+            controller
+              ? {
+                  signal: controller.signal,
+                  onProgress: (progress) => {
+                    latest = { ...progress, fileIndex: groupIndex + 1, fileTotal: groups.length }
+                    setPdfProgress(latest)
+                  },
+                  write: (bytes) => port.appendPdfArchive({ id: staging!, base64: encodeBase64(bytes) })
+                }
+              : undefined
+          )
+          checkPdfCancellation(controller?.signal)
+          if (controller) setPdfProgress({ ...latest, stage: 'save' })
+          const saved = staging
+            ? await port.finishPdfArchive({ id: staging, name: file.name })
+            : await port.writeArchive({
+                name: file.name,
+                mime: file.mime,
+                base64: encodeBase64(file.bytes)
+              })
+          setSavedDocument(saved)
+          count++
+        } catch (reason) {
+          if (reason instanceof DOMException && reason.name === 'AbortError') throw reason
+          failed.push(group[0]!.name + '：' + (reason instanceof Error ? reason.message : '导出失败'))
+        } finally {
+          if (staging) await port.cancelPdfArchive({ id: staging })
+        }
       }
+      setExportRequest(undefined)
+      setNotice('导出完成：' + count + ' 个文件保存并回读校验。')
+      if (failed.length) setError(failed.join('；'))
+    } catch (reason) {
+      if (!(reason instanceof DOMException && reason.name === 'AbortError')) throw reason
+      setExportRequest(undefined)
+      setNotice('已取消 PDF 导出；当前文件未保存，已完成的文件保留。')
+    } finally {
+      pdfController.current = undefined
+      setPdfProgress(undefined)
+      setPdfCancelling(false)
     }
-    setExportRequest(undefined)
-    setNotice('导出完成：' + count + ' 个文件保存并回读校验。')
-    if (failed.length) setError(failed.join('；'))
   }
   async function exportTables(format: 'csv' | 'xlsx') {
     const loaded = await loadContent(snapshot.records.map((r) => r.id))
@@ -1048,6 +1092,17 @@ export function MobileApp({
       )}
       {exportRequest && (
         <ExportDialog
+          error={error}
+          progress={pdfProgress}
+          cancelling={pdfCancelling}
+          onCancel={
+            pdfController.current
+              ? () => {
+                  setPdfCancelling(true)
+                  pdfController.current?.abort()
+                }
+              : undefined
+          }
           count={exportRequest.ids.length}
           combined={exportRequest.combined}
           busy={busy}

@@ -21,6 +21,42 @@ async function setup() {
 }
 
 describe('浏览器测试存储事务：自动备份与数据保存独立', () => {
+  it('PDF 取消和失败不发布半成品，成功同名另存且不改变场次、版本或已有文件', async () => {
+    const { browser, json } = await setup()
+    await browser.port.commitRestore({ json, expectedRevision: 0, confirmed: true })
+    const before = await browser.port.getState()
+    const original = await browser.port.writeArchive({
+      name: 'keep.pdf',
+      mime: 'application/pdf',
+      base64: encodeBase64(new TextEncoder().encode('EXISTING FILE'))
+    })
+    const baseline = await browser.documents()
+    let token = await browser.port.beginPdfArchive()
+    await browser.port.appendPdfArchive({
+      id: token.id,
+      base64: encodeBase64(new TextEncoder().encode('%PDF-1.4\npartial'))
+    })
+    await browser.port.cancelPdfArchive(token)
+    await browser.port.cancelPdfArchive(token)
+    expect(await browser.documents()).toEqual(baseline)
+    token = await browser.port.beginPdfArchive()
+    await browser.port.appendPdfArchive({
+      id: token.id,
+      base64: encodeBase64(new TextEncoder().encode('%PDF-1.4\nmissing EOF'))
+    })
+    await expect(browser.port.finishPdfArchive({ id: token.id, name: 'keep.pdf' })).rejects.toThrow('不完整')
+    expect(await browser.documents()).toEqual(baseline)
+    token = await browser.port.beginPdfArchive()
+    const bytes = new TextEncoder().encode('%PDF-1.4\ncomplete fixture\n%%EOF\n')
+    await browser.port.appendPdfArchive({ id: token.id, base64: encodeBase64(bytes) })
+    const file = await browser.port.finishPdfArchive({ id: token.id, name: 'keep.pdf' })
+    expect(file.name).not.toBe('keep.pdf')
+    expect(decodeBase64((await browser.port.readDocument({ uri: file.uri })).base64)).toEqual(bytes)
+    expect((await browser.port.readDocument({ uri: original.uri })).base64).toBe(baseline[0]!.base64)
+    expect(await browser.port.getState()).toEqual(before)
+    expect(await browser.documents()).toHaveLength(2)
+    await browser.close()
+  })
   it('单实体保存保留其他正文及角色字段，角色改名不改动模组 PC，旧版本拒绝', async () => {
     const { browser, name, snapshot } = await setup()
     const character = createEmptyCharacter({ edition: 7, moduleId: snapshot.modules[0]!.id, name: '原角色' })

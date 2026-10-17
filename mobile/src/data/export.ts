@@ -1,9 +1,10 @@
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx'
-import { jsPDF } from 'jspdf'
 import { renderLogText, renderWordHtml } from '../../../src/shared/document-renderer'
 import { applyLogFilters } from '../../../src/shared/log-filter'
 import type { FilterPreset, SessionRecord, ModuleRecord, NormalizedLog } from '../../../src/shared/types'
-import { waitForAppFonts } from './fonts'
+import { textPdf } from './pdf'
+import type { PdfOptions } from './pdf'
+export { textPdf } from './pdf'
 import { recordExportName, combinedExportName } from '../../../src/shared/export-filenames'
 export type ExportFormat = 'raw' | 'txt' | 'doc' | 'dialogue-doc' | 'docx' | 'pdf'
 export const EXPORT_LABELS: Record<ExportFormat, string> = {
@@ -33,12 +34,14 @@ export function asLog(record: SessionRecord): NormalizedLog {
     ]
   }
 }
+/** @param module - 所属模组。 @param records - 已按顺序加载完整正文的场次。 @param filters - 导出过滤设置。 @param format - 文件格式。 @param combined - 是否合成。 @param pdf - PDF 顺序写入/进度/取消；流式模式 bytes 为空。 @returns 文件名、类型及非流式文件字节；不发布文件或修改业务数据。 */
 export async function createExport(
   module: ModuleRecord,
   records: SessionRecord[],
   filters: FilterPreset,
   format: ExportFormat,
-  combined = false
+  combined = false,
+  pdf?: PdfOptions
 ) {
   filters = { ...filters, indentFirstLine: false, darkDisplay: false }
   if (!records.length) throw new Error('没有选中场次。')
@@ -118,52 +121,5 @@ export async function createExport(
       bytes: new Uint8Array(await blob.arrayBuffer())
     }
   }
-  return { name, mime: 'application/pdf', bytes: await textPdf(text) }
-}
-
-/** Raster pages use the same embedded font faces as the app, without depending on system font settings. */
-export async function textPdf(text: string): Promise<Uint8Array> {
-  await waitForAppFonts()
-  const canvas = document.createElement('canvas')
-  canvas.width = 1240
-  canvas.height = 1754
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('此设备无法生成 PDF。')
-  const pdf = new jsPDF({ unit: 'pt', format: 'a4', compress: true })
-  let y = 86,
-    pages = 0
-  function blank() {
-    ctx!.fillStyle = '#fff'
-    ctx!.fillRect(0, 0, 1240, 1754)
-    ctx!.fillStyle = '#171717'
-    ctx!.font = '24px "SF Pro Text", "PingFang SC"'
-    y = 86
-  }
-  function flush() {
-    if (++pages > 150) throw new Error('PDF 超过 150 页，请分批导出。')
-    ctx!.font = '18px "SF Pro Text", "PingFang SC"'
-    ctx!.fillText(String(pages), 600, 1710)
-    ctx!.font = '24px "SF Pro Text", "PingFang SC"'
-    if (pages > 1) pdf.addPage()
-    pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, 595.28, 841.89)
-    blank()
-  }
-  function line(value: string) {
-    if (y > 1650) flush()
-    ctx!.fillText(value, 86, y)
-    y += 38
-  }
-  blank()
-  for (const paragraph of text.replace(/\r\n?/g, '\n').split('\n')) {
-    let value = ''
-    for (const ch of paragraph) {
-      if (ctx.measureText(value + ch).width > 1068) {
-        line(value)
-        value = ch
-      } else value += ch
-    }
-    line(value)
-  }
-  flush()
-  return new Uint8Array(pdf.output('arraybuffer'))
+  return { name, mime: 'application/pdf', bytes: await textPdf(text, pdf) }
 }
