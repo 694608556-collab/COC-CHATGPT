@@ -1,5 +1,7 @@
 # COC 跑团记录簿 · 移动端
 
+最新 iOS 首次配置修正版：[1.0.4 / build 31](releases/ios-1.0.4-31/README.md)。提供明确的本机归档入口，保留系统选择器与 build 30 夜间/缩放修正；79 单元、28 Swift 核心、94 浏览器、三次原生冷启动和两个真实目录 XCUITest 通过，实际全能签环境待复测。安卓仍为 1.0.4 / 29。
+
 最新 iOS UI 修正版：[1.0.4 / build 30 待签名 IPA](releases/ios-1.0.4-30/README.md)，处理真机反馈的夜间顶部模糊与搜索聚焦整页放大；94 浏览器、78 单元及三次 iOS 27.0 原生冷启动通过，实际键盘/明暗切换仍待新包真机复测。安卓保持 1.0.4 / 29。
 
 当前独立 iOS 分支以最新 Android 1.0.4 / 29 为代码和版本基线。[安卓 APK](releases/1.0.4/README.md) 和 [待签名 IPA](releases/ios-1.0.4/README.md) 均已生成并上传。iPhone 14 Pro / iOS 27.0 云端连续三次原生冷启动、双 Worker/WebCrypto/字体通过；爱思签名安装与真机仍待连接设备后验收，见 [最新记录](IOS-DEVELOPMENT.md)。旧 1.0.2 IPA 和安卓历史包保留，以下按历史时间阅读。
