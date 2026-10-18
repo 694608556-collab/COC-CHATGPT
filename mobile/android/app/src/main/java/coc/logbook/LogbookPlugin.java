@@ -39,6 +39,7 @@ public final class LogbookPlugin extends Plugin {
     private LogbookDatabase database;
     private ArchiveRegistry archives;
     private PdfSpool pdfSpool;
+    private SnapshotUpload snapshotUpload;
     private volatile TextPdfJobs textPdfJobs;
     private ReadLease readLease;
     private ArchivePublication publication;
@@ -54,7 +55,7 @@ public final class LogbookPlugin extends Plugin {
     @Override public void load() { database = new LogbookDatabase(getContext()); archives = new ArchiveRegistry(getContext()); }
     @Override protected void handleOnDestroy() {
         networkQueue.close(); backupWriter.shutdown();
-        execute(() -> { try { if (readLease != null) readLease.close(); if (textPdfJobs != null) textPdfJobs.close(); if (pdfSpool != null) pdfSpool.close(); } catch (Exception ignored) { } finally { if (archives != null) archives.close(); } });
+        execute(() -> { try { if (snapshotUpload != null) snapshotUpload.close(); if (readLease != null) readLease.close(); if (textPdfJobs != null) textPdfJobs.close(); if (pdfSpool != null) pdfSpool.close(); } catch (Exception ignored) { } finally { if (archives != null) archives.close(); } });
         if (database != null) database.close();
     }
     private SharedPreferences prefs() { return getContext().getSharedPreferences("archive-location", 0); }
@@ -662,6 +663,46 @@ public final class LogbookPlugin extends Plugin {
     }
     @PluginMethod public void commitRestore(PluginCall call) {
         commitSnapshot(call, true);
+    }
+    /** Snapshot chunks share no state or cleanup with export files. Begin never writes business data. */
+    @PluginMethod public void beginSnapshotEdit(PluginCall call) {
+        execute(() -> { try {
+            Long expected=call.getData().has("expectedRevision")?call.getData().getLong("expectedRevision"):null;
+            if(expected==null||expected!=database.revision())throw new IllegalStateException("数据已变化，请重新读取。");
+            String tree=prefs().getString("tree","");requireArchivePermission(tree);
+            Long bytes=call.getData().has("bytes")?call.getData().getLong("bytes"):null;
+            if(bytes==null)throw new IllegalArgumentException("缺少快照长度。");
+            if(snapshotUpload==null)snapshotUpload=new SnapshotUpload(new java.io.File(getContext().getCacheDir(),"snapshot-uploads"));
+            JSObject out=new JSObject();out.put("id",snapshotUpload.begin(tree,expected,bytes,call.getString("sha256","")));call.resolve(out);
+        } catch(Exception error){call.reject("数据暂存失败："+error.getMessage(),error);} });
+    }
+    @PluginMethod public void appendSnapshotEdit(PluginCall call) {
+        execute(() -> { try {
+            String base64=call.getString("base64","");
+            if(snapshotUpload==null||base64.length()>349528)throw new IllegalArgumentException("快照分段不合法。");
+            Integer index=call.getInt("index");if(index==null)throw new IllegalArgumentException("缺少分段序号。");
+            snapshotUpload.append(call.getString("id",""),index,Base64.decode(base64,Base64.NO_WRAP));call.resolve();
+        } catch(Exception error){call.reject("数据暂存失败："+error.getMessage(),error);} });
+    }
+    @PluginMethod public void cancelSnapshotEdit(PluginCall call) {
+        execute(() -> {try {if(snapshotUpload!=null)snapshotUpload.cancel(call.getString("id",""));call.resolve();}
+        catch(Exception error){call.reject("数据暂存清理失败："+error.getMessage(),error);} });
+    }
+    /** Exact length/hash, strict UTF-8/JSON and existing structure checks precede the original CAS transaction. */
+    @PluginMethod public void finishSnapshotEdit(PluginCall call) {
+        execute(() -> {try {
+            if(snapshotUpload==null)throw new IllegalStateException("快照上传已失效。");
+            JSObject out=snapshotUpload.finish(call.getString("id",""),(file,tree,expected)->{
+                if(expected!=database.revision()||!tree.equals(prefs().getString("tree","")))throw new IllegalStateException("数据或保存位置已变化，未保存。");
+                requireArchivePermission(tree);
+                byte[] bytes=java.nio.file.Files.readAllBytes(file.toPath());
+                String json=StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT).onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT).decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+                validateJsonText(json);validateSnapshot(new JSONObject(json));
+                requireArchivePermission(tree);
+                if(!file.delete())throw new IllegalStateException("数据暂存清理失败，未保存。");
+                long revision=database.replace(json,expected);JSObject result=new JSObject();result.put("revision",revision);return result;
+            });call.resolve(out);
+        } catch(Exception error){call.reject("编辑未保存："+error.getMessage(),error);} });
     }
     @PluginMethod public void commitEdit(PluginCall call) {
         commitSnapshot(call, false);

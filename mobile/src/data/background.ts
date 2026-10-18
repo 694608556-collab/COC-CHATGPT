@@ -202,3 +202,32 @@ export async function exportInBackground(
   })
   return name ? { ...file, name } : file
 }
+
+/** @param source - 原生版本校验后封存的只读凭证。 @returns 后台校验的完整快照，不经主线程 JSON 解码。 */
+export function readLocalInBackground(source: ExportSource): Promise<MobileSnapshot> {
+  return runJob({ type: 'read-local', source })
+}
+/** @param snapshot - 全部正文已读的候选快照。 @returns 全部校验后的快照、后台分段租约/数量/总长/摘要，不写原生数据。 */
+export function prepareUploadInBackground(snapshot: MobileSnapshot): Promise<{
+  /** 完整校验后的业务快照；不包含桥接用 JSON 字符串。 */
+  snapshot: MobileSnapshot
+  /** 完整 UTF-8 字节数，number，至多 64 MiB。 */
+  bytes: number
+  /** 完整字节 SHA-256，小写十六进制 string。 */
+  sha256: string
+  /** 本次工作线程内租约 string；关闭旧租约不影响新租约。 */
+  id: string
+  /** 有序分段数量，number，每段至多 256 KiB。 */
+  count: number
+}> {
+  return runJob({ type: 'prepare-upload', snapshot })
+}
+
+/** @param id - 后台上传租约。 @param index - 零起顺序分段序号。 @returns 最多 256 KiB 原始字节的 Base64。 */
+export function uploadChunkInBackground(id: string, index: number): Promise<string> {
+  return runJob({ type: 'upload-chunk', id, index })
+}
+/** @param id - 本次后台上传租约。 @returns 幂等释放字节确认；不影响其他租约。 */
+export function closeUploadInBackground(id: string): Promise<void> {
+  return runJob({ type: 'upload-close', id })
+}

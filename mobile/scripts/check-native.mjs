@@ -126,3 +126,21 @@ const publicationResult = spawnSync(
 )
 process.stdout.write(publicationResult.stdout)
 if (publicationResult.status) throw new Error(publicationResult.stderr)
+
+const uploadCompiled = spawnSync(
+  javac,
+  [
+    '-encoding',
+    'UTF-8',
+    '-d',
+    work,
+    join(source, 'PdfSpool.java'),
+    join(source, 'SnapshotUpload.java'),
+    resolve('tests/native/SnapshotUploadCheck.java')
+  ],
+  { encoding: 'utf8' }
+)
+if (uploadCompiled.status) throw new Error(uploadCompiled.stderr)
+const uploadResult = spawnSync(java, ['-cp', work, 'coc.logbook.SnapshotUploadCheck'], { encoding: 'utf8' })
+process.stdout.write(uploadResult.stdout)
+if (uploadResult.status) throw new Error(uploadResult.stderr)

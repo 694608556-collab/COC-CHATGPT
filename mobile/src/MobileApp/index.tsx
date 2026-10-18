@@ -42,6 +42,10 @@ import { importTable } from '../data/tables'
 import type { TablePreview } from '../data/tables'
 import {
   prepareInBackground,
+  prepareUploadInBackground,
+  uploadChunkInBackground,
+  closeUploadInBackground,
+  readLocalInBackground,
   previewBase64InBackground,
   previewInBackground,
   readInBackground,
@@ -97,9 +101,20 @@ export function MobileApp({
     if (!wanted.length) return current
     if (!native) throw new Error('本机数据尚未读取。')
     setNotice('正在读取已保存正文…')
-    const result = await port.getRecordContent({ ids: wanted, expectedRevision: native.revision })
-    if (result.revision !== native.revision) throw new Error('数据已变化，请重新读取。')
-    const checked = await readInBackground(result.json)
+    let checked: MobileSnapshot
+    if (Capacitor.isNativePlatform()) {
+      const source = await port.createExportSource({ ids: wanted, expectedRevision: native.revision })
+      try {
+        if (source.revision !== native.revision) throw new Error('数据已变化，请重新读取。')
+        checked = await readLocalInBackground({ ...source, url: Capacitor.convertFileSrc(source.fileUri) })
+      } finally {
+        await port.releaseExportSource({ id: source.id })
+      }
+    } else {
+      const result = await port.getRecordContent({ ids: wanted, expectedRevision: native.revision })
+      if (result.revision !== native.revision) throw new Error('数据已变化，请重新读取。')
+      checked = await readInBackground(result.json)
+    }
     const next = mergeRecordContent(current, checked, wanted)
     const loaded = new Set(wanted)
     replaceDeferred(new Set([...deferredRef.current].filter((id) => !loaded.has(id))))
@@ -177,15 +192,48 @@ export function MobileApp({
     if (snapshot.records.some((r) => deferredRef.current.has(r.id)))
       throw new Error('正文尚未完整读取，未保存不完整数据。')
     setNotice('正在后台校验并编码待保存数据…')
-    const prepared = await prepareInBackground({ ...next, exportedAt: new Date().toISOString() })
-    const validated = prepared.snapshot
-    setNotice('正在保存数据，请保持应用打开…')
-    const result = await port.commitEdit({
-      json: prepared.json,
-      expectedRevision: native.revision
-    })
+    const candidate = { ...next, exportedAt: new Date().toISOString() }
+    let validated: MobileSnapshot,
+      revision: number,
+      json: string | null = null
+    if (
+      Capacitor.isNativePlatform() &&
+      port.beginSnapshotEdit &&
+      port.appendSnapshotEdit &&
+      port.finishSnapshotEdit &&
+      port.cancelSnapshotEdit
+    ) {
+      const prepared = await prepareUploadInBackground(candidate)
+      validated = prepared.snapshot
+      let upload: { id: string } | undefined
+      try {
+        upload = await port.beginSnapshotEdit({
+          expectedRevision: native.revision,
+          bytes: prepared.bytes,
+          sha256: prepared.sha256
+        })
+        setNotice('正在保存数据，请保持应用打开…')
+        for (let index = 0; index < prepared.count; index++) {
+          const base64 = await uploadChunkInBackground(prepared.id, index)
+          await port.appendSnapshotEdit({ id: upload.id, index, base64 })
+        }
+        revision = (await port.finishSnapshotEdit({ id: upload.id })).revision
+      } finally {
+        try {
+          if (upload) await port.cancelSnapshotEdit({ id: upload.id })
+        } finally {
+          await closeUploadInBackground(prepared.id)
+        }
+      }
+    } else {
+      const prepared = await prepareInBackground(candidate)
+      validated = prepared.snapshot
+      json = prepared.json
+      setNotice('正在保存数据，请保持应用打开…')
+      revision = (await port.commitEdit({ json: prepared.json, expectedRevision: native.revision })).revision
+    }
     setSnapshot(validated)
-    setNative((current) => current && { ...current, json: prepared.json, revision: result.revision })
+    setNative((current) => current && { ...current, json, revision })
     document.documentElement.dataset.theme = validated.settings.theme
   }
   /**

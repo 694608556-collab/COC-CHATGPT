@@ -39,6 +39,19 @@ export interface SavedDocument {
 }
 /** 所有请求/响应与本工程 LogbookPlugin.java 一一对应，不访问推测的 HTTP 接口。 */
 export interface LogbookPort {
+  /** @param options - 当前版本及完整 UTF-8 总长/摘要。 @returns 单次私有上传标识，至多 64 MiB，不写业务。 */
+  beginSnapshotEdit?(options: {
+    expectedRevision: number
+    bytes: number
+    sha256: string
+  }): Promise<{ id: string }>
+  /** @param options - 顺序序号与至多 256 KiB 字节的 Base64。 @returns 暂存确认；乱序/重复拒绝。 */
+  appendSnapshotEdit?(options: { id: string; index: number; base64: string }): Promise<void>
+  /** @param options - 本次完整上传 ID。 @returns 回读/语法/结构/授权/CAS/事务通过后的版本。 */
+  finishSnapshotEdit?(options: { id: string }): Promise<{ revision: number }>
+  /** @param options - 本次上传 ID。 @returns 幂等清理确认，不删除别人的暂存或已提交数据。 */
+  cancelSnapshotEdit?(options: { id: string }): Promise<void>
+
   /** @param options - 唯一所选 ID 与概览版本。 @returns 完整只读正文的私有文件凭证；相同 CAS/整批校验，不写业务或共享归档。 */
   createExportSource(options: { ids: string[]; expectedRevision: number }): Promise<{
     /** 本次读取租约 ID；类型为 string，仅能释放本租约。 */
