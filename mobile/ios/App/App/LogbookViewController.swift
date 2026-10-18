@@ -54,25 +54,50 @@ final class LogbookViewController: CAPBridgeViewController {
             return {...info,stage:'complete',passed:true,nativeOverview:true,packagedWorker:true,exportWorker:true,webCrypto:true,fontsReady:document.fonts.status==='loaded',secureContext:window.isSecureContext,userAgent:navigator.userAgent,iosViewportPolicy:true,darkColorScheme:true};
             } catch(error) { return {...info,passed:false,stage,error:String(error?.message||error),stack:String(error?.stack||'')}; }
             })();
-            return await window.__cocSmokeTask;
+            window.__cocSmokeTask.then(result => { window.__cocSmokeResult = result; });
+            true;
             """
-            self.webView?.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
-                var output: LogbookJSON
-                switch result { case .success(let value): output = value as? LogbookJSON ?? ["passed": false, "error": "Invalid smoke result"]
-                case .failure(let error):
-                    let detail=error as NSError
-                    output = ["passed": false, "stage": "javascript-evaluation", "error": detail.localizedDescription, "details": detail.userInfo.mapValues { String(describing: $0) }] }
-                output["nativeSystemVersion"] = UIDevice.current.systemVersion
-                output["appVersion"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
-                output["appBuild"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
-                if #available(iOS 26.0, *) {
-                    let hidden = self.webView?.scrollView.topEdgeEffect.isHidden == true && self.webView?.scrollView.bottomEdgeEffect.isHidden == true
-                    output["scrollEdgeEffectsHidden"] = hidden
-                    if !hidden { output["passed"] = false }
+            // Poll plain JSON instead of awaiting a native promise handle that WebKit
+            // may collect before its asynchronous function settles under memory pressure.
+            self.webView?.evaluateJavaScript(script) { _, error in
+                if let error = error {
+                    self.writeSmokeResult(["passed": false, "stage": "javascript-start", "error": error.localizedDescription])
+                } else {
+                    self.pollSmokeResult(deadline: Date().addingTimeInterval(90))
                 }
-                try? logbookData(output).write(to: FileManager.default.temporaryDirectory.appendingPathComponent("ios-smoke-result.json"), options: [.atomic])
             }
         }
+    }
+
+    /// Read a completed public diagnostic result; pending tasks have a bounded deadline.
+    private func pollSmokeResult(deadline: Date) {
+        webView?.evaluateJavaScript("window.__cocSmokeResult ?? null") { value, error in
+            if let result = value as? LogbookJSON {
+                self.writeSmokeResult(result)
+            } else if let error = error {
+                self.writeSmokeResult(["passed": false, "stage": "javascript-poll", "error": error.localizedDescription])
+            } else if Date() >= deadline {
+                self.writeSmokeResult(["passed": false, "stage": "javascript-deadline", "error": "Diagnostic task did not settle within 90 seconds"])
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    self.pollSmokeResult(deadline: deadline)
+                }
+            }
+        }
+    }
+
+    /// Persist only public sample checks and native environment flags for CI.
+    private func writeSmokeResult(_ result: LogbookJSON) {
+        var output = result
+        output["nativeSystemVersion"] = UIDevice.current.systemVersion
+        output["appVersion"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        output["appBuild"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+        if #available(iOS 26.0, *) {
+            let hidden = webView?.scrollView.topEdgeEffect.isHidden == true && webView?.scrollView.bottomEdgeEffect.isHidden == true
+            output["scrollEdgeEffectsHidden"] = hidden
+            if !hidden { output["passed"] = false }
+        }
+        try? logbookData(output).write(to: FileManager.default.temporaryDirectory.appendingPathComponent("ios-smoke-result.json"), options: [.atomic])
     }
     #endif
     override func capacitorDidLoad() {
