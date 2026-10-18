@@ -213,7 +213,11 @@ export function DataSettings(props: {
       <section className="panel settings-panel">
         <h2>归档位置</h2>
         <p className="location">{props.archive.label}</p>
-        <p className="muted">已通过读写验证。若使用存储卡，拔卡后需重新确认位置。</p>
+        <p className="muted">
+          {Capacitor.getPlatform() === 'ios'
+            ? '已通过读写验证。文件位置更换或授权失效后，请重新确认位置。'
+            : '已通过读写验证。若使用存储卡，拔卡后需重新确认位置。'}
+        </p>
         <button disabled={props.busy} onClick={props.onChoose}>
           更改保存位置
         </button>

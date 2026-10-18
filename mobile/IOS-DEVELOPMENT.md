@@ -4,9 +4,11 @@
 
 已保留原 `01475f49` 及旧 1.0.2 待签名 IPA。接入 Android 优化源码 f36be68 和 1.0.4 构建提交 2b50fc6；安卓 APK 独立位于 [1.0.4](releases/1.0.4/README.md)，不从旧 iOS 分支降级安卓。iOS 工程与打包校验同步 1.0.4 / 29，但设备包仍须 macOS 云端构建，不假称 Windows 可以执行 Xcode。
 
-旧云端运行 38878820982 最终为失败：设备构建/IPA 上传成功，iPhone 14 Pro / iOS 27.0 模拟器已启动并安装，但 WKWebView 检查仅报 JavaScript 异常；不是卡在编译，也不是启动已通过。现在固定要求 27.0 运行时、给全部子进程设置超时，DEBUG 原生检查输出具体阶段、错误/堆栈和 WebCrypto 可用性，并实际运行打包 snapshot-worker 与 export-worker 公开正文任务。新云端结果待回填。
+旧云端运行 38878820982 最终为失败：设备构建/IPA 上传成功，iPhone 14 Pro / iOS 27.0 模拟器已启动并安装，但 WKWebView 检查仅报 JavaScript 异常；不是卡在编译，也不是启动已通过。现在固定要求 27.0 运行时、给全部子进程设置超时，DEBUG 原生检查输出具体阶段、错误/堆栈和 WebCrypto 可用性，并实际运行打包 snapshot-worker 与 export-worker 公开正文任务。[新云端 39111979457](https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39111979457) 已通过：原生概览、snapshot-worker 结构读取、export-worker 实际公开正文导出、WebCrypto 已知摘要、原字体加载及 secure context 均成功，阶段 complete。旧 1.0.2 失败未在最新代码重现，原错误缺少具体堆栈，不能断言某一单独根因已被证明。
 
 最新 Android 专用私有读取、分段编辑、文字 PDF 及导出暂存接口只在 Android 调用；iOS 保留既有完整读取/事务写入、完整浏览器 PDF 生成及原生新建回读保存，不能因 Capacitor.isNativePlatform 为真就调用未注册的 Android 方法。保留 iOS 安全区、前后台监听与原生书签；根页面不调用 iOS 不支持的 minimizeApp。原字体、正文、CAS、事务、十分钟有修改才自动备份不变；没有迁移/打开安卓私有数据库。
+
+另保留 Android 与浏览器验证器既有 PDF 暂存，只对 iOS 使用完整文件写入；本地追加两项平台契约测试通过（78 单元）。iOS 首次目录与设置文案使用系统“文件”及位置授权描述，不再向 iPhone 展示存储卡/root 操作说明，Android 文案和按钮尺寸不变。
 
 iOS 大正文性能与原生文件流程仍须独立验收，不能继承 S9 通过结论。家用 Windows 检测到爱思助手 8.0，当前未检测到已连接 iPhone；签名/安装等待用户连接并在自己的爱思界面配置 Apple ID 或有效证书，不索取聊天中的账号密码，不伪造真机通过，不发布或合并 PR。
 
@@ -36,3 +38,5 @@ Windows 可运行 `pnpm install --frozen-lockfile`、`pnpm ios:sync` 与浏览�
 系统目录选择、持久书签在设备重启／授权失效后的行为、第三方文件提供者、系统分享、iOS 键盘与安全区、冷启动及自动备份大数据等待均须原生环境和用户真机复测。自动备份仅应用运行时按原十分钟／有修改规则执行，不承诺 iOS 后台定时。没有卸载、清库、操作前副本或真机通过结论。
 
 官方依据：[Capacitor iOS](https://capacitorjs.com/docs/ios)、[Swift 插件](https://capacitorjs.com/docs/plugins/ios)、[GitHub Xcode 27 环境](https://github.com/actions/runner-images/blob/main/images/macos/xcode-27-arm64-Readme.md)、[爱思 IPA 签名说明](https://helper.i4.cn/news_detail_38195.html)。
+
+完成平台分支回归修正及 iOS 专用目录文案后，再次构建对应源码的待签名 IPA，最终运行/摘要待回填。

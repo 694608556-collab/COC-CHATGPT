@@ -337,7 +337,8 @@ export function MobileApp({
         if (!available.length) continue
         let staging: string | undefined
         try {
-          if (controller && Capacitor.getPlatform() === 'android') staging = (await port.beginPdfArchive()).id
+          // The browser validation adapter also implements the spool; only iOS keeps its full-file writer.
+          if (controller && Capacitor.getPlatform() !== 'ios') staging = (await port.beginPdfArchive()).id
           const module = snapshot.modules.find((m) => m.id === available[0]!.moduleId)!
           let latest: PdfProgress = { stage: 'layout', completed: 0, total: 0 }
           const file =

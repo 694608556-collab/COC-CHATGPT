@@ -48,11 +48,13 @@ final class LogbookViewController: CAPBridgeViewController {
             } catch(error) { return {...info,passed:false,stage,error:String(error?.message||error),stack:String(error?.stack||'')}; }
             """
             self.webView?.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
-                let output: LogbookJSON
+                var output: LogbookJSON
                 switch result { case .success(let value): output = value as? LogbookJSON ?? ["passed": false, "error": "Invalid smoke result"]
                 case .failure(let error):
                     let detail=error as NSError
                     output = ["passed": false, "stage": "javascript-evaluation", "error": detail.localizedDescription, "details": detail.userInfo.mapValues { String(describing: $0) }] }
+                output["nativeSystemVersion"] = UIDevice.current.systemVersion
+                output["appVersion"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
                 try? logbookData(output).write(to: FileManager.default.temporaryDirectory.appendingPathComponent("ios-smoke-result.json"), options: [.atomic])
             }
         }
