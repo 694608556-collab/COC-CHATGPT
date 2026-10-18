@@ -1,0 +1,18 @@
+{
+  "version": "1.0.4",
+  "build": 32,
+  "bundle": "coc.logbook",
+  "bytes": 25467398,
+  "sha256": "80a7958a5912f2ce96a3dadb750d758a69116cbd33139104e671a9d89a3ea003",
+  "arm64": true,
+  "assets": [
+    "app.js",
+    "app.css",
+    "snapshot-worker.js",
+    "export-worker.js",
+    "index.html"
+  ],
+  "originalFonts": 8,
+  "zipCrc": true,
+  "signing": "unsigned"
+}
