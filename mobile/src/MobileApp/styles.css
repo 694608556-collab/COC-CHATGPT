@@ -62,6 +62,12 @@
   color: var(--text);
   background: var(--bg);
 }
+:root[data-platform='ios'] {
+  color-scheme: light;
+}
+:root[data-platform='ios'][data-theme='dark'] {
+  color-scheme: dark;
+}
 /* iOS owns a full-screen WKWebView; Android continues using its native inset handling. */
 :root[data-platform='ios'] .app-header {
   padding-top: calc(12px + env(safe-area-inset-top, 0px));

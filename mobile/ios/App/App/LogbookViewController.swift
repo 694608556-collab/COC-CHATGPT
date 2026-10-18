@@ -46,7 +46,12 @@ final class LogbookViewController: CAPBridgeViewController {
             stage='fonts';
             await document.fonts.ready;
             if(!document.body.innerText.includes('选择并确认保存位置')) throw new Error('Native startup screen not ready: '+document.body.innerText);
-            return {...info,stage:'complete',passed:true,nativeOverview:true,packagedWorker:true,exportWorker:true,webCrypto:true,fontsReady:document.fonts.status==='loaded',secureContext:window.isSecureContext,userAgent:navigator.userAgent};
+            stage='ios-appearance';
+            if(!document.querySelector('meta[name="viewport"]').content.includes('maximum-scale=1')) throw new Error('Missing iOS focus scale bound');
+            document.documentElement.dataset.theme='dark';
+            await new Promise(requestAnimationFrame);
+            if(getComputedStyle(document.documentElement).colorScheme!=='dark') throw new Error('Native color scheme not dark');
+            return {...info,stage:'complete',passed:true,nativeOverview:true,packagedWorker:true,exportWorker:true,webCrypto:true,fontsReady:document.fonts.status==='loaded',secureContext:window.isSecureContext,userAgent:navigator.userAgent,iosViewportPolicy:true,darkColorScheme:true};
             } catch(error) { return {...info,passed:false,stage,error:String(error?.message||error),stack:String(error?.stack||'')}; }
             })();
             return await window.__cocSmokeTask;
@@ -59,6 +64,12 @@ final class LogbookViewController: CAPBridgeViewController {
                     output = ["passed": false, "stage": "javascript-evaluation", "error": detail.localizedDescription, "details": detail.userInfo.mapValues { String(describing: $0) }] }
                 output["nativeSystemVersion"] = UIDevice.current.systemVersion
                 output["appVersion"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+                output["appBuild"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+                if #available(iOS 26.0, *) {
+                    let hidden = self.webView?.scrollView.topEdgeEffect.isHidden == true && self.webView?.scrollView.bottomEdgeEffect.isHidden == true
+                    output["scrollEdgeEffectsHidden"] = hidden
+                    if !hidden { output["passed"] = false }
+                }
                 try? logbookData(output).write(to: FileManager.default.temporaryDirectory.appendingPathComponent("ios-smoke-result.json"), options: [.atomic])
             }
         }
@@ -72,5 +83,11 @@ final class LogbookViewController: CAPBridgeViewController {
         webView?.backgroundColor = color
         webView?.scrollView.backgroundColor = color
         webView?.scrollView.contentInsetAdjustmentBehavior = .never
+        // The opaque HTML header already owns the safe area. A second UIKit edge
+        // material can paint a pale gradient over the app-selected dark theme.
+        if #available(iOS 26.0, *) {
+            webView?.scrollView.topEdgeEffect.isHidden = true
+            webView?.scrollView.bottomEdgeEffect.isHidden = true
+        }
     }
 }
