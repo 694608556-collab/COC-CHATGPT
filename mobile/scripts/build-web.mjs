@@ -6,7 +6,11 @@ await mkdir('www', { recursive: true })
 const ios = process.env.COC_PLATFORM === 'ios'
 await copyFile('../build/icon.png', 'www/icon.png')
 await build({
-  entryPoints: { app: 'src/main.tsx', 'snapshot-worker': 'src/data/snapshot-worker.ts' },
+  entryPoints: {
+    app: 'src/main.tsx',
+    'snapshot-worker': 'src/data/snapshot-worker.ts',
+    'export-worker': 'src/data/export-worker.ts'
+  },
   outdir: 'www',
   banner: { js: 'var globalThis = typeof window !== "undefined" ? window : self;' },
   bundle: true,

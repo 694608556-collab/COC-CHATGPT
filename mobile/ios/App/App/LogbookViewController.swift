@@ -21,20 +21,30 @@ final class LogbookViewController: CAPBridgeViewController {
             if(state.revision!==0 || state.json!==null || state.archive.valid) throw new Error('Unexpected fresh native state');
             stage='packaged-worker';
             const empty={schemaVersion:2,exportedAt:new Date().toISOString(),modules:[],records:[],characters:[],settings:{theme:'light',filterPreset:{}}};
-            await new Promise((resolve,reject)=>{
-              const worker=new Worker('snapshot-worker.js');
-              const timeout=setTimeout(()=>{worker.terminate();reject(new Error('Packaged worker timeout'));},30000);
-              worker.onerror=()=>{clearTimeout(timeout);worker.terminate();reject(new Error('Packaged worker failed'));};
-              worker.onmessage=e=>{clearTimeout(timeout);worker.terminate();if(e.data.error)reject(new Error(e.data.error));else resolve(e.data.result);};
-              worker.postMessage({id:1,job:{type:'read',json:JSON.stringify(empty)}});
-            });
+            async function workerJob(url,job) {
+              return new Promise((resolve,reject)=>{
+                const worker=new Worker(url);
+                const timeout=setTimeout(()=>{worker.terminate();reject(new Error('Packaged worker timeout: '+url));},30000);
+                worker.onerror=event=>{clearTimeout(timeout);worker.terminate();reject(new Error('Packaged worker failed: '+url+' '+event.message));};
+                worker.onmessage=e=>{clearTimeout(timeout);worker.terminate();if(e.data.error)reject(new Error(e.data.error));else resolve(e.data.result);};
+                worker.postMessage({id:1,job});
+              });
+            }
+            const parsed=await workerJob('snapshot-worker.js',{type:'read',json:JSON.stringify(empty)});
+            if(parsed?.snapshot?.schemaVersion!==2 || parsed.snapshot.records.length!==0) throw new Error('Snapshot worker output mismatch');
+            stage='export-worker';
+            const now=new Date().toISOString(), marker='COC_WORKER_PUBLIC_中文😀';
+            const module={id:'smoke-module',name:'公开验证',playStatus:'running',kps:[],pairs:[],order:0,collapsed:false,createdAt:now,updatedAt:now};
+            const record={id:'smoke-record',moduleId:module.id,name:'公开正文',sequenceNo:1,sourceType:'manual',status:'manual',dateSource:'none',manualContent:marker,order:0,createdAt:now,updatedAt:now};
+            const exported=await workerJob('export-worker.js',{type:'export',module,records:[record],filters:{},format:'txt',combined:false});
+            if(!exported?.bytes || !new TextDecoder().decode(exported.bytes).includes(marker)) throw new Error('Export worker output mismatch');
             stage='webcrypto';
             const hash=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode('abc')));
             if(Array.from(hash,b=>b.toString(16).padStart(2,'0')).join('')!=='ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad') throw new Error('WebCrypto mismatch');
             stage='fonts';
             await document.fonts.ready;
             if(!document.body.innerText.includes('选择并确认保存位置')) throw new Error('Native startup screen not ready: '+document.body.innerText);
-            return {...info,stage:'complete',passed:true,nativeOverview:true,packagedWorker:true,webCrypto:true,fontsReady:document.fonts.status==='loaded',secureContext:window.isSecureContext,userAgent:navigator.userAgent};
+            return {...info,stage:'complete',passed:true,nativeOverview:true,packagedWorker:true,exportWorker:true,webCrypto:true,fontsReady:document.fonts.status==='loaded',secureContext:window.isSecureContext,userAgent:navigator.userAgent};
             } catch(error) { return {...info,passed:false,stage,error:String(error?.message||error),stack:String(error?.stack||'')}; }
             """
             self.webView?.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in

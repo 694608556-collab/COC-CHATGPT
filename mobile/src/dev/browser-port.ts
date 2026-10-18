@@ -1,9 +1,9 @@
 import type { LogbookPort, NativeState, SavedDocument } from '../data/native'
-import { decodeBase64, encodeBase64 } from '../data/native'
+import { decodeBase64 } from '../data/native'
 import { encodeBackup, previewBackup } from '../data/backup'
 import { DEFAULT_FILTER_PRESET } from '../../../src/shared/types'
 import { applyAction } from '../data/actions'
-import { encodeInBackground } from '../data/background'
+import { checkJsonInBackground, encodeInBackground } from '../data/background'
 import { validateSettings } from '../data/settings'
 import { applyEdit } from '../data/edit'
 import { nextExportName } from '../../../src/shared/export-filenames'
@@ -23,6 +23,8 @@ const initial: NativeState = {
 
 /** Development-only system boundary. Never imported by the APK entry point. */
 export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
+  // 仅开发浏览器在内存收集；Android 将每段写入私有文件，不保留全部页图像。
+  let pdf: { id: string; chunks: Uint8Array[]; bytes: number; tree: string } | undefined
   const database = new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(name, 1)
     request.onupgradeneeded = () => {
@@ -59,8 +61,44 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
       mime,
       bytes: bytes.length,
       sha256: Array.from(hash, (b) => b.toString(16).padStart(2, '0')).join(''),
-      base64: encodeBase64(bytes)
+      base64: await encodeInBackground(bytes)
     }
+  }
+  /** @param file - 已计算校验值的完整开发文件。 @param tree - 可选的开始时目录。 @returns 新建且回读验证的文件；事务失败不发布。 */
+  async function storeDocument(file: BrowserDocument, tree?: string): Promise<BrowserDocument> {
+    const db = await database
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(['state', 'documents'], 'readwrite')
+      let failure: Error | undefined
+      const state = tx.objectStore('state').get('current')
+      state.onsuccess = () => {
+        if (!state.result?.archive.valid || (tree !== undefined && state.result.archive.uri !== tree)) {
+          failure = new Error('请先启用浏览器测试存储；存储或目录授权可能已变化。')
+          tx.abort()
+          return
+        }
+        const documents = tx.objectStore('documents')
+        const existing = documents.getAll()
+        existing.onsuccess = () => {
+          file.name = nextExportName(
+            existing.result.map((entry: BrowserDocument) => entry.name),
+            file.name
+          )
+          documents.add(file)
+          const back = documents.get(file.uri)
+          back.onsuccess = () => {
+            if (back.result?.base64 !== file.base64) {
+              failure = new Error('测试文件回读失败。')
+              tx.abort()
+            }
+          }
+        }
+      }
+      tx.oncomplete = () => resolve()
+      tx.onabort = () => reject(failure ?? tx.error)
+      tx.onerror = () => reject(tx.error)
+    })
+    return file
   }
   /**
    * 浏览器开发存储的确认后事务，不额外创建操作前副本，不进入 APK。
@@ -74,7 +112,7 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
     expectedRevision: number,
     attachments: Array<{ name: string; mime: string; base64: string }> = []
   ) {
-    const next = (await previewBackup(new TextEncoder().encode(json))).snapshot
+    const checkedJson = await checkJsonInBackground(json)
     const before = await readState()
     if (!before.archive.valid) throw new Error('请先启用浏览器测试存储。')
     if (before.revision !== expectedRevision) throw new Error('数据已变化，请重新打开编辑或导入预览。')
@@ -108,7 +146,7 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
           states.put(
             {
               ...current,
-              json: JSON.stringify(next),
+              json: checkedJson,
               revision: expectedRevision + 1
             },
             'current'
@@ -122,6 +160,87 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
     })
   }
   const port: LogbookPort = {
+    async createExportSource() {
+      throw new Error('浏览器使用独立测试存储读取，不提供 Android 私有文件租约。')
+    },
+    async releaseExportSource() {},
+    async renderTextPdf() {
+      throw new Error('浏览器使用原有逐页 PDF 路径，不提供 Android 字体排版。')
+    },
+    async getTextPdfProgress() {
+      throw new Error('浏览器没有 Android PDF 任务。')
+    },
+    async beginPdfArchive() {
+      const state = await readState()
+      if (!state.archive.valid) throw new Error('请先确认归档文件夹。')
+      if (pdf) throw new Error('已有 PDF 正在导出。')
+      pdf = { id: crypto.randomUUID(), chunks: [], bytes: 0, tree: state.archive.uri }
+      return { id: pdf.id }
+    },
+    async appendPdfArchive({ id, base64 }) {
+      if (!pdf || pdf.id !== id) throw new Error('PDF 暂存已失效。')
+      const bytes = decodeBase64(base64)
+      if (bytes.length > 256 * 1024 || pdf.bytes + bytes.length > 64 * 1024 * 1024) {
+        pdf = undefined
+        throw new Error('PDF 文件或分段超过大小限制。')
+      }
+      pdf.bytes += bytes.length
+      pdf.chunks.push(bytes)
+    },
+    async finishPdfArchive({ id, name }) {
+      if (!pdf || pdf.id !== id) throw new Error('PDF 暂存已失效。')
+      const current = pdf
+      try {
+        const state = await readState()
+        if (!state.archive.valid || state.archive.uri !== current.tree)
+          throw new Error('归档位置或授权已变化。')
+        const bytes = new Uint8Array(current.bytes)
+        let offset = 0
+        for (const chunk of current.chunks) {
+          bytes.set(chunk, offset)
+          offset += chunk.length
+        }
+        if (
+          new TextDecoder().decode(bytes.subarray(0, 5)) !== '%PDF-' ||
+          !new TextDecoder().decode(bytes.subarray(-32)).includes('%%EOF')
+        )
+          throw new Error('PDF 不完整，未保存。')
+        return await storeDocument(
+          { ...(await document(name, 'application/pdf', bytes)), purpose: 'export' },
+          current.tree
+        )
+      } finally {
+        pdf = undefined
+      }
+    },
+    async cancelPdfArchive({ id }) {
+      if (pdf?.id === id) pdf = undefined
+    },
+    async finishExportArchive({ id, name, mime, purpose = 'export' }) {
+      if (!pdf || pdf.id !== id) throw new Error('导出暂存已失效。')
+      const current = pdf
+      try {
+        if (
+          ![
+            'application/json',
+            'application/zip',
+            'text/plain',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          ].includes(mime)
+        )
+          throw new Error('不支持此导出类型。')
+        const bytes = new Uint8Array(current.bytes)
+        let offset = 0
+        for (const chunk of current.chunks) {
+          bytes.set(chunk, offset)
+          offset += chunk.length
+        }
+        return await storeDocument({ ...(await document(name, mime, bytes)), purpose }, current.tree)
+      } finally {
+        pdf = undefined
+      }
+    },
     async getOverview() {
       const state = await readState()
       const deferredRecordIds: string[] = []
@@ -436,39 +555,7 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
         ...(await document(name, mime, decodeBase64(base64))),
         purpose: purpose ?? ('export' as const)
       }
-      const db = await database
-      await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(['state', 'documents'], 'readwrite')
-        let failure: Error | undefined
-        const state = tx.objectStore('state').get('current')
-        state.onsuccess = () => {
-          if (!state.result?.archive.valid) {
-            failure = new Error('请先启用浏览器测试存储。')
-            tx.abort()
-            return
-          }
-          const documents = tx.objectStore('documents')
-          const existing = documents.getAll()
-          existing.onsuccess = () => {
-            file.name = nextExportName(
-              existing.result.map((entry: BrowserDocument) => entry.name),
-              file.name
-            )
-            documents.add(file)
-            const back = documents.get(file.uri)
-            back.onsuccess = () => {
-              if (back.result?.base64 !== file.base64) {
-                failure = new Error('测试文件回读失败。')
-                tx.abort()
-              }
-            }
-          }
-        }
-        tx.oncomplete = () => resolve()
-        tx.onabort = () => reject(failure ?? tx.error)
-        tx.onerror = () => reject(tx.error)
-      })
-      return file
+      return storeDocument(file)
     },
     async commitRestore({ json, expectedRevision, confirmed, attachments }) {
       if (!confirmed) throw new Error('需要明确确认覆盖。')
@@ -567,6 +654,7 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
       })
     },
     async close() {
+      pdf = undefined
       ;(await database).close()
     }
   }

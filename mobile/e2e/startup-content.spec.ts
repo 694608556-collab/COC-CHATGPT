@@ -71,6 +71,19 @@ async function seed(page: Page, sample = searchSample()) {
   return sample
 }
 
+test('导出记录 CSV/XLSX 只读取元数据，不为表格加载正文', async ({ page }) => {
+  await seed(page)
+  await page.getByRole('button', { name: '数据与设置', exact: true }).click()
+  for (const format of ['CSV', 'Excel']) {
+    await page.evaluate(() => {
+      ;(window as unknown as { __startupProbe: Probe }).__startupProbe.fail = 'error'
+    })
+    await page.getByRole('button', { name: `导出记录 ${format}`, exact: true }).click()
+    await expect(page.getByRole('status')).toContainText('记录表格已保存并回读校验')
+    expect((await probe(page)).requests).toEqual([])
+  }
+})
+
 test('75 场重开不读取正文，设置及角色编辑可用，阅读只取所选一场并复用', async ({ page }, info) => {
   const sample = searchSample(),
     first = sample.records[0]!

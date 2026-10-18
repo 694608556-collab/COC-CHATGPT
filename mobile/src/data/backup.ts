@@ -320,6 +320,12 @@ export function encodeBackup(snapshot: MobileSnapshot): Uint8Array {
     })
   )
 }
+/**
+ * 编码含完整业务快照及全部已验证附件的 ZIP，大小边界与恢复器一致。
+ * @param snapshot - 完整业务快照，不修改原数据。
+ * @param files - 全部附件字节；任何附件不得因超限而省略。
+ * @returns 可供既有恢复器读取的完整 ZIP；解压总量或压缩大小超限时拒绝，不发布文件。
+ */
 export async function encodeArchiveBackup(
   snapshot: MobileSnapshot,
   files: Array<{ name: string; bytes: Uint8Array }>
@@ -352,6 +358,9 @@ export async function encodeArchiveBackup(
       manifest
     })
   )
+  // 恢复器统计所有解压条目；正文、清单和 envelope 也必须纳入同一个 128 MiB 上限。
+  if (total + entries['backup.json'].length > 128 * 1024 * 1024)
+    throw new Error('完整正文与归档附件合计超过 128 MB，无法打包。原文件保留。')
   const zipped = zipSync(entries)
   if (zipped.length > 64 * 1024 * 1024) throw new Error('ZIP 备份超过 64 MB，请先分批导出归档文件。')
   return zipped

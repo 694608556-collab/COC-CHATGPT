@@ -8,12 +8,12 @@ import sys
 app = pathlib.Path(sys.argv[1])
 info = plistlib.loads((app / 'Info.plist').read_bytes())
 assert info['CFBundleIdentifier'] == 'coc.logbook'
-assert info['CFBundleShortVersionString'] == '1.0.2'
-assert info['CFBundleVersion'] == '27'
+assert info['CFBundleShortVersionString'] == '1.0.4'
+assert info['CFBundleVersion'] == '29'
 architectures = subprocess.check_output(['lipo', '-archs', str(app / info['CFBundleExecutable'])], text=True).strip()
 assert 'arm64' in architectures.split(), architectures
 public = app / 'public'
-for name in ['app.js', 'app.css', 'snapshot-worker.js', 'index.html']:
+for name in ['app.js', 'app.css', 'snapshot-worker.js', 'export-worker.js', 'index.html']:
     assert (public / name).read_bytes() == (pathlib.Path('www') / name).read_bytes(), name
 assert 'data-platform="ios"' in (public / 'index.html').read_text()
 assert 'viewport-fit=cover' in (public / 'index.html').read_text()

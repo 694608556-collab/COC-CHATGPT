@@ -1,16 +1,20 @@
-import { Unzlib } from 'fflate'
 import {
   buildSeaApiUrl,
   parseSeaLogUrl,
-  normalizeSeaResponse,
   parsePlayDate,
   classifyProbe,
   isAllowedSeaRedirect
 } from './sea-parser'
-import { decodeBase64 } from './native'
+import { parseSeaInBackground } from './background'
 import type { LogbookPort } from './native'
 import type { SessionRecord } from '../../../src/shared/types'
 
+/**
+ * 获取一个在线场次，来源检查后交后台单通道解析。
+ * @param port - 实际网络适配器；原生限制协议、来源、超时与响应体大小。
+ * @param record - 原场次；网络、格式或后台解析失败时保留其原正文。
+ * @returns 新场次及有效／失败状态，不修改输入或持久化；不可信跳转等契约错误拒绝。
+ */
 export async function fetchRecord(
   port: Pick<LogbookPort, 'fetchLog'>,
   record: SessionRecord
@@ -34,35 +38,7 @@ export async function fetchRecord(
           : '服务不可用或无权访问。已有正文保留。'
     }
   try {
-    let payload: unknown = JSON.parse(reply.text)
-    if (
-      payload &&
-      typeof payload === 'object' &&
-      typeof (payload as Record<string, unknown>).data === 'string'
-    ) {
-      const chunks: Uint8Array[] = []
-      let length = 0
-      const inflater = new Unzlib((chunk) => {
-        length += chunk.length
-        if (length > 64 * 1024 * 1024) throw new Error('解压后的正文超过 64 MB。')
-        chunks.push(chunk)
-      })
-      const zipped = decodeBase64((payload as { data: string }).data)
-      for (let offset = 0; offset < zipped.length; offset += 16384)
-        inflater.push(zipped.subarray(offset, offset + 16384), offset + 16384 >= zipped.length)
-      const bytes = new Uint8Array(length)
-      let offset = 0
-      for (const chunk of chunks) {
-        bytes.set(chunk, offset)
-        offset += chunk.length
-      }
-      payload = { ...payload, ...JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) }
-    }
-    const log = normalizeSeaResponse(payload, record.link)
-    const hash = new Uint8Array(
-      await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(payload)))
-    )
-    log.responseHash = Array.from(hash, (b) => b.toString(16).padStart(2, '0')).join('')
+    const log = await parseSeaInBackground(reply.text, record.link)
     const date = parsePlayDate(log)
     return {
       ...record,

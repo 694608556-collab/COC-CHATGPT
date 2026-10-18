@@ -39,6 +39,62 @@ export interface SavedDocument {
 }
 /** 所有请求/响应与本工程 LogbookPlugin.java 一一对应，不访问推测的 HTTP 接口。 */
 export interface LogbookPort {
+  /** @param options - 当前版本及完整 UTF-8 总长/摘要。 @returns 单次私有上传标识，至多 64 MiB，不写业务。 */
+  beginSnapshotEdit?(options: {
+    expectedRevision: number
+    bytes: number
+    sha256: string
+  }): Promise<{ id: string }>
+  /** @param options - 顺序序号与至多 256 KiB 字节的 Base64。 @returns 暂存确认；乱序/重复拒绝。 */
+  appendSnapshotEdit?(options: { id: string; index: number; base64: string }): Promise<void>
+  /** @param options - 本次完整上传 ID。 @returns 回读/语法/结构/授权/CAS/事务通过后的版本。 */
+  finishSnapshotEdit?(options: { id: string }): Promise<{ revision: number }>
+  /** @param options - 本次上传 ID。 @returns 幂等清理确认，不删除别人的暂存或已提交数据。 */
+  cancelSnapshotEdit?(options: { id: string }): Promise<void>
+
+  /** @param options - 唯一所选 ID 与概览版本。 @returns 完整只读正文的私有文件凭证；相同 CAS/整批校验，不写业务或共享归档。 */
+  createExportSource(options: { ids: string[]; expectedRevision: number }): Promise<{
+    /** 本次读取租约 ID；类型为 string，仅能释放本租约。 */
+    id: string
+    /** 本应用私有只读文件 URI；类型为 string，由 Capacitor 本地服务器映射给 Worker。 */
+    fileUri: string
+    /** 完整文件 UTF-8 字节数；类型为 number，不超过 64 MiB。 */
+    bytes: number
+    /** 完整私有字节 SHA-256；类型为 string，后台重读后必须匹配。 */
+    sha256: string
+    /** 成功读取版本；类型为 number，必须与请求相同。 */
+    revision: number
+  }>
+  /** @param options - 当前只读租约 ID。 @returns 删除本次私有读取文件后的确认；不修改场次、版本或归档。 */
+  releaseExportSource(options: { id: string }): Promise<void>
+  /** @param options - 已完成的 UTF-8 正文暂存标识。 @returns 后台原字体 PDF 任务启动确认；不发布文件。仅 Android 实现。 */
+  renderTextPdf(options: { id: string }): Promise<void>
+  /** @param options - 当前 PDF 任务标识。 @returns 真实排版/已绘页数/写文件状态；不等待整个生成过程。 */
+  getTextPdfProgress(options: { id: string }): Promise<{
+    /** 当前阶段；ready 才能发布，failed/cancelled 不生成外部文件。 */
+    stage: 'layout' | 'render' | 'write' | 'ready' | 'failed' | 'cancelled'
+    /** 当前已绘制页数；类型为 number。 */
+    pages: number
+    /** 排版确定的总页数；类型为 number，排版时为 0。 */
+    total: number
+    /** 失败或取消的说明；类型为 string，成功处理中为空。 */
+    error: string
+  }>
+  /** @returns 新的私有 PDF 暂存标识；不创建外部文件、不修改业务数据。最多同时一份。 */
+  beginPdfArchive(): Promise<{ id: string }>
+  /** @param options - 暂存标识和至多 256 KiB 的顺序 Base64 字节。 @returns 写入确认，累计不超过 64 MB。 */
+  appendPdfArchive(options: { id: string; base64: string }): Promise<void>
+  /** @param options - 完整暂存标识和安全文件名。 @returns 新建且回读校验的文件；失败删除本次新文件，不覆盖旧文件。 */
+  finishPdfArchive(options: { id: string; name: string }): Promise<SavedDocument>
+  /** @param options - 同一有界私有暂存、文件名和已生成文字格式 MIME。 @returns 流式发布与回读证明，不把整个大文件 Base64 传过桥。 */
+  finishExportArchive(options: {
+    id: string
+    name: string
+    mime: string
+    purpose?: 'export' | 'backup'
+  }): Promise<SavedDocument>
+  /** @param options - 本次私有暂存标识。 @returns 清理确认；已清理标识可重复取消，不删除已发布文件。 */
+  cancelPdfArchive(options: { id: string }): Promise<void>
   /** Cold start reads complete metadata only. Body IDs remain in native storage until requested. */
   getOverview(): Promise<NativeState & { deferredRecordIds: string[] }>
   /** Selected bodies at exactly the caller's revision; never returns a partial successful batch. */
@@ -69,7 +125,8 @@ export interface LogbookPort {
     settings: MobileSnapshot['settings']
     expectedRevision: number
   }): Promise<{ revision: number; exportedAt: string }>
-  listDocuments(options?: { all?: boolean }): Promise<{ documents: SavedDocument[] }>
+  /** @param options - all 读取完整登记；metadataOnly 仅在 all 时跳过存在性查询，备份须自行逐份回读并校验，缺失不能遗漏。 @returns 登记证明，不授予额外文件权限。 */
+  listDocuments(options?: { all?: boolean; metadataOnly?: boolean }): Promise<{ documents: SavedDocument[] }>
   readDocument(options: { uri: string }): Promise<{ name: string; mime: string; base64: string }>
   fetchLog(options: { url: string }): Promise<{ status: number; url: string; text: string }>
   automaticBackup(options: {

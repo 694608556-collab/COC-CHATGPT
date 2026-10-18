@@ -35,12 +35,83 @@ import org.json.JSONObject;
 @CapacitorPlugin(name = "Logbook")
 public final class LogbookPlugin extends Plugin {
     private static final int MAX_BYTES = 64 * 1024 * 1024;
+    private static final Set<String> ACTIVE_PUBLICATIONS = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private LogbookDatabase database;
+    private ArchiveRegistry archives;
+    private PdfSpool pdfSpool;
+    private SnapshotUpload snapshotUpload;
+    private volatile TextPdfJobs textPdfJobs;
+    private ReadLease readLease;
+    private ArchivePublication publication;
+    private java.io.File directInputDirectory;
+    // Burst-local naming snapshot only; document creation, never an existing URI, remains the publication primitive.
+    private String namingLocation;
+    private Set<String> namingNames;
+    private long namingReadAt;
+    private final Object namingLock = new Object();
+    private final NetworkQueue networkQueue = new NetworkQueue();
     private final java.util.concurrent.ExecutorService backupWriter = java.util.concurrent.Executors.newSingleThreadExecutor();
     private final java.util.concurrent.atomic.AtomicBoolean backupRunning = new java.util.concurrent.atomic.AtomicBoolean();
-    @Override public void load() { database = new LogbookDatabase(getContext()); }
-    @Override protected void handleOnDestroy() { backupWriter.shutdown(); if (database != null) database.close(); }
+    @Override public void load() { database = new LogbookDatabase(getContext()); archives = new ArchiveRegistry(getContext()); }
+    @Override protected void handleOnDestroy() {
+        networkQueue.close(); backupWriter.shutdown();
+        execute(() -> { try { if (snapshotUpload != null) snapshotUpload.close(); if (readLease != null) readLease.close(); if (textPdfJobs != null) textPdfJobs.close(); if (pdfSpool != null) pdfSpool.close(); } catch (Exception ignored) { } finally { if (archives != null) archives.close(); } });
+        if (database != null) database.close();
+    }
     private SharedPreferences prefs() { return getContext().getSharedPreferences("archive-location", 0); }
+    /** Only recorded, unregistered URIs with unchanged source prefixes may be removed after interruption. */
+    private synchronized ArchivePublication publications() throws Exception {
+        if (publication == null) publication = new ArchivePublication(new java.io.File(getContext().getFilesDir(), "archive-publications"),
+            new ArchivePublication.Store() {
+                public JSONArray pending() throws Exception { return archives.pendingPublications(); }
+                public void put(JSONObject value) throws Exception { archives.putPublication(value); }
+                public void remove(String id) { archives.removePublication(id); }
+            }, new ArchivePublication.Documents() {
+                public boolean registered(String uri) throws Exception { return knownPublication(uri); }
+                public boolean exists(JSONObject value) throws Exception {
+                    String location = value.getString("location"); boolean readable = false;
+                    for (android.content.UriPermission grant : getContext().getContentResolver().getPersistedUriPermissions())
+                        if (grant.getUri().toString().equals(location) && grant.isReadPermission()) readable = true;
+                    if (!readable) throw new IllegalStateException("上次未完成文件缺少读取授权，已保留；请重新选择归档目录。");
+                    Uri tree = Uri.parse(location); validateTree(tree);
+                    Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
+                    try (Cursor folder = getContext().getContentResolver().query(parent, new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID}, null, null, null)) {
+                        if (folder == null || !folder.moveToFirst()) throw new IllegalStateException("上次发布目录暂不可用，请恢复目录权限后重试。");
+                    }
+                    try (Cursor row = getContext().getContentResolver().query(Uri.parse(value.getString("uri")), new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID}, null, null, null)) {
+                        if (row == null) throw new IllegalStateException("无法核对上次未完成文件。");
+                        return row.moveToFirst();
+                    } catch (SecurityException error) { throw error; }
+                    catch (RuntimeException missingOrUnavailable) {
+                        // Android 9 rejects an already-removed tree child before queryDocument can return an empty cursor.
+                        // Confirm absence by exact ID in this authorized parent; never treat a provider failure as deletion.
+                        String target = DocumentsContract.getDocumentId(Uri.parse(value.getString("uri")));
+                        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
+                        try (Cursor rows = getContext().getContentResolver().query(children, new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID}, null, null, null)) {
+                            if (rows == null) throw missingOrUnavailable;
+                            while (rows.moveToNext()) if (target.equals(rows.getString(0))) throw missingOrUnavailable;
+                            return false;
+                        }
+                    }
+                }
+                public InputStream open(String uri) throws Exception { return getContext().getContentResolver().openInputStream(Uri.parse(uri)); }
+                public boolean delete(String uri) throws Exception { return DocumentsContract.deleteDocument(getContext().getContentResolver(), Uri.parse(uri)); }
+            }, ACTIVE_PUBLICATIONS);
+        return publication;
+    }
+    private boolean knownPublication(String uri) throws Exception { return archives.find(uri, prefs().getString("created-documents", "[]")) != null; }
+    /** Small archive inputs have their own private directory; startup cleanup never touches shared documents. */
+    private synchronized java.io.File directInputs() throws Exception {
+        if (directInputDirectory == null) {
+            java.io.File directory = new java.io.File(getContext().getCacheDir(), "archive-direct-inputs");
+            if (!directory.isDirectory() && !directory.mkdirs()) throw new IllegalStateException("无法创建归档暂存目录。");
+            java.io.File[] stale = directory.listFiles((dir, name) -> name.matches("coc-direct-[0-9]+\\.part"));
+            if (stale == null) throw new IllegalStateException("无法读取归档暂存目录。");
+            for (java.io.File file : stale) if (!file.delete()) throw new IllegalStateException("归档暂存清理失败。");
+            directInputDirectory = directory;
+        }
+        return directInputDirectory;
+    }
     /** No arguments. Persist before granting one welcome display; business restore/clear never touches this file. */
     @PluginMethod public synchronized void claimFirstLaunchIntro(PluginCall call) {
         try {
@@ -144,6 +215,7 @@ public final class LogbookPlugin extends Plugin {
                 try { requireArchivePermission(prefs().getString("tree","")); }
                 catch (Exception error) { archive.put("valid",false); }
                 out.put("archive",archive); call.resolve(out);
+                if (archive.optBoolean("valid")) warmArchiveNames();
             } catch (Exception error) { call.reject("读取列表失败；原数据未清空。",error); }
         });
     }
@@ -151,6 +223,13 @@ public final class LogbookPlugin extends Plugin {
     @PluginMethod public void getRecordContent(PluginCall call) {
         execute(() -> {
             try {
+                JSONObject view = selectedContent(call);
+                JSObject out = new JSObject(); out.put("json",view.getString("json")); out.put("revision",view.getLong("revision")); call.resolve(out);
+            } catch (Exception error) { call.reject("正文读取失败；原数据未改变。",error); }
+        });
+    }
+    /** The same exact-revision projection backs both reader responses and immutable export sources. */
+    private JSONObject selectedContent(PluginCall call) throws Exception {
                 // Small JS revisions arrive as Integer; PluginCall.getLong only accepts boxed Long.
                 Long expected = call.getData().has("expectedRevision") ? call.getData().getLong("expectedRevision") : null;
                 if (expected == null || database.revision() != expected) throw new IllegalStateException("数据已变化，请重新读取。");
@@ -161,8 +240,24 @@ public final class LogbookPlugin extends Plugin {
                 if (fields == null) throw new IllegalStateException("尚无已保存数据。");
                 JSONObject view = RecordOverlay.view(fields,selected);
                 if (database.revision() != expected) throw new IllegalStateException("数据已变化，请重新读取。");
-                JSObject out = new JSObject(); out.put("json",view.getString("json")); out.put("revision",expected); call.resolve(out);
-            } catch (Exception error) { call.reject("正文读取失败；原数据未改变。",error); }
+                view.put("revision",expected); return view;
+    }
+    /** No large JSON string crosses the UI bridge; only this app's own immutable cache URI is returned. */
+    @PluginMethod public void createExportSource(PluginCall call) {
+        execute(() -> {
+            try {
+                JSONObject view = selectedContent(call);
+                if (readLease == null) readLease = new ReadLease(new java.io.File(getContext().getCacheDir(), "export-read-sources"));
+                ReadLease.Value value = readLease.create(view.getString("json"),view.getLong("revision"));
+                JSObject result = new JSObject(); result.put("id",value.id); result.put("fileUri",Uri.fromFile(value.file).toString());
+                result.put("bytes",value.bytes); result.put("sha256",value.sha256); result.put("revision",value.revision); call.resolve(result);
+            } catch (Exception error) { call.reject("导出正文读取失败；原数据未改变：" + error.getMessage(),error); }
+        });
+    }
+    @PluginMethod public void releaseExportSource(PluginCall call) {
+        execute(() -> {
+            try { if (readLease != null) readLease.release(call.getString("id","")); call.resolve(); }
+            catch (Exception error) { call.reject(error.getMessage(),error); }
         });
     }
     /** Resume checks metadata/grants without transferring or validating all log bodies again. */
@@ -176,6 +271,7 @@ public final class LogbookPlugin extends Plugin {
                 out.put("archive", archive); out.put("lastAutoBackupAt", prefs().getLong("last-auto-backup", 0));
                 if (prefs().contains("last-auto-backup-revision")) out.put("lastAutoBackupRevision",prefs().getLong("last-auto-backup-revision",-1));
                 call.resolve(out);
+                if (archive.optBoolean("valid")) warmArchiveNames();
             } catch (Exception error) { call.reject("状态检查失败；未清空数据。", error); }
         });
     }
@@ -233,35 +329,88 @@ public final class LogbookPlugin extends Plugin {
     private JSObject write(String name, String mime, byte[] bytes, String purpose, String location) throws Exception {
         if (bytes.length > MAX_BYTES || name.length() > 255 || name.isEmpty() || name.equals(".") || name.equals("..") || name.matches(".*[/\\\\\u0000-\u001f].*")) throw new IllegalArgumentException("文件名或文件大小不合法。");
         if (location.isEmpty()) throw new IllegalStateException("请先选择并确认归档文件夹。");
-        Uri tree = Uri.parse(location); validateTree(tree);
-        Uri destination = createNamedDocument(tree,mime,name);
-        if (destination == null) throw new IllegalStateException("无法在所选目录创建文件。");
-        boolean success = false;
+        publications().recoverFor(location);
+        java.io.File source = java.io.File.createTempFile("coc-direct-", ".part", directInputs());
         try {
+            try (OutputStream output = new java.io.FileOutputStream(source)) { output.write(bytes); }
+            return publishArchive(source,location,name,mime,purpose,bytes.length,digest(bytes));
+        } finally { if (source.exists() && !source.delete()) throw new IllegalStateException("归档输入暂存清理失败。"); }
+    }
+    /** Shared publication boundary for direct writes, text/PDF streams and automatic backups. */
+    private JSObject publishArchive(java.io.File source, String location, String name, String mime, String purpose, long size, String hash) throws Exception {
+        if (!location.equals(prefs().getString("tree", ""))) throw new IllegalStateException("归档位置已变化，请重新导出。");
+        requireArchivePermission(location); Uri tree = Uri.parse(location); validateTree(tree);
+        ArchivePublication recovery = publications(); recovery.recoverFor(location);
+        Uri destination = createNamedDocument(tree,mime,name);
+        if (destination == null) throw new IllegalStateException("无法创建归档文件。");
+        JSONObject ticket = null; boolean success = false;
+        try {
+            ticket = recovery.begin(source,destination.toString(),location,size,hash);
             String savedName = displayName(destination);
             if (savedName.isEmpty() || savedName.equals("已选择的文件夹")) throw new IllegalStateException("无法确认新文件名称。");
-            try (OutputStream output = getContext().getContentResolver().openOutputStream(destination, "w")) {
-                if (output == null) throw new IllegalStateException("目录不可写，请重新选择。");
-                output.write(bytes);
+            try (InputStream input = new java.io.FileInputStream(source); OutputStream output = getContext().getContentResolver().openOutputStream(destination,"w")) {
+                if (output == null) throw new IllegalStateException("文件夹不可写。");
+                byte[] chunk = new byte[32768]; int n; while ((n = input.read(chunk)) != -1) output.write(chunk,0,n);
             }
-            byte[] back = read(destination);
-            if (!Arrays.equals(bytes, back)) throw new IllegalStateException("保存回读校验失败。");
-            JSObject out = new JSObject(); out.put("uri", destination.toString()); out.put("name", savedName);
-            out.put("bytes", back.length); out.put("sha256", digest(back)); out.put("purpose", purpose);
-            rememberDocument(out, mime); success = true; return out;
-        } finally { if (!success) DocumentsContract.deleteDocument(getContext().getContentResolver(), destination); }
+            MessageDigest digest = MessageDigest.getInstance("SHA-256"); long readSize = 0;
+            try (InputStream input = getContext().getContentResolver().openInputStream(destination)) {
+                if (input == null) throw new IllegalStateException("无法回读归档。");
+                byte[] chunk = new byte[32768]; int n;
+                while ((n = input.read(chunk)) != -1) { readSize += n; if (readSize > MAX_BYTES) throw new IllegalStateException("归档回读大小超限。"); digest.update(chunk,0,n); }
+            }
+            StringBuilder backHash = new StringBuilder(); for (byte b : digest.digest()) backHash.append(String.format("%02x",b&255));
+            if (readSize != size || !hash.equals(backHash.toString())) throw new IllegalStateException("归档保存回读校验失败。");
+            if (!location.equals(prefs().getString("tree", ""))) throw new IllegalStateException("归档位置已变化，未登记当前文件。");
+            requireArchivePermission(location);
+            JSObject result = new JSObject(); result.put("uri",destination.toString()); result.put("name",savedName);
+            result.put("bytes",readSize); result.put("sha256",hash); result.put("purpose",purpose);
+            rememberDocument(result,mime,ticket.getString("id")); success = true; recovery.committed(ticket); return result;
+        } finally {
+            if (!success) {
+                if (ticket != null) recovery.abort(ticket);
+                else if (!knownPublication(destination.toString()) && !DocumentsContract.deleteDocument(getContext().getContentResolver(),destination))
+                    throw new IllegalStateException("新文件清理失败，请检查所选目录；已有文件未覆盖。");
+            }
+        }
     }
-    /** Reserve a new document under a short naming lock; bulk I/O stays outside it. */
-    private synchronized Uri createNamedDocument(Uri tree, String mime, String requested) throws Exception {
-        String id = DocumentsContract.getTreeDocumentId(tree);
-        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree,id);
-        java.util.List<String> names = new java.util.ArrayList<>();
+    /** Read-only prefetch after the overview/status reply; never blocks readiness, edits or welcome claims. */
+    private void warmArchiveNames() {
+        String location = prefs().getString("tree", "");
+        if (!"com.android.externalstorage.documents".equals(Uri.parse(location).getAuthority())) return;
+        try { backupWriter.execute(() -> {
+            try {
+                requireArchivePermission(location); Uri tree = Uri.parse(location); validateTree(tree);
+                synchronized (namingLock) {
+                    if (location.equals(prefs().getString("tree", ""))) readArchiveNames(tree,android.os.SystemClock.elapsedRealtime());
+                }
+            } catch (Exception ignored) { /* A real publication still verifies grants and retries the directory query. */ }
+        }); } catch (java.util.concurrent.RejectedExecutionException ignored) { /* Owner is already leaving. */ }
+    }
+    /** Called only under namingLock; the original thirty-second lifetime is never extended by prefetch hits. */
+    private void readArchiveNames(Uri tree, long now) throws Exception {
+        boolean reusable = "com.android.externalstorage.documents".equals(tree.getAuthority());
+        if (reusable && namingNames != null && tree.toString().equals(namingLocation) && now - namingReadAt < 30000) return;
+        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree));
+        Set<String> names = new HashSet<>();
         try (Cursor cursor = getContext().getContentResolver().query(children,new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME},null,null,null)) {
             if (cursor == null) throw new IllegalStateException("无法检查已有文件，未覆盖任何文件。");
             while (cursor.moveToNext()) if (!cursor.isNull(0)) names.add(cursor.getString(0));
         }
-        Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree,id);
-        return DocumentsContract.createDocument(getContext().getContentResolver(),parent,mime,DocumentNames.available(names,requested));
+        namingNames = names; namingLocation = tree.toString(); namingReadAt = now;
+    }
+    /** Reserve a NEW document under the naming lock; publication/copy stays outside it. */
+    private Uri createNamedDocument(Uri tree, String mime, String requested) throws Exception {
+        synchronized (namingLock) {
+            try {
+                readArchiveNames(tree,android.os.SystemClock.elapsedRealtime());
+                String name = DocumentNames.available(namingNames,requested);
+                Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree));
+                Uri created = DocumentsContract.createDocument(getContext().getContentResolver(),parent,mime,name);
+                if (created == null) namingNames = null;
+                else namingNames.add(name);
+                return created;
+            } catch (Exception error) { namingNames = null; throw error; }
+        }
     }
     @PluginMethod public void writeArchive(PluginCall call) {
         execute(() -> {
@@ -269,22 +418,94 @@ public final class LogbookPlugin extends Plugin {
             catch (Exception error) { call.reject("保存失败：" + error.getMessage(), error); }
         });
     }
-    private synchronized void rememberDocument(JSObject file, String mime) throws Exception {
-        JSONArray documents = new JSONArray(prefs().getString("created-documents", "[]"));
+    /** PDF chunks stay in private cache; no entire PDF/Base64 crosses the bridge at once. */
+    @PluginMethod public void beginPdfArchive(PluginCall call) {
+        execute(() -> {
+            try {
+                String tree = prefs().getString("tree", ""); requireArchivePermission(tree); validateTree(Uri.parse(tree));
+                publications().recoverFor(tree);
+                if (pdfSpool == null) pdfSpool = new PdfSpool(new java.io.File(getContext().getCacheDir(), "pdf-exports"));
+                if (textPdfJobs != null && textPdfJobId != null) throw new IllegalStateException("已有 PDF 正在导出。");
+                JSObject result = new JSObject(); result.put("id", pdfSpool.begin(tree)); call.resolve(result);
+            } catch (Exception error) { call.reject("PDF 暂存失败：" + error.getMessage(), error); }
+        });
+    }
+    @PluginMethod public void appendPdfArchive(PluginCall call) {
+        execute(() -> {
+            try {
+                String base64 = call.getString("base64", "");
+                if (pdfSpool == null || base64.length() > 349528) throw new IllegalArgumentException("PDF 分段不合法。");
+                pdfSpool.append(call.getString("id", ""), Base64.decode(base64, Base64.NO_WRAP)); call.resolve();
+            } catch (Exception error) { call.reject("PDF 写入失败：" + error.getMessage(), error); }
+        });
+    }
+    @PluginMethod public void cancelPdfArchive(PluginCall call) {
+        String token = call.getString("id", "");
+        if (textPdfJobs != null) textPdfJobs.requestCancel(token);
+        execute(() -> {
+            try { if (textPdfJobs != null) textPdfJobs.cancel(token); if (token.equals(textPdfJobId)) textPdfJobId = null; if (pdfSpool != null) pdfSpool.cancel(token); call.resolve(); }
+            catch (Exception error) { call.reject("PDF 清理失败：" + error.getMessage(), error); }
+        });
+    }
+    private String textPdfJobId;
+    /** Starts native original-font rendering from the caller's sealed private UTF-8 spool. */
+    @PluginMethod public void renderTextPdf(PluginCall call) {
+        execute(() -> {
+            try {
+                if (pdfSpool == null) throw new IllegalStateException("PDF 正文暂存已失效。");
+                if (textPdfJobs == null) textPdfJobs = new TextPdfJobs(new java.io.File(getContext().getCacheDir(), "text-pdf-exports"), new NativeTextPdf(getContext()));
+                String id = call.getString("id", "");
+                textPdfJobs.start(pdfSpool.take(id)); textPdfJobId = id; call.resolve();
+            } catch (Exception error) { call.reject("PDF 排版启动失败：" + error.getMessage(), error); }
+        });
+    }
+    /** A thread-safe snapshot, deliberately not queued behind rendering or file publication. */
+    @PluginMethod public void getTextPdfProgress(PluginCall call) {
+        try {
+            if (textPdfJobs == null) throw new IllegalStateException("PDF 任务已失效。");
+            TextPdfJobs.Status state = textPdfJobs.status(call.getString("id", ""));
+            JSObject result = new JSObject(); result.put("stage", state.stage); result.put("pages", state.pages);
+            result.put("total", state.total); result.put("error", state.error); call.resolve(result);
+        } catch (Exception error) { call.reject(error.getMessage(), error); }
+    }
+    /** Publication is the commit point: unique new name, streaming copy/readback and registration. */
+    @PluginMethod public void finishPdfArchive(PluginCall call) {
+        finishExport(call, "application/pdf", true);
+    }
+    /** Text exports use the same bounded private spool, never a whole large Base64 bridge message. */
+    @PluginMethod public void finishExportArchive(PluginCall call) {
+        String mime = call.getString("mime", "");
+        if (!Arrays.asList("application/json", "application/zip", "text/plain", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document").contains(mime)) {
+            call.reject("不支持此导出类型。"); return;
+        }
+        finishExport(call, mime, false);
+    }
+    private void finishExport(PluginCall call, String mime, boolean pdf) {
+        String purpose = pdf ? "export" : call.getString("purpose", "export");
+        if (!Arrays.asList("export", "backup").contains(purpose)) { call.reject("文件用途不合法。"); return; }
+        execute(() -> {
+            try {
+                if (pdfSpool == null) throw new IllegalStateException("PDF 暂存已失效。");
+                PdfSpool.Publisher<JSObject> publisher = (source, location, name, size, hash) ->
+                    publishArchive(source,location,name,mime,purpose,size,hash);
+                String id = call.getString("id", ""), name = call.getString("name", "");
+                if (pdf && textPdfJobs != null && textPdfJobs.owns(id)) {
+                    try { call.resolve(textPdfJobs.finish(id, name, publisher)); }
+                    finally { textPdfJobId = null; }
+                } else call.resolve(pdfSpool.finish(id, name, pdf, publisher));
+            } catch (Exception error) { call.reject("PDF 保存失败：" + error.getMessage(), error); }
+        });
+    }
+    private synchronized void rememberDocument(JSObject file, String mime, String publicationId) throws Exception {
         JSONObject entry = new JSONObject(file.toString()); entry.put("mime", mime);
-        documents.put(entry);
-        if (!prefs().edit().putString("created-documents", documents.toString()).commit())
-            throw new IllegalStateException("文件已写入，但登记失败。");
+        archives.add(entry, prefs().getString("created-documents", "[]"), publicationId);
     }
     private JSONObject knownDocument(String uri) throws Exception {
-        JSONArray documents = new JSONArray(prefs().getString("created-documents", "[]"));
-        for (int i = documents.length() - 1; i >= 0; i--) {
-            JSONObject item = documents.getJSONObject(i);
-            if (uri.equals(item.getString("uri"))) {
-                if (!digest(read(Uri.parse(uri))).equals(item.getString("sha256")))
-                    throw new IllegalStateException("文件已改变或无法读取，请重新导出。");
-                return item;
-            }
+        JSONObject item = archives.find(uri, prefs().getString("created-documents", "[]"));
+        if (item != null) {
+            if (!digest(read(Uri.parse(uri))).equals(item.getString("sha256")))
+                throw new IllegalStateException("文件已改变或无法读取，请重新导出。");
+            return item;
         }
         throw new IllegalArgumentException("仅打开或分享本应用创建并校验的文件。");
     }
@@ -299,18 +520,23 @@ public final class LogbookPlugin extends Plugin {
         });
     }
     @PluginMethod public void listDocuments(PluginCall call) {
+        execute(() -> {
         try {
-            JSONArray all = new JSONArray(prefs().getString("created-documents", "[]"));
+            JSONArray all = archives.list(Boolean.TRUE.equals(call.getBoolean("all", false)), prefs().getString("created-documents", "[]"));
             JSONArray latest = new JSONArray();
             int limit = Boolean.TRUE.equals(call.getBoolean("all", false)) ? all.length() : 30;
+            boolean metadataOnly = Boolean.TRUE.equals(call.getBoolean("all", false)) && Boolean.TRUE.equals(call.getBoolean("metadataOnly", false));
             for (int i = all.length() - 1; i >= Math.max(0, all.length() - limit); i--) {
                 JSONObject item = all.getJSONObject(i);
+                // Complete backup preflight is metadata-only. Its reader must reject missing/changed files, never omit them.
+                if (metadataOnly) { latest.put(item); continue; }
                 try (Cursor row = getContext().getContentResolver().query(Uri.parse(item.getString("uri")), new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
                     if (row != null && row.moveToFirst()) latest.put(item);
                 } catch (Exception ignored) { }
             }
             JSObject result = new JSObject(); result.put("documents", latest); call.resolve(result);
         } catch (Exception error) { call.reject("读取归档登记失败。", error); }
+        });
     }
     @PluginMethod public void shareDocument(PluginCall call) { launchDocument(call, true); }
     private void launchDocument(PluginCall call, boolean share) {
@@ -331,7 +557,7 @@ public final class LogbookPlugin extends Plugin {
         });
     }
     @PluginMethod public void fetchLog(PluginCall call) {
-        execute(() -> {
+        networkQueue.execute(() -> {
             try {
                 URL url = new URL(call.getString("url", ""));
                 if (!"https".equals(url.getProtocol()) || !"dice-api.weizaima.com".equals(url.getHost()) ||
@@ -368,7 +594,7 @@ public final class LogbookPlugin extends Plugin {
                 }
                 throw new IllegalStateException("日志跳转次数过多。");
             } catch (Exception error) { call.reject("日志网络请求失败。", error); }
-        });
+        }, () -> call.reject("日志请求队列已满或已关闭，请稍后重试。"));
     }
     @PluginMethod public void automaticBackup(PluginCall call) {
         if (!backupRunning.compareAndSet(false,true)) { call.reject("自动备份正在进行，请稍候。"); return; }
@@ -437,6 +663,46 @@ public final class LogbookPlugin extends Plugin {
     }
     @PluginMethod public void commitRestore(PluginCall call) {
         commitSnapshot(call, true);
+    }
+    /** Snapshot chunks share no state or cleanup with export files. Begin never writes business data. */
+    @PluginMethod public void beginSnapshotEdit(PluginCall call) {
+        execute(() -> { try {
+            Long expected=call.getData().has("expectedRevision")?call.getData().getLong("expectedRevision"):null;
+            if(expected==null||expected!=database.revision())throw new IllegalStateException("数据已变化，请重新读取。");
+            String tree=prefs().getString("tree","");requireArchivePermission(tree);
+            Long bytes=call.getData().has("bytes")?call.getData().getLong("bytes"):null;
+            if(bytes==null)throw new IllegalArgumentException("缺少快照长度。");
+            if(snapshotUpload==null)snapshotUpload=new SnapshotUpload(new java.io.File(getContext().getCacheDir(),"snapshot-uploads"));
+            JSObject out=new JSObject();out.put("id",snapshotUpload.begin(tree,expected,bytes,call.getString("sha256","")));call.resolve(out);
+        } catch(Exception error){call.reject("数据暂存失败："+error.getMessage(),error);} });
+    }
+    @PluginMethod public void appendSnapshotEdit(PluginCall call) {
+        execute(() -> { try {
+            String base64=call.getString("base64","");
+            if(snapshotUpload==null||base64.length()>349528)throw new IllegalArgumentException("快照分段不合法。");
+            Integer index=call.getInt("index");if(index==null)throw new IllegalArgumentException("缺少分段序号。");
+            snapshotUpload.append(call.getString("id",""),index,Base64.decode(base64,Base64.NO_WRAP));call.resolve();
+        } catch(Exception error){call.reject("数据暂存失败："+error.getMessage(),error);} });
+    }
+    @PluginMethod public void cancelSnapshotEdit(PluginCall call) {
+        execute(() -> {try {if(snapshotUpload!=null)snapshotUpload.cancel(call.getString("id",""));call.resolve();}
+        catch(Exception error){call.reject("数据暂存清理失败："+error.getMessage(),error);} });
+    }
+    /** Exact length/hash, strict UTF-8/JSON and existing structure checks precede the original CAS transaction. */
+    @PluginMethod public void finishSnapshotEdit(PluginCall call) {
+        execute(() -> {try {
+            if(snapshotUpload==null)throw new IllegalStateException("快照上传已失效。");
+            JSObject out=snapshotUpload.finish(call.getString("id",""),(file,tree,expected)->{
+                if(expected!=database.revision()||!tree.equals(prefs().getString("tree","")))throw new IllegalStateException("数据或保存位置已变化，未保存。");
+                requireArchivePermission(tree);
+                byte[] bytes=java.nio.file.Files.readAllBytes(file.toPath());
+                String json=StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT).onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT).decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+                validateJsonText(json);validateSnapshot(new JSONObject(json));
+                requireArchivePermission(tree);
+                if(!file.delete())throw new IllegalStateException("数据暂存清理失败，未保存。");
+                long revision=database.replace(json,expected);JSObject result=new JSObject();result.put("revision",revision);return result;
+            });call.resolve(out);
+        } catch(Exception error){call.reject("编辑未保存："+error.getMessage(),error);} });
     }
     @PluginMethod public void commitEdit(PluginCall call) {
         commitSnapshot(call, false);

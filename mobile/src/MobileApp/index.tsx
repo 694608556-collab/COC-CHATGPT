@@ -3,7 +3,6 @@ import { DEFAULT_FILTER_PRESET } from '../../../src/shared/types'
 import type { FilterPreset, SessionRecord } from '../../../src/shared/types'
 import { Native, decodeBase64, encodeBase64 } from '../data/native'
 import type { LogbookPort, NativeState } from '../data/native'
-import { encodeBackup, encodeArchiveBackup } from '../data/backup'
 import { restoreBackup } from '../data/restore'
 import type { ImportPreview, MobileSnapshot } from '../data/types'
 import { Records } from './components/Records'
@@ -26,21 +25,33 @@ import { SystemMessage } from './components/SystemMessage'
 import { RemoveButton } from './components/RemoveButton'
 import { applyAction } from '../data/actions'
 import type { DataAction } from '../data/actions'
-import { fetchRecord } from '../data/network'
+import { fetchRecords } from './fetch-records'
 import type { SavedDocument } from '../data/native'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 import { ExportDialog } from './components/ExportDialog'
 import { createExport } from '../data/export'
+import { generateNativePdf } from './native-pdf'
+import { openNativeExportSession } from './export-source'
+import type { NativeExportSession } from './export-source'
+import { saveGeneratedExport } from '../data/export-archive'
 import type { ExportFormat } from '../data/export'
+import { checkPdfCancellation } from '../data/pdf'
+import type { PdfProgress } from '../data/pdf'
 import { importTable } from '../data/tables'
 import type { TablePreview } from '../data/tables'
 import {
   prepareInBackground,
+  prepareUploadInBackground,
+  uploadChunkInBackground,
+  closeUploadInBackground,
+  readLocalInBackground,
   previewBase64InBackground,
   previewInBackground,
   readInBackground,
-  serializeInBackground
+  serializeInBackground,
+  exportInBackground,
+  backupInBackground
 } from '../data/background'
 import { createRecordTableExport } from '../data/table-export'
 import { useVisibleViewport } from './useVisibleViewport'
@@ -90,9 +101,20 @@ export function MobileApp({
     if (!wanted.length) return current
     if (!native) throw new Error('本机数据尚未读取。')
     setNotice('正在读取已保存正文…')
-    const result = await port.getRecordContent({ ids: wanted, expectedRevision: native.revision })
-    if (result.revision !== native.revision) throw new Error('数据已变化，请重新读取。')
-    const checked = await readInBackground(result.json)
+    let checked: MobileSnapshot
+    if (Capacitor.getPlatform() === 'android') {
+      const source = await port.createExportSource({ ids: wanted, expectedRevision: native.revision })
+      try {
+        if (source.revision !== native.revision) throw new Error('数据已变化，请重新读取。')
+        checked = await readLocalInBackground({ ...source, url: Capacitor.convertFileSrc(source.fileUri) })
+      } finally {
+        await port.releaseExportSource({ id: source.id })
+      }
+    } else {
+      const result = await port.getRecordContent({ ids: wanted, expectedRevision: native.revision })
+      if (result.revision !== native.revision) throw new Error('数据已变化，请重新读取。')
+      checked = await readInBackground(result.json)
+    }
     const next = mergeRecordContent(current, checked, wanted)
     const loaded = new Set(wanted)
     replaceDeferred(new Set([...deferredRef.current].filter((id) => !loaded.has(id))))
@@ -154,6 +176,10 @@ export function MobileApp({
   const viewport = useVisibleViewport()
   const [selectedCharacter, setSelectedCharacter] = useState('')
   const [savedDocument, setSavedDocument] = useState<SavedDocument>()
+  const pdfController = useRef<AbortController | undefined>(undefined)
+  const [pdfProgress, setPdfProgress] = useState<PdfProgress>()
+  const [pdfCancelling, setPdfCancelling] = useState(false)
+  useEffect(() => () => pdfController.current?.abort(), [])
   const [documents, setDocuments] = useState<SavedDocument[]>([])
   const [exportRequest, setExportRequest] = useState<{
     ids: string[]
@@ -166,15 +192,48 @@ export function MobileApp({
     if (snapshot.records.some((r) => deferredRef.current.has(r.id)))
       throw new Error('正文尚未完整读取，未保存不完整数据。')
     setNotice('正在后台校验并编码待保存数据…')
-    const prepared = await prepareInBackground({ ...next, exportedAt: new Date().toISOString() })
-    const validated = prepared.snapshot
-    setNotice('正在保存数据，请保持应用打开…')
-    const result = await port.commitEdit({
-      json: prepared.json,
-      expectedRevision: native.revision
-    })
+    const candidate = { ...next, exportedAt: new Date().toISOString() }
+    let validated: MobileSnapshot,
+      revision: number,
+      json: string | null = null
+    if (
+      Capacitor.getPlatform() === 'android' &&
+      port.beginSnapshotEdit &&
+      port.appendSnapshotEdit &&
+      port.finishSnapshotEdit &&
+      port.cancelSnapshotEdit
+    ) {
+      const prepared = await prepareUploadInBackground(candidate)
+      validated = prepared.snapshot
+      let upload: { id: string } | undefined
+      try {
+        upload = await port.beginSnapshotEdit({
+          expectedRevision: native.revision,
+          bytes: prepared.bytes,
+          sha256: prepared.sha256
+        })
+        setNotice('正在保存数据，请保持应用打开…')
+        for (let index = 0; index < prepared.count; index++) {
+          const base64 = await uploadChunkInBackground(prepared.id, index)
+          await port.appendSnapshotEdit({ id: upload.id, index, base64 })
+        }
+        revision = (await port.finishSnapshotEdit({ id: upload.id })).revision
+      } finally {
+        try {
+          if (upload) await port.cancelSnapshotEdit({ id: upload.id })
+        } finally {
+          await closeUploadInBackground(prepared.id)
+        }
+      }
+    } else {
+      const prepared = await prepareInBackground(candidate)
+      validated = prepared.snapshot
+      json = prepared.json
+      setNotice('正在保存数据，请保持应用打开…')
+      revision = (await port.commitEdit({ json: prepared.json, expectedRevision: native.revision })).revision
+    }
     setSnapshot(validated)
-    setNative((current) => current && { ...current, json: prepared.json, revision: result.revision })
+    setNative((current) => current && { ...current, json, revision })
     document.documentElement.dataset.theme = validated.settings.theme
   }
   /**
@@ -221,65 +280,156 @@ export function MobileApp({
     }
     setNotice(action.type === 'reorder' ? '排序已保存。' : '操作已保存。')
   }
+  /** @param ids - 用户选定的场次；只获取在线目标。 @returns 获取全部结束后一次校验／事务提交，失败不发布未保存结果。 */
   async function probe(ids: string[]) {
     const complete = await loadContent(snapshot.records.map((r) => r.id))
-    const next = { ...complete, records: [...complete.records] }
-    for (const id of ids) {
-      const index = next.records.findIndex((r) => r.id === id)
-      if (index < 0 || next.records[index]!.sourceType !== 'online') continue
-      next.records[index] = await fetchRecord(port, next.records[index]!)
-    }
+    const wanted = new Set(ids)
+    const targets = complete.records.filter((item) => wanted.has(item.id) && item.sourceType === 'online')
+    const fetched = await fetchRecords(port, targets, {
+      onProgress: ({ completed, total, succeeded, failed }) =>
+        setNotice(`正在获取正文：${completed}/${total}，成功 ${succeeded}，失败 ${failed}。尚未保存。`)
+    })
+    const updates = new Map(fetched.map((item) => [item.id, item]))
+    const next = { ...complete, records: complete.records.map((item) => updates.get(item.id) ?? item) }
     await commit(next)
     if (record) setRecord(next.records.find((r) => r.id === record.id))
-    const failures = next.records.filter((r) => ids.includes(r.id) && r.status !== 'valid').length
+    const failures = fetched.filter((r) => r.status !== 'valid').length
     const summary =
-      '获取完成：' + (ids.length - failures) + ' 个成功，' + failures + ' 个失败。已有正文在失败时保留。'
+      '获取完成：' + (fetched.length - failures) + ' 个成功，' + failures + ' 个失败。已有正文在失败时保留。'
     if (failures) setError(summary)
     else setNotice(summary)
   }
+  /** @param format - 确认的格式。 @returns 已校验文件发布后显示完成；PDF 逐页写私有暂存，取消/失败不发布当前文件。 */
   async function exportSelected(format: ExportFormat) {
     if (!exportRequest) return
-    const loaded = await loadContent(exportRequest.ids)
-    const selected = loaded.records
-      .filter((r) => exportRequest.ids.includes(r.id))
-      .sort((a, b) => a.order - b.order)
-    if (!selected.length) throw new Error('所选场次已不存在，请重新选择。')
-    const groups = exportRequest.combined
-      ? snapshot.modules.map((m) => selected.filter((r) => r.moduleId === m.id)).filter((rows) => rows.length)
-      : selected.map((r) => [r])
-    const failed: string[] = []
-    let count = 0
-    for (const group of groups) {
-      const available = group.filter((r) => r.rawContent || r.manualContent !== undefined)
-      failed.push(...group.filter((r) => !available.includes(r)).map((r) => r.name + '：没有正文'))
-      if (!available.length) continue
-      try {
-        const module = snapshot.modules.find((m) => m.id === available[0]!.moduleId)!
-        const file = await createExport(
-          module,
-          available,
-          exportRequest.filters,
-          format,
-          exportRequest.combined
+    const controller = format === 'pdf' ? new AbortController() : undefined
+    pdfController.current = controller
+    setPdfCancelling(false)
+    if (controller) setPdfProgress({ stage: 'layout', completed: 0, total: 0 })
+    let source: NativeExportSession | undefined
+    try {
+      // 详情页已经读过的一场直接复用；整批或尚未读取的正文留在后台，避免重复读一场反而变慢。
+      if (
+        Capacitor.getPlatform() === 'android' &&
+        (exportRequest.ids.length > 1 || exportRequest.ids.some((id) => deferredRef.current.has(id)))
+      ) {
+        if (!native) throw new Error('本机数据尚未读取。')
+        source = await openNativeExportSession(port, exportRequest.ids, native.revision, controller?.signal)
+      }
+      const loaded = source ? snapshot : await loadContent(exportRequest.ids)
+      const selected = loaded.records
+        .filter((r) => exportRequest.ids.includes(r.id))
+        .sort((a, b) => a.order - b.order)
+      if (!selected.length) throw new Error('所选场次已不存在，请重新选择。')
+      const groups = exportRequest.combined
+        ? snapshot.modules
+            .map((m) => selected.filter((r) => r.moduleId === m.id))
+            .filter((rows) => rows.length)
+        : selected.map((r) => [r])
+      const failed: string[] = []
+      let count = 0
+      for (const [groupIndex, group] of groups.entries()) {
+        checkPdfCancellation(controller?.signal)
+        const available = group.filter(
+          (r) => r.rawContent || r.manualContent !== undefined || (source && deferredRef.current.has(r.id))
         )
-        const saved = await port.writeArchive({
-          name: file.name,
-          mime: file.mime,
-          base64: encodeBase64(file.bytes)
-        })
-        setSavedDocument(saved)
-        count++
-      } catch (reason) {
-        failed.push(group[0]!.name + '：' + (reason instanceof Error ? reason.message : '导出失败'))
+        failed.push(...group.filter((r) => !available.includes(r)).map((r) => r.name + '：没有正文'))
+        if (!available.length) continue
+        let staging: string | undefined
+        try {
+          if (controller && Capacitor.getPlatform() === 'android') staging = (await port.beginPdfArchive()).id
+          const module = snapshot.modules.find((m) => m.id === available[0]!.moduleId)!
+          let latest: PdfProgress = { stage: 'layout', completed: 0, total: 0 }
+          const file =
+            format === 'pdf'
+              ? Capacitor.getPlatform() === 'android'
+                ? await generateNativePdf(
+                    port,
+                    staging!,
+                    module,
+                    available,
+                    exportRequest.filters,
+                    exportRequest.combined,
+                    controller!.signal,
+                    (progress) => {
+                      latest = { ...progress, fileIndex: groupIndex + 1, fileTotal: groups.length }
+                      setPdfProgress(latest)
+                    },
+                    source
+                      ? await source.file(
+                          module,
+                          available,
+                          exportRequest.filters,
+                          'txt',
+                          exportRequest.combined
+                        )
+                      : undefined
+                  )
+                : await createExport(
+                    module,
+                    available,
+                    exportRequest.filters,
+                    format,
+                    exportRequest.combined,
+                    controller
+                      ? {
+                          signal: controller.signal,
+                          onProgress: (progress) => {
+                            latest = { ...progress, fileIndex: groupIndex + 1, fileTotal: groups.length }
+                            setPdfProgress(latest)
+                          },
+                          write: staging
+                            ? (bytes) => port.appendPdfArchive({ id: staging!, base64: encodeBase64(bytes) })
+                            : undefined
+                        }
+                      : undefined
+                  )
+              : source
+                ? await source.file(module, available, exportRequest.filters, format, exportRequest.combined)
+                : await exportInBackground(
+                    module,
+                    available,
+                    exportRequest.filters,
+                    format,
+                    exportRequest.combined
+                  )
+          checkPdfCancellation(controller?.signal)
+          if (controller) setPdfProgress({ ...latest, stage: 'save' })
+          const saved = staging
+            ? await port.finishPdfArchive({ id: staging, name: file.name })
+            : await saveGeneratedExport(port, file)
+          setSavedDocument(saved)
+          count++
+        } catch (reason) {
+          if (reason instanceof DOMException && reason.name === 'AbortError') throw reason
+          failed.push(group[0]!.name + '：' + (reason instanceof Error ? reason.message : '导出失败'))
+        } finally {
+          if (staging) await port.cancelPdfArchive({ id: staging })
+        }
+      }
+      setExportRequest(undefined)
+      setNotice('导出完成：' + count + ' 个文件保存并回读校验。')
+      if (failed.length) setError(failed.join('；'))
+    } catch (reason) {
+      if (!(reason instanceof DOMException && reason.name === 'AbortError')) throw reason
+      setExportRequest(undefined)
+      setNotice('已取消 PDF 导出；当前文件未保存，已完成的文件保留。')
+    } finally {
+      try {
+        if (source) await source.close()
+      } finally {
+        pdfController.current = undefined
+        setPdfProgress(undefined)
+        setPdfCancelling(false)
       }
     }
-    setExportRequest(undefined)
-    setNotice('导出完成：' + count + ' 个文件保存并回读校验。')
-    if (failed.length) setError(failed.join('；'))
   }
   async function exportTables(format: 'csv' | 'xlsx') {
-    const loaded = await loadContent(snapshot.records.map((r) => r.id))
-    const file = createRecordTableExport(loaded, format)
+    // 表格只有元数据列，不为导出名称/链接而冷读全部正文。
+    const file = createRecordTableExport(
+      { ...snapshot, records: [...snapshot.records].sort((a, b) => a.order - b.order) },
+      format
+    )
     setSavedDocument(
       await port.writeArchive({ name: file.name, mime: file.mime, base64: encodeBase64(file.bytes) })
     )
@@ -358,7 +508,7 @@ export function MobileApp({
       setNotice('数据正在处理，请完成后再返回桌面。')
       return
     }
-    if (Capacitor.isNativePlatform()) void CapacitorApp.minimizeApp()
+    if (Capacitor.getPlatform() === 'android') void CapacitorApp.minimizeApp()
     else if (process.env.NODE_ENV === 'development')
       setNotice('浏览器预览：已请求返回手机桌面，草稿和数据未清除。')
   }
@@ -626,37 +776,59 @@ export function MobileApp({
   }
   /** @returns 保存含已获取正文的安卓备份；不冒充已兼容旧电脑版的整库格式。 */
   async function exportBackup(includeArchives = false) {
-    const complete = await loadContent(snapshot.records.map((r) => r.id))
-    let bytes = encodeBackup(complete)
+    let exported: SavedDocument[] | undefined
     if (includeArchives) {
-      const known = (await port.listDocuments({ all: true })).documents
-      const exported = known.filter(
+      const known = (await port.listDocuments({ all: true, metadataOnly: true })).documents
+      exported = known.filter(
         (file) =>
           file.purpose === 'export' ||
           file.purpose === 'import' ||
           (!file.purpose && !/^(before-|auto-backup-|coc-android-backup-)/.test(file.name))
       )
-      const files = []
       let total = 0
       for (const file of exported) {
         total += file.bytes
         if (total > 128 * 1024 * 1024) throw new Error('归档附件超过 128 MB，无法打包。原文件保留。')
-        const content = await port.readDocument({ uri: file.uri })
-        files.push({ name: content.name, bytes: decodeBase64(content.base64) })
       }
-      bytes = await encodeArchiveBackup(complete, files)
+      if (exported.length > 1999) throw new Error('归档附件超过 1999 份，无法打包。原文件保留。')
     }
-    const file = await port.writeArchive({
-      name:
-        (Capacitor.getPlatform() === 'ios' ? 'coc-ios-backup-' : 'coc-android-backup-') +
-        Date.now() +
-        (includeArchives ? '.zip' : '.json'),
-      mime: includeArchives ? 'application/zip' : 'application/json',
-      base64: encodeBase64(bytes),
-      purpose: 'backup'
-    })
-    setSavedDocument(file)
-    setNotice(`备份已保存并回读校验：${file.name}`)
+    const name =
+      (Capacitor.getPlatform() === 'ios' ? 'coc-ios-backup-' : 'coc-android-backup-') +
+      Date.now() +
+      (includeArchives ? '.zip' : '.json')
+    let source: NativeExportSession | undefined
+    try {
+      let prepared: { name: string; mime: string; bytes: Uint8Array }
+      if (Capacitor.getPlatform() === 'android' && snapshot.records.length) {
+        if (!native) throw new Error('本机数据尚未读取。')
+        source = await openNativeExportSession(
+          port,
+          snapshot.records.map((r) => r.id),
+          native.revision
+        )
+        prepared = await source.backup(name, exported)
+      } else {
+        const complete = await loadContent(snapshot.records.map((r) => r.id))
+        let files: Array<{ name: string; bytes: Uint8Array }> | undefined
+        if (exported) {
+          files = []
+          for (const file of exported) {
+            const content = await port.readDocument({ uri: file.uri })
+            files.push({ name: content.name, bytes: decodeBase64(content.base64) })
+          }
+        }
+        prepared = {
+          name,
+          mime: includeArchives ? 'application/zip' : 'application/json',
+          bytes: await backupInBackground(complete, files)
+        }
+      }
+      const file = await saveGeneratedExport(port, prepared, 'backup')
+      setSavedDocument(file)
+      setNotice(`备份已保存并回读校验：${file.name}`)
+    } finally {
+      await source?.close()
+    }
   }
   /** 设置可连续点选；等待中的更改合并，其他写操作仍由同一锁保护。 */
   async function persistSettings(changes: SettingsPatch) {
@@ -718,12 +890,8 @@ export function MobileApp({
   async function exportText(target: SessionRecord, filters: FilterPreset) {
     const module = snapshot.modules.find((row) => row.id === target.moduleId)
     if (!module) throw new Error('所属模组已不存在，请重新读取。')
-    const exported = await createExport(module, [target], filters, 'txt')
-    const file = await port.writeArchive({
-      name: exported.name,
-      mime: exported.mime,
-      base64: encodeBase64(exported.bytes)
-    })
+    const exported = await exportInBackground(module, [target], filters, 'txt', false)
+    const file = await saveGeneratedExport(port, exported)
     setSavedDocument(file)
     setNotice(`TXT 已保存并回读校验：${file.name}`)
   }
@@ -749,8 +917,8 @@ export function MobileApp({
         <button
           type="button"
           className="app-back"
-          aria-label={atHome && Capacitor.isNativePlatform() ? '返回手机桌面' : '返回上一页'}
-          disabled={atHome && !Capacitor.isNativePlatform()}
+          aria-label={atHome && Capacitor.getPlatform() === 'android' ? '返回手机桌面' : '返回上一页'}
+          disabled={atHome && Capacitor.getPlatform() !== 'android'}
           onClick={() => backHandler.current()}
         >
           <svg
@@ -771,7 +939,7 @@ export function MobileApp({
           <img src="icon.png" alt="" />
           <strong>COC 跑团记录簿</strong>
         </div>
-        <span className="version">1.0.2</span>
+        <span className="version">1.0.4</span>
       </header>
       <main
         className={page === 'settings' && !editing ? 'settings-page' : undefined}
@@ -1048,6 +1216,17 @@ export function MobileApp({
       )}
       {exportRequest && (
         <ExportDialog
+          error={error}
+          progress={pdfProgress}
+          cancelling={pdfCancelling}
+          onCancel={
+            pdfController.current
+              ? () => {
+                  setPdfCancelling(true)
+                  pdfController.current?.abort()
+                }
+              : undefined
+          }
           count={exportRequest.ids.length}
           combined={exportRequest.combined}
           busy={busy}

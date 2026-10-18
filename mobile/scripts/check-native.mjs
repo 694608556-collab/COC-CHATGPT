@@ -61,3 +61,86 @@ const result = spawnSync(
 )
 process.stdout.write(result.stdout)
 if (result.status) throw new Error(result.stderr)
+const networkCompiled = spawnSync(
+  javac,
+  [
+    '-encoding',
+    'UTF-8',
+    '-d',
+    work,
+    join(source, 'NetworkQueue.java'),
+    resolve('tests/native/NetworkQueueCheck.java')
+  ],
+  { encoding: 'utf8' }
+)
+if (networkCompiled.status) throw new Error(networkCompiled.stderr)
+const networkResult = spawnSync(java, ['-cp', work, 'coc.logbook.NetworkQueueCheck'], { encoding: 'utf8' })
+process.stdout.write(networkResult.stdout)
+if (networkResult.status) throw new Error(networkResult.stderr)
+const pdfCompiled = spawnSync(
+  javac,
+  [
+    '-encoding',
+    'UTF-8',
+    '-d',
+    work,
+    join(source, 'PdfSpool.java'),
+    join(source, 'TextPdfJobs.java'),
+    join(source, 'ReadLease.java'),
+    resolve('tests/native/ReadLeaseCheck.java'),
+    resolve('tests/native/TextPdfJobsCheck.java'),
+    resolve('tests/native/PdfSpoolCheck.java')
+  ],
+  { encoding: 'utf8' }
+)
+if (pdfCompiled.status) throw new Error(pdfCompiled.stderr)
+const pdfResult = spawnSync(java, ['-cp', work, 'coc.logbook.PdfSpoolCheck'], { encoding: 'utf8' })
+process.stdout.write(pdfResult.stdout)
+if (pdfResult.status) throw new Error(pdfResult.stderr)
+const textPdfResult = spawnSync(java, ['-cp', work, 'coc.logbook.TextPdfJobsCheck'], { encoding: 'utf8' })
+process.stdout.write(textPdfResult.stdout)
+if (textPdfResult.status) throw new Error(textPdfResult.stderr)
+const readLeaseResult = spawnSync(java, ['-cp', work, 'coc.logbook.ReadLeaseCheck'], { encoding: 'utf8' })
+process.stdout.write(readLeaseResult.stdout)
+if (readLeaseResult.status) throw new Error(readLeaseResult.stderr)
+const publicationCompiled = spawnSync(
+  javac,
+  [
+    '-encoding',
+    'UTF-8',
+    '-cp',
+    process.env.JSON_JAR,
+    '-d',
+    work,
+    join(source, 'PdfSpool.java'),
+    join(source, 'ArchivePublication.java'),
+    resolve('tests/native/ArchivePublicationCheck.java')
+  ],
+  { encoding: 'utf8' }
+)
+if (publicationCompiled.status) throw new Error(publicationCompiled.stderr)
+const publicationResult = spawnSync(
+  java,
+  ['-cp', work + separator + process.env.JSON_JAR, 'coc.logbook.ArchivePublicationCheck'],
+  { encoding: 'utf8' }
+)
+process.stdout.write(publicationResult.stdout)
+if (publicationResult.status) throw new Error(publicationResult.stderr)
+
+const uploadCompiled = spawnSync(
+  javac,
+  [
+    '-encoding',
+    'UTF-8',
+    '-d',
+    work,
+    join(source, 'PdfSpool.java'),
+    join(source, 'SnapshotUpload.java'),
+    resolve('tests/native/SnapshotUploadCheck.java')
+  ],
+  { encoding: 'utf8' }
+)
+if (uploadCompiled.status) throw new Error(uploadCompiled.stderr)
+const uploadResult = spawnSync(java, ['-cp', work, 'coc.logbook.SnapshotUploadCheck'], { encoding: 'utf8' })
+process.stdout.write(uploadResult.stdout)
+if (uploadResult.status) throw new Error(uploadResult.stderr)

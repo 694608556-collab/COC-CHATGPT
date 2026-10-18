@@ -10,7 +10,11 @@ await writeFile(
   '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=contain"><title>COC 浏览器开发预览</title><link rel="stylesheet" href="app.css"></head><body><div id="root"></div><script src="app.js"></script></body></html>'
 )
 const ctx = await context({
-  entryPoints: { app: 'src/dev/main.tsx', 'snapshot-worker': 'src/data/snapshot-worker.ts' },
+  entryPoints: {
+    app: 'src/dev/main.tsx',
+    'snapshot-worker': 'src/data/snapshot-worker.ts',
+    'export-worker': 'src/data/export-worker.ts'
+  },
   outdir: 'www-dev',
   banner: { js: 'var globalThis = typeof window !== "undefined" ? window : self;' },
   bundle: true,

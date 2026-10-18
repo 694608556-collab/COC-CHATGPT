@@ -17,6 +17,31 @@ function deviceStore(failSave = false): LogbookPort {
     archive: { uri: 'content://example/tree', label: '测试目录', valid: true }
   }
   return {
+    createExportSource: async () => {
+      throw new Error('not used by restore')
+    },
+    releaseExportSource: async () => {},
+    renderTextPdf: async () => {
+      throw new Error('not used by restore')
+    },
+    getTextPdfProgress: async () => {
+      throw new Error('not used by restore')
+    },
+    beginPdfArchive: async () => {
+      throw new Error('测试未调用 PDF 导出')
+    },
+    appendPdfArchive: async () => {
+      throw new Error('测试未调用 PDF 导出')
+    },
+    finishPdfArchive: async () => {
+      throw new Error('测试未调用 PDF 导出')
+    },
+    finishExportArchive: async () => {
+      throw new Error('测试未调用文字导出')
+    },
+    cancelPdfArchive: async () => {
+      throw new Error('测试未调用 PDF 导出')
+    },
     getOverview: async () => {
       throw new Error('测试未调用启动读取')
     },
