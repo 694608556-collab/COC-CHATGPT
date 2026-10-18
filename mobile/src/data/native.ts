@@ -152,7 +152,10 @@ export interface LogbookPort {
   /** @returns 当前持久化状态与实时目录有效性；不修改业务数据。 */
   getState(): Promise<NativeState>
   /** @returns 系统选择并实际验证的目录；取消只返回 cancelled=true。 */
-  selectArchive(): Promise<{ cancelled: boolean; archive?: ArchiveLocation }>
+  /** @param options - 仅 iOS 用户明确选择本机应用归档时传 localFolder；省略仍打开系统选择器。 @returns 取消结果或通过读写校验的目录状态，不修改业务快照。 */
+  selectArchive(options?: {
+    localFolder?: boolean
+  }): Promise<{ cancelled: boolean; archive?: ArchiveLocation }>
   /** @returns 用户明确选择的备份字节；取消不返回内容。 */
   openBackup(options?: {
     kind?: 'backup' | 'record-table' | 'character-table'

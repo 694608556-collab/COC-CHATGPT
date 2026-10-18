@@ -76,6 +76,18 @@ import Foundation
         _ = archive.rotateAutomatic(bookmark: try archive.bookmark())
         try require(try archive.documents(all: true).filter { $0["purpose"] as? String == "auto" }.count == 10, "only ten unchanged automatic backups retained")
         try require(FileManager.default.fileExists(atPath: folder.appendingPathComponent("公开正文.txt").path), "rotation does not delete manual or modified exports")
+        let localDocuments = root.appendingPathComponent("local-documents")
+        let local = try archive.chooseLocalDirectory(localDocuments)
+        try require(local["valid"] as? Bool == true, "explicit local folder validates")
+        let localFile = try archive.write(name: "保留.txt", mime: "text/plain", bytes: Data("已有完整正文😀".utf8), purpose: "export")
+        _ = try archive.chooseLocalDirectory(localDocuments)
+        try require(try archive.read(localFile["uri"] as! String).0 == Data("已有完整正文😀".utf8), "reselecting local folder preserves existing exports")
+        let previousBookmark = try archive.bookmark()
+        let invalidDocuments = root.appendingPathComponent("invalid-documents")
+        try FileManager.default.createDirectory(at: invalidDocuments, withIntermediateDirectories: true)
+        try Data("原文件".utf8).write(to: invalidDocuments.appendingPathComponent("归档"))
+        try rejects("local folder name occupied by a file") { _ = try archive.chooseLocalDirectory(invalidDocuments) }
+        try require(try archive.bookmark() == previousBookmark, "failed local choice preserves previous authorization")
         print("iOS native core: \(checks) checks passed; macOS test folders only, no phone or system picker tested.")
     }
 }

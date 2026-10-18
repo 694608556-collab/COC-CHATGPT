@@ -117,11 +117,15 @@ final class LogbookViewController: CAPBridgeViewController {
     #endif
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(LogbookPlugin())
-        #if DEBUG
+        #if DEBUG && targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("--coc-picker-ui"),
            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
             // Public empty fixture exists only in the fresh CI simulator's container.
             try? FileManager.default.createDirectory(at: documents.appendingPathComponent("COC-Picker-Public-Test"), withIntermediateDirectories: true)
+            if ProcessInfo.processInfo.arguments.contains("--coc-picker-ui-fresh") {
+                UserDefaults.standard.removeObject(forKey: "coc.archive.bookmark")
+                UserDefaults.standard.removeObject(forKey: "coc.archive.label")
+            }
         }
         #endif
         let color = UIColor(red: 230 / 255, green: 232 / 255, blue: 236 / 255, alpha: 1)

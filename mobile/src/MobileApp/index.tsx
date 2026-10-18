@@ -725,9 +725,11 @@ export function MobileApp({
     void perform(() => reload(initialOverview))
   }, [])
 
-  /** @returns 打开系统目录选择；取消不将首次配置标为成功。 */
-  async function chooseArchive() {
-    const choice = await port.selectArchive()
+  /** @param localFolder - iOS 用户明确选择本机应用目录；默认仍打开系统选择器。 @returns 校验成功后重新读取状态；取消不将首次配置标为成功。 */
+  async function chooseArchive(localFolder = false) {
+    const choice = await port.selectArchive(
+      localFolder && Capacitor.getPlatform() === 'ios' ? { localFolder: true } : undefined
+    )
     if (choice.cancelled) {
       setNotice('尚未确认新位置；原位置保持不动。')
       return
@@ -979,6 +981,9 @@ export function MobileApp({
             busy={busy}
             label={native.archive.label}
             onChoose={() => void perform(chooseArchive)}
+            onChooseLocal={
+              Capacitor.getPlatform() === 'ios' ? () => void perform(() => chooseArchive(true)) : undefined
+            }
           />
         ) : (
           <>

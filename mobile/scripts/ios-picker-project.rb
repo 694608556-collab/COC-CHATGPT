@@ -7,6 +7,8 @@ file = project.main_group.new_file('../../scripts/ios-picker-ui-tests.swift')
 target.source_build_phase.add_file_reference(file)
 target.build_configurations.each do |config|
   config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = 'coc.logbook.pickeruitests'
+  config.build_settings['PRODUCT_NAME'] = '$(TARGET_NAME)'
+  config.build_settings['TARGETED_DEVICE_FAMILY'] = '1,2'
   config.build_settings['GENERATE_INFOPLIST_FILE'] = 'YES'
   config.build_settings['TEST_TARGET_NAME'] = 'App'
   config.build_settings['SWIFT_VERSION'] = '5.0'

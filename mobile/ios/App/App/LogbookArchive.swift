@@ -32,6 +32,19 @@ final class LogbookArchive {
         let valid = bookmark.map { data in (try? access(data) { _ in true }) == true } ?? false
         return ["uri": bookmark.map(Self.digest) ?? "", "label": preferences.string(forKey: "coc.archive.label") ?? "尚未选择", "valid": valid]
     }
+    /// Called only after an explicit local-folder choice; existing contents are never replaced.
+    func chooseLocalDirectory(_ documents: URL) throws -> LogbookJSON {
+        let folder = documents.appendingPathComponent("归档", isDirectory: true)
+        if FileManager.default.fileExists(atPath: folder.path) {
+            let values = try folder.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            guard values.isDirectory == true, values.isSymbolicLink != true else {
+                throw LogbookFailure("本机归档位置不是普通文件夹；原文件未改变，请选择其他位置。")
+            }
+        } else {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        return try choose(folder)
+    }
     func choose(_ url: URL) throws -> LogbookJSON {
         let scoped = url.startAccessingSecurityScopedResource(); defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let bookmark = try url.bookmarkData(options: [.minimalBookmark], includingResourceValuesForKeys: nil, relativeTo: nil)

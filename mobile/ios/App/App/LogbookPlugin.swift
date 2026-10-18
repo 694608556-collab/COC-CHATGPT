@@ -6,7 +6,7 @@ import QuickLook
 import Network
 
 @objc(LogbookPlugin)
-public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDelegate, QLPreviewControllerDataSource {
+public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate, QLPreviewControllerDataSource {
     public let identifier = "LogbookPlugin"
     public let jsName = "Logbook"
     public let pluginMethods: [CAPPluginMethod] = ["claimFirstLaunchIntro", "getOverview", "getState", "getStatus", "getRecordContent", "commitSettings", "commitModule", "commitEntity", "commitAction", "commitEdit", "commitRestore", "selectArchive", "openBackup", "writeArchive", "readDocument", "listDocuments", "openDocument", "shareDocument", "fetchLog", "automaticBackup"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise)! }
@@ -18,6 +18,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
     private var archive: LogbookArchive?
     private var backupRunning = false
     private var pickerCall: CAPPluginCall?
+    private var activePicker: UIDocumentPickerViewController?
     private var choosingFolder = false
     private var previewURL: URL?
     public override func load() {
@@ -147,19 +148,55 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
             self.pickerCall = call; self.choosingFolder = folder
             let picker = UIDocumentPickerViewController(forOpeningContentTypes: folder ? [.folder] : [.data], asCopy: !folder)
             picker.allowsMultipleSelection = false; picker.delegate = self
+            self.activePicker = picker
             if folder, let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 do { try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true); picker.directoryURL = documents }
-                catch { self.pickerCall = nil; call.reject("本机文件位置无法打开。"); return }
+                catch { self.pickerCall = nil; self.activePicker = nil; call.reject("本机文件位置无法打开。"); return }
             }
-            controller.present(picker, animated: true)
+            controller.present(picker, animated: true) { picker.presentationController?.delegate = self }
         }
     }
-    @objc func selectArchive(_ call: CAPPluginCall) { presentPicker(call, folder: true) }
+    @objc func selectArchive(_ call: CAPPluginCall) {
+        guard call.getBool("localFolder") == true else { presentPicker(call, folder: true); return }
+        DispatchQueue.main.async {
+            guard self.pickerCall == nil, let controller = self.bridge?.viewController, controller.presentedViewController == nil else {
+                call.reject("请先关闭当前系统窗口。"); return
+            }
+            self.pickerCall = call
+            self.work.async {
+                let result: Result<LogbookJSON, Error> = Result {
+                    let (_, archive) = try self.resources()
+                    let documents = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+                    return ["cancelled": false, "archive": try archive.chooseLocalDirectory(documents)]
+                }
+                DispatchQueue.main.async {
+                    self.pickerCall = nil
+                    switch result {
+                    case .success(let value): call.resolve(value)
+                    case .failure(let error): call.reject(error.localizedDescription)
+                    }
+                }
+            }
+        }
+    }
     @objc func openBackup(_ call: CAPPluginCall) { presentPicker(call, folder: false) }
-    public func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { pickerCall?.resolve(["cancelled": true]); pickerCall = nil }
+    public func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        guard controller === activePicker else { return }
+        let call = pickerCall; pickerCall = nil; activePicker = nil
+        controller.delegate = nil
+        controller.dismiss(animated: true)
+        call?.resolve(["cancelled": true])
+    }
+    public func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        if let picker = activePicker, presentationController.presentedViewController === picker {
+            documentPickerWasCancelled(picker)
+        }
+    }
     public func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        guard let call = pickerCall else { return }
-        let folder = choosingFolder; pickerCall = nil
+        guard controller === activePicker, let call = pickerCall else { return }
+        let folder = choosingFolder; pickerCall = nil; activePicker = nil
+        controller.delegate = nil
+        controller.dismiss(animated: true)
         guard let url = urls.first else { call.resolve(["cancelled": true]); return }
         run(call) { _, archive in
             if folder { return ["cancelled": false, "archive": try archive.choose(url)] }
