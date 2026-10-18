@@ -47,10 +47,6 @@ export function LogReader(props: {
   const [jumpRequest, setJumpRequest] = useState<{ index: number; serial: number }>()
   const messageNodes = useRef(new Map<number, HTMLElement>())
   const searchInput = useRef<HTMLInputElement>(null)
-  // 列表与详情共用窗口滚动；只在进入场次时回顶，早于下方主动搜索定位且不打断阅读／分页。
-  useLayoutEffect(() => {
-    window.scrollTo(0, 0)
-  }, [props.record.id])
   const needle = query.trim()
   const messages = useMemo(() => recordMessages(props.record, filters), [props.record, filters])
   const hits = useMemo(
@@ -66,6 +62,11 @@ export function LogReader(props: {
   )
   const pages = Math.max(1, Math.ceil(messages.length / 100))
   const currentPage = Math.min(page, pages - 1)
+  // 正文切页提交后回顶；搜索切页由下方命中定位负责，避免覆盖搜索目标。
+  // 不依赖输入词/命中请求变化，普通阅读和清空搜索不会触发回顶。
+  useLayoutEffect(() => {
+    if (!jumpRequest) window.scrollTo(0, 0)
+  }, [props.record.id, currentPage])
   const resultPages = Math.max(1, Math.ceil(hits.length / 20))
   const hasBody = !!props.record.rawContent || props.record.manualContent !== undefined
   function resetSearchPosition() {
