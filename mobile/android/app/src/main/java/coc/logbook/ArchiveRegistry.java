@@ -47,12 +47,19 @@ final class ArchiveRegistry extends SQLiteOpenHelper {
     }
     /** Durable append without serializing and rewriting every earlier proof for each exported file. */
     synchronized void add(JSONObject entry, String legacy) throws Exception {
+        add(entry,legacy,null);
+    }
+    /** Append the verified proof and clear its pending publication in the same durable transaction. */
+    synchronized void add(JSONObject entry, String legacy, String publicationId) throws Exception {
         importLegacy(legacy);
-        try (android.database.sqlite.SQLiteStatement insert = getWritableDatabase().compileStatement("INSERT INTO documents(uri,json) VALUES(?,?)")) {
-            insert.bindString(1, entry.getString("uri"));
-            insert.bindString(2, entry.toString());
-            insert.executeInsert();
-        }
+        SQLiteDatabase db = getWritableDatabase(); db.beginTransaction();
+        try {
+            try (android.database.sqlite.SQLiteStatement insert = db.compileStatement("INSERT INTO documents(uri,json) VALUES(?,?)")) {
+                insert.bindString(1, entry.getString("uri")); insert.bindString(2, entry.toString()); insert.executeInsert();
+            }
+            if (publicationId != null) db.delete("metadata", "key=?", new String[]{"publication:" + publicationId});
+            db.setTransactionSuccessful();
+        } finally { db.endTransaction(); }
     }
     /** Retain registration order and duplicate URIs; the normal UI requests only the latest thirty. */
     synchronized JSONArray list(boolean all, String legacy) throws Exception {
@@ -71,5 +78,23 @@ final class ArchiveRegistry extends SQLiteOpenHelper {
         try (Cursor row = getReadableDatabase().rawQuery("SELECT json FROM documents WHERE uri=? ORDER BY position DESC LIMIT 1", new String[]{uri})) {
             return row.moveToFirst() ? new JSONObject(row.getString(0)) : null;
         }
+    }
+    /** Private recovery records share the durable index without changing any archive proofs or database version. */
+    synchronized JSONArray pendingPublications() throws Exception {
+        JSONArray result = new JSONArray();
+        try (Cursor rows = getReadableDatabase().rawQuery("SELECT value FROM metadata WHERE key LIKE 'publication:%' ORDER BY key", null)) {
+            while (rows.moveToNext()) result.put(new JSONObject(rows.getString(0)));
+        }
+        return result;
+    }
+    synchronized void putPublication(JSONObject value) throws Exception {
+        getWritableDatabase().execSQL("INSERT OR REPLACE INTO metadata(key,value) VALUES(?,?)", new Object[]{"publication:" + value.getString("id"), value.toString()});
+    }
+    synchronized void removePublication(String id) {
+        // Success already removes the record atomically with registration; avoid a redundant write transaction.
+        try (Cursor row = getReadableDatabase().rawQuery("SELECT 1 FROM metadata WHERE key=?", new String[]{"publication:" + id})) {
+            if (!row.moveToFirst()) return;
+        }
+        getWritableDatabase().delete("metadata", "key=?", new String[]{"publication:" + id});
     }
 }

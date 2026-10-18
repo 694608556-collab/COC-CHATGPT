@@ -103,3 +103,26 @@ if (textPdfResult.status) throw new Error(textPdfResult.stderr)
 const readLeaseResult = spawnSync(java, ['-cp', work, 'coc.logbook.ReadLeaseCheck'], { encoding: 'utf8' })
 process.stdout.write(readLeaseResult.stdout)
 if (readLeaseResult.status) throw new Error(readLeaseResult.stderr)
+const publicationCompiled = spawnSync(
+  javac,
+  [
+    '-encoding',
+    'UTF-8',
+    '-cp',
+    process.env.JSON_JAR,
+    '-d',
+    work,
+    join(source, 'PdfSpool.java'),
+    join(source, 'ArchivePublication.java'),
+    resolve('tests/native/ArchivePublicationCheck.java')
+  ],
+  { encoding: 'utf8' }
+)
+if (publicationCompiled.status) throw new Error(publicationCompiled.stderr)
+const publicationResult = spawnSync(
+  java,
+  ['-cp', work + separator + process.env.JSON_JAR, 'coc.logbook.ArchivePublicationCheck'],
+  { encoding: 'utf8' }
+)
+process.stdout.write(publicationResult.stdout)
+if (publicationResult.status) throw new Error(publicationResult.stderr)

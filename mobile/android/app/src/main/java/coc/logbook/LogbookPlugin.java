@@ -35,11 +35,14 @@ import org.json.JSONObject;
 @CapacitorPlugin(name = "Logbook")
 public final class LogbookPlugin extends Plugin {
     private static final int MAX_BYTES = 64 * 1024 * 1024;
+    private static final Set<String> ACTIVE_PUBLICATIONS = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private LogbookDatabase database;
     private ArchiveRegistry archives;
     private PdfSpool pdfSpool;
     private volatile TextPdfJobs textPdfJobs;
     private ReadLease readLease;
+    private ArchivePublication publication;
+    private java.io.File directInputDirectory;
     // Burst-local naming snapshot only; document creation, never an existing URI, remains the publication primitive.
     private String namingLocation;
     private Set<String> namingNames;
@@ -54,6 +57,59 @@ public final class LogbookPlugin extends Plugin {
         if (database != null) database.close();
     }
     private SharedPreferences prefs() { return getContext().getSharedPreferences("archive-location", 0); }
+    /** Only recorded, unregistered URIs with unchanged source prefixes may be removed after interruption. */
+    private synchronized ArchivePublication publications() throws Exception {
+        if (publication == null) publication = new ArchivePublication(new java.io.File(getContext().getFilesDir(), "archive-publications"),
+            new ArchivePublication.Store() {
+                public JSONArray pending() throws Exception { return archives.pendingPublications(); }
+                public void put(JSONObject value) throws Exception { archives.putPublication(value); }
+                public void remove(String id) { archives.removePublication(id); }
+            }, new ArchivePublication.Documents() {
+                public boolean registered(String uri) throws Exception { return knownPublication(uri); }
+                public boolean exists(JSONObject value) throws Exception {
+                    String location = value.getString("location"); boolean readable = false;
+                    for (android.content.UriPermission grant : getContext().getContentResolver().getPersistedUriPermissions())
+                        if (grant.getUri().toString().equals(location) && grant.isReadPermission()) readable = true;
+                    if (!readable) throw new IllegalStateException("上次未完成文件缺少读取授权，已保留；请重新选择归档目录。");
+                    Uri tree = Uri.parse(location); validateTree(tree);
+                    Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
+                    try (Cursor folder = getContext().getContentResolver().query(parent, new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID}, null, null, null)) {
+                        if (folder == null || !folder.moveToFirst()) throw new IllegalStateException("上次发布目录暂不可用，请恢复目录权限后重试。");
+                    }
+                    try (Cursor row = getContext().getContentResolver().query(Uri.parse(value.getString("uri")), new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID}, null, null, null)) {
+                        if (row == null) throw new IllegalStateException("无法核对上次未完成文件。");
+                        return row.moveToFirst();
+                    } catch (SecurityException error) { throw error; }
+                    catch (RuntimeException missingOrUnavailable) {
+                        // Android 9 rejects an already-removed tree child before queryDocument can return an empty cursor.
+                        // Confirm absence by exact ID in this authorized parent; never treat a provider failure as deletion.
+                        String target = DocumentsContract.getDocumentId(Uri.parse(value.getString("uri")));
+                        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
+                        try (Cursor rows = getContext().getContentResolver().query(children, new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID}, null, null, null)) {
+                            if (rows == null) throw missingOrUnavailable;
+                            while (rows.moveToNext()) if (target.equals(rows.getString(0))) throw missingOrUnavailable;
+                            return false;
+                        }
+                    }
+                }
+                public InputStream open(String uri) throws Exception { return getContext().getContentResolver().openInputStream(Uri.parse(uri)); }
+                public boolean delete(String uri) throws Exception { return DocumentsContract.deleteDocument(getContext().getContentResolver(), Uri.parse(uri)); }
+            }, ACTIVE_PUBLICATIONS);
+        return publication;
+    }
+    private boolean knownPublication(String uri) throws Exception { return archives.find(uri, prefs().getString("created-documents", "[]")) != null; }
+    /** Small archive inputs have their own private directory; startup cleanup never touches shared documents. */
+    private synchronized java.io.File directInputs() throws Exception {
+        if (directInputDirectory == null) {
+            java.io.File directory = new java.io.File(getContext().getCacheDir(), "archive-direct-inputs");
+            if (!directory.isDirectory() && !directory.mkdirs()) throw new IllegalStateException("无法创建归档暂存目录。");
+            java.io.File[] stale = directory.listFiles((dir, name) -> name.matches("coc-direct-[0-9]+\\.part"));
+            if (stale == null) throw new IllegalStateException("无法读取归档暂存目录。");
+            for (java.io.File file : stale) if (!file.delete()) throw new IllegalStateException("归档暂存清理失败。");
+            directInputDirectory = directory;
+        }
+        return directInputDirectory;
+    }
     /** No arguments. Persist before granting one welcome display; business restore/clear never touches this file. */
     @PluginMethod public synchronized void claimFirstLaunchIntro(PluginCall call) {
         try {
@@ -269,23 +325,49 @@ public final class LogbookPlugin extends Plugin {
     private JSObject write(String name, String mime, byte[] bytes, String purpose, String location) throws Exception {
         if (bytes.length > MAX_BYTES || name.length() > 255 || name.isEmpty() || name.equals(".") || name.equals("..") || name.matches(".*[/\\\\\u0000-\u001f].*")) throw new IllegalArgumentException("文件名或文件大小不合法。");
         if (location.isEmpty()) throw new IllegalStateException("请先选择并确认归档文件夹。");
-        Uri tree = Uri.parse(location); validateTree(tree);
-        Uri destination = createNamedDocument(tree,mime,name);
-        if (destination == null) throw new IllegalStateException("无法在所选目录创建文件。");
-        boolean success = false;
+        publications().recoverFor(location);
+        java.io.File source = java.io.File.createTempFile("coc-direct-", ".part", directInputs());
         try {
+            try (OutputStream output = new java.io.FileOutputStream(source)) { output.write(bytes); }
+            return publishArchive(source,location,name,mime,purpose,bytes.length,digest(bytes));
+        } finally { if (source.exists() && !source.delete()) throw new IllegalStateException("归档输入暂存清理失败。"); }
+    }
+    /** Shared publication boundary for direct writes, text/PDF streams and automatic backups. */
+    private JSObject publishArchive(java.io.File source, String location, String name, String mime, String purpose, long size, String hash) throws Exception {
+        if (!location.equals(prefs().getString("tree", ""))) throw new IllegalStateException("归档位置已变化，请重新导出。");
+        requireArchivePermission(location); Uri tree = Uri.parse(location); validateTree(tree);
+        ArchivePublication recovery = publications(); recovery.recoverFor(location);
+        Uri destination = createNamedDocument(tree,mime,name);
+        if (destination == null) throw new IllegalStateException("无法创建归档文件。");
+        JSONObject ticket = null; boolean success = false;
+        try {
+            ticket = recovery.begin(source,destination.toString(),location,size,hash);
             String savedName = displayName(destination);
             if (savedName.isEmpty() || savedName.equals("已选择的文件夹")) throw new IllegalStateException("无法确认新文件名称。");
-            try (OutputStream output = getContext().getContentResolver().openOutputStream(destination, "w")) {
-                if (output == null) throw new IllegalStateException("目录不可写，请重新选择。");
-                output.write(bytes);
+            try (InputStream input = new java.io.FileInputStream(source); OutputStream output = getContext().getContentResolver().openOutputStream(destination,"w")) {
+                if (output == null) throw new IllegalStateException("文件夹不可写。");
+                byte[] chunk = new byte[32768]; int n; while ((n = input.read(chunk)) != -1) output.write(chunk,0,n);
             }
-            byte[] back = read(destination);
-            if (!Arrays.equals(bytes, back)) throw new IllegalStateException("保存回读校验失败。");
-            JSObject out = new JSObject(); out.put("uri", destination.toString()); out.put("name", savedName);
-            out.put("bytes", back.length); out.put("sha256", digest(back)); out.put("purpose", purpose);
-            rememberDocument(out, mime); success = true; return out;
-        } finally { if (!success) DocumentsContract.deleteDocument(getContext().getContentResolver(), destination); }
+            MessageDigest digest = MessageDigest.getInstance("SHA-256"); long readSize = 0;
+            try (InputStream input = getContext().getContentResolver().openInputStream(destination)) {
+                if (input == null) throw new IllegalStateException("无法回读归档。");
+                byte[] chunk = new byte[32768]; int n;
+                while ((n = input.read(chunk)) != -1) { readSize += n; if (readSize > MAX_BYTES) throw new IllegalStateException("归档回读大小超限。"); digest.update(chunk,0,n); }
+            }
+            StringBuilder backHash = new StringBuilder(); for (byte b : digest.digest()) backHash.append(String.format("%02x",b&255));
+            if (readSize != size || !hash.equals(backHash.toString())) throw new IllegalStateException("归档保存回读校验失败。");
+            if (!location.equals(prefs().getString("tree", ""))) throw new IllegalStateException("归档位置已变化，未登记当前文件。");
+            requireArchivePermission(location);
+            JSObject result = new JSObject(); result.put("uri",destination.toString()); result.put("name",savedName);
+            result.put("bytes",readSize); result.put("sha256",hash); result.put("purpose",purpose);
+            rememberDocument(result,mime,ticket.getString("id")); success = true; recovery.committed(ticket); return result;
+        } finally {
+            if (!success) {
+                if (ticket != null) recovery.abort(ticket);
+                else if (!knownPublication(destination.toString()) && !DocumentsContract.deleteDocument(getContext().getContentResolver(),destination))
+                    throw new IllegalStateException("新文件清理失败，请检查所选目录；已有文件未覆盖。");
+            }
+        }
     }
     /** Reserve a new document under a short naming lock; bulk I/O stays outside it. */
     private synchronized Uri createNamedDocument(Uri tree, String mime, String requested) throws Exception {
@@ -326,6 +408,7 @@ public final class LogbookPlugin extends Plugin {
         execute(() -> {
             try {
                 String tree = prefs().getString("tree", ""); requireArchivePermission(tree); validateTree(Uri.parse(tree));
+                publications().recoverFor(tree);
                 if (pdfSpool == null) pdfSpool = new PdfSpool(new java.io.File(getContext().getCacheDir(), "pdf-exports"));
                 if (textPdfJobs != null && textPdfJobId != null) throw new IllegalStateException("已有 PDF 正在导出。");
                 JSObject result = new JSObject(); result.put("id", pdfSpool.begin(tree)); call.resolve(result);
@@ -388,42 +471,8 @@ public final class LogbookPlugin extends Plugin {
         execute(() -> {
             try {
                 if (pdfSpool == null) throw new IllegalStateException("PDF 暂存已失效。");
-                PdfSpool.Publisher<JSObject> publisher = (source, location, name, size, hash) -> {
-                    if (!location.equals(prefs().getString("tree", ""))) throw new IllegalStateException("归档位置已变化，请重新导出。");
-                    requireArchivePermission(location);
-                    Uri tree = Uri.parse(location); validateTree(tree);
-                    Uri destination = createNamedDocument(tree, mime, name);
-                    if (destination == null) throw new IllegalStateException("无法创建 PDF 文件。");
-                    boolean success = false;
-                    try {
-                        String savedName = displayName(destination);
-                        if (savedName.isEmpty() || savedName.equals("已选择的文件夹")) throw new IllegalStateException("无法确认新文件名称。");
-                        try (InputStream input = new java.io.FileInputStream(source);
-                             OutputStream output = getContext().getContentResolver().openOutputStream(destination, "w")) {
-                            if (output == null) throw new IllegalStateException("文件夹不可写。");
-                            byte[] chunk = new byte[32768]; int n;
-                            while ((n = input.read(chunk)) != -1) output.write(chunk, 0, n);
-                        }
-                        MessageDigest digest = MessageDigest.getInstance("SHA-256"); long readSize = 0;
-                        try (InputStream input = getContext().getContentResolver().openInputStream(destination)) {
-                            if (input == null) throw new IllegalStateException("无法回读 PDF。");
-                            byte[] chunk = new byte[32768]; int n;
-                            while ((n = input.read(chunk)) != -1) {
-                                readSize += n; if (readSize > MAX_BYTES) throw new IllegalStateException("PDF 回读大小超限。");
-                                digest.update(chunk, 0, n);
-                            }
-                        }
-                        StringBuilder backHash = new StringBuilder();
-                        for (byte b : digest.digest()) backHash.append(String.format("%02x", b & 255));
-                        if (readSize != size || !hash.equals(backHash.toString())) throw new IllegalStateException("PDF 保存回读校验失败。");
-                        JSObject result = new JSObject(); result.put("uri", destination.toString()); result.put("name", savedName);
-                        result.put("bytes", readSize); result.put("sha256", hash); result.put("purpose", purpose);
-                        rememberDocument(result, mime); success = true; return result;
-                    } finally {
-                        if (!success && !DocumentsContract.deleteDocument(getContext().getContentResolver(), destination))
-                            throw new IllegalStateException("新 PDF 清理失败，请检查所选目录；已有文件未覆盖。");
-                    }
-                };
+                PdfSpool.Publisher<JSObject> publisher = (source, location, name, size, hash) ->
+                    publishArchive(source,location,name,mime,purpose,size,hash);
                 String id = call.getString("id", ""), name = call.getString("name", "");
                 if (pdf && textPdfJobs != null && textPdfJobs.owns(id)) {
                     try { call.resolve(textPdfJobs.finish(id, name, publisher)); }
@@ -432,9 +481,9 @@ public final class LogbookPlugin extends Plugin {
             } catch (Exception error) { call.reject("PDF 保存失败：" + error.getMessage(), error); }
         });
     }
-    private synchronized void rememberDocument(JSObject file, String mime) throws Exception {
+    private synchronized void rememberDocument(JSObject file, String mime, String publicationId) throws Exception {
         JSONObject entry = new JSONObject(file.toString()); entry.put("mime", mime);
-        archives.add(entry, prefs().getString("created-documents", "[]"));
+        archives.add(entry, prefs().getString("created-documents", "[]"), publicationId);
     }
     private JSONObject knownDocument(String uri) throws Exception {
         JSONObject item = archives.find(uri, prefs().getString("created-documents", "[]"));
