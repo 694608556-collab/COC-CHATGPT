@@ -11,6 +11,8 @@ final class LogbookViewController: CAPBridgeViewController {
         smokeStarted = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
             let script = """
+            // Keep the pending diagnostic task rooted until WebKit receives its result.
+            window.__cocSmokeTask = (async () => {
             let stage='startup';
             const info={href:location.href,secureContext:window.isSecureContext,hasCrypto:!!window.crypto,hasSubtle:!!window.crypto?.subtle};
             try {
@@ -46,6 +48,8 @@ final class LogbookViewController: CAPBridgeViewController {
             if(!document.body.innerText.includes('选择并确认保存位置')) throw new Error('Native startup screen not ready: '+document.body.innerText);
             return {...info,stage:'complete',passed:true,nativeOverview:true,packagedWorker:true,exportWorker:true,webCrypto:true,fontsReady:document.fonts.status==='loaded',secureContext:window.isSecureContext,userAgent:navigator.userAgent};
             } catch(error) { return {...info,passed:false,stage,error:String(error?.message||error),stack:String(error?.stack||'')}; }
+            })();
+            return await window.__cocSmokeTask;
             """
             self.webView?.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
                 var output: LogbookJSON
