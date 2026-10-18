@@ -2,37 +2,75 @@ import json
 import pathlib
 import subprocess
 import time
+import uuid
 
-def command(*args):
-    return subprocess.check_output(args, text=True).strip()
+OUTPUT = pathlib.Path('ios/build')
 
-runtimes = json.loads(command('xcrun', 'simctl', 'list', 'runtimes', '--json'))['runtimes']
-available = [r for r in runtimes if r.get('isAvailable') and 'iOS' in r['identifier']]
-runtime = sorted(available, key=lambda r: tuple(map(int, r['version'].split('.'))))[-1]
-types = json.loads(command('xcrun', 'simctl', 'list', 'devicetypes', '--json'))['devicetypes']
-device = next(d for d in types if d['name'] == 'iPhone 14 Pro')
-udid = command('xcrun', 'simctl', 'create', 'COC isolated iPhone 14 Pro', device['identifier'], runtime['identifier'])
-metadata = {'device': device['name'], 'runtime': runtime['version'], 'udid': udid, 'scope': 'fresh cloud simulator, no user phone data'}
-pathlib.Path('ios/build/simulator-environment.json').write_text(json.dumps(metadata))
-try:
-    subprocess.run(['xcrun', 'simctl', 'boot', udid], check=True)
-    subprocess.run(['xcrun', 'simctl', 'bootstatus', udid, '-b'], check=True)
-    with open('ios/build/simulator-build.log', 'w') as log:
-        result = subprocess.run(['xcodebuild', '-project', 'ios/App/App.xcodeproj', '-scheme', 'App', '-configuration', 'Debug', '-destination', 'platform=iOS Simulator,id=' + udid, '-derivedDataPath', 'ios/build/simulator', 'build', 'CODE_SIGN_IDENTITY=-', 'CODE_SIGNING_ALLOWED=YES'], stdout=log, stderr=subprocess.STDOUT)
-    if result.returncode:
-        print(pathlib.Path('ios/build/simulator-build.log').read_text()[-10000:])
-        raise RuntimeError('Simulator build failed')
-    subprocess.run(['xcrun', 'simctl', 'install', udid, 'ios/build/simulator/Build/Products/Debug-iphonesimulator/App.app'], check=True)
-    subprocess.run(['xcrun', 'simctl', 'launch', udid, 'coc.logbook', '--coc-ios-smoke'], check=True)
-    container = pathlib.Path(command('xcrun', 'simctl', 'get_app_container', udid, 'coc.logbook', 'data'))
-    report = container / 'tmp/ios-smoke-result.json'
-    for _ in range(90):
-        if report.exists(): break
-        time.sleep(0.5)
-    subprocess.run(['xcrun', 'simctl', 'io', udid, 'screenshot', 'ios/build/ios-initial-screen.png'], check=True)
-    result = json.loads(report.read_text())
-    pathlib.Path('ios/build/ios-smoke-result.json').write_text(json.dumps({**metadata, **result}))
-    print(json.dumps({**metadata, **result}))
-    assert result.get('passed'), result
-finally:
-    subprocess.run(['xcrun', 'simctl', 'shutdown', udid], check=False)
+
+def select_runtime(runtimes, target='27.0'):
+    """Require the requested iOS runtime; never silently test another version."""
+    found = [r for r in runtimes if r.get('isAvailable') and 'iOS' in r['identifier'] and r['version'] == target]
+    if not found:
+        raise RuntimeError('Required iOS ' + target + ' runtime unavailable; available: ' + ', '.join(r['version'] for r in runtimes if r.get('isAvailable')))
+    return found[0]
+
+
+def command(*args, timeout=60, log=None):
+    """Bound every subprocess; stream large build output to its retained log."""
+    print('running: ' + ' '.join(args[:4]), flush=True)
+    result = subprocess.run(args, text=True, stdout=log or subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout, check=True)
+    return (result.stdout or '').strip()
+
+
+def main():
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    udid = None
+    metadata = {'device': 'iPhone 14 Pro', 'requestedRuntime': '27.0', 'scope': 'fresh cloud simulator, no user phone data'}
+    phase = 'environment'
+    try:
+        runtime = select_runtime(json.loads(command('xcrun', 'simctl', 'list', 'runtimes', '--json'))['runtimes'])
+        types = json.loads(command('xcrun', 'simctl', 'list', 'devicetypes', '--json'))['devicetypes']
+        device = next(d for d in types if d['name'] == 'iPhone 14 Pro')
+        udid = command('xcrun', 'simctl', 'create', 'COC isolated iPhone 14 Pro', device['identifier'], runtime['identifier'])
+        uuid.UUID(udid)
+        metadata.update(runtime=runtime['version'], udid=udid)
+        (OUTPUT / 'simulator-environment.json').write_text(json.dumps(metadata))
+        phase = 'boot'
+        command('xcrun', 'simctl', 'boot', udid, timeout=300)
+        command('xcrun', 'simctl', 'bootstatus', udid, '-b', timeout=300)
+        phase = 'build'
+        with (OUTPUT / 'simulator-build.log').open('w') as log:
+            command('xcodebuild', '-project', 'ios/App/App.xcodeproj', '-scheme', 'App', '-configuration', 'Debug', '-destination', 'platform=iOS Simulator,id=' + udid, '-derivedDataPath', 'ios/build/simulator', 'build', 'CODE_SIGN_IDENTITY=-', 'CODE_SIGNING_ALLOWED=YES', timeout=900, log=log)
+        phase = 'install'
+        command('xcrun', 'simctl', 'install', udid, 'ios/build/simulator/Build/Products/Debug-iphonesimulator/App.app', timeout=120)
+        phase = 'launch'
+        command('xcrun', 'simctl', 'launch', udid, 'coc.logbook', '--coc-ios-smoke', timeout=120)
+        container = pathlib.Path(command('xcrun', 'simctl', 'get_app_container', udid, 'coc.logbook', 'data'))
+        phase = 'report'
+        report = container / 'tmp/ios-smoke-result.json'
+        deadline = time.monotonic() + 120
+        while not report.exists() and time.monotonic() < deadline:
+            time.sleep(0.5)
+        if not report.exists():
+            raise TimeoutError('Native startup report not produced within 120 seconds')
+        result = {**metadata, **json.loads(report.read_text())}
+        (OUTPUT / 'ios-smoke-result.json').write_text(json.dumps(result))
+        command('xcrun', 'simctl', 'io', udid, 'screenshot', str(OUTPUT / 'ios-initial-screen.png'), timeout=90)
+        print(json.dumps(result), flush=True)
+        if not result.get('passed'):
+            raise RuntimeError('Native startup check failed: ' + str(result))
+    except Exception as error:
+        output = OUTPUT / 'ios-smoke-result.json'
+        if not output.exists():
+            output.write_text(json.dumps({**metadata, 'passed': False, 'phase': phase, 'error': str(error)}))
+        raise
+    finally:
+        if udid:
+            try:
+                command('xcrun', 'simctl', 'shutdown', udid, timeout=45)
+            except Exception as error:
+                print('isolated simulator cleanup: ' + str(error), flush=True)
+
+
+if __name__ == '__main__':
+    main()
