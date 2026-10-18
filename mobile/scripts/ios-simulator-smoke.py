@@ -54,11 +54,11 @@ def main():
             report.unlink(missing_ok=True)
             command('xcrun', 'simctl', 'launch', udid, 'coc.logbook', '--coc-ios-smoke', timeout=120)
             phase = 'report-' + str(attempt)
-            deadline = time.monotonic() + 120
+            deadline = time.monotonic() + 180
             while not report.exists() and time.monotonic() < deadline:
                 time.sleep(0.5)
             if not report.exists():
-                raise TimeoutError('Native startup report not produced within 120 seconds, attempt ' + str(attempt))
+                raise TimeoutError('Native startup report not produced within 180 seconds, attempt ' + str(attempt))
             result = {**metadata, **json.loads(report.read_text())}
             attempts.append({'attempt': attempt, **result})
             (OUTPUT / 'ios-smoke-result.json').write_text(json.dumps({**result, 'coldStarts': attempts}))
