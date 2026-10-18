@@ -47,6 +47,7 @@ public final class LogbookPlugin extends Plugin {
     private String namingLocation;
     private Set<String> namingNames;
     private long namingReadAt;
+    private final Object namingLock = new Object();
     private final NetworkQueue networkQueue = new NetworkQueue();
     private final java.util.concurrent.ExecutorService backupWriter = java.util.concurrent.Executors.newSingleThreadExecutor();
     private final java.util.concurrent.atomic.AtomicBoolean backupRunning = new java.util.concurrent.atomic.AtomicBoolean();
@@ -213,6 +214,7 @@ public final class LogbookPlugin extends Plugin {
                 try { requireArchivePermission(prefs().getString("tree","")); }
                 catch (Exception error) { archive.put("valid",false); }
                 out.put("archive",archive); call.resolve(out);
+                if (archive.optBoolean("valid")) warmArchiveNames();
             } catch (Exception error) { call.reject("读取列表失败；原数据未清空。",error); }
         });
     }
@@ -268,6 +270,7 @@ public final class LogbookPlugin extends Plugin {
                 out.put("archive", archive); out.put("lastAutoBackupAt", prefs().getLong("last-auto-backup", 0));
                 if (prefs().contains("last-auto-backup-revision")) out.put("lastAutoBackupRevision",prefs().getLong("last-auto-backup-revision",-1));
                 call.resolve(out);
+                if (archive.optBoolean("valid")) warmArchiveNames();
             } catch (Exception error) { call.reject("状态检查失败；未清空数据。", error); }
         });
     }
@@ -369,32 +372,43 @@ public final class LogbookPlugin extends Plugin {
             }
         }
     }
-    /** Reserve a new document under a short naming lock; bulk I/O stays outside it. */
-    private synchronized Uri createNamedDocument(Uri tree, String mime, String requested) throws Exception {
-        String id = DocumentsContract.getTreeDocumentId(tree);
-        long now = android.os.SystemClock.elapsedRealtime();
-        // The Android external-storage provider creates a unique NEW file even for a concurrent collision.
-        // Reuse its directory listing for a short burst; other providers retain the original per-file query.
-        boolean reusable = "com.android.externalstorage.documents".equals(tree.getAuthority());
-        try {
-            if (!reusable || namingNames == null || !tree.toString().equals(namingLocation) || now - namingReadAt >= 30000) {
-                Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree,id);
-                Set<String> names = new HashSet<>();
-                try (Cursor cursor = getContext().getContentResolver().query(children,new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME},null,null,null)) {
-                    if (cursor == null) throw new IllegalStateException("无法检查已有文件，未覆盖任何文件。");
-                    while (cursor.moveToNext()) if (!cursor.isNull(0)) names.add(cursor.getString(0));
+    /** Read-only prefetch after the overview/status reply; never blocks readiness, edits or welcome claims. */
+    private void warmArchiveNames() {
+        String location = prefs().getString("tree", "");
+        if (!"com.android.externalstorage.documents".equals(Uri.parse(location).getAuthority())) return;
+        try { backupWriter.execute(() -> {
+            try {
+                requireArchivePermission(location); Uri tree = Uri.parse(location); validateTree(tree);
+                synchronized (namingLock) {
+                    if (location.equals(prefs().getString("tree", ""))) readArchiveNames(tree,android.os.SystemClock.elapsedRealtime());
                 }
-                namingNames = names; namingLocation = tree.toString(); namingReadAt = now;
-            }
-            String name = DocumentNames.available(namingNames,requested);
-            Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree,id);
-            Uri created = DocumentsContract.createDocument(getContext().getContentResolver(),parent,mime,name);
-            if (created == null) namingNames = null;
-            else namingNames.add(name);
-            return created;
-        } catch (Exception error) {
-            namingNames = null;
-            throw error;
+            } catch (Exception ignored) { /* A real publication still verifies grants and retries the directory query. */ }
+        }); } catch (java.util.concurrent.RejectedExecutionException ignored) { /* Owner is already leaving. */ }
+    }
+    /** Called only under namingLock; the original thirty-second lifetime is never extended by prefetch hits. */
+    private void readArchiveNames(Uri tree, long now) throws Exception {
+        boolean reusable = "com.android.externalstorage.documents".equals(tree.getAuthority());
+        if (reusable && namingNames != null && tree.toString().equals(namingLocation) && now - namingReadAt < 30000) return;
+        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree));
+        Set<String> names = new HashSet<>();
+        try (Cursor cursor = getContext().getContentResolver().query(children,new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME},null,null,null)) {
+            if (cursor == null) throw new IllegalStateException("无法检查已有文件，未覆盖任何文件。");
+            while (cursor.moveToNext()) if (!cursor.isNull(0)) names.add(cursor.getString(0));
+        }
+        namingNames = names; namingLocation = tree.toString(); namingReadAt = now;
+    }
+    /** Reserve a NEW document under the naming lock; publication/copy stays outside it. */
+    private Uri createNamedDocument(Uri tree, String mime, String requested) throws Exception {
+        synchronized (namingLock) {
+            try {
+                readArchiveNames(tree,android.os.SystemClock.elapsedRealtime());
+                String name = DocumentNames.available(namingNames,requested);
+                Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree));
+                Uri created = DocumentsContract.createDocument(getContext().getContentResolver(),parent,mime,name);
+                if (created == null) namingNames = null;
+                else namingNames.add(name);
+                return created;
+            } catch (Exception error) { namingNames = null; throw error; }
         }
     }
     @PluginMethod public void writeArchive(PluginCall call) {
