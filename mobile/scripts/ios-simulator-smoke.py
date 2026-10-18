@@ -66,6 +66,11 @@ def main():
             print(json.dumps(attempts[-1]), flush=True)
             if not result.get('passed'):
                 raise RuntimeError('Native startup check failed: ' + str(result))
+        phase = 'picker-ui-project'
+        command('ruby', 'scripts/ios-picker-project.rb', timeout=120)
+        phase = 'picker-ui-test'
+        with (OUTPUT / 'picker-ui.log').open('w') as log:
+            command('xcodebuild', '-project', 'ios/App/App.xcodeproj', '-scheme', 'PickerUITests', '-configuration', 'Debug', '-destination', 'platform=iOS Simulator,id=' + udid, '-derivedDataPath', 'ios/build/simulator', '-resultBundlePath', 'ios/build/picker-ui.xcresult', 'test', 'CODE_SIGN_IDENTITY=-', 'CODE_SIGNING_ALLOWED=YES', timeout=900, log=log)
     except Exception as error:
         output = OUTPUT / 'ios-smoke-result.json'
         if not output.exists():

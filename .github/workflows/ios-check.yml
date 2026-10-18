@@ -43,7 +43,17 @@ jobs:
             mobile/ios/build/xcode-version.txt
           retention-days: 14
       - name: Check fresh native WKWebView startup in cloud simulator
-        run: python3 scripts/ios-simulator-smoke.py
+        run: |
+          gem install --user-install xcodeproj --no-document
+          python3 scripts/ios-simulator-smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-picker-ui-evidence
+          path: |
+            mobile/ios/build/picker-ui.log
+            mobile/ios/build/picker-ui.xcresult
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: always()
         with:
