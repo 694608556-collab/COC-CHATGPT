@@ -9,6 +9,13 @@ final class PickerUITests: XCTestCase {
         XCTAssertTrue(choose.waitForExistence(timeout: 30), app.debugDescription)
         choose.tap()
         let folder = app.staticTexts["COC-Picker-Public-Test"].firstMatch
+        // iOS 27 may start at On My iPhone despite directoryURL. Enter the
+        // observed application container rather than assuming the hint was honored.
+        if !folder.waitForExistence(timeout: 3) {
+            let container = app.cells["COC 跑团记录簿, Container"].firstMatch
+            XCTAssertTrue(container.waitForExistence(timeout: 15), app.debugDescription)
+            container.tap()
+        }
         XCTAssertTrue(folder.waitForExistence(timeout: 20), app.debugDescription)
         folder.tap()
         let open = app.buttons.matching(NSPredicate(format: "label IN %@", ["Open", "打开"])).firstMatch
