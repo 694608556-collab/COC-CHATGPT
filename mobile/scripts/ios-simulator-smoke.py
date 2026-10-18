@@ -43,22 +43,29 @@ def main():
             command('xcodebuild', '-project', 'ios/App/App.xcodeproj', '-scheme', 'App', '-configuration', 'Debug', '-destination', 'platform=iOS Simulator,id=' + udid, '-derivedDataPath', 'ios/build/simulator', 'build', 'CODE_SIGN_IDENTITY=-', 'CODE_SIGNING_ALLOWED=YES', timeout=900, log=log)
         phase = 'install'
         command('xcrun', 'simctl', 'install', udid, 'ios/build/simulator/Build/Products/Debug-iphonesimulator/App.app', timeout=120)
-        phase = 'launch'
-        command('xcrun', 'simctl', 'launch', udid, 'coc.logbook', '--coc-ios-smoke', timeout=120)
         container = pathlib.Path(command('xcrun', 'simctl', 'get_app_container', udid, 'coc.logbook', 'data'))
-        phase = 'report'
         report = container / 'tmp/ios-smoke-result.json'
-        deadline = time.monotonic() + 120
-        while not report.exists() and time.monotonic() < deadline:
-            time.sleep(0.5)
-        if not report.exists():
-            raise TimeoutError('Native startup report not produced within 120 seconds')
-        result = {**metadata, **json.loads(report.read_text())}
-        (OUTPUT / 'ios-smoke-result.json').write_text(json.dumps(result))
-        command('xcrun', 'simctl', 'io', udid, 'screenshot', str(OUTPUT / 'ios-initial-screen.png'), timeout=90)
-        print(json.dumps(result), flush=True)
-        if not result.get('passed'):
-            raise RuntimeError('Native startup check failed: ' + str(result))
+        attempts = []
+        # A single successful cold start cannot rule out the observed intermittent failure.
+        for attempt in range(1, 4):
+            phase = 'launch-' + str(attempt)
+            if attempt > 1:
+                command('xcrun', 'simctl', 'terminate', udid, 'coc.logbook', timeout=60)
+            report.unlink(missing_ok=True)
+            command('xcrun', 'simctl', 'launch', udid, 'coc.logbook', '--coc-ios-smoke', timeout=120)
+            phase = 'report-' + str(attempt)
+            deadline = time.monotonic() + 120
+            while not report.exists() and time.monotonic() < deadline:
+                time.sleep(0.5)
+            if not report.exists():
+                raise TimeoutError('Native startup report not produced within 120 seconds, attempt ' + str(attempt))
+            result = {**metadata, **json.loads(report.read_text())}
+            attempts.append({'attempt': attempt, **result})
+            (OUTPUT / 'ios-smoke-result.json').write_text(json.dumps({**result, 'coldStarts': attempts}))
+            command('xcrun', 'simctl', 'io', udid, 'screenshot', str(OUTPUT / 'ios-initial-screen.png'), timeout=90)
+            print(json.dumps(attempts[-1]), flush=True)
+            if not result.get('passed'):
+                raise RuntimeError('Native startup check failed: ' + str(result))
     except Exception as error:
         output = OUTPUT / 'ios-smoke-result.json'
         if not output.exists():
