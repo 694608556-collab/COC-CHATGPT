@@ -6,11 +6,15 @@
 
 旧云端运行 38878820982 最终为失败：设备构建/IPA 上传成功，iPhone 14 Pro / iOS 27.0 模拟器已启动并安装，但 WKWebView 检查仅报 JavaScript 异常；不是卡在编译，也不是启动已通过。现在固定要求 27.0 运行时、给全部子进程设置超时，DEBUG 原生检查输出具体阶段、错误/堆栈和 WebCrypto 可用性，并实际运行打包 snapshot-worker 与 export-worker 公开正文任务。[新云端 39111979457](https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39111979457) 已通过：原生概览、snapshot-worker 结构读取、export-worker 实际公开正文导出、WebCrypto 已知摘要、原字体加载及 secure context 均成功，阶段 complete。旧 1.0.2 失败未在最新代码重现，原错误缺少具体堆栈，不能断言某一单独根因已被证明。
 
+最新对应源码 c84b385 的运行 39112480711 已发现间歇失败：原生系统确认为 27.0、应用 1.0.4，页面已正确显示；WKWebView 返回 `Completion handler for function call is no longer reachable`。[Apple 官方文档](https://developer.apple.com/documentation/webkit/wkwebview/callasyncjavascript(_:arguments:in:in:completionhandler:))说明异步结果在完成前被回收可产生此错误，已在 a1bc497 将 DEBUG 检查任务保留在页面全局直到返回，[最终运行 39113606548](https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39113606548) 对应源码 1617069 已通过连续三次冷启动，三次均 complete，原生系统 27.0、应用 1.0.4、两个 Worker、WebCrypto、字体及原生概览全部通过；这是有限重复验证，不承诺所有设备永不失败。失败 JSON/截图及构建日志只保存在仓库外。
+
 最新 Android 专用私有读取、分段编辑、文字 PDF 及导出暂存接口只在 Android 调用；iOS 保留既有完整读取/事务写入、完整浏览器 PDF 生成及原生新建回读保存，不能因 Capacitor.isNativePlatform 为真就调用未注册的 Android 方法。保留 iOS 安全区、前后台监听与原生书签；根页面不调用 iOS 不支持的 minimizeApp。原字体、正文、CAS、事务、十分钟有修改才自动备份不变；没有迁移/打开安卓私有数据库。
 
 另保留 Android 与浏览器验证器既有 PDF 暂存，只对 iOS 使用完整文件写入；本地追加两项平台契约测试通过（78 单元）。iOS 首次目录与设置文案使用系统“文件”及位置授权描述，不再向 iPhone 展示存储卡/root 操作说明，Android 文案和按钮尺寸不变。
 
 iOS 大正文性能与原生文件流程仍须独立验收，不能继承 S9 通过结论。家用 Windows 检测到爱思助手 8.0，当前未检测到已连接 iPhone；签名/安装等待用户连接并在自己的爱思界面配置 Apple ID 或有效证书，不索取聊天中的账号密码，不伪造真机通过，不发布或合并 PR。
+
+最新 [1.0.4 / 29 待签名 IPA](releases/ios-1.0.4/README.md) 已保存并复核云端 ZIP/IPA SHA-256、arm64、版本、全部网页/Worker 产物与八份原字体；没有签名证书/用户数据。最终 78 单元、类型/格式/ESLint、24 项 macOS Swift 核心、完整 93 浏览器回归通过。新增平台导出测试使用原生字节比较保持全量完整性，避免递归比较大数组在云端触发 5 秒测试超时；未放宽超时。爱思签名/安装及真实系统文件授权、全文大数据性能、自动备份仍待 iPhone 连接后验证。
 
 以下为原交接记录，旧版本/待验状态按时间阅读。
 

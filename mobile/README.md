@@ -1,6 +1,6 @@
 # COC 跑团记录簿 · 移动端
 
-当前独立 iOS 分支以最新 Android 1.0.4 / 29 为代码和版本基线。安卓 APK 已生成，iOS 启动/Worker/签名安装进度见 [最新记录](IOS-DEVELOPMENT.md)。旧 1.0.2 IPA 和安卓历史包保留，以下按历史时间阅读。
+当前独立 iOS 分支以最新 Android 1.0.4 / 29 为代码和版本基线。[安卓 APK](releases/1.0.4/README.md) 和 [待签名 IPA](releases/ios-1.0.4/README.md) 均已生成并上传。iPhone 14 Pro / iOS 27.0 云端连续三次原生冷启动、双 Worker/WebCrypto/字体通过；爱思签名安装与真机仍待连接设备后验收，见 [最新记录](IOS-DEVELOPMENT.md)。旧 1.0.2 IPA 和安卓历史包保留，以下按历史时间阅读。
 
 **此分支现为独立 iOS 适配接续 `codex/ios-ipa-adaptation`**：iPhone 14 Pro / iOS 27.0，已生成 1.0.2 / 27 待签名设备 IPA；下载及未完成检查见 [IPA 目录](releases/ios-1.0.2/README.md)、[iOS 开发记录](IOS-DEVELOPMENT.md) 和 [下一步](NEXT-SESSION.md)。原生核心及设备编译通过，模拟器启动、Apple 签名／爱思安装和真机仍待验；以下安卓交付与历史保留，不表示 iOS 已通过。
 

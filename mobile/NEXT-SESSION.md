@@ -2,7 +2,7 @@
 
 ## 2026-10-18：iOS 接入最新 Android 1.0.4，继续原生启动验证
 
-先读 [iOS 最新接续](IOS-DEVELOPMENT.md)。保留旧 IPA，Android 1.0.4 / 29 APK 已独立生成。iOS 已接入最新 Android 优化代码并按平台保留各自已实现接口，未将 Android 专用接口误用于 iOS；固定 iPhone 14 Pro / iOS 27.0 并补齐超时、具体错误和两个打包 Worker 检查。76 单元/类型/格式/iOS 资源同步通过，云端原生结果待回填。爱思 8.0 已安装，未检测到 iPhone 连接；签名/安装及真机仍待实测。下文为历史。
+先读 [iOS 最新接续](IOS-DEVELOPMENT.md)。保留旧 IPA，Android 1.0.4 / 29 APK 已独立生成。iOS 已接入最新 Android 优化代码并按平台保留各自已实现接口，未将 Android 专用接口误用于 iOS；固定 iPhone 14 Pro / iOS 27.0 并补齐超时、具体错误和两个打包 Worker 检查。最终 78 单元/类型/格式/ESLint、24 项 macOS Swift 核心及完整 93 浏览器回归通过。源码 1617069 的云端 39113606548 成功：iPhone 14 Pro / iOS 27.0 连续三次原生冷启动、双 Worker、WebCrypto、字体与原生概览全部通过；DEBUG 异步检查已保留任务引用以修复结果不可达错误。最新 [1.0.4 / 29 待签名 IPA](releases/ios-1.0.4/README.md) 已上传并完整校验。爱思 8.0 已安装，未检测到 iPhone 连接；签名/安装及真机仍待实测。下文为历史。
 
 ## 独立 iOS 分支接续（2026-10-16）
 
