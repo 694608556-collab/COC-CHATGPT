@@ -4,10 +4,17 @@ import Darwin
 
 final class LogbookArchive {
     let preferences: UserDefaults
+    // Versioned reference contains no absolute container path and grants no external access.
+    private static let localReference = Data("coc-owned-archive:v1:documents/archive".utf8)
+    private let documentsDirectory: () throws -> URL
     private let registryURL: URL
     private let registryLock = NSRecursiveLock()
     private let nameLock = NSLock()
-    init(directory: URL, preferences: UserDefaults = .standard) throws {
+    init(directory: URL, preferences: UserDefaults = .standard,
+         documentsDirectory: @escaping () throws -> URL = {
+             try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+         }) throws {
+        self.documentsDirectory = documentsDirectory
         self.preferences = preferences; registryURL = directory.appendingPathComponent("documents.json")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
@@ -17,6 +24,12 @@ final class LogbookArchive {
         return bookmark
     }
     func access<T>(_ bookmark: Data, _ action: (URL) throws -> T) throws -> T {
+        if bookmark == Self.localReference {
+            // Resolve against this installation, never a previous installation's container UUID.
+            let folder = try documentsDirectory().appendingPathComponent("归档", isDirectory: true)
+            try validateLocalDirectory(folder)
+            return try action(folder)
+        }
         var stale = false
         let url = try URL(resolvingBookmarkData: bookmark, options: [.withoutUI], relativeTo: nil, bookmarkDataIsStale: &stale)
         guard !stale else { throw LogbookFailure("文件夹授权已失效，请重新选择；原数据未改变。") }
@@ -32,31 +45,55 @@ final class LogbookArchive {
         let valid = bookmark.map { data in (try? access(data) { _ in true }) == true } ?? false
         return ["uri": bookmark.map(Self.digest) ?? "", "label": preferences.string(forKey: "coc.archive.label") ?? "尚未选择", "valid": valid]
     }
-    /// Called only after an explicit local-folder choice; existing contents are never replaced.
-    func chooseLocalDirectory(_ documents: URL) throws -> LogbookJSON {
-        let folder = documents.appendingPathComponent("归档", isDirectory: true)
-        if FileManager.default.fileExists(atPath: folder.path) {
-            let values = try folder.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-            guard values.isDirectory == true, values.isSymbolicLink != true else {
-                throw LogbookFailure("本机归档位置不是普通文件夹；原文件未改变，请选择其他位置。")
-            }
-        } else {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    private func validateLocalDirectory(_ folder: URL) throws {
+        let values = try folder.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard folder.isFileURL, values.isDirectory == true, values.isSymbolicLink != true else {
+            throw LogbookFailure("本机归档位置不是普通文件夹；原文件未改变，请选择其他位置。")
         }
-        return try choose(folder)
+        guard FileManager.default.isReadableFile(atPath: folder.path), FileManager.default.isWritableFile(atPath: folder.path) else {
+            throw LogbookFailure("本机归档文件夹不可读写；原数据未改变。")
+        }
+    }
+    /// User explicitly selects the app-owned Documents folder; no external bookmark is needed.
+    /// Existing external bookmarks and registry entries retain their original interpretation.
+    func chooseLocalDirectory() throws -> LogbookJSON {
+        let folder = try Self.archiveStep("L1：定位本机目录") { try documentsDirectory().appendingPathComponent("归档", isDirectory: true) }
+        try Self.archiveStep("L2：创建或检查本机目录") {
+            if !FileManager.default.fileExists(atPath: folder.path) {
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            }
+            try validateLocalDirectory(folder)
+        }
+        try Self.archiveStep("L3：本机目录读写回读") { try verifyWritable(folder) }
+        return try saveChoice(Self.localReference, label: folder.lastPathComponent)
+    }
+    /// Reports only a fixed stage and error code, never paths, URLs or file contents.
+    static func archiveStep<T>(_ stage: String, _ action: () throws -> T) throws -> T {
+        do { return try action() }
+        catch let failure as LogbookFailure { throw failure }
+        catch {
+            let code = (error as NSError).code
+            throw LogbookFailure("归档配置失败（\(stage)，系统错误 \(code)）；原数据未改变。")
+        }
+    }
+    private func verifyWritable(_ directory: URL) throws {
+        let probe = directory.appendingPathComponent("coc-write-check-" + UUID().uuidString + ".txt")
+        let bytes = Data("COC archive write check".utf8)
+        try bytes.write(to: probe, options: [.withoutOverwriting])
+        defer { try? FileManager.default.removeItem(at: probe) }
+        guard try Data(contentsOf: probe) == bytes else { throw LogbookFailure("文件夹回读校验失败。") }
     }
     func choose(_ url: URL) throws -> LogbookJSON {
         let scoped = url.startAccessingSecurityScopedResource(); defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        let bookmark = try url.bookmarkData(options: [.minimalBookmark], includingResourceValuesForKeys: nil, relativeTo: nil)
-        try access(bookmark) { directory in
-            let probe = directory.appendingPathComponent("coc-write-check-" + UUID().uuidString + ".txt")
-            let bytes = Data("COC archive write check".utf8)
-            try bytes.write(to: probe, options: [.withoutOverwriting])
-            defer { try? FileManager.default.removeItem(at: probe) }
-            guard try Data(contentsOf: probe) == bytes else { throw LogbookFailure("文件夹回读校验失败。") }
+        let bookmark = try Self.archiveStep("E1：创建自选目录授权") {
+            try url.bookmarkData(options: [.minimalBookmark], includingResourceValuesForKeys: nil, relativeTo: nil)
         }
+        try Self.archiveStep("E2：解析授权并检查读写") { try access(bookmark) { try verifyWritable($0) } }
+        return try saveChoice(bookmark, label: url.lastPathComponent)
+    }
+    private func saveChoice(_ bookmark: Data, label selectedLabel: String) throws -> LogbookJSON {
         let previous = preferences.data(forKey: "coc.archive.bookmark"), label = preferences.string(forKey: "coc.archive.label"), automatic = preferences.dictionary(forKey: "coc.automatic-backup")
-        preferences.set(bookmark, forKey: "coc.archive.bookmark"); preferences.set(url.lastPathComponent, forKey: "coc.archive.label")
+        preferences.set(bookmark, forKey: "coc.archive.bookmark"); preferences.set(selectedLabel, forKey: "coc.archive.label")
         if previous != bookmark { preferences.removeObject(forKey: "coc.automatic-backup") }
         guard preferences.synchronize() else {
             preferences.set(previous, forKey: "coc.archive.bookmark"); preferences.set(label, forKey: "coc.archive.label")

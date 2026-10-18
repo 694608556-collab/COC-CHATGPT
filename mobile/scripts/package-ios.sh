@@ -9,8 +9,8 @@ xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
 mkdir -p ios/build/ipa/Payload
 cp -R ios/build/COCLogbook.xcarchive/Products/Applications/App.app ios/build/ipa/Payload/
 python3 scripts/check-ios-package.py ios/build/ipa/Payload/App.app
-(cd ios/build/ipa && ditto -c -k --sequesterRsrc --keepParent Payload ../coc-logbook-1.0.4-31-ios-arm64-unsigned.ipa)
-shasum -a 256 ios/build/coc-logbook-1.0.4-31-ios-arm64-unsigned.ipa > ios/build/coc-logbook-1.0.4-31-ios-arm64-unsigned.ipa.sha256
+(cd ios/build/ipa && ditto -c -k --sequesterRsrc --keepParent Payload ../coc-logbook-1.0.4-32-ios-arm64-unsigned.ipa)
+shasum -a 256 ios/build/coc-logbook-1.0.4-32-ios-arm64-unsigned.ipa > ios/build/coc-logbook-1.0.4-32-ios-arm64-unsigned.ipa.sha256
 cat > ios/build/INSTALL-IPA.txt <<'EOF'
 真机 arm64 IPA，未带 Apple 开发证书或设备描述文件，不能直接安装。
 请在自己的电脑使用爱思助手的 IPA 签名功能，以自己的 Apple ID 或 iOS 证书签名后安装。

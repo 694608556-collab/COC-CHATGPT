@@ -61,7 +61,8 @@ import Foundation
         let suite = "coc-native-tests-" + UUID().uuidString
         let preferences = UserDefaults(suiteName: suite)!
         defer { preferences.removePersistentDomain(forName: suite) }
-        let archive = try LogbookArchive(directory: root.appendingPathComponent("registry"), preferences: preferences)
+        let localDocuments = root.appendingPathComponent("local-documents")
+        let archive = try LogbookArchive(directory: root.appendingPathComponent("registry"), preferences: preferences, documentsDirectory: { localDocuments })
         let folder = root.appendingPathComponent("exports")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         _ = try archive.choose(folder)
@@ -76,18 +77,47 @@ import Foundation
         _ = archive.rotateAutomatic(bookmark: try archive.bookmark())
         try require(try archive.documents(all: true).filter { $0["purpose"] as? String == "auto" }.count == 10, "only ten unchanged automatic backups retained")
         try require(FileManager.default.fileExists(atPath: folder.appendingPathComponent("公开正文.txt").path), "rotation does not delete manual or modified exports")
-        let localDocuments = root.appendingPathComponent("local-documents")
-        let local = try archive.chooseLocalDirectory(localDocuments)
+        let local = try archive.chooseLocalDirectory()
         try require(local["valid"] as? Bool == true, "explicit local folder validates")
         let localFile = try archive.write(name: "保留.txt", mime: "text/plain", bytes: Data("已有完整正文😀".utf8), purpose: "export")
-        _ = try archive.chooseLocalDirectory(localDocuments)
+        _ = try archive.chooseLocalDirectory()
         try require(try archive.read(localFile["uri"] as! String).0 == Data("已有完整正文😀".utf8), "reselecting local folder preserves existing exports")
+        try require(try archive.read(duplicate["uri"] as! String).0 == Data("新正文".utf8), "external bookmark document still opens after owned selection")
         let previousBookmark = try archive.bookmark()
+        var stale = false
+        try rejects("owned reference is not a Foundation bookmark") {
+            _ = try URL(resolvingBookmarkData: previousBookmark, options: [.withoutUI], relativeTo: nil, bookmarkDataIsStale: &stale)
+        }
+        let deniedArchive = try LogbookArchive(directory: root.appendingPathComponent("registry"), preferences: preferences, documentsDirectory: {
+            throw NSError(domain: NSCocoaErrorDomain, code: 257)
+        })
+        try rejects("unavailable owned container does not report success") { _ = try deniedArchive.chooseLocalDirectory() }
+        try require(try archive.bookmark() == previousBookmark, "permission denial preserves choice")
         let invalidDocuments = root.appendingPathComponent("invalid-documents")
         try FileManager.default.createDirectory(at: invalidDocuments, withIntermediateDirectories: true)
         try Data("原文件".utf8).write(to: invalidDocuments.appendingPathComponent("归档"))
-        try rejects("local folder name occupied by a file") { _ = try archive.chooseLocalDirectory(invalidDocuments) }
+        let invalidArchive = try LogbookArchive(directory: root.appendingPathComponent("registry"), preferences: preferences, documentsDirectory: { invalidDocuments })
+        try rejects("local folder name occupied by a file") { _ = try invalidArchive.chooseLocalDirectory() }
         try require(try archive.bookmark() == previousBookmark, "failed local choice preserves previous authorization")
+        let reopenedArchive = try LogbookArchive(directory: root.appendingPathComponent("registry"), preferences: preferences, documentsDirectory: { localDocuments })
+        try require(reopenedArchive.location()["valid"] as? Bool == true, "owned archive survives restart without resolving a bookmark")
+        try require(try reopenedArchive.read(localFile["uri"] as! String).0 == Data("已有完整正文😀".utf8), "owned document reopens with complete bytes")
+        // A new container root must be used after relocation; the saved reference has no old path.
+        let relocated = root.appendingPathComponent("relocated-documents")
+        try FileManager.default.moveItem(at: localDocuments, to: relocated)
+        let relocatedArchive = try LogbookArchive(directory: root.appendingPathComponent("registry"), preferences: preferences, documentsDirectory: { relocated })
+        try require(try relocatedArchive.read(localFile["uri"] as! String).0 == Data("已有完整正文😀".utf8), "owned reference follows current container rather than old absolute path")
+        let linkRoot = root.appendingPathComponent("link-documents")
+        try FileManager.default.createDirectory(at: linkRoot, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: linkRoot.appendingPathComponent("归档"), withDestinationURL: relocated.appendingPathComponent("归档"))
+        let linkArchive = try LogbookArchive(directory: root.appendingPathComponent("registry"), preferences: preferences, documentsDirectory: { linkRoot })
+        try rejects("owned archive rejects symbolic link") { _ = try linkArchive.chooseLocalDirectory() }
+        try require(try archive.bookmark() == previousBookmark, "symlink failure retains choice")
+        do {
+            _ = try LogbookArchive.archiveStep("L3：本机目录读写回读") { throw NSError(domain: NSCocoaErrorDomain, code: 257, userInfo: [NSFilePathErrorKey: "/private/secret/path"]) }
+        } catch {
+            try require(error.localizedDescription.contains("L3") && error.localizedDescription.contains("257") && !error.localizedDescription.contains("/private"), "diagnostic preserves stage and code but excludes private path")
+        }
         print("iOS native core: \(checks) checks passed; macOS test folders only, no phone or system picker tested.")
     }
 }

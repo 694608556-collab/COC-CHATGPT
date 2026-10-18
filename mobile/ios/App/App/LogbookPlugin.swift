@@ -165,9 +165,8 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
             self.pickerCall = call
             self.work.async {
                 let result: Result<LogbookJSON, Error> = Result {
-                    let (_, archive) = try self.resources()
-                    let documents = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-                    return ["cancelled": false, "archive": try archive.chooseLocalDirectory(documents)]
+                    let (_, archive) = try LogbookArchive.archiveStep("L0：打开应用内部存储") { try self.resources() }
+                    return ["cancelled": false, "archive": try archive.chooseLocalDirectory()]
                 }
                 DispatchQueue.main.async {
                     self.pickerCall = nil
