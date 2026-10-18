@@ -8,7 +8,7 @@ it('iOS 大文件保留完整正文和备份用途，不调用未注册的 Andro
   vi.spyOn(Capacitor, 'getPlatform').mockReturnValue('ios')
   const bytes = new TextEncoder().encode('中文😀'.repeat(200000))
   const writeArchive = vi.fn(async (options: { base64: string; purpose: string }) => {
-    expect(decodeBase64(options.base64)).toEqual(bytes)
+    expect(Buffer.from(decodeBase64(options.base64)).equals(Buffer.from(bytes))).toBe(true)
     expect(options.purpose).toBe('backup')
     return { uri: 'test-only', name: 'public.json', bytes: bytes.length, sha256: 'test-only' }
   })
@@ -59,6 +59,6 @@ it('Android 大文件仍有界分段，保持完整字节及既有发布/清理�
     combined.set(chunk, offset)
     offset += chunk.length
   }
-  expect(combined).toEqual(bytes)
+  expect(Buffer.from(combined).equals(Buffer.from(bytes))).toBe(true)
   expect(order).toEqual(['begin', 'finish', 'cleanup'])
 })
