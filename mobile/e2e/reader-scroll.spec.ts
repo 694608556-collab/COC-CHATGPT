@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { expandModules } from './helpers'
 
-test('滚动列表后打开及再次打开场次均从详情顶部开始，正文阅读和分页不强制回顶', async ({ page }) => {
+test('滚动列表后打开及再次打开场次均从详情顶部开始，普通阅读保留位置、手动翻页回顶', async ({ page }) => {
   page.on('dialog', (dialog) => dialog.accept())
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
@@ -22,7 +22,15 @@ test('滚动列表后打开及再次打开场次均从详情顶部开始，正�
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(200)
     await page.getByRole('button', { name: '下一页', exact: true }).click()
     await expect(page.getByLabel('正文分页')).toContainText('2 / 3')
-    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(200)
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
+    await page.getByRole('button', { name: '下一页', exact: true }).click()
+    await expect(page.getByLabel('正文分页')).toContainText('3 / 3')
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(200)
+    await page.getByRole('button', { name: '上一页', exact: true }).click()
+    await expect(page.getByLabel('正文分页')).toContainText('2 / 3')
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
     await page.getByRole('button', { name: '返回场次', exact: true }).click()
   }
 })
