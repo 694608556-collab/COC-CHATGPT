@@ -16,6 +16,7 @@ import type { PdfProgress } from '../data/pdf'
  * @param combined - 是否合成。
  * @param signal - 用户取消信号。
  * @param onProgress - 接收真实页数；文件落盘前仍可取消。
+ * @param preparedText - 可选、已在同版本后台源中生成的完整 TXT 字节；提供后不再跨线程复制正文。
  * @returns 完整生成后的 PDF 文件名；不会发布外部文件或修改业务数据。
  */
 export async function generateNativePdf(
@@ -26,13 +27,14 @@ export async function generateNativePdf(
   filters: FilterPreset,
   combined: boolean,
   signal: AbortSignal,
-  onProgress: (progress: PdfProgress) => void
+  onProgress: (progress: PdfProgress) => void,
+  preparedText?: { bytes: Uint8Array }
 ): Promise<{ name: string; mime: string; bytes: Uint8Array }> {
   const name = combined
     ? combinedExportName(module.name, 'pdf')
     : recordExportName(module.name, records[0]!.name, records[0]!.playDate, 'pdf')
   checkPdfCancellation(signal)
-  const file = await exportInBackground(module, records, filters, 'txt', combined)
+  const file = preparedText ?? (await exportInBackground(module, records, filters, 'txt', combined))
   checkPdfCancellation(signal)
   for (let offset = 0; offset < file.bytes.length; offset += 256 * 1024) {
     checkPdfCancellation(signal)

@@ -160,6 +160,10 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
     })
   }
   const port: LogbookPort = {
+    async createExportSource() {
+      throw new Error('浏览器使用独立测试存储读取，不提供 Android 私有文件租约。')
+    },
+    async releaseExportSource() {},
     async renderTextPdf() {
       throw new Error('浏览器使用原有逐页 PDF 路径，不提供 Android 字体排版。')
     },

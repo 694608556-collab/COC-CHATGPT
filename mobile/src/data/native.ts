@@ -39,6 +39,21 @@ export interface SavedDocument {
 }
 /** 所有请求/响应与本工程 LogbookPlugin.java 一一对应，不访问推测的 HTTP 接口。 */
 export interface LogbookPort {
+  /** @param options - 唯一所选 ID 与概览版本。 @returns 完整只读正文的私有文件凭证；相同 CAS/整批校验，不写业务或共享归档。 */
+  createExportSource(options: { ids: string[]; expectedRevision: number }): Promise<{
+    /** 本次读取租约 ID；类型为 string，仅能释放本租约。 */
+    id: string
+    /** 本应用私有只读文件 URI；类型为 string，由 Capacitor 本地服务器映射给 Worker。 */
+    fileUri: string
+    /** 完整文件 UTF-8 字节数；类型为 number，不超过 64 MiB。 */
+    bytes: number
+    /** 完整私有字节 SHA-256；类型为 string，后台重读后必须匹配。 */
+    sha256: string
+    /** 成功读取版本；类型为 number，必须与请求相同。 */
+    revision: number
+  }>
+  /** @param options - 当前只读租约 ID。 @returns 删除本次私有读取文件后的确认；不修改场次、版本或归档。 */
+  releaseExportSource(options: { id: string }): Promise<void>
   /** @param options - 已完成的 UTF-8 正文暂存标识。 @returns 后台原字体 PDF 任务启动确认；不发布文件。仅 Android 实现。 */
   renderTextPdf(options: { id: string }): Promise<void>
   /** @param options - 当前 PDF 任务标识。 @returns 真实排版/已绘页数/写文件状态；不等待整个生成过程。 */
@@ -97,7 +112,8 @@ export interface LogbookPort {
     settings: MobileSnapshot['settings']
     expectedRevision: number
   }): Promise<{ revision: number; exportedAt: string }>
-  listDocuments(options?: { all?: boolean }): Promise<{ documents: SavedDocument[] }>
+  /** @param options - all 读取完整登记；metadataOnly 仅在 all 时跳过存在性查询，备份须自行逐份回读并校验，缺失不能遗漏。 @returns 登记证明，不授予额外文件权限。 */
+  listDocuments(options?: { all?: boolean; metadataOnly?: boolean }): Promise<{ documents: SavedDocument[] }>
   readDocument(options: { uri: string }): Promise<{ name: string; mime: string; base64: string }>
   fetchLog(options: { url: string }): Promise<{ status: number; url: string; text: string }>
   automaticBackup(options: {

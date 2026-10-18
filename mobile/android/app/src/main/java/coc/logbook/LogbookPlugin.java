@@ -39,6 +39,7 @@ public final class LogbookPlugin extends Plugin {
     private ArchiveRegistry archives;
     private PdfSpool pdfSpool;
     private volatile TextPdfJobs textPdfJobs;
+    private ReadLease readLease;
     // Burst-local naming snapshot only; document creation, never an existing URI, remains the publication primitive.
     private String namingLocation;
     private Set<String> namingNames;
@@ -49,7 +50,7 @@ public final class LogbookPlugin extends Plugin {
     @Override public void load() { database = new LogbookDatabase(getContext()); archives = new ArchiveRegistry(getContext()); }
     @Override protected void handleOnDestroy() {
         networkQueue.close(); backupWriter.shutdown();
-        execute(() -> { try { if (textPdfJobs != null) textPdfJobs.close(); if (pdfSpool != null) pdfSpool.close(); } catch (Exception ignored) { } finally { if (archives != null) archives.close(); } });
+        execute(() -> { try { if (readLease != null) readLease.close(); if (textPdfJobs != null) textPdfJobs.close(); if (pdfSpool != null) pdfSpool.close(); } catch (Exception ignored) { } finally { if (archives != null) archives.close(); } });
         if (database != null) database.close();
     }
     private SharedPreferences prefs() { return getContext().getSharedPreferences("archive-location", 0); }
@@ -163,6 +164,13 @@ public final class LogbookPlugin extends Plugin {
     @PluginMethod public void getRecordContent(PluginCall call) {
         execute(() -> {
             try {
+                JSONObject view = selectedContent(call);
+                JSObject out = new JSObject(); out.put("json",view.getString("json")); out.put("revision",view.getLong("revision")); call.resolve(out);
+            } catch (Exception error) { call.reject("正文读取失败；原数据未改变。",error); }
+        });
+    }
+    /** The same exact-revision projection backs both reader responses and immutable export sources. */
+    private JSONObject selectedContent(PluginCall call) throws Exception {
                 // Small JS revisions arrive as Integer; PluginCall.getLong only accepts boxed Long.
                 Long expected = call.getData().has("expectedRevision") ? call.getData().getLong("expectedRevision") : null;
                 if (expected == null || database.revision() != expected) throw new IllegalStateException("数据已变化，请重新读取。");
@@ -173,8 +181,24 @@ public final class LogbookPlugin extends Plugin {
                 if (fields == null) throw new IllegalStateException("尚无已保存数据。");
                 JSONObject view = RecordOverlay.view(fields,selected);
                 if (database.revision() != expected) throw new IllegalStateException("数据已变化，请重新读取。");
-                JSObject out = new JSObject(); out.put("json",view.getString("json")); out.put("revision",expected); call.resolve(out);
-            } catch (Exception error) { call.reject("正文读取失败；原数据未改变。",error); }
+                view.put("revision",expected); return view;
+    }
+    /** No large JSON string crosses the UI bridge; only this app's own immutable cache URI is returned. */
+    @PluginMethod public void createExportSource(PluginCall call) {
+        execute(() -> {
+            try {
+                JSONObject view = selectedContent(call);
+                if (readLease == null) readLease = new ReadLease(new java.io.File(getContext().getCacheDir(), "export-read-sources"));
+                ReadLease.Value value = readLease.create(view.getString("json"),view.getLong("revision"));
+                JSObject result = new JSObject(); result.put("id",value.id); result.put("fileUri",Uri.fromFile(value.file).toString());
+                result.put("bytes",value.bytes); result.put("sha256",value.sha256); result.put("revision",value.revision); call.resolve(result);
+            } catch (Exception error) { call.reject("导出正文读取失败；原数据未改变：" + error.getMessage(),error); }
+        });
+    }
+    @PluginMethod public void releaseExportSource(PluginCall call) {
+        execute(() -> {
+            try { if (readLease != null) readLease.release(call.getString("id","")); call.resolve(); }
+            catch (Exception error) { call.reject(error.getMessage(),error); }
         });
     }
     /** Resume checks metadata/grants without transferring or validating all log bodies again. */
@@ -437,8 +461,11 @@ public final class LogbookPlugin extends Plugin {
             JSONArray all = archives.list(Boolean.TRUE.equals(call.getBoolean("all", false)), prefs().getString("created-documents", "[]"));
             JSONArray latest = new JSONArray();
             int limit = Boolean.TRUE.equals(call.getBoolean("all", false)) ? all.length() : 30;
+            boolean metadataOnly = Boolean.TRUE.equals(call.getBoolean("all", false)) && Boolean.TRUE.equals(call.getBoolean("metadataOnly", false));
             for (int i = all.length() - 1; i >= Math.max(0, all.length() - limit); i--) {
                 JSONObject item = all.getJSONObject(i);
+                // Complete backup preflight is metadata-only. Its reader must reject missing/changed files, never omit them.
+                if (metadataOnly) { latest.put(item); continue; }
                 try (Cursor row = getContext().getContentResolver().query(Uri.parse(item.getString("uri")), new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
                     if (row != null && row.moveToFirst()) latest.put(item);
                 } catch (Exception ignored) { }

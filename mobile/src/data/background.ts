@@ -4,6 +4,8 @@ import type { ImportPreview, MobileSnapshot } from './types'
 import type { NormalizedLog, ModuleRecord, SessionRecord, FilterPreset } from '../../../src/shared/types'
 import type { ExportFormat } from './export'
 import type { ExportJob } from './export-job'
+import { isExportSourceJob } from './export-source'
+import type { ExportSourceJob, ExportSource, ExportArchiveReference } from './export-source'
 import { combinedExportName } from '../../../src/shared/export-filenames'
 
 /** 任务成功/失败回调，按 number 序号配对，不存放文件权限。 */
@@ -42,17 +44,19 @@ export function parseSeaInBackground(text: string, sourceUrl?: string): Promise<
  * @param job - 不包含写入/确认操作的任务。
  * @returns 只读结果；工作线程失败拒绝，不降级为阻塞界面的计算。
  */
-async function runJob<T>(job: SnapshotJob | ExportJob): Promise<T> {
+async function runJob<T>(job: SnapshotJob | ExportJob | ExportSourceJob): Promise<T> {
   // Node-only storage tests reuse the same algorithm; browser/Android must use a real worker.
   if (typeof document === 'undefined') {
     return (
-      job.type === 'export'
-        ? await (await import('./export-job')).performExportJob(job)
-        : await performSnapshotJob(job)
+      isExportSourceJob(job)
+        ? await (await import('./export-source')).performExportSourceJob(job)
+        : job.type === 'export'
+          ? await (await import('./export-job')).performExportJob(job)
+          : await performSnapshotJob(job)
     ) as T
   }
   if (typeof Worker === 'undefined') throw new Error('此 WebView 不支持后台校验，未写入数据。')
-  const channel = job.type === 'export' ? 'export' : 'snapshot'
+  const channel = job.type === 'export' || isExportSourceJob(job) ? 'export' : 'snapshot'
   let target = channel === 'export' ? exportWorker : worker
   if (!target) {
     target = new Worker(channel === 'export' ? 'export-worker.js' : 'snapshot-worker.js')
@@ -136,6 +140,38 @@ export function backupInBackground(
   files?: Array<{ name: string; bytes: Uint8Array }>
 ): Promise<Uint8Array> {
   return runJob({ type: 'backup-export', snapshot, files })
+}
+
+/** @param source - 本地只读文件凭证。 @param ids - 必须完整读取的唯一目标。 @returns 后台校验及缓存完成确认，不将正文复制回界面。 */
+export function openExportSourceInBackground(source: ExportSource, ids: string[]): Promise<{ id: string }> {
+  return runJob({ type: 'export-source-open', source, ids })
+}
+
+/** @param id - 本次后台租约 ID。 @returns 释放工作线程正文引用后 resolve；原生私有文件由调用者另行释放。 */
+export function closeExportSourceInBackground(id: string): Promise<{ id: string }> {
+  return runJob({ type: 'export-source-close', id })
+}
+
+/** @param id - 已校验的完整正文租约。 @param name - 界面捕获的备份名。 @param files - 未提供为 JSON，否则逐份校验并打包附件。 @returns 完整备份文件；失败不发布、不遗漏附件。 */
+export function backupSourceInBackground(
+  id: string,
+  name: string,
+  files?: ExportArchiveReference[]
+): Promise<{ name: string; mime: string; bytes: Uint8Array }> {
+  return runJob({ type: 'export-source-backup', id, name, files })
+}
+
+/** @param job - 当前只读源中的模组/目标/顺序/过滤与格式。 @returns 完整文件字节；不让正文在 UI 和 Worker 之间反复复制。 */
+export async function exportSourceFileInBackground(
+  job: Omit<Extract<ExportSourceJob, { type: 'export-source-file' }>, 'type'> & { moduleName: string }
+): Promise<{ name: string; mime: string; bytes: Uint8Array }> {
+  const { moduleName, ...request } = job
+  const name = job.combined ? combinedExportName(moduleName, job.format) : undefined
+  const file = await runJob<{ name: string; mime: string; bytes: Uint8Array }>({
+    ...request,
+    type: 'export-source-file'
+  })
+  return name ? { ...file, name } : file
 }
 
 /**

@@ -1,0 +1,55 @@
+package coc.logbook;
+
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.security.*;
+import java.util.UUID;
+
+/** One immutable, bounded private read source. Never registers or modifies a shared archive. */
+final class ReadLease implements AutoCloseable {
+    static final class Value {
+        final String id, sha256;
+        final File file;
+        final long bytes, revision;
+        Value(String id, File file, long bytes, String sha256, long revision) {
+            this.id = id; this.file = file; this.bytes = bytes; this.sha256 = sha256; this.revision = revision;
+        }
+    }
+    private final File directory;
+    private Value active;
+    ReadLease(File directory) throws Exception {
+        this.directory = directory;
+        if (!directory.isDirectory() && !directory.mkdirs()) throw new IOException("无法创建只读正文目录。");
+        File[] stale = directory.listFiles((dir,name) -> name.matches("coc-read-[a-f0-9-]+\\.json"));
+        if (stale == null) throw new IOException("无法读取正文工作目录。");
+        for (File file : stale) delete(file);
+    }
+    Value create(String json, long revision) throws Exception {
+        if (active != null) throw new IllegalStateException("已有只读正文任务。");
+        String id = UUID.randomUUID().toString(); File file = new File(directory, "coc-read-" + id + ".json");
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            try (FileOutputStream output = new FileOutputStream(file);
+                 Writer writer = new OutputStreamWriter(new DigestOutputStream(output,digest), StandardCharsets.UTF_8)) {
+                // Small writes bound encoder memory; the existing snapshot ceiling remains unchanged.
+                for (int start = 0; start < json.length();) {
+                    int end = Math.min(json.length(), start + 32768);
+                    if (end < json.length() && Character.isHighSurrogate(json.charAt(end-1))) end--;
+                    writer.write(json,start,end-start); writer.flush();
+                    if (file.length() > PdfSpool.MAX_BYTES) throw new IOException("正文超过 64 MB，未创建导出文件。");
+                    start = end;
+                }
+            }
+            StringBuilder hash = new StringBuilder();
+            for (byte b : digest.digest()) hash.append(String.format("%02x",b&255));
+            active = new Value(id,file,file.length(),hash.toString(),revision); return active;
+        } catch (Exception error) { delete(file); throw error; }
+    }
+    void release(String id) throws Exception { if (active != null && active.id.equals(id)) close(); }
+    private static void delete(File file) throws IOException {
+        if (file.exists() && !file.delete()) throw new IOException("只读正文临时文件清理失败，请重开应用重试。");
+    }
+    @Override public void close() throws Exception {
+        if (active != null) { delete(active.file); active = null; }
+    }
+}

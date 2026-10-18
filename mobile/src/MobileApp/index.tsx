@@ -32,6 +32,8 @@ import { Capacitor } from '@capacitor/core'
 import { ExportDialog } from './components/ExportDialog'
 import { createExport } from '../data/export'
 import { generateNativePdf } from './native-pdf'
+import { openNativeExportSession } from './export-source'
+import type { NativeExportSession } from './export-source'
 import { saveGeneratedExport } from '../data/export-archive'
 import type { ExportFormat } from '../data/export'
 import { checkPdfCancellation } from '../data/pdf'
@@ -256,8 +258,17 @@ export function MobileApp({
     pdfController.current = controller
     setPdfCancelling(false)
     if (controller) setPdfProgress({ stage: 'layout', completed: 0, total: 0 })
+    let source: NativeExportSession | undefined
     try {
-      const loaded = await loadContent(exportRequest.ids)
+      // 详情页已经读过的一场直接复用；整批或尚未读取的正文留在后台，避免重复读一场反而变慢。
+      if (
+        Capacitor.isNativePlatform() &&
+        (exportRequest.ids.length > 1 || exportRequest.ids.some((id) => deferredRef.current.has(id)))
+      ) {
+        if (!native) throw new Error('本机数据尚未读取。')
+        source = await openNativeExportSession(port, exportRequest.ids, native.revision, controller?.signal)
+      }
+      const loaded = source ? snapshot : await loadContent(exportRequest.ids)
       const selected = loaded.records
         .filter((r) => exportRequest.ids.includes(r.id))
         .sort((a, b) => a.order - b.order)
@@ -271,7 +282,9 @@ export function MobileApp({
       let count = 0
       for (const [groupIndex, group] of groups.entries()) {
         checkPdfCancellation(controller?.signal)
-        const available = group.filter((r) => r.rawContent || r.manualContent !== undefined)
+        const available = group.filter(
+          (r) => r.rawContent || r.manualContent !== undefined || (source && deferredRef.current.has(r.id))
+        )
         failed.push(...group.filter((r) => !available.includes(r)).map((r) => r.name + '：没有正文'))
         if (!available.length) continue
         let staging: string | undefined
@@ -293,7 +306,16 @@ export function MobileApp({
                     (progress) => {
                       latest = { ...progress, fileIndex: groupIndex + 1, fileTotal: groups.length }
                       setPdfProgress(latest)
-                    }
+                    },
+                    source
+                      ? await source.file(
+                          module,
+                          available,
+                          exportRequest.filters,
+                          'txt',
+                          exportRequest.combined
+                        )
+                      : undefined
                   )
                 : await createExport(
                     module,
@@ -313,13 +335,15 @@ export function MobileApp({
                         }
                       : undefined
                   )
-              : await exportInBackground(
-                  module,
-                  available,
-                  exportRequest.filters,
-                  format,
-                  exportRequest.combined
-                )
+              : source
+                ? await source.file(module, available, exportRequest.filters, format, exportRequest.combined)
+                : await exportInBackground(
+                    module,
+                    available,
+                    exportRequest.filters,
+                    format,
+                    exportRequest.combined
+                  )
           checkPdfCancellation(controller?.signal)
           if (controller) setPdfProgress({ ...latest, stage: 'save' })
           const saved = staging
@@ -342,9 +366,13 @@ export function MobileApp({
       setExportRequest(undefined)
       setNotice('已取消 PDF 导出；当前文件未保存，已完成的文件保留。')
     } finally {
-      pdfController.current = undefined
-      setPdfProgress(undefined)
-      setPdfCancelling(false)
+      try {
+        if (source) await source.close()
+      } finally {
+        pdfController.current = undefined
+        setPdfProgress(undefined)
+        setPdfCancelling(false)
+      }
     }
   }
   async function exportTables(format: 'csv' | 'xlsx') {
@@ -699,37 +727,56 @@ export function MobileApp({
   }
   /** @returns 保存含已获取正文的安卓备份；不冒充已兼容旧电脑版的整库格式。 */
   async function exportBackup(includeArchives = false) {
-    const complete = await loadContent(snapshot.records.map((r) => r.id))
-    let files: Array<{ name: string; bytes: Uint8Array }> | undefined
+    let exported: SavedDocument[] | undefined
     if (includeArchives) {
-      const known = (await port.listDocuments({ all: true })).documents
-      const exported = known.filter(
+      const known = (await port.listDocuments({ all: true, metadataOnly: true })).documents
+      exported = known.filter(
         (file) =>
           file.purpose === 'export' ||
           file.purpose === 'import' ||
           (!file.purpose && !/^(before-|auto-backup-|coc-android-backup-)/.test(file.name))
       )
-      files = []
       let total = 0
       for (const file of exported) {
         total += file.bytes
         if (total > 128 * 1024 * 1024) throw new Error('归档附件超过 128 MB，无法打包。原文件保留。')
-        const content = await port.readDocument({ uri: file.uri })
-        files.push({ name: content.name, bytes: decodeBase64(content.base64) })
       }
+      if (exported.length > 1999) throw new Error('归档附件超过 1999 份，无法打包。原文件保留。')
     }
-    const bytes = await backupInBackground(complete, files)
-    const file = await saveGeneratedExport(
-      port,
-      {
-        name: 'coc-android-backup-' + Date.now() + (includeArchives ? '.zip' : '.json'),
-        mime: includeArchives ? 'application/zip' : 'application/json',
-        bytes
-      },
-      'backup'
-    )
-    setSavedDocument(file)
-    setNotice(`备份已保存并回读校验：${file.name}`)
+    const name = 'coc-android-backup-' + Date.now() + (includeArchives ? '.zip' : '.json')
+    let source: NativeExportSession | undefined
+    try {
+      let prepared: { name: string; mime: string; bytes: Uint8Array }
+      if (Capacitor.isNativePlatform() && snapshot.records.length) {
+        if (!native) throw new Error('本机数据尚未读取。')
+        source = await openNativeExportSession(
+          port,
+          snapshot.records.map((r) => r.id),
+          native.revision
+        )
+        prepared = await source.backup(name, exported)
+      } else {
+        const complete = await loadContent(snapshot.records.map((r) => r.id))
+        let files: Array<{ name: string; bytes: Uint8Array }> | undefined
+        if (exported) {
+          files = []
+          for (const file of exported) {
+            const content = await port.readDocument({ uri: file.uri })
+            files.push({ name: content.name, bytes: decodeBase64(content.base64) })
+          }
+        }
+        prepared = {
+          name,
+          mime: includeArchives ? 'application/zip' : 'application/json',
+          bytes: await backupInBackground(complete, files)
+        }
+      }
+      const file = await saveGeneratedExport(port, prepared, 'backup')
+      setSavedDocument(file)
+      setNotice(`备份已保存并回读校验：${file.name}`)
+    } finally {
+      await source?.close()
+    }
   }
   /** 设置可连续点选；等待中的更改合并，其他写操作仍由同一锁保护。 */
   async function persistSettings(changes: SettingsPatch) {
