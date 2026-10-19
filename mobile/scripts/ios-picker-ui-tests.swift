@@ -103,7 +103,7 @@ final class PickerUITests: XCTestCase {
         XCTAssertTrue(menu.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertGreaterThanOrEqual(menu.frame.minY, name.frame.maxY, app.debugDescription)
         XCTAssertFalse(app.keyboards.firstMatch.exists, app.debugDescription)
-        let autoBeta = web.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Public Beta")).firstMatch
+        let autoBeta = menu.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Public Beta")).firstMatch
         XCTAssertTrue(autoBeta.waitForExistence(timeout: 10), app.debugDescription)
         autoBeta.tap()
         name.tap()
@@ -112,7 +112,7 @@ final class PickerUITests: XCTestCase {
         XCTAssertTrue(nameInput.waitForExistence(timeout: 10), app.debugDescription)
         let autoValue = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Public Beta"), object: nameInput)
         XCTAssertEqual(XCTWaiter.wait(for: [autoValue], timeout: 10), .completed, app.debugDescription)
-        let beta = web.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Public Beta")).firstMatch
+        let beta = menu.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Public Beta")).firstMatch
         XCTAssertTrue(beta.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertGreaterThanOrEqual(beta.frame.minY, app.frame.minY + 40)
         XCTAssertLessThanOrEqual(beta.frame.maxY, app.keyboards.firstMatch.frame.minY)
@@ -125,7 +125,7 @@ final class PickerUITests: XCTestCase {
         let betaValue = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Public Beta"), object: nameInput)
         XCTAssertEqual(XCTWaiter.wait(for: [betaValue], timeout: 10), .completed, app.debugDescription)
         nameInput.tap()
-        let alpha = web.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Public Alpha")).firstMatch
+        let alpha = menu.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Public Alpha")).firstMatch
         XCTAssertTrue(alpha.waitForExistence(timeout: 10), app.debugDescription)
         alpha.tap()
         let alphaValue = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Public Alpha"), object: nameInput)
