@@ -10,6 +10,7 @@ export const TABLE_TEMPLATE_HEADERS = [
   '跑团状态',
   '场次名',
   '海豹链接',
+  '手动保存内容',
   'KP1',
   'PC1',
   'PL1',
@@ -28,6 +29,8 @@ export interface TableImportRow {
   moduleName: string
   sessionName: string
   link: string
+  /** 手动保存的完整正文；旧表格没有此列时不覆盖已有正文。 */
+  manualContent?: string
   kps: string[]
   pairs: ParticipantPair[]
   /** 表格里填写的跑团状态；留空或无法识别时为 undefined */
@@ -70,6 +73,10 @@ interface SheetColumnMap {
   module: number
   session: number
   link: number
+  /** 完整正文首列的零基索引。 */
+  manualContent?: number
+  /** 超长XLSX正文的续段编号到列索引。 */
+  contentContinuations: Map<number, number>
   status?: number
   playStatus?: number
   playDate?: number
@@ -94,6 +101,7 @@ function mapColumns(header: RawCell[]): SheetColumnMap {
     module: -1,
     session: -1,
     link: -1,
+    contentContinuations: new Map(),
     kpColumns: new Map(),
     pcColumns: new Map(),
     plColumns: new Map()
@@ -104,6 +112,7 @@ function mapColumns(header: RawCell[]): SheetColumnMap {
     if (map.module < 0 && matchAlias(label, moduleAliases)) map.module = index
     else if (map.session < 0 && matchAlias(label, sessionAliases)) map.session = index
     else if (map.link < 0 && matchAlias(label, linkAliases)) map.link = index
+    else if (label === '手动保存内容') map.manualContent = index
     // “跑团状态”必须排在“状态”前面判断，否则会被链接状态那一支先吃掉
     else if (map.playStatus === undefined && matchAlias(label, playStatusAliases)) map.playStatus = index
     else if (map.status === undefined && matchAlias(label, statusAliases)) map.status = index
@@ -111,6 +120,8 @@ function mapColumns(header: RawCell[]): SheetColumnMap {
     else if (map.fetchedAt === undefined && matchAlias(label, fetchedAtAliases)) map.fetchedAt = index
     else if (map.legacyParticipants === undefined && matchAlias(label, legacyParticipantAliases))
       map.legacyParticipants = index
+    const continuation = label.match(/^手动保存内容（续(\d+)）$/)
+    if (continuation) map.contentContinuations.set(Number(continuation[1]), index)
     const kp = label.match(/^KP\s*(\d+)$/i)
     if (kp) map.kpColumns.set(Number(kp[1]), index)
     const pc = label.match(/^PC\s*(\d+)$/i)
@@ -140,7 +151,10 @@ function participantsFromRow(values: RawCell[], columnMap: SheetColumnMap): Impo
     .filter((pair) => pair.pc || pair.pl)
   let result: ImportedParticipants = { kps, pairs: orderedPairs }
   if (columnMap.legacyParticipants !== undefined) {
-    result = mergeImportedParticipants(result, parseImportedParticipants(text(values[columnMap.legacyParticipants])))
+    result = mergeImportedParticipants(
+      result,
+      parseImportedParticipants(text(values[columnMap.legacyParticipants]))
+    )
   }
   return {
     kps: uniq(result.kps),
@@ -175,11 +189,20 @@ export function parseImportSheet(sheetName: string, rows: RawCell[][]): TableImp
         : undefined
     const playDate = columnMap.playDate !== undefined ? text(values[columnMap.playDate]) : ''
     const fetchedAt = columnMap.fetchedAt !== undefined ? text(values[columnMap.fetchedAt]) : ''
+    const manualContent =
+      columnMap.manualContent !== undefined
+        ? String(values[columnMap.manualContent] ?? '') +
+          [...columnMap.contentContinuations]
+            .sort(([a], [b]) => a - b)
+            .map(([, column]) => String(values[column] ?? ''))
+            .join('')
+        : ''
     result.push({
       sheet: sheetName,
       moduleName,
       sessionName,
       link,
+      ...(manualContent.trim() ? { manualContent } : {}),
       kps: participants.kps,
       pairs: participants.pairs,
       ...(playStatus ? { playStatus } : {}),
@@ -203,7 +226,7 @@ export function parseImportWorkbook(workbook: XLSX.WorkBook): TableImportRow[] {
 export function validateTableImportRow(row: TableImportRow): string | undefined {
   if (!row.moduleName) return '缺少模组名称'
   if (!row.sessionName) return '缺少场次名'
-  if (!/^https?:\/\//i.test(row.link)) return '缺少完整海豹链接'
+  if (!row.manualContent?.trim() && !/^https?:\/\//i.test(row.link)) return '缺少完整海豹链接'
   return undefined
 }
 
@@ -224,9 +247,7 @@ export function parseImportedParticipants(value: string): ImportedParticipants {
       pairs.push({ pc: '', pl: pl[1].trim() })
       continue
     }
-    const pair = segment.match(
-      /^(?:PC\s*[:：]?\s*)?(.+?)\s*[/／|｜]\s*(?:PL\s*[:：]?\s*)?(.+)$/i
-    )
+    const pair = segment.match(/^(?:PC\s*[:：]?\s*)?(.+?)\s*[/／|｜]\s*(?:PL\s*[:：]?\s*)?(.+)$/i)
     if (pair?.[1] && pair?.[2]) {
       pairs.push({ pc: pair[1].trim(), pl: pair[2].trim() })
       continue
@@ -260,21 +281,52 @@ const templateNotes = [
   '2. KP 填在 KP1 列；人员更多时按 KP2、PC4/PL4 的规律自行加列。',
   '3. 跑团状态可填：未开始、进行中、已完成（留空按“未开始”处理）。同一个模组的多行填一次即可。',
   '4. 链接状态、跑团日期、最近抓取时间由软件导出时自动记录，空白模板无需填写。',
-  '5. 导入时链接状态一律重置为“待检测”，需要重新检测才能抓取正文。',
+  '5. 在线链接状态一律重置为“待检测”；手动场次可不填链接，在“手动保存内容”列填写正文，导入后无需检测。',
   '6. 跑团状态只对本次新建的模组生效，不会改动软件里已有的模组。',
   '7. 每个模组可使用一个独立工作表，工作表名称建议与模组名一致。',
   '8. 导入前请删除示例行。'
 ]
 
 export function buildTableImportTemplateCsv(): string {
-  const example = ['暗影循迹', '进行中', '第一场', 'https://log.weizaima.com/?key=...', '阿默', '艾伦', '李四', '夏恩', '王五', '', '']
-  const lines = [TABLE_TEMPLATE_HEADERS.join(','), example.join(','), '', ...templateNotes.map((line) => `# ${line}`)]
+  const example = [
+    '暗影循迹',
+    '进行中',
+    '第一场',
+    'https://log.weizaima.com/?key=...',
+    '',
+    '阿默',
+    '艾伦',
+    '李四',
+    '夏恩',
+    '王五',
+    '',
+    ''
+  ]
+  const lines = [
+    TABLE_TEMPLATE_HEADERS.join(','),
+    example.join(','),
+    '',
+    ...templateNotes.map((line) => `# ${line}`)
+  ]
   return '\uFEFF' + lines.join('\r\n') + '\r\n'
 }
 
 export function buildTableImportTemplateXlsx(): Uint8Array {
   const workbook = XLSX.utils.book_new()
-  const example = ['暗影循迹', '进行中', '第一场', 'https://log.weizaima.com/?key=...', '阿默', '艾伦', '李四', '夏恩', '王五', '', '']
+  const example = [
+    '暗影循迹',
+    '进行中',
+    '第一场',
+    'https://log.weizaima.com/?key=...',
+    '',
+    '阿默',
+    '艾伦',
+    '李四',
+    '夏恩',
+    '王五',
+    '',
+    ''
+  ]
   const aoa: RawCell[][] = [
     [...TABLE_TEMPLATE_HEADERS],
     example,

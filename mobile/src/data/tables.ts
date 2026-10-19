@@ -9,6 +9,8 @@ export interface TablePreview {
   next: MobileSnapshot
   names: string[]
   warnings: string[]
+  /** 预览中将覆盖更新的唯一同名手动场次数；确认前不写入。 */
+  updated: number
 }
 export async function importTable(
   current: MobileSnapshot,
@@ -18,6 +20,7 @@ export async function importTable(
 ): Promise<TablePreview> {
   const workbook = readWorkbookGrid(bytes, name)
   const next: MobileSnapshot = JSON.parse(JSON.stringify(current))
+  let updated = 0
   const names: string[] = []
   const warnings: string[] = workbook.sheets.flatMap((s) => (s.skippedReason ? [s.skippedReason] : []))
   if (kind === 'characters') {
@@ -59,6 +62,29 @@ export async function importTable(
         }
         next.modules.push(module)
       } else Object.assign(module, mergeImportedParticipants(module, { kps: row.kps, pairs: row.pairs }))
+      const manual = Boolean(row.manualContent?.trim())
+      const candidates = manual
+        ? next.records.filter(
+            (r) =>
+              r.moduleId === module!.id &&
+              r.sourceType === 'manual' &&
+              r.name === row.sessionName &&
+              (!row.link || r.link === row.link)
+          )
+        : []
+      if (candidates.length === 1) {
+        const existing = candidates[0]!
+        updated++
+        existing.manualContent = row.manualContent
+        existing.updatedAt = date
+        if (row.playDate) {
+          existing.playDate = row.playDate
+          existing.dateSource = 'manual'
+        }
+        names.push(module.name + ' / ' + existing.name)
+        warnings.push(existing.name + '：将更新已有同名手动场次正文，确认后生效。')
+        continue
+      }
       if (row.link && next.records.some((r) => r.moduleId === module!.id && r.link === row.link)) {
         warnings.push(row.sessionName + '：来源已存在，已跳过。')
         continue
@@ -70,11 +96,11 @@ export async function importTable(
         name: row.sessionName || '第' + (count + 1) + '场',
         sequenceNo: count + 1,
         link: row.link || undefined,
-        sourceType: row.link ? ('online' as const) : ('manual' as const),
-        status: row.link ? ('pending' as const) : ('manual' as const),
+        sourceType: row.link && !manual ? ('online' as const) : ('manual' as const),
+        status: row.link && !manual ? ('pending' as const) : ('manual' as const),
         dateSource: row.playDate ? ('manual' as const) : ('none' as const),
         playDate: row.playDate || undefined,
-        manualContent: row.link ? undefined : '',
+        manualContent: manual ? row.manualContent : row.link ? undefined : '',
         order: count,
         createdAt: date,
         updatedAt: date
@@ -88,6 +114,7 @@ export async function importTable(
   return {
     next: (await previewBackup(new TextEncoder().encode(JSON.stringify(next)))).snapshot,
     names,
+    updated,
     warnings
   }
 }

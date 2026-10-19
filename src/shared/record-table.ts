@@ -35,7 +35,18 @@ function uniqueSheetName(value: string, used: Set<string>): string {
   return result
 }
 
-function rowsForModule(module: ModuleRecord, records: SessionRecord[]): Array<Record<string, string>> {
+/**
+ * 生成模组的表格行，手动正文位于参与者列之前。
+ * @param module 模组及其参与者。
+ * @param records 已筛选的场次。
+ * @param splitLongContent XLSX启用单格长度分块；CSV保留单列全文。
+ * @returns 不修改原场次的导出行。
+ */
+function rowsForModule(
+  module: ModuleRecord,
+  records: SessionRecord[],
+  splitLongContent = false
+): Array<Record<string, string>> {
   return records.map((record) => {
     const row: Record<string, string> = {
       模组名: module.name,
@@ -45,7 +56,8 @@ function rowsForModule(module: ModuleRecord, records: SessionRecord[]): Array<Re
       // 0.6.3 起改叫“链接状态”，避免和“跑团状态”混淆；导入时两个名字都认
       链接状态: record.status,
       跑团日期: record.playDate ?? '',
-      最近抓取时间: record.fetchedAt ?? ''
+      最近抓取时间: record.fetchedAt ?? '',
+      手动保存内容: record.manualContent ?? ''
     }
     module.kps.forEach((kp, index) => {
       row[`KP${index + 1}`] = kp
@@ -54,6 +66,18 @@ function rowsForModule(module: ModuleRecord, records: SessionRecord[]): Array<Re
       row[`PC${index + 1}`] = pair.pc
       row[`PL${index + 1}`] = pair.pl
     })
+    // Excel 每格最多32767个UTF-16字符；续列放在参与者之后，回导按序合并，避免截断正文。
+    if (splitLongContent && row['手动保存内容']!.length > 32767) {
+      let remaining = row['手动保存内容']!
+      let index = 0
+      while (remaining.length) {
+        let end = Math.min(32767, remaining.length)
+        if (end < remaining.length && /[\uD800-\uDBFF]/.test(remaining[end - 1]!)) end--
+        row[index === 0 ? '手动保存内容' : `手动保存内容（续${index}）`] = remaining.slice(0, end)
+        remaining = remaining.slice(end)
+        index++
+      }
+    }
     return row
   })
 }
@@ -85,7 +109,7 @@ export function exportRecordTables(
     )
     XLSX.utils.book_append_sheet(
       workbook,
-      XLSX.utils.json_to_sheet(rowsForModule(module, records)),
+      XLSX.utils.json_to_sheet(rowsForModule(module, records, true)),
       uniqueSheetName(module.name, used)
     )
   }

@@ -28,6 +28,8 @@ export function DataSettings(props: {
   onAutoBackup(): void
   lastAutoBackupAt?: number
   onClear(): void
+  /** 保存含手动正文列的空白模板。 */
+  onTemplate(format: 'csv' | 'xlsx'): void
   onTableExport(format: 'csv' | 'xlsx'): void
   onTableImport(): void
   documents: SavedDocument[]
@@ -219,6 +221,18 @@ export function DataSettings(props: {
       </section>
 
       <section className="panel settings-panel">
+        <h2>空白场次模板</h2>
+        <div className="edit-actions">
+          <button disabled={props.busy} onClick={() => props.onTemplate('csv')}>
+            保存空白模板 CSV
+          </button>
+          <button disabled={props.busy} onClick={() => props.onTemplate('xlsx')}>
+            保存空白模板 Excel
+          </button>
+        </div>
+        <p className="muted">KP 左侧的“手动保存内容”可填写正文；手动场次无需链接。</p>
+      </section>
+      <section className="panel settings-panel">
         <h2>归档文件</h2>
         <button disabled={props.busy} onClick={props.onListDocuments}>
           刷新归档文件
@@ -248,7 +262,7 @@ export function DataSettings(props: {
         </button>
       </section>
       <footer className="settings-version" role="region" aria-label="版本说明">
-        <p>COC 跑团记录簿 · 1.0.5</p>
+        <p>COC 跑团记录簿 · 1.0.6</p>
         <p>数据仅本机保存、无账户</p>
         <p>仅海豹链接相关联网</p>
         <p>应用制作：亦如长风万里沙</p>

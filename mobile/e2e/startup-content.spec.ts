@@ -71,17 +71,23 @@ async function seed(page: Page, sample = searchSample()) {
   return sample
 }
 
-test('导出记录 CSV/XLSX 只读取元数据，不为表格加载正文', async ({ page }) => {
-  await seed(page)
+test('记录表格冷启动只加载手动正文，失败不发布、重试完整保留', async ({ page }) => {
+  const sample = await seed(page)
+  const manualIds = sample.records
+    .filter((record) => record.sourceType === 'manual')
+    .map((record) => record.id)
   await page.getByRole('button', { name: '数据与设置', exact: true }).click()
+  await page.evaluate(() => {
+    ;(window as unknown as { __startupProbe: Probe }).__startupProbe.fail = 'error'
+  })
+  await page.getByRole('button', { name: '导出记录 CSV', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('公开正文读取失败')
+  expect((await probe(page)).requests).toEqual([manualIds])
   for (const format of ['CSV', 'Excel']) {
-    await page.evaluate(() => {
-      ;(window as unknown as { __startupProbe: Probe }).__startupProbe.fail = 'error'
-    })
     await page.getByRole('button', { name: `导出记录 ${format}`, exact: true }).click()
     await expect(page.getByRole('status')).toContainText('记录表格已保存并回读校验')
-    expect((await probe(page)).requests).toEqual([])
   }
+  expect((await probe(page)).requests).toEqual([manualIds, manualIds])
 })
 
 test('75 场重开不读取正文，设置及角色编辑可用，阅读只取所选一场并复用', async ({ page }, info) => {
