@@ -1,0 +1,29 @@
+{
+  "file": "coc-logbook-1.0.4-38-ios-arm64-unsigned.ipa",
+  "bytes": 25469568,
+  "sha256": "b112b69323b401c92844e07ade19d234a14d4676672c5b2df61d5d94f74ae54b",
+  "version": "1.0.4",
+  "build": 38,
+  "source": "8be46b7667e3fae0045ac731e04af7d8075aa82e",
+  "zipCRC": true,
+  "webAssetsMatch": true,
+  "independentBuild": "isolated tracked source, root configuration and mobile lockfile, no desktop node_modules",
+  "originalFonts": 8,
+  "architecture": "arm64",
+  "platform": "iOS device",
+  "sdk": "iphoneos27.0",
+  "unsigned": true,
+  "cloudRun": 39245631916,
+  "nativeUITests": {
+    "passed": 4,
+    "failed": 0
+  },
+  "browserTests": 102,
+  "deviceValidation": "pending",
+  "enterpriseExternalFolder": "not confirmed on physical device; simulator success is not device validation",
+  "cloudNativeCoreChecks": 38,
+  "coldStarts": 3,
+  "coldStartsPassed": true,
+  "screenshotPassed": true,
+  "noPrivateOrDebugFiles": true
+}
