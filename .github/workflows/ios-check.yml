@@ -54,6 +54,7 @@ jobs:
           path: |
             mobile/ios/build/picker-ui.log
             mobile/ios/build/picker-ui.xcresult
+            mobile/ios/build/picker-attachments
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: always()

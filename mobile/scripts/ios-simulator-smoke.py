@@ -85,7 +85,15 @@ def main():
         help_result = subprocess.run(['xcodebuild', '-help'], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30, check=False)
         diagnostic_args = ['-collect-test-diagnostics', 'never'] if '-collect-test-diagnostics' in help_result.stdout else []
         with (OUTPUT / 'picker-ui.log').open('w') as log:
-            command('xcodebuild', '-project', 'ios/App/App.xcodeproj', '-scheme', 'PickerUITests', '-configuration', 'Debug', '-destination', 'platform=iOS Simulator,id=' + udid, '-derivedDataPath', 'ios/build/simulator', '-resultBundlePath', 'ios/build/picker-ui.xcresult', 'test', *diagnostic_args, 'CODE_SIGN_IDENTITY=-', 'CODE_SIGNING_ALLOWED=YES', timeout=900, log=log)
+            try:
+                command('xcodebuild', '-project', 'ios/App/App.xcodeproj', '-scheme', 'PickerUITests', '-configuration', 'Debug', '-destination', 'platform=iOS Simulator,id=' + udid, '-derivedDataPath', 'ios/build/simulator', '-resultBundlePath', 'ios/build/picker-ui.xcresult', 'test', *diagnostic_args, 'CODE_SIGN_IDENTITY=-', 'CODE_SIGNING_ALLOWED=YES', timeout=900, log=log)
+            finally:
+                # Export public simulator screenshots for inspection on Windows;
+                # an export error must not replace the original test result.
+                try:
+                    command('xcrun', 'xcresulttool', 'export', 'attachments', '--path', 'ios/build/picker-ui.xcresult', '--output-path', 'ios/build/picker-attachments', timeout=60)
+                except Exception as error:
+                    print('Public UI attachment export failed: ' + str(error), flush=True)
         if capture_errors:
             raise RuntimeError('Required screenshot capture failed after startup/UI checks: ' + '; '.join(capture_errors))
     except Exception as error:

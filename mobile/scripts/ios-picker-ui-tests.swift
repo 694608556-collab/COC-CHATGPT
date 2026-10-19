@@ -20,24 +20,33 @@ final class PickerUITests: XCTestCase {
     // Files retains offscreen browsing pages in its accessibility tree. An
     // existing firstMatch can belong to an earlier page and cannot be tapped.
     private func visiblePickerItem(_ query: XCUIElementQuery) -> XCUIElement? {
-        query.allElementsBoundByIndex.first { $0.exists && $0.isHittable }
+        query.allElementsBoundByAccessibilityElement.first { $0.isHittable }
+    }
+
+    // Do not evaluate remote File Provider queries inside an XCTest waiter:
+    // its timeout can interrupt a snapshot while the provider is changing pages.
+    private func waitForPickerCondition(in app: XCUIApplication, timeout: TimeInterval, _ condition: () -> Bool) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        XCTFail(app.debugDescription)
     }
 
     private func waitForPickerItem(_ query: XCUIElementQuery, in app: XCUIApplication, timeout: TimeInterval = 15) throws -> XCUIElement {
-        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+        waitForPickerCondition(in: app, timeout: timeout) {
             self.visiblePickerItem(query) != nil
-        }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: timeout), .completed, app.debugDescription)
+        }
         return try XCTUnwrap(visiblePickerItem(query), app.debugDescription)
     }
 
     private func enterPublicPickerFolder(_ app: XCUIApplication) throws {
         let folder = app.cells.matching(identifier: "COC-Picker-Public-Test, Folder")
         let container = app.cells.matching(identifier: "COC 跑团记录簿, Container")
-        let locationReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+        waitForPickerCondition(in: app, timeout: 20) {
             self.visiblePickerItem(folder) != nil || self.visiblePickerItem(container) != nil
-        }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [locationReady], timeout: 20), .completed, app.debugDescription)
+        }
         if visiblePickerItem(folder) == nil {
             try waitForPickerItem(container, in: app).tap()
         }
@@ -52,10 +61,10 @@ final class PickerUITests: XCTestCase {
         let file = app.cells.matching(NSPredicate(format: "label BEGINSWITH %@", "public-coc7"))
         let folder = app.cells.matching(identifier: "COC-Picker-Public-Test, Folder")
         let container = app.cells.matching(identifier: "COC 跑团记录簿, Container")
-        let locationReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+        XCTAssertTrue(app.navigationBars["FullDocumentManagerViewControllerNavigationBar"].firstMatch.waitForExistence(timeout: 20), app.debugDescription)
+        waitForPickerCondition(in: app, timeout: 20) {
             self.visiblePickerItem(file) != nil || self.visiblePickerItem(folder) != nil || self.visiblePickerItem(container) != nil
-        }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [locationReady], timeout: 20), .completed, app.debugDescription)
+        }
         if visiblePickerItem(file) == nil {
             try enterPublicPickerFolder(app)
         }
