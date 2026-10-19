@@ -195,3 +195,46 @@ test('公开姓名候选触摸失焦不卸载，视口平移不反向滚动，�
   await page.getByLabel('职业', { exact: true }).click()
   await expect(menu).toHaveCount(0)
 })
+
+test('真实浏览器触摸：姓名列表原生滑动后可点选且键盘焦点不丢失', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 393, height: 852 }, hasTouch: true })
+  const page = await context.newPage()
+  try {
+    const sample = await ready(page)
+    await page.getByRole('button', { name: '角色卡', exact: true }).click()
+    await page.getByRole('button', { name: '新建七版角色' }).click()
+    await page.getByRole('checkbox', { name: sample.modules[0]!.name, exact: true }).check()
+    const input = page.getByLabel('姓名', { exact: true })
+    await input.tap()
+    const menu = page.getByRole('listbox', { name: '模组PC姓名候选', exact: true })
+    const box = (await menu.boundingBox())!
+    const client = await context.newCDPSession(page)
+    const x = box.x + box.width / 2,
+      y = box.y + box.height - 20
+    await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+    for (let i = 1; i <= 8; i++) {
+      await client.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x, y: y - i * 18 }]
+      })
+      await page.waitForTimeout(20)
+    }
+    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await expect.poll(() => menu.evaluate((node) => node.scrollTop)).toBeGreaterThan(30)
+    await expect(input).toHaveValue('')
+    await expect(input).toBeFocused()
+    const name = await menu.getByRole('option').evaluateAll((nodes) => {
+      const menu = nodes[0]!.parentElement!.getBoundingClientRect()
+      return nodes.find((node) => {
+        const r = node.getBoundingClientRect()
+        return r.top >= menu.top && r.bottom <= menu.bottom
+      })!.textContent!
+    })
+    await menu.getByRole('option', { name, exact: true }).tap()
+    await expect(input).toHaveValue(name)
+    await expect(input).toBeFocused()
+    await expect(menu).toHaveCount(0)
+  } finally {
+    await context.close()
+  }
+})

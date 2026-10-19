@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   mobile:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     defaults:
       run:
@@ -33,11 +33,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-          log-accepted-android-sdk-licenses: false
-      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      # GitHub's Ubuntu image already contains SDK 36 and build-tools 36.0.0.
+      # Avoid a second SDK/bootstrap/license network pass before compilation.
+      - name: Use preinstalled Android SDK
+        run: |
+          test -f "$ANDROID_HOME/platforms/android-36/android.jar"
+          test -x "$ANDROID_HOME/build-tools/36.0.0/zipalign"
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck && pnpm test && pnpm build
       - run: pnpm exec cap sync android
