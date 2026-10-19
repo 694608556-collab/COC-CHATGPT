@@ -11,6 +11,22 @@ export function visibleViewport() {
   }
 }
 
+/** Convert layout bounds to the same measured rectangle space as the anchor.
+ * WKWebView may already pan getBoundingClientRect with the keyboard; CSS fixed
+ * positioning still consumes layout coordinates, so keep visibleViewport raw.
+ */
+export function viewportRect(
+  view = visibleViewport(),
+  origin: { top: number; left: number } = document.body.getBoundingClientRect()
+) {
+  return {
+    ...view,
+    top: view.top + scrollY + origin.top,
+    left: view.left + scrollX + origin.left,
+    safeTop: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-safe-top')) || 0
+  }
+}
+
 export function useVisibleViewport() {
   const [bounds, setBounds] = useState(visibleViewport)
   useEffect(() => {
