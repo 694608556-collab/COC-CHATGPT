@@ -28,11 +28,29 @@
     "systemUI": "not run"
   },
   "cloudRerun": {
+    "passed": false,
+    "status": "completed",
+    "conclusion": "failure",
     "run": 39233439812,
     "attempt": 2,
-    "description": "iOS运行39233439812首次尝试：38项原生核心、设备Release和首启通过，第二次冷启动page-readiness超过60秒失败，第三次/截屏/4项系统UI未执行；同一源码第2次尝试的job118001155745仍在模拟器步骤运行中，尚无最终结果。接续时先检查该运行最新结果和公开日志/产物，保留首次失败记录，不将部分通过写为整轮通过；若失败，依据具体公开证据排查，不放宽断言掩盖失败。",
-    "status": "in_progress",
     "job": 118001155745,
-    "passed": false
+    "coldStartsPassed": 3,
+    "screenshotPassed": true,
+    "nativeCoreChecksPassed": 38,
+    "systemUI": {
+      "passed": 2,
+      "failed": 2,
+      "failures": [
+        {
+          "test": "testCoc7ImportPickerCancelSaveAndRestart",
+          "line": 29
+        },
+        {
+          "test": "testFolderOpenReturnsAndSurvivesRestart",
+          "line": 86
+        }
+      ]
+    },
+    "description": "交接前最新结果：iOS Actions运行39233439812第2次尝试（job118001155745）已结束并失败；38项原生核心、设备Release、iPhone14 Pro/iOS27.0三次冷启动与截屏通过。4项系统UI中2通过（本机归档重启、真实键盘姓名候选），2失败：七版导入测试在ios-picker-ui-tests.swift:29未找到public-coc7文件；系统目录测试在:86失败。需先读取公开picker-ui.log/xcresult核对实际页面与选择器，根因尚未确认，不将其直接归为产品或测试错误，不放宽断言掩盖失败。公开诊断artifact12179572148、系统UI证据12179297328、启动证据12179512121；不重新上传私人日志。"
   }
 }
