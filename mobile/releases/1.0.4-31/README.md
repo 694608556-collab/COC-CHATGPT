@@ -1,3 +1,5 @@
+本包保留作历史；最新姓名下方候选修正见 [Android32](../1.0.4-32/README.md)。
+
 # Android 1.0.4 / 31
 
 [下载 APK](coc-logbook-1.0.4-31.apk)，32,121,164 字节；SHA-256 `a47d4edd87776b83cc92b88016a49076d54b155a2bcb0aea3a91a4cf5bebbfff`。
