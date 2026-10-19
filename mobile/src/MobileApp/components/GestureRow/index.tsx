@@ -14,6 +14,8 @@ interface GestureRowProps {
   disabled?: boolean
   /** 是否为已选场次，类型为 boolean | undefined；整行含手柄和复选框显示选择底色。 */
   selected?: boolean
+  /** 只读定位高亮，类型为 boolean | undefined；仅改变整行细边框，不改变多选状态。 */
+  highlighted?: boolean
   /** 请求确认删除，不直接删除；类型为无参数回调。 */
   onDelete(): void
   /** 长按松开的只读选择回调，可不提供。 */
@@ -390,6 +392,7 @@ export function GestureRow(props: GestureRowProps) {
         visualMode +
         (reveal ? ' revealed' : '') +
         (props.selected ? ' selected' : '') +
+        (props.highlighted ? ' reading-return' : '') +
         (testing?.source?.id === props.id ? ' held' : '')
       }
       data-drag-id={props.id}

@@ -1568,10 +1568,15 @@ input[type='checkbox']:checked::after {
 .session-row.selected .record-card {
   background: var(--soft);
 }
-.session-row .record-card.reading-return {
-  background: var(--soft);
+.gesture-row.reading-return > .gesture-content {
   border-color: var(--accent);
-  box-shadow: inset 3px 0 var(--accent);
+}
+.editor input[aria-invalid='true'] {
+  border-color: #c43c47;
+}
+.import-field-error {
+  color: #c43c47;
+  font-size: 12px;
 }
 .record-status {
   display: flex !important;

@@ -4,6 +4,24 @@ import { previewCoc7Import } from './coc7-import'
 import { skillFinal } from '../../../src/shared/coc-rules'
 
 describe('七版人物卡专用只读导入', () => {
+  it('缺少HP、无效属性或公式未缓存时仍预览，其余字段保留并明确标记待补填项', () => {
+    const book = publicCoc7Workbook(),
+      sheet = book.Sheets['人物卡']!
+    delete sheet.E10
+    sheet.U3 = { t: 'n', f: '1+2' }
+    sheet.W10 = { t: 's', v: '未填写' }
+    const result = previewCoc7Import(publicCoc7Bytes(book), 'public.xlsx')
+    expect(result.character.basic.name).toBe('公开七版调查员')
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: '当前 HP', address: 'E10', label: '当前生命值 HP' }),
+        expect.objectContaining({ key: 'STR', address: 'U3', label: '力量 STR' }),
+        expect.objectContaining({ key: '当前 MP', address: 'W10', label: '当前魔法值 MP' })
+      ])
+    )
+    expect(result.character.derived.sanCurrent).toBe(49)
+    expect(result.character.items).toHaveLength(4)
+  })
   it('读取指定人物卡，保留15边界/两栏最终值/完整背景经历和红框内末行物品', () => {
     const result = previewCoc7Import(publicCoc7Bytes(), 'public.xlsx')
     const c = result.character
@@ -65,17 +83,21 @@ describe('七版人物卡专用只读导入', () => {
     const c = previewCoc7Import(publicCoc7Bytes(book), 'public.xlsx').character
     expect(c.story).toBe('公开首行\n公开次行\n公开末行')
   })
-  it('没有目标表、布局错误、错误扩展名及未缓存/错误数值及忽略点数分项明确失败，不猜填', () => {
+  it('错误文件和布局明确失败，未缓存或错误数值改为待补填，不读取点数分项', () => {
     expect(() => previewCoc7Import(publicCoc7Bytes(), 'public.csv')).toThrow('XLSX')
     const book = publicCoc7Workbook(),
       sheet = book.Sheets['人物卡']!
     sheet.U3 = { t: 'n', f: '1+2' }
-    expect(() => previewCoc7Import(publicCoc7Bytes(book), 'public.xlsx')).toThrow('U3')
+    expect(previewCoc7Import(publicCoc7Bytes(book), 'public.xlsx').issues).toEqual(
+      expect.arrayContaining([expect.objectContaining({ address: 'U3' })])
+    )
     sheet.U3 = { t: 'n', v: 60 }
     sheet.R17 = { t: 'n', v: 16 }
     expect(skillFinal(previewCoc7Import(publicCoc7Bytes(book), 'public.xlsx').character.skills[0]!)).toBe(16)
     sheet.R17 = { t: 'e', v: 7 }
-    expect(() => previewCoc7Import(publicCoc7Bytes(book), 'public.xlsx')).toThrow('表格错误')
+    expect(previewCoc7Import(publicCoc7Bytes(book), 'public.xlsx').issues).toEqual(
+      expect.arrayContaining([expect.objectContaining({ address: 'R17' })])
+    )
     sheet.B3 = { t: 's', v: '布局改变' }
     expect(() => previewCoc7Import(publicCoc7Bytes(book), 'public.xlsx')).toThrow('布局')
     delete book.Sheets['人物卡']

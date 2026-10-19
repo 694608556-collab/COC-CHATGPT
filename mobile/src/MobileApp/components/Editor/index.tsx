@@ -41,6 +41,13 @@ export function Editor(props: {
   })
   const [draft, setDraft] = useState<Edit>(original)
   const [error, setError] = useState('')
+  const [importIssues, setImportIssues] = useState(props.importSummary?.issues ?? [])
+  const [importReminder, setImportReminder] = useState(0)
+  /** @param key - 稳定的导入字段键。 @param value - 用户输入，0也视为有效。 @param numeric - 是否要求有限数字。 @returns 无返回值；有效填写后解除标红，不改其他问题字段。 */
+  function resolveImportIssue(key: string, value: string, numeric = false) {
+    if (value.trim() && (!numeric || Number.isFinite(Number(value))))
+      setImportIssues((current) => current.filter((issue) => issue.key !== key))
+  }
   const [nameSuggestionRequest, setNameSuggestionRequest] = useState(0)
   const itemLayout = useItemLayout()
   const dirty = JSON.stringify(draft) !== JSON.stringify(original)
@@ -140,6 +147,7 @@ export function Editor(props: {
    * @param change - 接收用户输入文本的草稿更新回调。
    * @param type - HTML 输入类型，默认文本。
    * @param placeholder - 空值时的灰字提示，不替代字段标签。
+   * @param importKey - 导入问题字段键，默认使用标签；只影响草稿提示。
    * @returns 带标签的输入框。
    */
   function field(
@@ -147,19 +155,32 @@ export function Editor(props: {
     value: string | number,
     change: (value: string) => void,
     type = 'text',
-    placeholder?: string
+    placeholder?: string,
+    importKey = label
   ) {
+    const issue = importIssues.find((issue) => issue.key === importKey)
     return (
       <label className="field" key={label}>
         {label}
         <input
-          required={type === 'number'}
+          required={type === 'number' || !!issue}
+          aria-label={label}
+          aria-invalid={issue ? true : undefined}
+          aria-describedby={issue ? `${formId}-issue-${importKey}` : undefined}
           type={type}
           placeholder={placeholder}
           step={type === 'number' ? 'any' : undefined}
-          value={typeof value === 'number' && !Number.isFinite(value) ? '' : value}
-          onChange={(e) => change(e.target.value)}
+          value={issue || (typeof value === 'number' && !Number.isFinite(value)) ? '' : value}
+          onChange={(e) => {
+            resolveImportIssue(importKey, e.target.value, type === 'number')
+            change(e.target.value)
+          }}
         />
+        {issue && (
+          <small className="import-field-error" id={`${formId}-issue-${importKey}`}>
+            {issue.message}
+          </small>
+        )}
       </label>
     )
   }
@@ -192,15 +213,30 @@ export function Editor(props: {
     [props.snapshot.modules, c?.moduleIds]
   )
   const limits = c ? calculateDerived(c.edition, c.attrs, c.derived.luck7) : undefined
+  const activeImportIssues = importIssues.filter(
+    (issue) => !issue.key.startsWith('skill:') || c?.skills.some((skill) => issue.key === 'skill:' + skill.id)
+  )
   const actions = (
-    <div className="dialog-actions editor-actions">
-      <button type="button" disabled={props.busy} onClick={cancel}>
-        取消编辑
-      </button>
-      <button type="submit" form={formId} disabled={props.busy} className="primary">
-        {props.busy ? '正在保存…' : '保存修改'}
-      </button>
-    </div>
+    <>
+      {!!activeImportIssues.length && (
+        <div className="operation-feedback">
+          <SystemMessage
+            key={importReminder}
+            kind="warning"
+            ariaLabel="导入待补填提醒"
+            message={`角色卡已读取，有${activeImportIssues.length}项待补填：${activeImportIssues.map((issue) => issue.label).join('、')}。请填写红色标记处后保存。`}
+          />
+        </div>
+      )}
+      <div className="dialog-actions editor-actions">
+        <button type="button" disabled={props.busy} onClick={cancel}>
+          取消编辑
+        </button>
+        <button type="submit" form={formId} disabled={props.busy} className="primary">
+          {props.busy ? '正在保存…' : '保存修改'}
+        </button>
+      </div>
+    </>
   )
   return (
     <section className="panel editor" ref={editor}>
@@ -229,9 +265,16 @@ export function Editor(props: {
       )}
       <form
         id={formId}
+        onInvalid={() => {
+          if (activeImportIssues.length) setImportReminder((value) => value + 1)
+        }}
         onSubmit={(event) => {
           event.preventDefault()
           if (props.busy) return
+          if (activeImportIssues.length) {
+            setImportReminder((value) => value + 1)
+            return
+          }
           setError('')
           void props
             .onSave(draft)
@@ -455,7 +498,11 @@ export function Editor(props: {
                       value={c.basic.name}
                       names={pcNames}
                       requestOpen={nameSuggestionRequest}
-                      onChange={(name) => character({ ...c, basic: { ...c.basic, name } })}
+                      invalid={importIssues.some((issue) => issue.key === '姓名')}
+                      onChange={(name) => {
+                        resolveImportIssue('姓名', name)
+                        character({ ...c, basic: { ...c.basic, name } })
+                      }}
                     />
                   ) : (
                     field(label, c.basic[key as keyof typeof c.basic], (value) =>
@@ -523,7 +570,7 @@ export function Editor(props: {
                 )}
               </div>
               {field('伤害加值', c.derived.db, (db) => character({ ...c, derived: { ...c.derived, db } }))}
-              <details>
+              <details open={importIssues.some((issue) => issue.key.startsWith('skill:')) || undefined}>
                 <summary>技能</summary>
                 <button
                   type="button"
@@ -554,11 +601,21 @@ export function Editor(props: {
                       />
                       <input
                         aria-label={'技能' + (index + 1) + '数值'}
+                        aria-invalid={
+                          importIssues.some((issue) => issue.key === 'skill:' + skill.id) || undefined
+                        }
+                        title={importIssues.find((issue) => issue.key === 'skill:' + skill.id)?.message}
                         type="number"
                         required
                         step="any"
-                        value={Number.isFinite(skillFinal(skill)) ? skillFinal(skill) : ''}
-                        onChange={(event) =>
+                        value={
+                          !importIssues.some((issue) => issue.key === 'skill:' + skill.id) &&
+                          Number.isFinite(skillFinal(skill))
+                            ? skillFinal(skill)
+                            : ''
+                        }
+                        onChange={(event) => {
+                          resolveImportIssue('skill:' + skill.id, event.target.value, true)
                           character({
                             ...c,
                             skills: c.skills.map((s, i) =>
@@ -573,7 +630,7 @@ export function Editor(props: {
                                 : s
                             )
                           })
-                        }
+                        }}
                       />
                       <RemoveButton
                         label={'删除技能' + (index + 1)}
