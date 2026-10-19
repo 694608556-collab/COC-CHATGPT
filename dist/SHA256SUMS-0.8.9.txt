@@ -1,0 +1,2 @@
+808e0d74b798cceb9d9ddebb76dd80bfe0e38236625559ac6dfee7718ad05b41  COC跑团记录簿-0.8.9-win-x64.exe
+86a2cb7145899aea796f1e7e37a498f4efbb9cf411c27313d56d42e316d63132  COC跑团记录簿-0.8.9-Windows-x64-Setup.exe
