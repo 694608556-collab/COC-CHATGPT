@@ -100,6 +100,8 @@ final class PickerUITests: XCTestCase {
         XCTAssertTrue(name.waitForExistence(timeout: 10), app.debugDescription)
         name.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), app.debugDescription)
+        let nameInput = web.textFields["姓名"].firstMatch
+        XCTAssertTrue(nameInput.waitForExistence(timeout: 10), app.debugDescription)
         let beta = web.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Public Beta")).firstMatch
         XCTAssertTrue(beta.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertGreaterThanOrEqual(beta.frame.minY, app.frame.minY + 40)
@@ -110,12 +112,14 @@ final class PickerUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(beta.frame.minY, menu.frame.minY)
         XCTAssertLessThanOrEqual(beta.frame.maxY, menu.frame.maxY, app.debugDescription)
         beta.tap()
-        XCTAssertEqual(name.value as? String, "Public Beta", app.debugDescription)
-        name.tap()
+        let betaValue = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Public Beta"), object: nameInput)
+        XCTAssertEqual(XCTWaiter.wait(for: [betaValue], timeout: 10), .completed, app.debugDescription)
+        nameInput.tap()
         let alpha = web.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Public Alpha")).firstMatch
         XCTAssertTrue(alpha.waitForExistence(timeout: 10), app.debugDescription)
         alpha.tap()
-        XCTAssertEqual(name.value as? String, "Public Alpha", app.debugDescription)
+        let alphaValue = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Public Alpha"), object: nameInput)
+        XCTAssertEqual(XCTWaiter.wait(for: [alphaValue], timeout: 10), .completed, app.debugDescription)
         web.buttons["保存修改"].firstMatch.tap()
         XCTAssertTrue(web.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Public Alpha'")).firstMatch.waitForExistence(timeout: 15), app.debugDescription)
     }

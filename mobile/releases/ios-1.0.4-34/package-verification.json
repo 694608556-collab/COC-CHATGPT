@@ -11,6 +11,10 @@
   "webAssetsMatch": true,
   "unsigned": true,
   "source": "85a16a3",
-  "nativeKeyboard": "pending",
-  "enterpriseResigningDevice": "pending"
+  "nativeKeyboard": "geometry and actual Beta selection observed; test value-node assertion corrected, full flow retry pending",
+  "enterpriseResigningDevice": "pending",
+  "nativeCoreChecks": 38,
+  "nativeColdStarts": 3,
+  "folderRestartUI": "two passed",
+  "nativeRun": 39192872373
 }
