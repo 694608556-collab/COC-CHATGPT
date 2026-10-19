@@ -1,3 +1,5 @@
+本包保留作历史；最新姓名下方候选修正见 [build35](../ios-1.0.4-35/README.md)。
+
 # iOS 1.0.4 / build 34（未签名）
 
 [下载 IPA](coc-logbook-1.0.4-34-ios-arm64-unsigned.ipa)，25,467,807 字节；SHA-256 `1e5d3f05192f3ad0037e10ebc99831e04986d00e20e8cdcd57fa54ec1eb42556`。

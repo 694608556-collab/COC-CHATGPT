@@ -15,5 +15,18 @@
   "unsigned": true,
   "enterpriseExternalFolder": "user reports unavailable on build34; no fix claimed",
   "enterpriseLocalFolder": "user reports available on build34",
-  "nativeKeyboard": "pending"
+  "nativeKeyboard": "passed: association auto-opens below name without keyboard, native selection before focus, keyboard candidates below input, save/terminate/relaunch/reopen",
+  "nativeCoreChecks": 38,
+  "nativeColdStarts": 3,
+  "nativeScreenshot": "passed",
+  "nativeRunFirst": 39217780457,
+  "nativeRunSource": "21236c8388f85b513a2f6f41f4cf170e3f05ce2e",
+  "packagedAppSourceUnchanged": true,
+  "nativeRun": 39219844226,
+  "nativeWorkflow": "success",
+  "nativeUI": {
+    "tests": 3,
+    "failures": 0,
+    "scope": "isolated iPhone 14 Pro / iOS 27.0 simulator"
+  }
 }
