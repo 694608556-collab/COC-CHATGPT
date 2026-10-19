@@ -4,7 +4,7 @@ import { previewCoc7Import } from './coc7-import'
 import { skillFinal } from '../../../src/shared/coc-rules'
 
 describe('七版人物卡专用只读导入', () => {
-  it('读取指定人物卡，保留15边界/两栏分项/完整背景经历和红框内末行物品', () => {
+  it('读取指定人物卡，保留15边界/两栏最终值/完整背景经历和红框内末行物品', () => {
     const result = previewCoc7Import(publicCoc7Bytes(), 'public.xlsx')
     const c = result.character
     expect(c.edition).toBe(7)
@@ -20,10 +20,10 @@ describe('七版人物卡专用只读导入', () => {
       ['侦查', 60]
     ])
     expect(c.skills.find((s) => s.name === '侦查')).toMatchObject({
-      base: 25,
-      growth: 5,
-      occupation: 20,
-      interest: 10
+      base: 60,
+      growth: 0,
+      occupation: 0,
+      interest: 0
     })
     expect(c.background.description).toBe('公开外貌\n第二行')
     expect(c.story).toBe('公开经历首段\n' + '公开完整经历。'.repeat(200) + '\n公开经历尾段')
@@ -48,13 +48,24 @@ describe('七版人物卡专用只读导入', () => {
     expect(c.skills).toEqual([])
     expect(c.weapons).toEqual([])
   })
+  it('成功率直接作为最终值，错误或空白的点数分项不读取也不阻止导入', () => {
+    const book = publicCoc7Workbook(),
+      sheet = book.Sheets['人物卡']!
+    for (const col of ['J', 'L', 'N', 'P', 'AF', 'AH', 'AJ', 'AL']) {
+      sheet[col + '15'] = { t: 's', v: '忽略的分项标题' }
+      for (let row = 16; row <= 49; row++) sheet[col + row] = { t: 'e', v: 7 }
+    }
+    const skills = previewCoc7Import(publicCoc7Bytes(book), 'public.xlsx').character.skills
+    expect(skills.map(skillFinal)).toEqual([15, 15, 80, 75, 35, 60])
+    expect(skills.every((s) => s.growth === 0 && s.occupation === 0 && s.interest === 0)).toBe(true)
+  })
   it('跨平台换行统一为LF，长文和段落完整保留', () => {
     const book = publicCoc7Workbook()
     book.Sheets['人物卡']!.W79 = { t: 's', v: '公开首行\r\n公开次行\r公开末行' }
     const c = previewCoc7Import(publicCoc7Bytes(book), 'public.xlsx').character
     expect(c.story).toBe('公开首行\n公开次行\n公开末行')
   })
-  it('没有目标表、布局错误、错误扩展名及未缓存/错误数值明确失败，不猜填', () => {
+  it('没有目标表、布局错误、错误扩展名及未缓存/错误数值及忽略点数分项明确失败，不猜填', () => {
     expect(() => previewCoc7Import(publicCoc7Bytes(), 'public.csv')).toThrow('XLSX')
     const book = publicCoc7Workbook(),
       sheet = book.Sheets['人物卡']!
@@ -62,7 +73,7 @@ describe('七版人物卡专用只读导入', () => {
     expect(() => previewCoc7Import(publicCoc7Bytes(book), 'public.xlsx')).toThrow('U3')
     sheet.U3 = { t: 'n', v: 60 }
     sheet.R17 = { t: 'n', v: 16 }
-    expect(() => previewCoc7Import(publicCoc7Bytes(book), 'public.xlsx')).toThrow('不一致')
+    expect(skillFinal(previewCoc7Import(publicCoc7Bytes(book), 'public.xlsx').character.skills[0]!)).toBe(16)
     sheet.R17 = { t: 'e', v: 7 }
     expect(() => previewCoc7Import(publicCoc7Bytes(book), 'public.xlsx')).toThrow('表格错误')
     sheet.B3 = { t: 's', v: '布局改变' }

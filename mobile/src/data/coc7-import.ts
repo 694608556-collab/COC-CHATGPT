@@ -47,9 +47,8 @@ export function previewCoc7Import(bytes: Uint8Array, fileName: string): Coc7Impo
   function text(address: string): string {
     return String(raw(address) ?? '').replace(/\r\n?/g, '\n')
   }
-  function numeric(address: string, optional = false): number {
+  function numeric(address: string): number {
     const value = raw(address)
-    if (optional && (value === undefined || ['—', '——', '-', '--'].includes(String(value).trim()))) return 0
     if (value === undefined || !String(value).trim() || !Number.isFinite(Number(value)))
       throw new Error(`人物卡 ${address} 需要有效数值，请核对后重试。`)
     return Number(value)
@@ -62,15 +61,7 @@ export function previewCoc7Import(bytes: Uint8Array, fileName: string): Coc7Impo
     ['Y3', '敏捷DEX'],
     ['AE3', '意志POW'],
     ['F15', '技能名称'],
-    ['J15', '初始'],
-    ['L15', '成长'],
-    ['N15', '职业'],
-    ['P15', '兴趣'],
-    ['AB15', '技能名称'],
-    ['AF15', '初始'],
-    ['AH15', '成长'],
-    ['AJ15', '职业'],
-    ['AL15', '兴趣']
+    ['AB15', '技能名称']
   ]
   if (
     anchors.some(([address, label]) => normalize(text(address)) !== normalize(label)) ||
@@ -108,9 +99,9 @@ export function previewCoc7Import(bytes: Uint8Array, fileName: string): Coc7Impo
   // 职业点数及上限不映射，沿用应用的新角色默认设置。
   character.skills = []
   let skippedSkills = 0
-  for (const [nameCol, subCol, baseCol, growthCol, occupationCol, interestCol, totalCol] of [
-    ['F', 'H', 'J', 'L', 'N', 'P', 'R'],
-    ['AB', 'AD', 'AF', 'AH', 'AJ', 'AL', 'AN']
+  for (const [nameCol, subCol, totalCol] of [
+    ['F', 'H', 'R'],
+    ['AB', 'AD', 'AN']
   ]) {
     for (let row = 16; row <= 49; row++) {
       const original = text(nameCol! + row).trim()
@@ -124,12 +115,8 @@ export function previewCoc7Import(bytes: Uint8Array, fileName: string): Coc7Impo
       const sub = text(subCol! + row).trim()
       if (sub) name = name.replace(/[①②③④⑤⑥⑦⑧⑨⑩]/g, '').replace(/[：:]$/, '') + '：' + sub
       if (name === '导航') name = '领航'
-      const skill = createSkill(name, numeric(baseCol! + row, true))
-      skill.growth = numeric(growthCol! + row, true)
-      skill.occupation = numeric(occupationCol! + row, true)
-      skill.interest = numeric(interestCol! + row, true)
-      if (Math.abs(skill.base + skill.growth + skill.occupation + skill.interest - total) > 1e-8)
-        throw new Error(`人物卡 ${totalCol! + row} 的成功率与技能分项不一致，请计算并保存后重试。`)
+      // 表内普通成功率就是最终技能值；不读取或拆分点数分项。
+      const skill = createSkill(name, total)
       character.skills.push(skill)
     }
   }
