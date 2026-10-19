@@ -1,0 +1,35 @@
+{
+  "platform": "ios",
+  "version": "1.0.6",
+  "build": 40,
+  "source": "7313ddd2b94400556bc772869521e20a1015efd6",
+  "workflowRun": 39291042242,
+  "filename": "coc-logbook-1.0.6-40-ios-arm64-unsigned.ipa",
+  "bytes": 25474366,
+  "sha256": "db42c4a0d27626e4294df6f1391c1824b42a3d0b8cdb7ab4abaf14db967a04e2",
+  "zipCrc": true,
+  "productionAssetsMatchIndependentTrackedSourceBuild": true,
+  "assetSha256": {
+    "app.js": "0fcfd68ab31f8700836c833c4da3f4f3440d3516e83e8828fef4efc3d7d5e779",
+    "app.css": "317eb186193ef3e4d74e9149bdb220e8e60a332927aba3d4ac16f9e9d795eb10",
+    "index.html": "9014e503177333b218f7965bf04dbed84a16c20a150bac53c53b3726d1b23f9d",
+    "snapshot-worker.js": "7d692576f1bde0728bc450b01331c57c16e44fd808a3dc8935a3cc87709f62f7",
+    "export-worker.js": "12c4bd350d27b81a37c96ed20bf08ebf7e0ce25bdfcd9a290ee2411ffe58d415"
+  },
+  "originalFontsMatch": 8,
+  "privateOrDebugFilesAbsent": true,
+  "signing": "unsigned; requires Apple signing before installation",
+  "certificateSha256": null,
+  "nativeChecks": {
+    "workflowConclusion": "success",
+    "coreChecks": 38,
+    "coldStartsPassed": 3,
+    "systemUiTestsPassed": 4,
+    "systemUiFailures": 0,
+    "systemUiSeconds": 375.965,
+    "device": "iPhone 14 Pro",
+    "runtime": "27.0",
+    "uiArtifact": 12206588418,
+    "startupArtifact": 12206832944
+  }
+}
