@@ -65,7 +65,9 @@ export function RecordImportDialog({
       const invalid = rows.filter((row) => validateTableImportRow(row))
       const valid = rows.filter((row) => !validateTableImportRow(row))
       if (!valid.length) {
-        throw new Error(invalid.length ? `没有可导入的数据行（${invalid.length} 行信息不完整）` : '没有读取到可导入的数据行')
+        throw new Error(
+          invalid.length ? `没有可导入的数据行（${invalid.length} 行信息不完整）` : '没有读取到可导入的数据行'
+        )
       }
       const result = await onImport(valid)
       setDone(true)
@@ -123,7 +125,8 @@ export function RecordImportDialog({
         </p>
         <p className="dialog-note">
           链接状态、跑团日期、最近抓取时间三列由软件导出时自动记录，空白模板无需填写。重新导入时，
-          跑团日期会原样带回；链接状态一律重置为“待检测”，需要重新检测才能抓取正文。
+          跑团日期会原样带回；在线链接状态一律重置为“待检测”，需要重新检测才能抓取正文。
+          “手动保存内容”列完整保留手动正文，手动场次可不填链接，重新导入后无需抓取。
         </p>
         <div className="dialog-actions">
           <button className="secondary" onClick={downloadXlsxTemplate}>

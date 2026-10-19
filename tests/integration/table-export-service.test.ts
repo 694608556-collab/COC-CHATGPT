@@ -4,6 +4,7 @@ import path from 'node:path'
 import * as unzipper from 'unzipper'
 import * as XLSX from 'xlsx'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { parseImportWorkbook } from '../../src/shared/table-import'
 import { AppDatabase } from '../../src/main/database'
 import { AppRepository } from '../../src/main/repository'
 import { TableExportService } from '../../src/main/table-export-service'
@@ -22,6 +23,31 @@ beforeEach(() => {
 afterEach(() => database.close())
 
 describe('table export service', () => {
+  it('保留数据库手动正文并可从归档表格完整恢复', async () => {
+    const module = repository.createModule({
+      name: '公开往返模组',
+      playStatus: 'not_started',
+      kps: ['公开KP']
+    })
+    const body = '第一段，含"引号"\n\n第二段正文😀' + '公开长正文\n'.repeat(9000) + '末段'
+    const record = repository.createRecord({ moduleId: module.id, manualContent: body })
+    for (const format of ['csv', 'xlsx'] as const) {
+      const entry = await new TableExportService(repository).export(format, [record.id])
+      const rows = parseImportWorkbook(XLSX.read(fs.readFileSync(entry.path)))
+      expect(rows[0]!.manualContent).toBe(body)
+      const restoredModule = repository.createModule({ name: `恢复${format}`, playStatus: 'not_started' })
+      const restored = repository.createRecord({
+        moduleId: restoredModule.id,
+        name: rows[0]!.sessionName,
+        manualContent: rows[0]!.manualContent,
+        link: rows[0]!.link
+      })
+      expect(restored.manualContent).toBe(body)
+      expect(restored.status).toBe('manual')
+      expect(repository.findRecord(record.id).manualContent).toBe(body)
+    }
+  })
+
   it('writes multiple modules to separate XLSX worksheets', async () => {
     const first = repository.createModule({ name: '模组甲', playStatus: 'not_started' })
     const second = repository.createModule({ name: '模组乙', playStatus: 'not_started' })

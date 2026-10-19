@@ -1408,14 +1408,20 @@ export default function App(): React.JSX.Element {
         module = await window.coc.modules.update(module.id, merged)
         known.set(key, module)
       }
-      const duplicate = await window.coc.records.findDuplicate(module.id, row.link)
+      // 手动场次没有链接：只按唯一的同模组同名候选更新，重名有歧义时保留原记录并新增。
+      const manualCandidates = row.manualContent ? snapshot.records.filter((record) =>
+        record.moduleId === module.id && record.name === row.sessionName && record.manualContent && (!row.link || record.link === row.link)
+      ) : []
+      const duplicate = row.manualContent
+        ? (manualCandidates.length === 1 ? manualCandidates[0] : undefined)
+        : row.link ? await window.coc.records.findDuplicate(module.id, row.link) : undefined
       touchedModuleIds.add(module.id)
       if (duplicate) {
         // 导出表再导入：用表内信息覆盖更新已存在场次。
-        // 0.6.2 起导入不再采信表格里的历史状态，链接一律回到“待检测”，
-        // 并清空已抓取的正文与抓取时间，强制重新检测后才能拿到正文。
+        // 在线场次仍重置检测；手动场次由仓库保留正文及 manual 状态，不触发网络抓取。
         await window.coc.records.update(duplicate.id, {
           name: row.sessionName,
+          ...(row.manualContent ? { manualContent: row.manualContent } : {}),
           ...(row.playDate ? { playDate: row.playDate, dateSource: 'manual' as const } : {})
         })
         await window.coc.records.resetProbe(duplicate.id)
@@ -1427,6 +1433,7 @@ export default function App(): React.JSX.Element {
           moduleId: module.id,
           name: row.sessionName,
           link: row.link,
+          ...(row.manualContent ? { manualContent: row.manualContent } : {}),
           ...(row.playDate ? { playDate: row.playDate } : {})
         })
         createdRecords += 1
