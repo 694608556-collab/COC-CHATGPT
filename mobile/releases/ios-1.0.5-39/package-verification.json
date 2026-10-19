@@ -1,0 +1,42 @@
+{
+  "file": "coc-logbook-1.0.5-39-ios-arm64-unsigned.ipa",
+  "bytes": 25470922,
+  "sha256": "ecb9a3eea5471fb0b3c11afb36d2eec722d3b9e8515bee4b932acdc86d364c74",
+  "version": "1.0.5",
+  "build": 39,
+  "source": "0d8b086221085227e897878917e0432348c1eff9",
+  "zipCRC": true,
+  "webAssetsMatch": true,
+  "independentBuild": "isolated tracked source, root configuration and mobile lockfile; no desktop node_modules",
+  "originalFonts": 8,
+  "architecture": "arm64",
+  "platform": "iOS device",
+  "sdk": "iphoneos27.0",
+  "unsigned": true,
+  "noPrivateOrDebugFiles": true,
+  "browserTests": 103,
+  "deviceValidation": "pending",
+  "enterpriseExternalFolder": "not confirmed on physical device",
+  "buildRun": 39266305649,
+  "nativeValidationRun": 39269140316,
+  "nativeValidationSource": "a3a248ec318ceee2d00f97cbc9a047acc1a31d94",
+  "nativeUITests": {
+    "passed": 4,
+    "failed": 0,
+    "seconds": 269.917
+  },
+  "cloudNativeCoreChecks": 38,
+  "coldStarts": 3,
+  "coldStartsPassed": true,
+  "screenshotPassed": true,
+  "unitTests": 85,
+  "uiEvidenceArtifact": 12194234294,
+  "startupEvidenceArtifact": 12195922094,
+  "firstNativeAttempt": {
+    "run": 39266305649,
+    "passedUITests": 3,
+    "failedUITests": 1,
+    "failure": "waiting for a hittable Files folder match before tapping Open",
+    "uiEvidenceArtifact": 12194915389
+  }
+}
