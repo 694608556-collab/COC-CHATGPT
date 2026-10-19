@@ -1,0 +1,16 @@
+{
+  "file": "coc-logbook-1.0.4-33-ios-arm64-unsigned.ipa",
+  "bytes": 25467632,
+  "sha256": "a3c8277c4569bdcf12dcbddfc96a965f0324f1874bfb5e6c02874e882108a221",
+  "version": "1.0.4",
+  "build": 33,
+  "architecture": "arm64",
+  "platform": "iOS device",
+  "sdk": 27,
+  "fonts": 8,
+  "webAssetsMatch": true,
+  "unsigned": true,
+  "source": "c922bfe",
+  "nativeKeyboard": "pending",
+  "enterpriseResigningDevice": "pending"
+}
