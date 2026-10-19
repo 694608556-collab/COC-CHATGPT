@@ -98,16 +98,26 @@ final class PickerUITests: XCTestCase {
         moduleCheck.tap()
         let name = editable(web, "姓名")
         XCTAssertTrue(name.waitForExistence(timeout: 10), app.debugDescription)
+        let menu = web.descendants(matching: .any).matching(identifier: "模组PC姓名候选").firstMatch
+        // 模组关联后直接出现姓名下方候选，不依赖先点击姓名或唤起键盘。
+        XCTAssertTrue(menu.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertGreaterThanOrEqual(menu.frame.minY, name.frame.maxY, app.debugDescription)
+        XCTAssertFalse(app.keyboards.firstMatch.exists, app.debugDescription)
+        let autoBeta = web.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Public Beta")).firstMatch
+        XCTAssertTrue(autoBeta.waitForExistence(timeout: 10), app.debugDescription)
+        autoBeta.tap()
         name.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), app.debugDescription)
         let nameInput = web.textFields["姓名"].firstMatch
         XCTAssertTrue(nameInput.waitForExistence(timeout: 10), app.debugDescription)
+        let autoValue = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Public Beta"), object: nameInput)
+        XCTAssertEqual(XCTWaiter.wait(for: [autoValue], timeout: 10), .completed, app.debugDescription)
         let beta = web.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Public Beta")).firstMatch
         XCTAssertTrue(beta.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertGreaterThanOrEqual(beta.frame.minY, app.frame.minY + 40)
         XCTAssertLessThanOrEqual(beta.frame.maxY, app.keyboards.firstMatch.frame.minY)
-        let menu = web.descendants(matching: .any).matching(identifier: "模组PC姓名候选").firstMatch
         XCTAssertTrue(menu.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertGreaterThanOrEqual(menu.frame.minY, nameInput.frame.maxY, app.debugDescription)
         XCTAssertGreaterThanOrEqual(menu.frame.height, 98, app.debugDescription)
         XCTAssertGreaterThanOrEqual(beta.frame.minY, menu.frame.minY)
         XCTAssertLessThanOrEqual(beta.frame.maxY, menu.frame.maxY, app.debugDescription)

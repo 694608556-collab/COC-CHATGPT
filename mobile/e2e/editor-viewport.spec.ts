@@ -29,6 +29,30 @@ async function ready(page: Page, count = 35) {
   return sample
 }
 
+test('勾选关联模组直接在姓名框下方显示候选，无需先点姓名且不自动修改草稿', async ({ page }) => {
+  const sample = await ready(page, 2)
+  await page.getByRole('button', { name: '角色卡', exact: true }).click()
+  await page.getByRole('button', { name: '新建七版角色' }).click()
+  const module = page.getByRole('checkbox', { name: sample.modules[0]!.name, exact: true })
+  await module.check()
+  const input = page.getByLabel('姓名', { exact: true })
+  const menu = page.getByRole('listbox', { name: '模组PC姓名候选', exact: true })
+  await expect(menu).toBeVisible()
+  await expect(input).toHaveValue('')
+  await expect(input).not.toBeFocused()
+  expect((await menu.boundingBox())!.y).toBeGreaterThanOrEqual(
+    (await input.boundingBox())!.y + (await input.boundingBox())!.height
+  )
+  await menu.getByRole('option', { name: '公开姓名2', exact: true }).click()
+  await expect(input).toHaveValue('公开姓名2')
+  await module.uncheck()
+  await expect(menu).toHaveCount(0)
+  await expect(input).toHaveValue('公开姓名2')
+  await module.check()
+  await expect(menu.getByRole('option')).toHaveCount(2)
+  await expect(input).toHaveValue('公开姓名2')
+})
+
 test('模拟可见区域缩小和偏移时姓名菜单及保存栏避让，候选键盘滚动和保存重开有效', async ({ page }, info) => {
   await page.addInitScript(() => {
     const probe = Object.assign(new EventTarget(), {
@@ -62,10 +86,15 @@ test('模拟可见区域缩小和偏移时姓名菜单及保存栏避让，候�
     .toBe(420)
   const toolbar = (await page.locator('.editor-actions').boundingBox())!
   await expect(menu).toBeVisible()
+  await expect
+    .poll(async () => (await menu.boundingBox())!.y + (await menu.boundingBox())!.height)
+    .toBeLessThanOrEqual(toolbar.y)
   const menuBox = (await menu.boundingBox())!
   expect(menuBox.y).toBeGreaterThanOrEqual(78)
   expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(toolbar.y)
-  expect(menuBox.y + menuBox.height).toBeLessThanOrEqual((await input.boundingBox())!.y)
+  expect(menuBox.y).toBeGreaterThanOrEqual(
+    (await input.boundingBox())!.y + (await input.boundingBox())!.height
+  )
   expect((await page.getByRole('button', { name: '保存修改', exact: true }).boundingBox())!.height).toBe(30)
   await input.press('ArrowDown')
   await input.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', isComposing: true })
