@@ -20,7 +20,10 @@ final class PickerUITests: XCTestCase {
     // Files retains offscreen browsing pages in its accessibility tree. An
     // existing firstMatch can belong to an earlier page and cannot be tapped.
     private func visiblePickerItem(_ query: XCUIElementQuery) -> XCUIElement? {
-        query.allElementsBoundByAccessibilityElement.first { $0.isHittable }
+        // Folder-mode Files cells may have accessible children without being
+        // accessibility-bound elements themselves. Resolve query matches by
+        // index while retaining the hit-test filter for hidden browsing pages.
+        query.allElementsBoundByIndex.first { $0.isHittable }
     }
 
     // Do not evaluate remote File Provider queries inside an XCTest waiter:
