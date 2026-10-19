@@ -46,6 +46,7 @@ test('七版导入补填、取消、同名保护和重启持久化', async () =>
     await page.getByRole('button', { name: '导入第七版角色卡', exact: true }).click()
     let editor = page.getByRole('dialog', { name: '调查员角色卡', exact: true })
     await expect(editor.getByRole('status')).toContainText('E10')
+    await expect(editor.getByRole('status')).not.toContainText('请在此补填')
     await expect(editor.getByLabel('当前 HP', { exact: true })).toHaveAttribute('aria-invalid', 'true')
     await expect(editor.getByRole('button', { name: '保存', exact: true })).toBeDisabled()
     await page.screenshot({ path: path.join(directory, 'import-missing.png') })

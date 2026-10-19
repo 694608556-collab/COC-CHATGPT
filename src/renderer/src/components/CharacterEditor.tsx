@@ -437,7 +437,8 @@ export function CharacterEditor({
       </div>
       {activeIssues.length > 0 && (
         <div className="import-field-warning" role="status">
-          导入待补填提醒：{activeIssues.map((issue) => issue.message).join('；')}
+          导入待补填提醒：
+          {activeIssues.map((issue) => issue.message.replace(/[，,]请在此补填[。.]?/g, '')).join('；')}
         </div>
       )}
       {importSummary && importSummary.warnings.length > 0 && <p>{importSummary.warnings.join('；')}</p>}
