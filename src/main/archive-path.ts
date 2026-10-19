@@ -95,12 +95,24 @@ export class ArchivePathService {
     }
     return destination
   }
-  availableRootFile(requestedName: string): string {
+  /**
+   * 为根目录归档选取不覆盖磁盘文件或已有登记的名称。
+   * @param requestedName 建议文件名。
+   * @param registeredPaths 已登记的完整路径，文件被移走后仍需避让。
+   * @returns 未使用的完整路径。
+   */
+  availableRootFile(requestedName: string, registeredPaths: readonly string[] = []): string {
     const root = path.resolve(this.rootProvider())
     ensureWritableDirectory(root)
     const extension = path.extname(requestedName)
     const safeName = sanitizeWindowsName(requestedName.slice(0, -extension.length)) + extension
-    const destination = path.join(root, nextAvailableName(fs.readdirSync(root), safeName))
+    const registeredNames = registeredPaths
+      .filter((value) => path.dirname(path.resolve(value)).toLowerCase() === root.toLowerCase())
+      .map((value) => path.basename(value))
+    const destination = path.join(
+      root,
+      nextAvailableName([...fs.readdirSync(root), ...registeredNames], safeName)
+    )
     if (!isPathInside(root, destination)) throw new Error('归档文件路径不安全')
     return destination
   }

@@ -23,6 +23,39 @@ beforeEach(() => {
 afterEach(() => database.close())
 
 describe('table export service', () => {
+  for (const format of ['xlsx', 'csv'] as const) {
+    it(`${format} 多模组旧归档被移走后再次导出，文件和登记均成功`, async () => {
+      for (const name of ['公开重复导出甲', '公开重复导出乙']) {
+        const module = repository.createModule({ name, playStatus: 'not_started' })
+        repository.createRecord({ moduleId: module.id, manualContent: '公开正文' })
+      }
+      const service = new TableExportService(repository)
+      const first = await service.export(format)
+      fs.unlinkSync(first.path)
+      const second = await service.export(format)
+      expect(fs.existsSync(second.path)).toBe(true)
+      expect(second.path).not.toBe(first.path)
+      expect(repository.archiveEntriesFor('backup', 'record-table')).toHaveLength(2)
+      if (format === 'csv')
+        expect((await unzipper.Open.buffer(fs.readFileSync(second.path))).files).toHaveLength(2)
+      else expect(XLSX.read(fs.readFileSync(second.path)).SheetNames).toHaveLength(2)
+    })
+  }
+
+  it('并发多模组CSV导出生成不同且完整的ZIP，前一失败不会阻塞后续', async () => {
+    for (const name of ['公开并发甲', '公开并发乙']) {
+      const module = repository.createModule({ name, playStatus: 'not_started' })
+      repository.createRecord({ moduleId: module.id, manualContent: '公开正文' })
+    }
+    const service = new TableExportService(repository)
+    await expect(service.export('csv', [])).rejects.toThrow('没有可导出的场次记录')
+    const entries = await Promise.all([service.export('csv'), service.export('csv')])
+    expect(new Set(entries.map((entry) => entry.path)).size).toBe(2)
+    for (const entry of entries)
+      expect((await unzipper.Open.buffer(fs.readFileSync(entry.path))).files).toHaveLength(2)
+    expect(repository.archiveEntriesFor('backup', 'record-table')).toHaveLength(2)
+  })
+
   it('保留数据库手动正文并可从归档表格完整恢复', async () => {
     const module = repository.createModule({
       name: '公开往返模组',

@@ -11,15 +11,38 @@ import type { AppRepository } from './repository'
 export type TableExportFormat = 'csv' | 'xlsx'
 
 export class TableExportService {
+  /** 同一服务的导出依次选名和登记，避免异步ZIP任务复用临时路径。 */
+  private exportQueue: Promise<void> = Promise.resolve()
+
   constructor(private readonly repository: AppRepository) {}
 
-  async export(format: TableExportFormat, selectedRecordIds?: string[]): Promise<ArchiveEntry> {
-    const files = exportRecordTables(this.repository.snapshot(), format, selectedRecordIds)
+  /**
+   * 串行导出并登记场次表格，上一任务失败不阻塞后续任务。
+   * @param format 导出格式。
+   * @param selectedRecordIds 限定场次；未传时导出全部。
+   * @returns 文件和归档登记均成功后的归档条目。
+   */
+  export(format: TableExportFormat, selectedRecordIds?: string[]): Promise<ArchiveEntry> {
+    const task = this.exportQueue.then(() => this.writeExport(format, selectedRecordIds))
+    this.exportQueue = task.then(
+      () => undefined,
+      () => undefined
+    )
+    return task
+  }
+
+  /** @param format 导出格式。@param selectedRecordIds 所选场次。@returns 已写入并登记的条目。 */
+  private async writeExport(format: TableExportFormat, selectedRecordIds?: string[]): Promise<ArchiveEntry> {
+    const snapshot = this.repository.snapshot()
+    const files = exportRecordTables(snapshot, format, selectedRecordIds)
     const date = new Date().toISOString().slice(0, 10).replace(/-/g, '')
     const extension = format === 'csv' && files.length > 1 ? 'zip' : format
     const destination = new ArchivePathService(
       () => this.repository.getSettings().archiveDirectory
-    ).availableRootFile(`COC跑团记录${date}.${extension}`)
+    ).availableRootFile(
+      `COC跑团记录${date}.${extension}`,
+      snapshot.archiveEntries.map((entry) => entry.path)
+    )
     const temporary = `${destination}.${process.pid}.tmp`
     try {
       if (extension === 'zip') await this.writeZip(temporary, files)
