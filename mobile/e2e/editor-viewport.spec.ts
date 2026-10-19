@@ -143,3 +143,55 @@ test('无 VisualViewport 时回退短窗口；保存失败保留草稿且错误�
   await page.getByRole('button', { name: '角色卡', exact: true }).click()
   await expect(page.getByRole('button', { name: /^公开失败草稿/ })).toBeVisible()
 })
+
+test('公开姓名候选触摸失焦不卸载，视口平移不反向滚动，滑动不误选', async ({ page }) => {
+  await page.addInitScript(() => {
+    const probe = Object.assign(new EventTarget(), {
+      offsetTop: 0,
+      offsetLeft: 0,
+      width: innerWidth,
+      height: innerHeight
+    })
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: probe })
+  })
+  const sample = await ready(page)
+  await page.getByRole('button', { name: '角色卡', exact: true }).click()
+  await page.getByRole('button', { name: '新建七版角色' }).click()
+  await page.getByRole('checkbox', { name: sample.modules[0]!.name, exact: true }).check()
+  const input = page.getByLabel('姓名', { exact: true })
+  await input.click()
+  const menu = page.getByRole('listbox', { name: '模组PC姓名候选', exact: true })
+  const first = menu.getByRole('option', { name: '公开姓名1', exact: true })
+  await first.dispatchEvent('pointerdown', {
+    pointerId: 1,
+    pointerType: 'touch',
+    clientX: 30,
+    clientY: 300,
+    bubbles: true
+  })
+  // iOS 触摸候选时 relatedTarget 可能为空；菜单必须存活到 click。
+  await input.evaluate((node) => node.blur())
+  await expect(menu).toBeVisible()
+  await first.dispatchEvent('pointerup', { pointerId: 1, pointerType: 'touch', bubbles: true })
+  await first.dispatchEvent('click')
+  await expect(input).toHaveValue('公开姓名1')
+  await input.click()
+  await menu.evaluate((node) => {
+    node.scrollTop = 100
+  })
+  await expect(input).toHaveValue('公开姓名1')
+  await expect.poll(() => menu.evaluate((node) => node.scrollTop)).toBe(100)
+  // 先移出可见区，再只发 visualViewport.scroll：模拟用户主动平移。
+  const scroll = await page.evaluate(() => {
+    window.scrollTo(0, 600)
+    return window.scrollY
+  })
+  await page.evaluate(() => {
+    Object.assign(window.visualViewport!, { offsetTop: 150 })
+    window.visualViewport!.dispatchEvent(new Event('scroll'))
+  })
+  await page.waitForTimeout(150)
+  expect(await page.evaluate(() => window.scrollY)).toBe(scroll)
+  await page.getByLabel('职业', { exact: true }).click()
+  await expect(menu).toHaveCount(0)
+})

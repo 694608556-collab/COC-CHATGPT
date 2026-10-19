@@ -9,6 +9,8 @@ export function NameSuggest(props: { value: string; names: string[]; onChange(na
   const input = useRef<HTMLInputElement>(null),
     list = useRef<HTMLUListElement>(null)
   const viewport = useVisibleViewport()
+  const origin = useRef<HTMLDivElement>(null)
+  const touchingList = useRef(false)
   const [position, setPosition] = useState<{ top: number; left: number; width: number; maxHeight: number }>()
   const [open, setOpen] = useState(false),
     [filter, setFilter] = useState(''),
@@ -22,7 +24,8 @@ export function NameSuggest(props: { value: string; names: string[]; onChange(na
     let frame = 0
     const place = () => {
       const box = input.current?.getBoundingClientRect()
-      if (!box) return
+      const base = origin.current?.getBoundingClientRect()
+      if (!box || !base) return
       const dock = document.querySelector('.navigation-dock')?.getBoundingClientRect()
       const header = document.querySelector('.app-header')?.getBoundingClientRect()
       const top = Math.max(viewport.top + 8, (header?.bottom ?? 0) + 8)
@@ -42,8 +45,11 @@ export function NameSuggest(props: { value: string; names: string[]; onChange(na
       }
       const width = Math.min(box.width, Math.max(0, viewport.width - 16))
       const next = {
-        top: upward ? box.top - maxHeight - 4 : box.bottom + 4,
-        left: Math.max(viewport.left + 8, Math.min(box.left, viewport.left + viewport.width - width - 8)),
+        // 与输入框测量同一坐标原点，避免 iOS 键盘平移 fixed 合成层。
+        top: (upward ? box.top - maxHeight - 4 : box.bottom + 4) - base.top,
+        left:
+          Math.max(viewport.left + 8, Math.min(box.left, viewport.left + viewport.width - width - 8)) -
+          base.left,
         width,
         maxHeight
       }
@@ -75,8 +81,10 @@ export function NameSuggest(props: { value: string; names: string[]; onChange(na
   }, [highlight, position])
   useEffect(() => {
     const close = (event: Event) => {
-      if (!wrap.current?.contains(event.target as Node) && !list.current?.contains(event.target as Node))
+      if (!wrap.current?.contains(event.target as Node) && !list.current?.contains(event.target as Node)) {
+        touchingList.current = false
         setOpen(false)
+      }
     }
     const dismiss = () => setOpen(false)
     document.addEventListener('mousedown', close)
@@ -99,6 +107,7 @@ export function NameSuggest(props: { value: string; names: string[]; onChange(na
       ref={wrap}
       onBlur={(event) => {
         if (
+          !touchingList.current &&
           !event.currentTarget.contains(event.relatedTarget as Node) &&
           !list.current?.contains(event.relatedTarget as Node)
         )
@@ -158,30 +167,44 @@ export function NameSuggest(props: { value: string; names: string[]; onChange(na
       />
       {open &&
         !!rows.length &&
-        position &&
         createPortal(
-          <ul
-            ref={list}
-            id={id + '-names'}
-            className="combo-options viewport-name-options"
-            style={position}
-            data-app-dropdown
-            role="listbox"
-            aria-label="模组PC姓名候选"
-          >
-            {rows.map((name, i) => (
-              <li
-                key={name}
-                id={id + '-name-' + i}
-                role="option"
-                aria-selected={highlight === i}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => choose(name)}
+          <div ref={origin} className="name-options-origin">
+            {position && (
+              <ul
+                ref={list}
+                id={id + '-names'}
+                className="combo-options viewport-name-options"
+                style={position}
+                data-app-dropdown
+                role="listbox"
+                aria-label="模组PC姓名候选"
+                onPointerDown={(event) => {
+                  touchingList.current = true
+                  // 取消焦点转移，但保留 touch-action: pan-y 的原生列表滚动。
+                  event.preventDefault()
+                }}
+                onPointerUp={() => {
+                  touchingList.current = false
+                }}
+                onPointerCancel={() => {
+                  touchingList.current = false
+                }}
               >
-                {name}
-              </li>
-            ))}
-          </ul>,
+                {rows.map((name, i) => (
+                  <li
+                    key={name}
+                    id={id + '-name-' + i}
+                    role="option"
+                    aria-selected={highlight === i}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => choose(name)}
+                  >
+                    {name}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>,
           document.body
         )}
     </div>
