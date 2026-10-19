@@ -39,6 +39,7 @@ export function Editor(props: {
   })
   const [draft, setDraft] = useState<Edit>(original)
   const [error, setError] = useState('')
+  const [nameSuggestionRequest, setNameSuggestionRequest] = useState(0)
   const itemLayout = useItemLayout()
   const dirty = JSON.stringify(draft) !== JSON.stringify(original)
   const title = draft.kind === 'module' ? '编辑模组' : draft.kind === 'record' ? '编辑场次' : '编辑角色卡'
@@ -60,10 +61,11 @@ export function Editor(props: {
   }, [error])
   useEffect(() => {
     let frame = 0
-    const reveal = () => {
+    const reveal = (event?: Event) => {
       cancelAnimationFrame(frame)
+      const requested = event instanceof CustomEvent ? event.detail : undefined
       frame = requestAnimationFrame(() => {
-        const active = document.activeElement
+        const active = requested instanceof HTMLInputElement ? requested : document.activeElement
         if (
           !(active instanceof HTMLElement) ||
           !active.matches('input, textarea, select') ||
@@ -77,13 +79,20 @@ export function Editor(props: {
         const bottom = Math.min(view.top + view.height - 8, (dock?.top ?? view.top + view.height) - 8)
         if (bottom <= top) return
         const box = active.getBoundingClientRect()
+        const menu = document.getElementById(active.getAttribute('aria-controls') ?? '')
+        if (menu?.classList.contains('inline-name-options'))
+          menu.style.maxHeight = `${Math.max(44, Math.min(220, bottom - top - box.height - 4))}px`
+        const menuBottom = menu?.classList.contains('inline-name-options')
+          ? menu.getBoundingClientRect().bottom
+          : box.bottom
         if (box.top < top) window.scrollBy(0, box.top - top)
-        else if (box.bottom > bottom) window.scrollBy(0, Math.min(box.bottom - bottom, box.top - top))
+        else if (menuBottom > bottom) window.scrollBy(0, Math.min(menuBottom - bottom, box.top - top))
       })
     }
     editor.current?.addEventListener('focusin', reveal)
     window.addEventListener('resize', reveal)
     window.visualViewport?.addEventListener('resize', reveal)
+    window.addEventListener('logbook-name-options-open', reveal)
     reveal()
     const root = editor.current
     return () => {
@@ -91,6 +100,7 @@ export function Editor(props: {
       root?.removeEventListener('focusin', reveal)
       window.removeEventListener('resize', reveal)
       window.visualViewport?.removeEventListener('resize', reveal)
+      window.removeEventListener('logbook-name-options-open', reveal)
     }
     // 键盘尺寸变化后等待操作栏提交；纯视口平移不再次抢回滚动。
   }, [viewport.height, viewport.width])
@@ -401,6 +411,7 @@ export function Editor(props: {
                         ? [...c.moduleIds, m.id]
                         : c.moduleIds.filter((id) => id !== m.id)
                       character({ ...c, moduleIds, moduleId: moduleIds[0] })
+                      if (e.target.checked) setNameSuggestionRequest((request) => request + 1)
                     }}
                   />
                   {m.name}
@@ -421,6 +432,7 @@ export function Editor(props: {
                       key={key}
                       value={c.basic.name}
                       names={pcNames}
+                      requestOpen={nameSuggestionRequest}
                       onChange={(name) => character({ ...c, basic: { ...c.basic, name } })}
                     />
                   ) : (

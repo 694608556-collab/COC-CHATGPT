@@ -437,21 +437,13 @@ main {
 .editor textarea {
   scroll-margin: 90px 0;
 }
-.name-options-origin {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 0;
-  height: 0;
-  z-index: 120;
-}
-.combo-options.viewport-name-options {
-  position: absolute;
+.combo-options.inline-name-options {
+  position: static;
+  width: 100%;
+  max-height: 220px;
   touch-action: pan-y;
   overscroll-behavior-y: contain;
-  right: auto;
-  margin: 0;
-  z-index: 120;
+  margin: 4px 0 0;
 }
 .bottom-nav button {
   flex: 1;
