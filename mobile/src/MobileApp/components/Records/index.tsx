@@ -237,6 +237,7 @@ export function Records(props: {
                     <GestureRow
                       key={r.id}
                       id={r.id}
+                      highlighted={r.id === props.returnRecordId}
                       group={'records:' + m.id}
                       label={'场次 ' + r.name}
                       disabled={props.busy}
@@ -269,7 +270,7 @@ export function Records(props: {
                         )}
                         <button
                           ref={r.id === props.returnRecordId ? returnCard : undefined}
-                          className={'record-card' + (r.id === props.returnRecordId ? ' reading-return' : '')}
+                          className="record-card"
                           aria-current={r.id === props.returnRecordId ? 'true' : undefined}
                           data-record-id={r.id}
                           onClick={() =>

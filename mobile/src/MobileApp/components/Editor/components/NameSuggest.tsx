@@ -5,6 +5,8 @@ export function NameSuggest(props: {
   value: string
   names: string[]
   requestOpen: number
+  /** 导入草稿缺少姓名时标红并要求填写；正常新建不受影响。 */
+  invalid?: boolean
   onChange(name: string): void
 }) {
   const id = useId(),
@@ -74,6 +76,9 @@ export function NameSuggest(props: {
       <label htmlFor={id}>姓名</label>
       <input
         ref={input}
+        aria-invalid={props.invalid || undefined}
+        required={props.invalid}
+        title={props.invalid ? '姓名（人物卡 E3）未填写，请在此补填。' : undefined}
         id={id}
         role="combobox"
         aria-autocomplete="list"

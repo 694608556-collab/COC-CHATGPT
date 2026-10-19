@@ -6,6 +6,44 @@ import { searchSample } from '../src/dev/sample'
 import { createEmptyCharacter, skillFinal } from '../../src/shared/coc-rules'
 import { acceptAppConfirmations } from './helpers'
 
+test('缺少HP和无效属性仍进入草稿，底部提醒与字段标红，补齐后保存重开且不覆盖旧卡', async ({ page }, info) => {
+  await ready(page)
+  const book = publicCoc7Workbook(),
+    sheet = book.Sheets['人物卡']!
+  delete sheet.E10
+  sheet.U3 = { t: 's', v: '忘记填写' }
+  sheet.R17 = { t: 'e', v: 7 }
+  await importCard(page, publicCoc7Bytes(book))
+  await expect(page.getByRole('heading', { name: '导入七版角色卡预览', exact: true })).toBeVisible()
+  await expect(page.getByLabel('导入待补填提醒')).toContainText('当前生命值 HP')
+  const hp = page.getByLabel('当前 HP', { exact: true }),
+    str = page.getByLabel('STR', { exact: true }),
+    skill = page.getByLabel('技能1数值', { exact: true })
+  for (const field of [hp, str, skill]) {
+    await expect(field).toHaveValue('')
+    await expect(field).toHaveAttribute('aria-invalid', 'true')
+  }
+  await expect(
+    page.getByText('当前生命值 HP（人物卡 E10）未填写，请在此补填。', { exact: true })
+  ).toBeVisible()
+  await hp.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: info.outputPath('import-missing-fields.png') })
+  await page.getByRole('button', { name: '保存修改', exact: true }).click()
+  await expect(page.locator('.editor')).toBeVisible()
+  await hp.fill('0')
+  await str.fill('60')
+  await skill.fill('15')
+  for (const field of [hp, str, skill]) await expect(field).not.toHaveAttribute('aria-invalid', 'true')
+  await expect(page.getByLabel('导入待补填提醒')).toHaveCount(0)
+  await page.getByRole('button', { name: '保存修改', exact: true }).click()
+  await expect(page.locator('.record-card')).toHaveCount(2)
+  await page.reload()
+  await page.getByRole('button', { name: '角色卡', exact: true }).click()
+  await page.locator('.record-card').filter({ hasText: '公开职业' }).click()
+  await page.getByRole('button', { name: '编辑角色卡', exact: true }).click()
+  await expect(page.getByLabel('当前 HP', { exact: true })).toHaveValue('0')
+})
+
 async function ready(page: Page) {
   page.on('dialog', (dialog) => dialog.accept())
   await acceptAppConfirmations(page)

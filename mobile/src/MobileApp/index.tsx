@@ -465,7 +465,11 @@ export function MobileApp({
     setEditing({
       draft: { kind: 'character', value: imported.character },
       revision,
-      importSummary: { skippedSkills: imported.skippedSkills, warnings: imported.warnings }
+      importSummary: {
+        skippedSkills: imported.skippedSkills,
+        warnings: imported.warnings,
+        issues: imported.issues
+      }
     })
     window.scrollTo(0, 0)
   }
@@ -966,7 +970,7 @@ export function MobileApp({
           <img src="icon.png" alt="" />
           <strong>COC 跑团记录簿</strong>
         </div>
-        <span className="version">1.0.4</span>
+        <span className="version">1.0.5</span>
       </header>
       <main
         className={page === 'settings' && !editing ? 'settings-page' : undefined}

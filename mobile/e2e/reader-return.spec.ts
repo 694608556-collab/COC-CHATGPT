@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { searchSample } from '../src/dev/sample'
 import { acceptAppConfirmations, expandModules } from './helpers'
 
-test('正文返回展开原模组，将刚读场次居中高亮；按钮、系统返回和边缘手势一致', async ({ page }) => {
+test('正文返回展开原模组，将刚读场次居中高亮；按钮、系统返回和边缘手势一致', async ({ page }, info) => {
   page.on('dialog', (dialog) => dialog.accept())
   await acceptAppConfirmations(page)
   await page.goto('/')
@@ -44,6 +44,24 @@ test('正文返回展开原模组，将刚读场次居中高亮；按钮、系�
       await client.detach()
     }
     await expect(target).toHaveAttribute('aria-current', 'true')
+    expect(
+      await target.evaluate((node) => {
+        const frame = node.closest('.gesture-content')!
+        const style = getComputedStyle(frame)
+        return {
+          border: style.borderTopWidth,
+          color: style.borderTopColor,
+          shadow: getComputedStyle(node).boxShadow,
+          fill: getComputedStyle(node).backgroundColor,
+          panel: getComputedStyle(document.querySelector('.app-header')!).backgroundColor
+        }
+      })
+    ).toMatchObject({
+      border: '1px',
+      color: index === 0 ? 'rgb(109, 69, 245)' : 'rgb(156, 133, 255)',
+      shadow: 'none',
+      fill: 'rgba(0, 0, 0, 0)'
+    })
     await expect(page.locator('.record-card[aria-current="true"]')).toHaveCount(1)
     await expect
       .poll(async () =>
@@ -56,6 +74,7 @@ test('正文返回展开原模组，将刚读场次居中高亮；按钮、系�
       )
       .toBeLessThan(3)
     expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(heightBefore)
+    await page.screenshot({ path: info.outputPath(`return-thin-border-${index}.png`) })
     if (index === 0) {
       await page.getByRole('button', { name: '数据与设置', exact: true }).click()
       await page.getByRole('button', { name: '深色模式', exact: true }).click()
