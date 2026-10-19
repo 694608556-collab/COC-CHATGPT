@@ -1,3 +1,5 @@
+> 后续 [build34](../ios-1.0.4-34/README.md) 已追加真实键盘平移坐标边界修正；本33包原样保留，不包含该追加。
+
 # iOS 1.0.4 / build 33（未签名，实体复测待验）
 
 - 源码 `c922bfe284e76a2bb035771e597b7386891501cf`，[云端构建](https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39186373476)。
