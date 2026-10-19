@@ -13,8 +13,8 @@ final class PickerUITests: XCTestCase {
 
     private func editable(_ web: XCUIElementQuery, _ label: String) -> XCUIElement {
         // Match the editable accessibility node without assuming WebKit's native
-        // role mapping. Static labels have no editable value.
-        web.descendants(matching: .any).matching(NSPredicate(format: "label == %@ AND value != nil", label)).firstMatch
+        // role mapping. Exclude static label nodes, which also expose a value.
+        web.descendants(matching: .any).matching(NSPredicate(format: "label == %@ AND value != nil AND elementType != %d", label, XCUIElement.ElementType.staticText.rawValue)).firstMatch
     }
 
     func testFolderOpenReturnsAndSurvivesRestart() throws {
