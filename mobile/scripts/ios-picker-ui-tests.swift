@@ -17,21 +17,53 @@ final class PickerUITests: XCTestCase {
         web.descendants(matching: .any).matching(NSPredicate(format: "label == %@ AND value != nil AND elementType != %d", label, XCUIElement.ElementType.staticText.rawValue)).firstMatch
     }
 
-    private func pickPublicCoc7(_ app: XCUIApplication) {
-        app.webViews.buttons["导入七版角色卡"].firstMatch.tap()
-        let file = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "public-coc7")).firstMatch
-        if !file.waitForExistence(timeout: 5) {
-            let container = app.cells["COC 跑团记录簿, Container"].firstMatch
-            if container.waitForExistence(timeout: 5) { container.tap() }
-            let folder = app.staticTexts["COC-Picker-Public-Test"].firstMatch
-            if folder.waitForExistence(timeout: 5) { folder.tap() }
+    // Files retains offscreen browsing pages in its accessibility tree. An
+    // existing firstMatch can belong to an earlier page and cannot be tapped.
+    private func visiblePickerItem(_ query: XCUIElementQuery) -> XCUIElement? {
+        query.allElementsBoundByIndex.first { $0.exists && $0.isHittable }
+    }
+
+    private func waitForPickerItem(_ query: XCUIElementQuery, in app: XCUIApplication, timeout: TimeInterval = 15) throws -> XCUIElement {
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            self.visiblePickerItem(query) != nil
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: timeout), .completed, app.debugDescription)
+        return try XCTUnwrap(visiblePickerItem(query), app.debugDescription)
+    }
+
+    private func enterPublicPickerFolder(_ app: XCUIApplication) throws {
+        let folder = app.cells.matching(identifier: "COC-Picker-Public-Test, Folder")
+        let container = app.cells.matching(identifier: "COC 跑团记录簿, Container")
+        let locationReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            self.visiblePickerItem(folder) != nil || self.visiblePickerItem(container) != nil
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [locationReady], timeout: 20), .completed, app.debugDescription)
+        if visiblePickerItem(folder) == nil {
+            try waitForPickerItem(container, in: app).tap()
         }
-        XCTAssertTrue(file.waitForExistence(timeout: 15), app.debugDescription)
-        file.tap()
+        try waitForPickerItem(folder, in: app).tap()
+        // Verify navigation, not just the existence of a label on a retained page.
+        let location = app.buttons.matching(NSPredicate(format: "label == %@", "COC-Picker-Public-Test, Actions Menu"))
+        _ = try waitForPickerItem(location, in: app)
+    }
+
+    private func pickPublicCoc7(_ app: XCUIApplication) throws {
+        app.webViews.buttons["导入七版角色卡"].firstMatch.tap()
+        let file = app.cells.matching(NSPredicate(format: "label BEGINSWITH %@", "public-coc7"))
+        let folder = app.cells.matching(identifier: "COC-Picker-Public-Test, Folder")
+        let container = app.cells.matching(identifier: "COC 跑团记录簿, Container")
+        let locationReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            self.visiblePickerItem(file) != nil || self.visiblePickerItem(folder) != nil || self.visiblePickerItem(container) != nil
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [locationReady], timeout: 20), .completed, app.debugDescription)
+        if visiblePickerItem(file) == nil {
+            try enterPublicPickerFolder(app)
+        }
+        try waitForPickerItem(file, in: app).tap()
         let title = app.webViews.staticTexts["导入七版角色卡预览"].firstMatch
         if !title.waitForExistence(timeout: 3) {
-            let open = app.buttons.matching(NSPredicate(format: "label IN %@", ["Open", "打开"])).firstMatch
-            if open.exists { open.tap() }
+            let open = app.buttons.matching(NSPredicate(format: "label IN %@", ["Open", "打开"]))
+            if let button = visiblePickerItem(open) { button.tap() }
         }
         XCTAssertTrue(title.waitForExistence(timeout: 15), app.debugDescription)
     }
@@ -46,14 +78,14 @@ final class PickerUITests: XCTestCase {
         local.tap()
         XCTAssertTrue(web.buttons["新增模组"].firstMatch.waitForExistence(timeout: 30), app.debugDescription)
         web.buttons["角色卡"].firstMatch.tap()
-        pickPublicCoc7(app)
+        try pickPublicCoc7(app)
         XCTAssertTrue(web.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "6项技能、4项物品")).firstMatch.exists, app.debugDescription)
         XCTAssertEqual(web.textFields["居住地"].firstMatch.value as? String, "公开居住地", app.debugDescription)
         XCTAssertEqual(web.textFields["故乡"].firstMatch.value as? String, "公开故乡", app.debugDescription)
         web.buttons["取消编辑"].firstMatch.tap()
         let saved = web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "公开七版调查员")).firstMatch
         XCTAssertFalse(saved.exists, app.debugDescription)
-        pickPublicCoc7(app)
+        try pickPublicCoc7(app)
         web.buttons["保存修改"].firstMatch.tap()
         XCTAssertTrue(saved.waitForExistence(timeout: 15), app.debugDescription)
         app.terminate()
@@ -78,19 +110,9 @@ final class PickerUITests: XCTestCase {
         let choose = app.webViews.buttons["选择并确认保存位置"].firstMatch
         XCTAssertTrue(choose.waitForExistence(timeout: 30), app.debugDescription)
         choose.tap()
-        let folder = app.staticTexts["COC-Picker-Public-Test"].firstMatch
-        // iOS 27 may start at On My iPhone despite directoryURL. Enter the
-        // observed application container rather than assuming the hint was honored.
-        if !folder.waitForExistence(timeout: 3) {
-            let container = app.cells["COC 跑团记录簿, Container"].firstMatch
-            XCTAssertTrue(container.waitForExistence(timeout: 15), app.debugDescription)
-            container.tap()
-        }
-        XCTAssertTrue(folder.waitForExistence(timeout: 20), app.debugDescription)
-        folder.tap()
-        let open = app.buttons.matching(NSPredicate(format: "label IN %@", ["Open", "打开"])).firstMatch
-        XCTAssertTrue(open.waitForExistence(timeout: 10), app.debugDescription)
-        open.tap()
+        try enterPublicPickerFolder(app)
+        let open = app.buttons.matching(NSPredicate(format: "label IN %@", ["Open", "打开"]))
+        try waitForPickerItem(open, in: app, timeout: 10).tap()
         let gateGone = NSPredicate(format: "exists == false")
         expectation(for: gateGone, evaluatedWith: choose)
         waitForExpectations(timeout: 30)
