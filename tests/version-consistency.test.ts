@@ -11,8 +11,7 @@ import { describe, expect, it } from 'vitest'
 const root = path.resolve(__dirname, '..')
 const read = (rel: string): string => fs.readFileSync(path.join(root, rel), 'utf8')
 /** .bat 是 GBK 编码，不能用 utf8 读 */
-const readGbk = (rel: string): string =>
-  new TextDecoder('gbk').decode(fs.readFileSync(path.join(root, rel)))
+const readGbk = (rel: string): string => new TextDecoder('gbk').decode(fs.readFileSync(path.join(root, rel)))
 
 describe('version consistency', () => {
   const version = JSON.parse(read('package.json')).version as string
@@ -38,7 +37,7 @@ describe('version consistency', () => {
 
   it('points the sync script at the current version branch', () => {
     const bat = readGbk('tools/公司电脑-一键同步并启动开发.bat')
-    expect(bat, '同步脚本里的分支名应与当前版本一致').toContain(`set "BRANCH=v${version}"`)
+    expect(bat, '同步脚本里的分支名应与当前版本一致').toContain(`set "BRANCH=codex/desktop-${version}"`)
   })
 
   it('keeps the bat file GBK encoded without a BOM', () => {
@@ -49,6 +48,6 @@ describe('version consistency', () => {
   })
 
   it('documents the branch in the tools README', () => {
-    expect(read('tools/README.md')).toContain(`v${version}`)
+    expect(read('tools/README.md')).toContain(`codex/desktop-${version}`)
   })
 })
