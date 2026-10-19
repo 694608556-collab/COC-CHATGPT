@@ -1,3 +1,4 @@
+import { previewCoc7Import } from '../shared/coc7-import'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -208,10 +209,7 @@ function describeIssue(issue: z.core.$ZodIssue): string {
        * 否则是类型不对（把数字当文字传之类）。取不到就按类型不对处理——
        * 说「格式不对」比误报「没填」更贴近事实。
        */
-      const received =
-        detail.input !== undefined
-          ? detail.input
-          : /received\s+(\S+)/.exec(issue.message)?.[1]
+      const received = detail.input !== undefined ? detail.input : /received\s+(\S+)/.exec(issue.message)?.[1]
       if (received === undefined || received === 'undefined') {
         return `${label}：缺少必填内容`
       }
@@ -316,6 +314,7 @@ const automaticBackupChannels = new Set([
   'records:probe',
   'records:reset-probe',
   'characters:create',
+  'characters:save-imported',
   'characters:update',
   'characters:convert',
   'characters:move',
@@ -410,6 +409,9 @@ export function registerIpc(
       name: optionalText
     }),
     (input) => repository.createCharacter(input)
+  )
+  register('characters:save-imported', z.object({ data: characterData }), ({ data }) =>
+    repository.saveImportedCharacter(data)
   )
   register('characters:update', z.object({ id, data: characterData }), ({ id: characterId, data }) =>
     repository.updateCharacter(characterId, data)
@@ -513,6 +515,27 @@ export function registerIpc(
   register('files:save-character-template', z.object({ edition }), ({ edition: target }) =>
     characterFileService.saveBlankTemplate(target)
   )
+  register('files:choose-coc7-import', empty, async () => {
+    const options: Electron.OpenDialogOptions = {
+      title: '导入第七版角色卡',
+      properties: ['openFile'],
+      filters: [{ name: '七版角色卡', extensions: ['xlsx'] }]
+    }
+    const owner = windowProvider()
+    const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
+    if (result.canceled || !result.filePaths[0]) return undefined
+    const filePath = result.filePaths[0]
+    try {
+      if (fs.statSync(filePath).size > 20 * 1024 * 1024) throw new Error('角色卡文件超过 20 MB。')
+      return previewCoc7Import(fs.readFileSync(filePath), path.basename(filePath))
+    } catch (error) {
+      throw new AppError(
+        'COC7_IMPORT_FAILED',
+        'IMPORT',
+        error instanceof Error ? error.message : '无法读取七版角色卡。'
+      )
+    }
+  })
   register('files:choose-character-import', empty, async () => {
     const options: Electron.OpenDialogOptions = {
       title: '选择角色卡表格',
@@ -632,8 +655,10 @@ export function registerIpc(
   register('resources:delete', z.object({ id }), ({ id: resourceId }) =>
     repository.deleteResource(resourceId)
   )
-  register('resources:move', z.object({ id, targetIndex: z.number().int().min(0).max(999) }), ({ id: resourceId, targetIndex }) =>
-    repository.moveResource(resourceId, targetIndex)
+  register(
+    'resources:move',
+    z.object({ id, targetIndex: z.number().int().min(0).max(999) }),
+    ({ id: resourceId, targetIndex }) => repository.moveResource(resourceId, targetIndex)
   )
 
   /**
@@ -645,44 +670,39 @@ export function registerIpc(
    * 它用 UNASSIGNED_GROUP 哨兵来记。用 uuid 校验会把哨兵挡在门外，
    * 界面只看到「输入内容不完整或格式不正确」，分组也就删不掉。
    */
-  register(
-    'resources:remove-group',
-    z.object({ moduleId: z.string().min(1).max(120) }),
-    ({ moduleId }) => repository.hideResourceGroup(moduleId)
+  register('resources:remove-group', z.object({ moduleId: z.string().min(1).max(120) }), ({ moduleId }) =>
+    repository.hideResourceGroup(moduleId)
   )
 
   /** 选一个或多个文件，返回路径与建议标题；导图、文件都用它 */
-  register(
-    'resources:choose-files',
-    z.object({ kind: resourceKind }),
-    async ({ kind }) => {
-      const options: Electron.OpenDialogOptions = {
-        title: kind === 'mindmap' ? '选择思维导图' : '选择文件',
-        properties: ['openFile', 'multiSelections'],
-        filters:
-          kind === 'mindmap'
-            ? [
-                // HTML 是新版 .emmx 的推荐替代：图形由 EdrawMind 自己渲染，完整且离线可用
-                { name: '思维导图（推荐 HTML）', extensions: ['html', 'htm', 'emmx', 'emmxz'] },
-                { name: 'EdrawMind 源文件', extensions: ['emmx', 'emmxz'] },
-                { name: 'EdrawMind 网页导出', extensions: ['html', 'htm'] }
-              ]
-            : [
-                { name: '常见资料', extensions: ['pdf', 'doc', 'docx', 'txt', 'md', 'png', 'jpg', 'jpeg', 'xlsx', 'pptx'] },
-                { name: '全部文件', extensions: ['*'] }
-              ]
-      }
-      const owner = windowProvider()
-      const result = owner
-        ? await dialog.showOpenDialog(owner, options)
-        : await dialog.showOpenDialog(options)
-      if (result.canceled) return []
-      return result.filePaths.map((filePath) => ({
-        path: filePath,
-        title: path.basename(filePath, path.extname(filePath))
-      }))
+  register('resources:choose-files', z.object({ kind: resourceKind }), async ({ kind }) => {
+    const options: Electron.OpenDialogOptions = {
+      title: kind === 'mindmap' ? '选择思维导图' : '选择文件',
+      properties: ['openFile', 'multiSelections'],
+      filters:
+        kind === 'mindmap'
+          ? [
+              // HTML 是新版 .emmx 的推荐替代：图形由 EdrawMind 自己渲染，完整且离线可用
+              { name: '思维导图（推荐 HTML）', extensions: ['html', 'htm', 'emmx', 'emmxz'] },
+              { name: 'EdrawMind 源文件', extensions: ['emmx', 'emmxz'] },
+              { name: 'EdrawMind 网页导出', extensions: ['html', 'htm'] }
+            ]
+          : [
+              {
+                name: '常见资料',
+                extensions: ['pdf', 'doc', 'docx', 'txt', 'md', 'png', 'jpg', 'jpeg', 'xlsx', 'pptx']
+              },
+              { name: '全部文件', extensions: ['*'] }
+            ]
     }
-  )
+    const owner = windowProvider()
+    const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
+    if (result.canceled) return []
+    return result.filePaths.map((filePath) => ({
+      path: filePath,
+      title: path.basename(filePath, path.extname(filePath))
+    }))
+  })
 
   /**
    * 读取导图并转成矢量 SVG + 层级大纲。
@@ -742,10 +762,7 @@ export function registerIpc(
         svg: pageToSvg(page),
         // 节点数只算画出来的那些：折叠分支里的节点不显示，算进去会让
         // 界面上的数字与看到的内容对不上（见 emmx.ts 的 hidden 说明）
-        textCount: page.shapes.reduce(
-          (sum, shape) => sum + (shape.hidden ? 0 : shape.lines.length),
-          0
-        ),
+        textCount: page.shapes.reduce((sum, shape) => sum + (shape.hidden ? 0 : shape.lines.length), 0),
         // 节点搜索用：普通节点文字 + 关系连线标签 + 分组框标题
         // 这里**包含**折叠的节点——折叠只是不显示，内容不该搜不到
         texts: [
@@ -819,9 +836,7 @@ export function registerIpc(
           : [{ name: '全部文件', extensions: ['*'] }]
     }
     const owner = windowProvider()
-    const result = owner
-      ? await dialog.showOpenDialog(owner, options)
-      : await dialog.showOpenDialog(options)
+    const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
     if (result.canceled || !result.filePaths[0]) return undefined
     const filePath = result.filePaths[0]
     return { path: filePath, title: path.basename(filePath, path.extname(filePath)) }
@@ -912,9 +927,7 @@ export function registerIpc(
     if (window && !window.isMaximized()) window.setBounds(bounds)
   }
   ipcMain.handle('window:set-bounds', (_event, rawBounds) => applyWindowBounds(rawBounds))
-  ipcMain.handle('window:is-maximized', () =>
-    windowProvider()?.isMaximized() ?? false
-  )
+  ipcMain.handle('window:is-maximized', () => windowProvider()?.isMaximized() ?? false)
   ipcMain.handle('window:minimize', () => windowProvider()?.minimize())
   ipcMain.handle('window:toggle-maximize', () => {
     const window = windowProvider()

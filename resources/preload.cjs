@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('coc', {
     realignSequences: (moduleId) => invoke('records:realign-sequences', { moduleId })
   },
   characters: {
+    saveImported: (data) => invoke('characters:save-imported', { data }),
     create: (input) => invoke('characters:create', input),
     update: (id, data) => invoke('characters:update', { id, data }),
     convert: (id, edition) => invoke('characters:convert', { id, edition }),
@@ -73,6 +74,7 @@ contextBridge.exposeInMainWorld('coc', {
     exportTable: (ids, format) => invoke('files:export-table', { ids, format }),
     exportCharacter: (id, format) => invoke('files:export-character', { id, format }),
     saveCharacterTemplate: (edition) => invoke('files:save-character-template', { edition }),
+    chooseCoc7Import: () => invoke('files:choose-coc7-import'),
     chooseCharacterImport: () => invoke('files:choose-character-import'),
     commitCharacterImport: (token, selections) =>
       invoke('files:commit-character-import', { token, selections }),

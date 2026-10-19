@@ -4,8 +4,11 @@ export function NameSuggestField({
   label,
   value,
   options,
-  onChange
+  onChange,
+  invalid
 }: {
+  /** 导入字段缺失时显示红边。 */
+  invalid?: boolean
   label: string
   value: string
   options: string[]
@@ -63,6 +66,7 @@ export function NameSuggestField({
       <label htmlFor={inputId}>{label}</label>
       <div className="combo" ref={wrapRef}>
         <input
+          aria-invalid={invalid || undefined}
           id={inputId}
           role="combobox"
           aria-expanded={open && filtered.length > 0}

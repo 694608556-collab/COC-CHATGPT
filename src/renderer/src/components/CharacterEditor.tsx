@@ -1,3 +1,4 @@
+import type { Coc7ImportSummary } from '../../../shared/coc7-import'
 import { useState } from 'react'
 import type { CharacterData, ModuleRecord } from '../../../shared/types'
 import { calculateDerived, convertCharacterEdition, createSkill } from '../../../shared/coc-rules'
@@ -43,13 +44,16 @@ export function CharacterEditor({
   modules,
   onClose,
   onSave,
-  onDelete
+  onDelete,
+  importSummary
 }: {
   character: CharacterData
   modules: ModuleRecord[]
   onClose(): void
-  onSave(data: CharacterData): void
-  onDelete(): void
+  onSave(data: CharacterData): void | Promise<void>
+  onDelete?(): void
+  /** 七版导入的待补填字段，仅在草稿存在。 */
+  importSummary?: Coc7ImportSummary
 }): React.JSX.Element {
   const [draft, setDraft] = useState(() => {
     const next = structuredClone(character)
@@ -61,6 +65,40 @@ export function CharacterEditor({
     }))
     return next
   })
+
+  const [issues, setIssues] = useState(importSummary?.issues ?? [])
+  const [saving, setSaving] = useState(false)
+  const activeIssues = issues.filter(
+    (issue) =>
+      !issue.key.startsWith('skill:') || draft.skills.some((skill) => issue.key === `skill:${skill.id}`)
+  )
+
+  /** 用户明确输入有效值后清除导入问题，空白或负数仍保留。@param key 字段键。@param value 原始输入。@param numeric 是否数值。@returns 无返回值。 */
+  const resolveIssue = (key: string, value: string, numeric = true): void => {
+    if (!value.trim() || (numeric && (!Number.isFinite(Number(value)) || Number(value) < 0))) return
+    setIssues((current) => current.filter((issue) => issue.key !== key))
+  }
+
+  /** 生成数值控件的导入提示属性。@param key 问题键。@param value 当前数值。@returns 显示值和无障碍错误提示。 */
+  const numericProps = (key: string, value: number | undefined) => {
+    const issue = issues.find((item) => item.key === key)
+    return {
+      value: issue ? '' : (value ?? 0),
+      'aria-invalid': issue ? true : undefined,
+      title: issue?.message
+    }
+  }
+
+  /** 防止重复提交；失败由父级显示错误且保留草稿。@returns 无返回值。 */
+  const saveDraft = async (): Promise<void> => {
+    if (saving || activeIssues.length) return
+    setSaving(true)
+    try {
+      await onSave(draft)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const updateBasic = (field: keyof CharacterData['basic'], value: string): void =>
     setDraft({ ...draft, basic: { ...draft.basic, [field]: value } })
@@ -74,9 +112,7 @@ export function CharacterEditor({
   const updateWeapon = (index: number, field: string, value: string): void =>
     setDraft({
       ...draft,
-      weapons: draft.weapons.map((weapon, i) =>
-        i === index ? { ...weapon, [field]: value } : weapon
-      )
+      weapons: draft.weapons.map((weapon, i) => (i === index ? { ...weapon, [field]: value } : weapon))
     })
 
   const updateModule = (moduleId: string, checked: boolean): void => {
@@ -88,13 +124,19 @@ export function CharacterEditor({
 
   const limits = calculateDerived(draft.edition, draft.attrs, draft.derived.luck7 ?? 50)
   const selectedModules = modules.filter((module) => draft.moduleIds.includes(module.id))
-  const pcSuggestions = [...new Set(
-    selectedModules.flatMap((module) => module.pairs.map((pair) => pair.pc).filter(Boolean))
-  )]
+  const pcSuggestions = [
+    ...new Set(selectedModules.flatMap((module) => module.pairs.map((pair) => pair.pc).filter(Boolean)))
+  ]
 
   return (
     <DialogShell title="调查员角色卡" onClose={onClose} wide>
       <div className="character-editor">
+        {importSummary && (
+          <p>
+            七版角色卡导入预览：请检查后保存；取消不会新增角色。已跳过 {importSummary.skippedSkills} 项低于 15
+            的技能。
+          </p>
+        )}
         <div className="character-edition-row">
           <span>COC 第{draft.edition === 7 ? '七' : '六'}版</span>
           <div className="segmented">
@@ -132,14 +174,21 @@ export function CharacterEditor({
               </div>
             </div>
             <NameSuggestField
+              invalid={issues.some((issue) => issue.key === '姓名')}
               label="角色名"
               value={draft.basic.name}
               options={pcSuggestions}
-              onChange={(next) => updateBasic('name', next)}
+              onChange={(next) => {
+                updateBasic('name', next)
+                resolveIssue('姓名', next, false)
+              }}
             />
             <label>
               职业
-              <input value={draft.basic.occupation} onChange={(event) => updateBasic('occupation', event.target.value)} />
+              <input
+                value={draft.basic.occupation}
+                onChange={(event) => updateBasic('occupation', event.target.value)}
+              />
             </label>
             <label>
               年龄
@@ -147,15 +196,24 @@ export function CharacterEditor({
             </label>
             <label>
               性别
-              <input value={draft.basic.gender} onChange={(event) => updateBasic('gender', event.target.value)} />
+              <input
+                value={draft.basic.gender}
+                onChange={(event) => updateBasic('gender', event.target.value)}
+              />
             </label>
             <label>
               出生地
-              <input value={draft.basic.birthplace} onChange={(event) => updateBasic('birthplace', event.target.value)} />
+              <input
+                value={draft.basic.birthplace}
+                onChange={(event) => updateBasic('birthplace', event.target.value)}
+              />
             </label>
             <label>
               居住地
-              <input value={draft.basic.residence} onChange={(event) => updateBasic('residence', event.target.value)} />
+              <input
+                value={draft.basic.residence}
+                onChange={(event) => updateBasic('residence', event.target.value)}
+              />
             </label>
           </div>
         </section>
@@ -168,18 +226,64 @@ export function CharacterEditor({
                 {ATTR_LABELS[field]}
                 <input
                   type="number"
-                  value={draft.attrs[field]}
-                  onChange={(event) => updateAttribute(field, Number(event.target.value))}
+                  {...numericProps(field, draft.attrs[field])}
+                  min="0"
+                  onChange={(event) => {
+                    updateAttribute(field, Number(event.target.value))
+                    resolveIssue(field, event.target.value)
+                  }}
                 />
               </label>
             ))}
           </div>
+          <div className="attribute-grid">
+            {(
+              [
+                ['hpCurrent', '当前 HP'],
+                ['mpCurrent', '当前 MP'],
+                ['sanCurrent', '当前 SAN'],
+                ['luck7', '幸运']
+              ] as const
+            ).map(([field, label]) => (
+              <label key={field}>
+                {label}
+                <input
+                  type="number"
+                  min="0"
+                  {...numericProps(label, draft.derived[field])}
+                  onChange={(event) => {
+                    setDraft({ ...draft, derived: { ...draft.derived, [field]: Number(event.target.value) } })
+                    resolveIssue(label, event.target.value)
+                  }}
+                />
+              </label>
+            ))}
+          </div>
+          <label>
+            伤害加值
+            <input
+              value={draft.derived.db}
+              onChange={(event) =>
+                setDraft({ ...draft, derived: { ...draft.derived, db: event.target.value } })
+              }
+            />
+          </label>
           <div className="derived">
-            <span>生命 <b>{limits.hp}</b></span>
-            <span>魔法 <b>{limits.mp}</b></span>
-            <span>理智 <b>{limits.san}</b></span>
-            <span>幸运 <b>{draft.edition === 6 ? draft.attrs.POW * 5 : (draft.derived.luck7 ?? 50)}</b></span>
-            <span>移动 <b>8</b></span>
+            <span>
+              生命 <b>{limits.hp}</b>
+            </span>
+            <span>
+              魔法 <b>{limits.mp}</b>
+            </span>
+            <span>
+              理智 <b>{limits.san}</b>
+            </span>
+            <span>
+              幸运 <b>{draft.edition === 6 ? draft.attrs.POW * 5 : (draft.derived.luck7 ?? 50)}</b>
+            </span>
+            <span>
+              移动 <b>8</b>
+            </span>
           </div>
         </section>
 
@@ -200,15 +304,16 @@ export function CharacterEditor({
                 <button
                   className="icon-button neutral-delete"
                   aria-label={`删除武器${index + 1}`}
-                  onClick={() =>
-                    setDraft({ ...draft, weapons: draft.weapons.filter((_, i) => i !== index) })
-                  }
+                  onClick={() => setDraft({ ...draft, weapons: draft.weapons.filter((_, i) => i !== index) })}
                 >
                   <XIcon />
                 </button>
               </div>
             ))}
-            <button className="secondary inline-add add-weapon" onClick={() => setDraft({ ...draft, weapons: [...draft.weapons, {}] })}>
+            <button
+              className="secondary inline-add add-weapon"
+              onClick={() => setDraft({ ...draft, weapons: [...draft.weapons, {}] })}
+            >
               + 添加武器
             </button>
           </div>
@@ -234,22 +339,22 @@ export function CharacterEditor({
                 <input
                   aria-label={`技能${index + 1}点数`}
                   type="number"
-                  value={skill.base}
-                  onChange={(event) =>
+                  {...numericProps(`skill:${skill.id}`, skill.base)}
+                  min="0"
+                  onChange={(event) => {
                     setDraft({
                       ...draft,
                       skills: draft.skills.map((item, i) =>
                         i === index ? { ...item, base: Number(event.target.value) } : item
                       )
                     })
-                  }
+                    resolveIssue(`skill:${skill.id}`, event.target.value)
+                  }}
                 />
                 <button
                   className="icon-button neutral-delete"
                   aria-label={`删除技能${index + 1}`}
-                  onClick={() =>
-                    setDraft({ ...draft, skills: draft.skills.filter((_, i) => i !== index) })
-                  }
+                  onClick={() => setDraft({ ...draft, skills: draft.skills.filter((_, i) => i !== index) })}
                 >
                   <XIcon />
                 </button>
@@ -263,7 +368,6 @@ export function CharacterEditor({
             </button>
           </div>
         </section>
-
 
         <div className="character-detail-grid">
           <section>
@@ -292,9 +396,7 @@ export function CharacterEditor({
                   <button
                     className="icon-button neutral-delete"
                     aria-label={`删除物品${index + 1}`}
-                    onClick={() =>
-                      setDraft({ ...draft, items: draft.items.filter((_, i) => i !== index) })
-                    }
+                    onClick={() => setDraft({ ...draft, items: draft.items.filter((_, i) => i !== index) })}
                   >
                     <XIcon />
                   </button>
@@ -306,11 +408,18 @@ export function CharacterEditor({
             <h3>背景详情</h3>
             {BG_FIELDS.map(([field, label]) => (
               <label
-                className={field === 'phobia' ? 'background-field background-wide' : `background-field background-${field}`}
+                className={
+                  field === 'phobia'
+                    ? 'background-field background-wide'
+                    : `background-field background-${field}`
+                }
                 key={field}
               >
                 {label}
-                <input value={draft.background[field] ?? ''} onChange={(event) => updateBackground(field, event.target.value)} />
+                <input
+                  value={draft.background[field] ?? ''}
+                  onChange={(event) => updateBackground(field, event.target.value)}
+                />
               </label>
             ))}
           </section>
@@ -326,11 +435,29 @@ export function CharacterEditor({
           />
         </section>
       </div>
+      {activeIssues.length > 0 && (
+        <div className="import-field-warning" role="status">
+          导入待补填提醒：{activeIssues.map((issue) => issue.message).join('；')}
+        </div>
+      )}
+      {importSummary && importSummary.warnings.length > 0 && <p>{importSummary.warnings.join('；')}</p>}
       <footer className="modal-actions">
-        <button className="danger-link" onClick={onDelete}>删除角色卡</button>
+        {onDelete && (
+          <button className="danger-link" onClick={onDelete}>
+            删除角色卡
+          </button>
+        )}
         <span className="spacer" />
-        <button className="secondary" onClick={onClose}>取消</button>
-        <button className="primary" onClick={() => onSave(draft)}>保存</button>
+        <button className="secondary" onClick={onClose}>
+          取消
+        </button>
+        <button
+          className="primary"
+          disabled={saving || activeIssues.length > 0}
+          onClick={() => void saveDraft()}
+        >
+          保存
+        </button>
       </footer>
     </DialogShell>
   )

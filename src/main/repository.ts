@@ -115,9 +115,7 @@ function rowToModule(row: Record<string, unknown>): ModuleRecord {
 }
 
 function normalizePlayStatus(value: unknown): ModulePlayStatus {
-  return value === 'finished' || value === 'running' || value === 'not_started'
-    ? value
-    : 'not_started'
+  return value === 'finished' || value === 'running' || value === 'not_started' ? value : 'not_started'
 }
 
 /** 跑团状态是必选项：界面强制用户选择，后端再挡一道，避免写入非法值。 */
@@ -135,7 +133,9 @@ function rowToRecord(row: Record<string, unknown>): SessionRecord {
     link: row.link ? String(row.link) : undefined,
     sourceType: row.source_type as SessionRecord['sourceType'],
     status: row.status as SessionRecord['status'],
-    previousStatus: row.previous_status ? (row.previous_status as SessionRecord['previousStatus']) : undefined,
+    previousStatus: row.previous_status
+      ? (row.previous_status as SessionRecord['previousStatus'])
+      : undefined,
     playDate: row.play_date ? String(row.play_date) : undefined,
     dateSource: row.date_source as SessionRecord['dateSource'],
     fetchedAt: row.fetched_at ? String(row.fetched_at) : undefined,
@@ -309,7 +309,9 @@ export class AppRepository {
      * 于是「有资料的分组」永远清不掉「已移除」标记，它只是靠例外规则显示，
      * 资料一被拖空就消失（用户反复反馈的「A 模组条目直接消失」）。
      */
-    const merged = [...new Set([...(settings.hiddenResourceGroups ?? []), ...(settings.hiddenResourceModules ?? [])])]
+    const merged = [
+      ...new Set([...(settings.hiddenResourceGroups ?? []), ...(settings.hiddenResourceModules ?? [])])
+    ]
     const legacyStillPresent = (settings.hiddenResourceModules ?? []).length > 0
     if (legacyStillPresent) {
       // 顺手收敛一次：把合并结果写进新字段、清空旧字段。
@@ -509,11 +511,9 @@ export class AppRepository {
       let sequenceNo: number
       if (input.sequenceNo !== undefined && input.sequenceNo !== null) {
         const requested = Number(input.sequenceNo)
-        if (!Number.isInteger(requested) || requested < 1)
-          throw new Error('场次编号必须是大于 0 的整数')
+        if (!Number.isInteger(requested) || requested < 1) throw new Error('场次编号必须是大于 0 的整数')
         if (requested > 9999) throw new Error('场次编号不能超过 9999')
-        if (usedNumbers.has(requested))
-          throw new Error(`第 ${requested} 场已存在，请选择其他编号`)
+        if (usedNumbers.has(requested)) throw new Error(`第 ${requested} 场已存在，请选择其他编号`)
         sequenceNo = requested
       } else {
         // 0.6.6：名称里的“第 N 场”优先于“接续最大编号”。导入表格带进来的场次名
@@ -540,7 +540,7 @@ export class AppRepository {
       const sourceType = manualContent ? 'manual' : 'online'
       // 0.6.2 起导入不再采信表格里的历史状态：链接必须重新检测才能抓取正文。
       // 手动记录始终为 manual，其余情况默认 pending。
-      const status = manualContent ? 'manual' : input.status ?? 'pending'
+      const status = manualContent ? 'manual' : (input.status ?? 'pending')
       const parsedDate = !input.playDate && manualContent ? parseDateFromText(manualContent) : undefined
       const playDate = input.playDate || parsedDate
       const dateSource = input.playDate ? 'manual' : parsedDate ? 'parsed' : 'none'
@@ -614,7 +614,9 @@ export class AppRepository {
     // 或该编号已被同一模组的其他场次占用时，保持原编号不动。
     const named = patch.name === undefined ? undefined : sessionNumberFromName(name)
     const sequenceNo =
-      named !== undefined && named !== current.sequenceNo && !this.sequenceNumberTaken(current.moduleId, named, id)
+      named !== undefined &&
+      named !== current.sequenceNo &&
+      !this.sequenceNumberTaken(current.moduleId, named, id)
         ? named
         : current.sequenceNo
     this.connection
@@ -717,6 +719,39 @@ export class AppRepository {
         )
     })
     return this.getCharacter(character.id)
+  }
+
+  /**
+   * 将已补齐的导入草稿原子写为新角色，保留源表当前状态与伤害加值，不覆盖同名旧卡。
+   * @param data 编辑器确认的完整角色草稿。
+   * @returns 新建并持久保存的角色。
+   */
+  saveImportedCharacter(data: CharacterData): CharacterData {
+    const next = structuredClone(data)
+    next.id = randomUUID()
+    next.createdAt = now()
+    next.updatedAt = next.createdAt
+    next.moduleIds = [...new Set(next.moduleIds)]
+    for (const moduleId of next.moduleIds) this.getModule(moduleId)
+    next.moduleId = next.moduleIds[0]
+    next.basic.name = next.basic.name.trim()
+    if (!next.basic.name) throw new Error('请填写角色名')
+    next.editionSnapshots = { ...next.editionSnapshots, [next.edition]: { ...next.attrs } }
+    this.database.transaction(() => {
+      this.connection
+        .prepare(
+          'INSERT INTO characters (id,module_id,edition,data_json,created_at,updated_at) VALUES (?,?,?,?,?,?)'
+        )
+        .run(
+          next.id,
+          next.moduleId ?? null,
+          next.edition,
+          JSON.stringify(next),
+          next.createdAt,
+          next.updatedAt
+        )
+    })
+    return this.getCharacter(next.id)
   }
 
   updateCharacter(id: string, nextData: CharacterData): CharacterData {
@@ -898,7 +933,9 @@ export class AppRepository {
   ): NoteRecord {
     const current = this.findNote(id)
     this.connection
-      .prepare('UPDATE notes SET module_name=?, content=?, images_json=?, note_date=?, updated_at=? WHERE id=?')
+      .prepare(
+        'UPDATE notes SET module_name=?, content=?, images_json=?, note_date=?, updated_at=? WHERE id=?'
+      )
       .run(
         patch.moduleName === undefined ? current.moduleName : patch.moduleName,
         patch.content === undefined ? current.content : patch.content,
@@ -928,9 +965,7 @@ export class AppRepository {
       ? this.connection
           .prepare('SELECT * FROM module_resources WHERE module_id = ? ORDER BY sort_order')
           .all(moduleId)
-      : this.connection
-          .prepare('SELECT * FROM module_resources ORDER BY module_id, sort_order')
-          .all()
+      : this.connection.prepare('SELECT * FROM module_resources ORDER BY module_id, sort_order').all()
     return rows.map((row) => rowToResource(row as Record<string, unknown>))
   }
 
@@ -1080,8 +1115,7 @@ export class AppRepository {
     snapshot: AppSnapshot,
     options: { restoreSettings: boolean; archiveDirectory: string }
   ): void {
-    if (snapshot.schemaVersion !== 1 && snapshot.schemaVersion !== 2)
-      throw new Error('备份版本不受支持')
+    if (snapshot.schemaVersion !== 1 && snapshot.schemaVersion !== 2) throw new Error('备份版本不受支持')
     this.database.transaction(() => {
       this.connection.exec(
         'DELETE FROM records; DELETE FROM characters; DELETE FROM notes; DELETE FROM module_resources; DELETE FROM module_sequences; DELETE FROM modules; DELETE FROM import_mappings; DELETE FROM archive_entries;'

@@ -4016,3 +4016,16 @@ body[data-dragging='true'] .resource-tile[data-dragging='true'] {
 .mindmap-outline-line:hover {
   background: var(--panel2);
 }
+
+/* 导入问题仅标记草稿，不改变角色存储结构。 */
+.character-editor input[aria-invalid='true'] {
+  border-color: #c43c47;
+  outline-color: #c43c47;
+}
+.import-field-warning {
+  max-height: 96px;
+  overflow: auto;
+  color: #c43c47;
+  padding: 12px 20px;
+  white-space: pre-wrap;
+}

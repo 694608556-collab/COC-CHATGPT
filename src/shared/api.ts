@@ -1,3 +1,4 @@
+import type { Coc7ImportPreview } from './coc7-import'
 import type {
   AppSettings,
   AppSnapshot,
@@ -100,12 +101,7 @@ export interface CocApi {
       width: number
       height: number
     }>
-    setBounds(bounds: {
-      x: number
-      y: number
-      width: number
-      height: number
-    }): Promise<void>
+    setBounds(bounds: { x: number; y: number; width: number; height: number }): Promise<void>
     isMaximized(): Promise<boolean>
   }
   app: {
@@ -160,6 +156,8 @@ export interface CocApi {
     realignSequences(moduleId: string): Promise<number>
   }
   characters: {
+    /** 保存七版导入草稿为新角色，事务失败不留下空卡。 */
+    saveImported(data: CharacterData): Promise<CharacterData>
     create(input: {
       edition: 6 | 7
       moduleId?: string
@@ -240,6 +238,8 @@ export interface CocApi {
     exportTable(ids: string[] | undefined, format: 'csv' | 'xlsx'): Promise<ArchiveEntry>
     exportCharacter(id: string, format: 'xlsx' | 'pdf'): Promise<ArchiveEntry>
     saveCharacterTemplate(edition: 6 | 7): Promise<ArchiveEntry>
+    /** 原生选择七版XLSX并只读预览；取消返回undefined。 */
+    chooseCoc7Import(): Promise<Coc7ImportPreview | undefined>
     chooseCharacterImport(): Promise<CharacterImportPreviewApi | undefined>
     commitCharacterImport(
       token: string,

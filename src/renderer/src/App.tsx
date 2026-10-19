@@ -1,3 +1,4 @@
+import type { Coc7ImportPreview } from '../../shared/coc7-import'
 
 import { CharacterEditor } from './components/CharacterEditor'
 import { useEffect, useRef, useState } from 'react'
@@ -990,6 +991,8 @@ export default function App(): React.JSX.Element {
   const [detailQuery, setDetailQuery] = useState('')
   const [detailMessageIndex, setDetailMessageIndex] = useState<number>()
   const [exportAction, setExportAction] = useState<ExportAction>()
+  const [coc7Draft, setCoc7Draft] = useState<Coc7ImportPreview>()
+  const [importingCharacter, setImportingCharacter] = useState(false)
   const [characterId, setCharacterId] = useState<string>()
   const [backupChoiceOpen, setBackupChoiceOpen] = useState(false)
   const [restorePreview, setRestorePreview] = useState<BackupPreviewApi>()
@@ -1460,6 +1463,31 @@ export default function App(): React.JSX.Element {
       newModules
     }
   }
+  /** 只读选择七版模板并进入未保存草稿；取消或解析失败不写数据库。@returns 无返回值。 */
+  const importCoc7Character = async (): Promise<void> => {
+    setImportingCharacter(true)
+    try {
+      const preview = await window.coc.files.chooseCoc7Import()
+      if (preview) setCoc7Draft(preview)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '角色卡读取失败')
+    } finally {
+      setImportingCharacter(false)
+    }
+  }
+
+  /** 用户确认后原子新增角色；失败保留草稿以便重试。@param data 完整编辑草稿。@returns 无返回值。 */
+  const saveImportedCharacter = async (data: CharacterData): Promise<void> => {
+    try {
+      await window.coc.characters.saveImported(data)
+      setCoc7Draft(undefined)
+      await refresh()
+      setMessage('七版角色卡已导入')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '角色卡保存失败，草稿已保留')
+    }
+  }
+
   const createCharacter = async (): Promise<void> => {
     try {
       const character = await window.coc.characters.create({ edition: 7 })
@@ -1552,6 +1580,7 @@ export default function App(): React.JSX.Element {
               )}
               {page === 'characters' && (
                 <>
+                  <button className="secondary" disabled={importingCharacter} onClick={() => void importCoc7Character()}>导入第七版角色卡</button>
                   <button className="primary" onClick={() => void createCharacter()}>
                     + 新建角色卡
                   </button>
@@ -2326,7 +2355,16 @@ export default function App(): React.JSX.Element {
           onRefresh={refresh}
         />
       )}
-      {characterId &&
+      {coc7Draft && (
+          <CharacterEditor
+            character={coc7Draft.character}
+            modules={snapshot.modules}
+            importSummary={coc7Draft}
+            onClose={() => setCoc7Draft(undefined)}
+            onSave={saveImportedCharacter}
+          />
+        )}
+        {characterId &&
         (() => {
           const character = snapshot.characters.find((item) => item.id === characterId)
           return character ? (
