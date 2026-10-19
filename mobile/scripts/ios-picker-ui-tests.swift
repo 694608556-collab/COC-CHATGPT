@@ -122,6 +122,21 @@ final class PickerUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [alphaValue], timeout: 10), .completed, app.debugDescription)
         web.buttons["保存修改"].firstMatch.tap()
         XCTAssertTrue(web.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Public Alpha'")).firstMatch.waitForExistence(timeout: 15), app.debugDescription)
+        app.terminate()
+        app.launchArguments.removeAll { $0 == "--coc-picker-ui-fresh" }
+        app.launch()
+        XCTAssertTrue(add.waitForExistence(timeout: 30), app.debugDescription)
+        web.buttons["角色卡"].firstMatch.tap()
+        let saved = web.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Public Alpha'")).firstMatch
+        XCTAssertTrue(saved.waitForExistence(timeout: 15), app.debugDescription)
+        saved.tap()
+        web.buttons["编辑角色卡"].firstMatch.tap()
+        let reopened = editable(web, "姓名")
+        XCTAssertTrue(reopened.waitForExistence(timeout: 10), app.debugDescription)
+        reopened.tap()
+        let storedValue = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Public Alpha"), object: web.textFields["姓名"].firstMatch)
+        XCTAssertEqual(XCTWaiter.wait(for: [storedValue], timeout: 10), .completed, app.debugDescription)
+        web.buttons["取消编辑"].firstMatch.tap()
     }
 
 }
