@@ -30,6 +30,7 @@ describe('table import templates', () => {
       '跑团状态',
       '场次名',
       '海豹链接',
+      '手动保存内容',
       'KP1',
       'PC1',
       'PL1',
@@ -38,7 +39,10 @@ describe('table import templates', () => {
       'PC3',
       'PL3'
     ])
-    const notes = rows.slice(2).map((row) => String(row[0] ?? '')).join('\n')
+    const notes = rows
+      .slice(2)
+      .map((row) => String(row[0] ?? ''))
+      .join('\n')
     expect(notes).toContain('填写说明')
     expect(notes).toContain('PC1/PL1')
     // 0.6.3：说明里要交代跑团状态怎么填、以及它只影响新建模组
@@ -65,11 +69,62 @@ describe('table import templates', () => {
 })
 
 describe('table import parsing', () => {
+  it('CSV与XLSX空白模板的手动正文列紧挨KP且回导不串位', () => {
+    for (const bytes of [
+      buildTableImportTemplateXlsx(),
+      new TextEncoder().encode(buildTableImportTemplateCsv())
+    ]) {
+      const book = XLSX.read(bytes, { type: 'array' })
+      const sheet = book.Sheets[book.SheetNames[0]!]!
+      const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1 })
+      const headers = rows[0]!.map(String)
+      const content = headers.indexOf('手动保存内容')
+      expect(content).toBe(headers.indexOf('KP1') - 1)
+      const values = Array(headers.length).fill('')
+      values[0] = '公开手动模组'
+      values[2] = '第一场'
+      values[content] = '第一段\n第二段'
+      values[headers.indexOf('KP1')] = '公开KP'
+      values[headers.indexOf('PC1')] = '公开PC'
+      const imported = parseImportSheet('公开模板', [headers, values])[0]!
+      expect(imported.manualContent).toBe('第一段\n第二段')
+      expect(imported.kps).toEqual(['公开KP'])
+      expect(imported.pairs[0]!.pc).toBe('公开PC')
+      expect(validateTableImportRow(imported)).toBeUndefined()
+    }
+  })
+
   it('reads KP/PC/PL columns by their numbered positions', () => {
     const rows = sheetRows([
       [...TABLE_TEMPLATE_HEADERS],
-      ['暗影循迹', '进行中', '第一场', 'https://log.weizaima.com/?key=one', '阿默', '艾伦', '李四', '夏恩', '王五', '', ''],
-      ['暗影循迹', '进行中', '第二场', 'https://log.weizaima.com/?key=two', '阿默', '艾伦', '李四', '', '', '孤星', '']
+      [
+        '暗影循迹',
+        '进行中',
+        '第一场',
+        'https://log.weizaima.com/?key=one',
+        '',
+        '阿默',
+        '艾伦',
+        '李四',
+        '夏恩',
+        '王五',
+        '',
+        ''
+      ],
+      [
+        '暗影循迹',
+        '进行中',
+        '第二场',
+        'https://log.weizaima.com/?key=two',
+        '',
+        '阿默',
+        '艾伦',
+        '李四',
+        '',
+        '',
+        '孤星',
+        ''
+      ]
     ])
     expect(rows).toHaveLength(2)
     expect(rows[0]!.kps).toEqual(['阿默'])

@@ -49,7 +49,7 @@ export function RecordImportDialog({
   }
 
   const downloadCsvTemplate = (): void => {
-    download(buildTableImportTemplateCsv(), 'COC跑团记录导入模板.csv', 'text/csv;charset=utf-8')
+    download('COC跑团记录导入模板.csv', buildTableImportTemplateCsv(), 'text/csv;charset=utf-8')
   }
 
   const readFile = async (file: File): Promise<void> => {
