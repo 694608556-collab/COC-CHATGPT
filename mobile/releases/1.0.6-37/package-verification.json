@@ -1,0 +1,23 @@
+{
+  "platform": "android",
+  "version": "1.0.6",
+  "build": 37,
+  "source": "6c4f0b0ec59be36c119695226f7730f10de42ea5",
+  "workflowRun": 39291110904,
+  "filename": "coc-logbook-1.0.6-37.apk",
+  "bytes": 32129356,
+  "sha256": "4944876e07b38cb7346ab4908037d71c90ac8d956539f55668fe62198232f322",
+  "zipCrc": true,
+  "productionAssetsMatchIndependentTrackedSourceBuild": true,
+  "assetSha256": {
+    "app.js": "eabb1f178a0ce0dc5eb2f437c062f5fadea7cb225a8c21cbe65b3f6a2f6ac56e",
+    "app.css": "6ab803c1ed68969f0841a791debe03e660c4f4c52eb9d0aabf18a96a23617257",
+    "index.html": "d231ccc1ffe23aae0d62440adcad273f62adcd73bc894e6705b6c102ac69d175",
+    "snapshot-worker.js": "2f7777b07f7c22c2a64a6f906973368fa38dfc28c47d1f39fe755a02373e8fe2",
+    "export-worker.js": "7e9b799a626cfc4f191703013e19a603ef02f29763f52e1216b8f4143c7410f9"
+  },
+  "originalFontsMatch": 8,
+  "privateOrDebugFilesAbsent": true,
+  "signing": "original release certificate, APK v3 verified, 16KB zipalign verified",
+  "certificateSha256": "cc3020afe7446589b5dff92eb9fe69b7593af18f614445b1d8e5805e853143e7"
+}
