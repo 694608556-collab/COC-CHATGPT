@@ -76,8 +76,12 @@ def main():
         phase = 'picker-ui-project'
         command('ruby', 'scripts/ios-picker-project.rb', timeout=120)
         phase = 'picker-ui-test'
+        # Retain xcresult, screenshots and complete assertion logs. Avoid Xcode's
+        # extra 600-second simulator diagnostic probe after a reported failure.
+        help_result = subprocess.run(['xcodebuild', '-help'], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30, check=False)
+        diagnostic_args = ['-collect-test-diagnostics', 'never'] if '-collect-test-diagnostics' in help_result.stdout else []
         with (OUTPUT / 'picker-ui.log').open('w') as log:
-            command('xcodebuild', '-project', 'ios/App/App.xcodeproj', '-scheme', 'PickerUITests', '-configuration', 'Debug', '-destination', 'platform=iOS Simulator,id=' + udid, '-derivedDataPath', 'ios/build/simulator', '-resultBundlePath', 'ios/build/picker-ui.xcresult', 'test', 'CODE_SIGN_IDENTITY=-', 'CODE_SIGNING_ALLOWED=YES', timeout=900, log=log)
+            command('xcodebuild', '-project', 'ios/App/App.xcodeproj', '-scheme', 'PickerUITests', '-configuration', 'Debug', '-destination', 'platform=iOS Simulator,id=' + udid, '-derivedDataPath', 'ios/build/simulator', '-resultBundlePath', 'ios/build/picker-ui.xcresult', 'test', *diagnostic_args, 'CODE_SIGN_IDENTITY=-', 'CODE_SIGNING_ALLOWED=YES', timeout=900, log=log)
         if capture_errors:
             raise RuntimeError('Required screenshot capture failed after startup/UI checks: ' + '; '.join(capture_errors))
     except Exception as error:

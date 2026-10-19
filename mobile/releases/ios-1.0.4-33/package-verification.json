@@ -11,6 +11,12 @@
   "webAssetsMatch": true,
   "unsigned": true,
   "source": "c922bfe",
-  "nativeKeyboard": "pending",
-  "enterpriseResigningDevice": "pending"
+  "nativeKeyboard": "test setup locator failed before candidates; corrected retry pending",
+  "enterpriseResigningDevice": "pending",
+  "nativeCoreChecks": 38,
+  "nativeColdStarts": 3,
+  "nativeColdStartsPassed": true,
+  "systemFolderAndRestartUI": "passed",
+  "explicitLocalFolderAndRestartUI": "passed",
+  "nativeRun": 39186373476
 }
