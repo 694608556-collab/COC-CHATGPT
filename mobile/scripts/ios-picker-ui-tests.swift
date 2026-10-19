@@ -62,11 +62,13 @@ final class PickerUITests: XCTestCase {
         let moduleName = web.textFields["模组名称"].firstMatch
         XCTAssertTrue(moduleName.waitForExistence(timeout: 10), app.debugDescription)
         moduleName.tap(); moduleName.typeText(title)
-        let pc1 = web.textFields["PC1"].firstMatch
-        if !pc1.exists { web.buttons["＋ 添加参与者"].firstMatch.tap() }
+        web.buttons["＋ 添加参与者"].firstMatch.tap()
+        let pc1 = web.comboBoxes["PC1"].firstMatch
+        XCTAssertTrue(pc1.waitForExistence(timeout: 10), app.debugDescription)
         pc1.tap(); pc1.typeText("Public Alpha")
         web.buttons["＋ 添加参与者"].firstMatch.tap()
-        let pc2 = web.textFields["PC2"].firstMatch
+        let pc2 = web.comboBoxes["PC2"].firstMatch
+        XCTAssertTrue(pc2.waitForExistence(timeout: 10), app.debugDescription)
         pc2.tap(); pc2.typeText("Public Beta")
         web.buttons["保存修改"].firstMatch.tap()
         XCTAssertTrue(add.waitForExistence(timeout: 15), app.debugDescription)
@@ -75,7 +77,8 @@ final class PickerUITests: XCTestCase {
         let moduleCheck = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", String(title))).firstMatch
         XCTAssertTrue(moduleCheck.waitForExistence(timeout: 10), app.debugDescription)
         moduleCheck.tap()
-        let name = web.textFields["姓名"].firstMatch
+        let name = web.comboBoxes["姓名"].firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 10), app.debugDescription)
         name.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), app.debugDescription)
         let beta = web.staticTexts["Public Beta"].firstMatch
