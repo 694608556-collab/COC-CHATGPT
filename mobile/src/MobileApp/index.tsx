@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { DEFAULT_FILTER_PRESET } from '../../../src/shared/types'
 import type { FilterPreset, SessionRecord } from '../../../src/shared/types'
 import { Native, decodeBase64, encodeBase64 } from '../data/native'
@@ -124,6 +124,12 @@ export function MobileApp({
   }
   const [page, setPage] = useState<'records' | 'characters' | 'settings'>('records')
   const [record, setRecord] = useState<SessionRecord>()
+  const previousRecord = useRef<string | undefined>(undefined)
+  // 场次退出后的列表布局已提交，按钮、系统返回和手势共享同一路径。
+  useLayoutEffect(() => {
+    if (previousRecord.current && !record && page === 'records') window.scrollTo(0, 0)
+    previousRecord.current = record?.id
+  }, [record?.id, page])
   const [readerQuery, setReaderQuery] = useState('')
   const [moduleQueries, setModuleQueries] = useState<Record<string, string>>({})
   const [preview, setPreview] = useState<ImportPreview>()

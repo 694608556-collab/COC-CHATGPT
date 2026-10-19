@@ -455,8 +455,18 @@ main {
 .editor textarea {
   scroll-margin: 90px 0;
 }
+.name-options-origin {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  z-index: 120;
+}
 .combo-options.viewport-name-options {
-  position: fixed;
+  position: absolute;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
   right: auto;
   margin: 0;
   z-index: 120;

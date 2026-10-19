@@ -62,6 +62,8 @@ jobs:
             mobile/ios/build/ios-initial-screen.png
             mobile/ios/build/ios-smoke-result.json
             mobile/ios/build/simulator-environment.json
+            mobile/ios/build/screenshot-error.json
+            mobile/ios/build/simulator-failure.json
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: failure()

@@ -46,6 +46,7 @@ def main():
         container = pathlib.Path(command('xcrun', 'simctl', 'get_app_container', udid, 'coc.logbook', 'data'))
         report = container / 'tmp/ios-smoke-result.json'
         attempts = []
+        capture_errors = []
         # A single successful cold start cannot rule out the observed intermittent failure.
         for attempt in range(1, 4):
             phase = 'launch-' + str(attempt)
@@ -62,7 +63,13 @@ def main():
             result = {**metadata, **json.loads(report.read_text())}
             attempts.append({'attempt': attempt, **result})
             (OUTPUT / 'ios-smoke-result.json').write_text(json.dumps({**result, 'coldStarts': attempts}))
-            command('xcrun', 'simctl', 'io', udid, 'screenshot', str(OUTPUT / 'ios-initial-screen.png'), timeout=90)
+            if attempt == 3:
+                try:
+                    command('xcrun', 'simctl', 'io', udid, 'screenshot', str(OUTPUT / 'ios-initial-screen.png'), timeout=30)
+                except Exception as error:
+                    capture_errors.append(str(error))
+                    (OUTPUT / 'screenshot-error.json').write_text(json.dumps({'passed': False, 'error': str(error)}))
+                    print('Screenshot failed; continuing required UI checks: ' + str(error), flush=True)
             print(json.dumps(attempts[-1]), flush=True)
             if not result.get('passed'):
                 raise RuntimeError('Native startup check failed: ' + str(result))
@@ -71,7 +78,10 @@ def main():
         phase = 'picker-ui-test'
         with (OUTPUT / 'picker-ui.log').open('w') as log:
             command('xcodebuild', '-project', 'ios/App/App.xcodeproj', '-scheme', 'PickerUITests', '-configuration', 'Debug', '-destination', 'platform=iOS Simulator,id=' + udid, '-derivedDataPath', 'ios/build/simulator', '-resultBundlePath', 'ios/build/picker-ui.xcresult', 'test', 'CODE_SIGN_IDENTITY=-', 'CODE_SIGNING_ALLOWED=YES', timeout=900, log=log)
+        if capture_errors:
+            raise RuntimeError('Required screenshot capture failed after startup/UI checks: ' + '; '.join(capture_errors))
     except Exception as error:
+        (OUTPUT / 'simulator-failure.json').write_text(json.dumps({**metadata, 'passed': False, 'phase': phase, 'error': str(error)}))
         output = OUTPUT / 'ios-smoke-result.json'
         if not output.exists():
             output.write_text(json.dumps({**metadata, 'passed': False, 'phase': phase, 'error': str(error)}))

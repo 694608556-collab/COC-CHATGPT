@@ -47,4 +47,50 @@ final class PickerUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.webViews.buttons["新增模组"].firstMatch.waitForExistence(timeout: 30), app.debugDescription)
     }
+    func testPublicNameCandidatesWithNativeKeyboard() throws {
+        let app = XCUIApplication(bundleIdentifier: "coc.logbook")
+        app.launchArguments = ["--coc-picker-ui", "--coc-picker-ui-fresh", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        let web = app.webViews
+        let local = web.buttons["使用本机归档文件夹"].firstMatch
+        XCTAssertTrue(local.waitForExistence(timeout: 30), app.debugDescription)
+        local.tap()
+        let add = web.buttons["新增模组"].firstMatch
+        XCTAssertTrue(add.waitForExistence(timeout: 30), app.debugDescription)
+        add.tap()
+        let title = "Public Keyboard " + String(UUID().uuidString.prefix(6))
+        let moduleName = web.textFields["模组名称"].firstMatch
+        XCTAssertTrue(moduleName.waitForExistence(timeout: 10), app.debugDescription)
+        moduleName.tap(); moduleName.typeText(title)
+        let pc1 = web.textFields["PC1"].firstMatch
+        if !pc1.exists { web.buttons["＋ 添加参与者"].firstMatch.tap() }
+        pc1.tap(); pc1.typeText("Public Alpha")
+        web.buttons["＋ 添加参与者"].firstMatch.tap()
+        let pc2 = web.textFields["PC2"].firstMatch
+        pc2.tap(); pc2.typeText("Public Beta")
+        web.buttons["保存修改"].firstMatch.tap()
+        XCTAssertTrue(add.waitForExistence(timeout: 15), app.debugDescription)
+        web.buttons["角色卡"].firstMatch.tap()
+        web.buttons["新建七版角色"].firstMatch.tap()
+        let moduleCheck = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", String(title))).firstMatch
+        XCTAssertTrue(moduleCheck.waitForExistence(timeout: 10), app.debugDescription)
+        moduleCheck.tap()
+        let name = web.textFields["姓名"].firstMatch
+        name.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), app.debugDescription)
+        let beta = web.staticTexts["Public Beta"].firstMatch
+        XCTAssertTrue(beta.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertGreaterThanOrEqual(beta.frame.minY, app.frame.minY + 40)
+        XCTAssertLessThanOrEqual(beta.frame.maxY, app.keyboards.firstMatch.frame.minY)
+        beta.tap()
+        XCTAssertEqual(name.value as? String, "Public Beta", app.debugDescription)
+        name.tap()
+        let alpha = web.staticTexts["Public Alpha"].firstMatch
+        XCTAssertTrue(alpha.waitForExistence(timeout: 10), app.debugDescription)
+        alpha.tap()
+        XCTAssertEqual(name.value as? String, "Public Alpha", app.debugDescription)
+        web.buttons["保存修改"].firstMatch.tap()
+        XCTAssertTrue(web.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Public Alpha'")).firstMatch.waitForExistence(timeout: 15), app.debugDescription)
+    }
+
 }

@@ -9,11 +9,11 @@ xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
 mkdir -p ios/build/ipa/Payload
 cp -R ios/build/COCLogbook.xcarchive/Products/Applications/App.app ios/build/ipa/Payload/
 python3 scripts/check-ios-package.py ios/build/ipa/Payload/App.app
-(cd ios/build/ipa && ditto -c -k --sequesterRsrc --keepParent Payload ../coc-logbook-1.0.4-32-ios-arm64-unsigned.ipa)
-shasum -a 256 ios/build/coc-logbook-1.0.4-32-ios-arm64-unsigned.ipa > ios/build/coc-logbook-1.0.4-32-ios-arm64-unsigned.ipa.sha256
+(cd ios/build/ipa && ditto -c -k --sequesterRsrc --keepParent Payload ../coc-logbook-1.0.4-33-ios-arm64-unsigned.ipa)
+shasum -a 256 ios/build/coc-logbook-1.0.4-33-ios-arm64-unsigned.ipa > ios/build/coc-logbook-1.0.4-33-ios-arm64-unsigned.ipa.sha256
 cat > ios/build/INSTALL-IPA.txt <<'EOF'
 真机 arm64 IPA，未带 Apple 开发证书或设备描述文件，不能直接安装。
-请在自己的电脑使用爱思助手的 IPA 签名功能，以自己的 Apple ID 或 iOS 证书签名后安装。
+请在自己的设备使用全能签及自己的有效企业证书签名后安装；保持原应用标识，不卸载或清库。
 账号密码不要提交到仓库；安卓签名不能用于 iOS。
 用户目标为 iPhone 14 Pro / iOS 27.0；尚无本包真机通过结论。
 EOF

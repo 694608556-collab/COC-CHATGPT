@@ -92,7 +92,8 @@ export function Editor(props: {
       window.removeEventListener('resize', reveal)
       window.visualViewport?.removeEventListener('resize', reveal)
     }
-  }, [viewport])
+    // 键盘尺寸变化后等待操作栏提交；纯视口平移不再次抢回滚动。
+  }, [viewport.height, viewport.width])
   useEffect(() => {
     heading.current?.focus()
   }, [])
