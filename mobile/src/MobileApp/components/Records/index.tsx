@@ -33,6 +33,8 @@ export function Records(props: {
   onEditModule(value: ModuleRecord): void
   onNewOnline(moduleId: string): void
   onAction(action: DataAction): void
+  /** 打开全模组批量检测面板。 */
+  onBatchCheck(): void
   onFetch(ids: string[]): void
   onExport(ids: string[], combined: boolean): void
   busy: boolean
@@ -95,6 +97,9 @@ export function Records(props: {
       <div className="edit-actions records-create-actions">
         <button disabled={props.busy} onClick={props.onNewModule}>
           新增模组
+        </button>
+        <button disabled={props.busy} onClick={props.onBatchCheck}>
+          批量检测
         </button>
       </div>
       {!!snapshot.modules.length && (

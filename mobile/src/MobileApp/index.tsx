@@ -1,3 +1,5 @@
+import { BatchCheck } from './components/BatchCheck'
+import { buildTableImportTemplateCsv, buildTableImportTemplateXlsx } from '../../../src/shared/table-import'
 import { useEffect, useRef, useState } from 'react'
 import { DEFAULT_FILTER_PRESET } from '../../../src/shared/types'
 import type { FilterPreset, SessionRecord } from '../../../src/shared/types'
@@ -124,6 +126,7 @@ export function MobileApp({
     setNotice('')
     return next
   }
+  const [batchCheck, setBatchCheck] = useState(false)
   const [page, setPage] = useState<'records' | 'characters' | 'settings'>('records')
   const [record, setRecord] = useState<SessionRecord>()
   // 仅记录成功打开的场次；列表重建时恢复阅读上下文，不写入业务数据。
@@ -289,17 +292,20 @@ export function MobileApp({
     setNotice(action.type === 'reorder' ? '排序已保存。' : '操作已保存。')
   }
   /** @param ids - 用户选定的场次；只获取在线目标。 @returns 获取全部结束后一次校验／事务提交，失败不发布未保存结果。 */
-  async function probe(ids: string[]) {
+  async function probe(ids: string[], onResult?: (record: SessionRecord) => void) {
     const complete = await loadContent(snapshot.records.map((r) => r.id))
     const wanted = new Set(ids)
-    const targets = complete.records.filter((item) => wanted.has(item.id) && item.sourceType === 'online')
+    const targets = complete.records.filter(
+      (item) => wanted.has(item.id) && item.sourceType === 'online' && !item.manualContent
+    )
     const fetched = await fetchRecords(port, targets, {
+      onResult,
       onProgress: ({ completed, total, succeeded, failed }) =>
         setNotice(`正在获取正文：${completed}/${total}，成功 ${succeeded}，失败 ${failed}。尚未保存。`)
     })
     const updates = new Map(fetched.map((item) => [item.id, item]))
     const next = { ...complete, records: complete.records.map((item) => updates.get(item.id) ?? item) }
-    await commit(next)
+    if (targets.length) await commit(next)
     if (record) setRecord(next.records.find((r) => r.id === record.id))
     const failures = fetched.filter((r) => r.status !== 'valid').length
     const summary =
@@ -434,15 +440,48 @@ export function MobileApp({
     }
   }
   async function exportTables(format: 'csv' | 'xlsx') {
-    // 表格只有元数据列，不为导出名称/链接而冷读全部正文。
+    // 只读取手动场次正文；在线缓存无需为表格冷读，未加载正文不能当作空白导出。
+    const loaded = await loadContent(
+      snapshot.records.filter((record) => record.sourceType === 'manual').map((record) => record.id)
+    )
     const file = createRecordTableExport(
-      { ...snapshot, records: [...snapshot.records].sort((a, b) => a.order - b.order) },
+      { ...loaded, records: [...loaded.records].sort((a, b) => a.order - b.order) },
       format
     )
     setSavedDocument(
       await port.writeArchive({ name: file.name, mime: file.mime, base64: encodeBase64(file.bytes) })
     )
     setNotice('记录表格已保存并回读校验：1 个文件。')
+  }
+  /** 保存含手动正文列的空白模板，使用现有新建、回读和登记接口。@param format 模板格式。@returns 无返回值。 */
+  async function exportTemplate(format: 'csv' | 'xlsx') {
+    const bytes =
+      format === 'csv'
+        ? new TextEncoder().encode(buildTableImportTemplateCsv())
+        : buildTableImportTemplateXlsx()
+    setSavedDocument(
+      await port.writeArchive({
+        name: 'COC跑团记录导入模板.' + format,
+        mime:
+          format === 'csv' ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        base64: encodeBase64(bytes)
+      })
+    )
+    setNotice('空白模板已保存并回读校验。')
+  }
+  /** 保留原忙锁与错误反馈，同时将保存失败传回检测面板，避免显示检测完毕。@param ids 所选场次。@param onResult 内存结果回调。@returns 已保存时完成，失败时拒绝。 */
+  async function runBatchChecks(ids: string[], onResult: (record: SessionRecord) => void) {
+    if (busyLock.current) throw new Error('当前操作尚未结束。')
+    let failure: unknown
+    await perform(async () => {
+      try {
+        await probe(ids, onResult)
+      } catch (error) {
+        failure = error
+        throw error
+      }
+    })
+    if (failure) throw failure
   }
   async function previewTable(kind: 'records' | 'characters') {
     const selected = await port.openBackup({ kind: kind === 'records' ? 'record-table' : 'character-table' })
@@ -476,9 +515,17 @@ export function MobileApp({
   async function confirmTable() {
     if (!tablePreview || !native || native.revision !== tablePreview.revision)
       throw new Error('数据已变化，请重新选择表格。')
+    if (
+      tablePreview.data.updated &&
+      !(await confirmOperation(
+        '将覆盖更新预览中列出的 ' + tablePreview.data.updated + ' 场手动正文，其他场次保留。确认继续？'
+      ))
+    )
+      return
+    if (nativeRef.current?.revision !== tablePreview.revision) throw new Error('数据已变化，请重新选择表格。')
     await commit(tablePreview.data.next)
     setTablePreview(undefined)
-    setNotice('表格数据已添加并保存。')
+    setNotice(tablePreview.data.updated ? '表格数据已添加或更新并保存。' : '表格数据已添加并保存。')
   }
   async function runAutoBackup(manual = false) {
     const started = nativeRef.current
@@ -551,11 +598,12 @@ export function MobileApp({
       window.dispatchEvent(new Event('logbook-dropdown-close'))
       return
     }
-    if (busyLock.current && (editing || preview || exportRequest || tablePreview)) {
+    if (busyLock.current && (editing || preview || exportRequest || tablePreview || batchCheck)) {
       setNotice('操作进行中，请稍候。')
       return
     }
     if (preview) setPreview(undefined)
+    else if (batchCheck) setBatchCheck(false)
     else if (exportRequest) setExportRequest(undefined)
     else if (tablePreview) setTablePreview(undefined)
     else if (editing) window.dispatchEvent(new Event('logbook-editor-back'))
@@ -932,6 +980,7 @@ export function MobileApp({
     settings: '数据与设置'
   }
   const atHome =
+    !batchCheck &&
     !editing &&
     !preview &&
     !tablePreview &&
@@ -944,6 +993,14 @@ export function MobileApp({
       <div className="app-edge-zone left" data-navigation-zone="left" aria-hidden="true" />
       <div className="app-edge-zone right" data-navigation-zone="right" aria-hidden="true" />
       <div className="app-home-zone" data-navigation-zone="home" aria-hidden="true" />
+      {batchCheck && (
+        <BatchCheck
+          modules={snapshot.modules}
+          records={snapshot.records}
+          onClose={() => setBatchCheck(false)}
+          onRun={runBatchChecks}
+        />
+      )}
       <header className="app-header">
         <button
           type="button"
@@ -970,7 +1027,7 @@ export function MobileApp({
           <img src="icon.png" alt="" />
           <strong>COC 跑团记录簿</strong>
         </div>
-        <span className="version">1.0.5</span>
+        <span className="version">1.0.6</span>
       </header>
       <main
         className={page === 'settings' && !editing ? 'settings-page' : undefined}
@@ -1080,6 +1137,7 @@ export function MobileApp({
                       returnRecordId={lastReadRecordId}
                       deferredRecords={deferredRecords}
                       snapshot={snapshot}
+                      onBatchCheck={() => setBatchCheck(true)}
                       onNewModule={newModule}
                       onNewRecord={(moduleId) => newRecord(moduleId)}
                       onNewOnline={(moduleId) => newRecord(moduleId, 'online')}
@@ -1164,6 +1222,7 @@ export function MobileApp({
                     onAutoBackup={() => void runAutoBackup(true)}
                     lastAutoBackupAt={native.lastAutoBackupAt}
                     onClear={() => void perform(() => act({ type: 'clear' }))}
+                    onTemplate={(format) => void perform(() => exportTemplate(format))}
                     onTableExport={(format) => void perform(() => exportTables(format))}
                     onTableImport={() => void perform(() => previewTable('records'))}
                     documents={documents}
@@ -1280,7 +1339,10 @@ export function MobileApp({
             {busy && <SystemMessage kind="progress" message={notice || '正在添加表格数据…'} />}
             {error && <SystemMessage kind="error" message={error} />}
             <div className="dialog-body">
-              <p>新增 {tablePreview.data.names.length} 项；当前业务数据保留。</p>
+              <p>
+                {tablePreview.data.updated ? '将添加或更新' : '新增'} {tablePreview.data.names.length} 项；
+                {tablePreview.data.updated ? '手动正文更新已在下方列明。' : '当前业务数据保留。'}
+              </p>
               {tablePreview.data.names.map((name, i) => (
                 <p key={i}>{name}</p>
               ))}
@@ -1293,7 +1355,11 @@ export function MobileApp({
                 取消
               </button>
               <button className="primary" disabled={busy} onClick={() => void perform(confirmTable)}>
-                {busy ? '正在添加…' : '确认添加表格数据'}
+                {busy
+                  ? '正在保存…'
+                  : tablePreview.data.updated
+                    ? '确认添加或更新表格数据'
+                    : '确认添加表格数据'}
               </button>
             </div>
           </section>

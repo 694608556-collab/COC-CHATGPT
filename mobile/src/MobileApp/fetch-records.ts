@@ -29,6 +29,8 @@ export async function fetchRecords(
     concurrency?: 2 | 3 | 4
     /** 只读进度通知，不应执行持久化。 */
     onProgress?: (progress: FetchProgress) => void
+    /** 单场已解析结果；仅用于界面进度，不表示已提交。 */
+    onResult?: (record: SessionRecord) => void
   } = {}
 ): Promise<SessionRecord[]> {
   const concurrency = options.concurrency ?? 3
@@ -51,6 +53,7 @@ export async function fetchRecords(
       try {
         const next = await fetchRecord(port, records[index]!)
         result[index] = next
+        options.onResult?.(next)
         progress.completed++
         if (next.status === 'valid') progress.succeeded++
         else progress.failed++

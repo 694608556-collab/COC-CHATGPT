@@ -1764,3 +1764,97 @@ input[type='checkbox']:checked::after {
   font-size: 12px;
   line-height: 18px;
 }
+
+/* 检测面板独立滚动，底部统计始终可见。 */
+.batch-backdrop {
+  z-index: 140;
+}
+.batch-check {
+  width: min(100%, 680px);
+  max-height: calc(var(--visible-height, 100dvh) - 32px);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.batch-check > h2 {
+  padding: 14px 16px;
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+}
+.batch-check .dialog-body {
+  overflow: auto;
+  padding: 12px;
+  min-height: 0;
+}
+.batch-check .dialog-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.batch-check .dialog-tabs .active {
+  background: var(--accent);
+  color: white;
+}
+.batch-check .check-selector,
+.batch-check .check-results {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: auto;
+  max-height: 230px;
+  margin-bottom: 12px;
+}
+.batch-check .check-selector label {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  padding: 10px;
+  gap: 6px;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+}
+.batch-check .check-selector small {
+  grid-column: 2;
+  color: var(--muted);
+}
+.batch-check .check-module-toggle {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  text-align: left;
+  gap: 6px;
+  border: 0;
+  border-radius: 0;
+  background: var(--panel2, var(--bg));
+}
+.batch-check .check-result-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 10px 10px 30px;
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.batch-check .check-result-row span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.batch-check [data-state='done'] span {
+  color: #287842;
+}
+.batch-check [data-state='failed'] span {
+  color: #c43c47;
+}
+.batch-check .modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+}
+.batch-check .check-progress {
+  width: 100%;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
