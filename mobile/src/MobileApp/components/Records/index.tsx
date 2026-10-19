@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { MODULE_PLAY_STATUS_LABELS } from '../../../../../src/shared/types'
 import type { ModuleRecord, SessionRecord } from '../../../../../src/shared/types'
 import type { MobileSnapshot } from '../../../data/types'
@@ -20,6 +20,8 @@ const STATUS_LABELS = {
  * @returns 手机记录汇总页面。
  */
 export function Records(props: {
+  /** 最近阅读场次的 ID；仅用于本次会话中的展开、居中及高亮。 */
+  returnRecordId?: string
   deferredRecords: ReadonlySet<string>
   snapshot: MobileSnapshot
   onRead(record: SessionRecord, query?: string): void
@@ -37,8 +39,20 @@ export function Records(props: {
 }) {
   const { snapshot } = props
   const [expanded, setExpanded] = useState<string[]>(() =>
-    snapshot.modules.filter((m) => snapshot.modules.length === 1 || props.queries[m.id]).map((m) => m.id)
+    snapshot.modules
+      .filter(
+        (m) =>
+          snapshot.modules.length === 1 ||
+          props.queries[m.id] ||
+          snapshot.records.some((r) => r.id === props.returnRecordId && r.moduleId === m.id)
+      )
+      .map((m) => m.id)
   )
+  const returnCard = useRef<HTMLButtonElement>(null)
+  // 仅在列表重建或阅读目标改变后定位一次；头尾按原滚动边界停住，不补空白。
+  useLayoutEffect(() => {
+    returnCard.current?.scrollIntoView({ block: 'center', behavior: 'auto' })
+  }, [props.returnRecordId])
   const [selected, setSelected] = useState<string[]>([])
   const [selecting, setSelecting] = useState(false)
   const collapseTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
@@ -254,7 +268,10 @@ export function Records(props: {
                           </label>
                         )}
                         <button
-                          className="record-card"
+                          ref={r.id === props.returnRecordId ? returnCard : undefined}
+                          className={'record-card' + (r.id === props.returnRecordId ? ' reading-return' : '')}
+                          aria-current={r.id === props.returnRecordId ? 'true' : undefined}
+                          data-record-id={r.id}
                           onClick={() =>
                             selecting
                               ? setSelected(
