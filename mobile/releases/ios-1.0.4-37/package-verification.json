@@ -1,0 +1,31 @@
+{
+  "file": "coc-logbook-1.0.4-37-ios-arm64-unsigned.ipa",
+  "bytes": 25469444,
+  "sha256": "4b03cc53f0b99d6d56593db5f6313e3ec11ec4483f551e1b474851b776b7d2e7",
+  "version": "1.0.4",
+  "source": "e8eca74",
+  "zipCRC": true,
+  "webAssetsMatch": true,
+  "originalFonts": 8,
+  "deviceValidation": "pending",
+  "build": 37,
+  "architecture": "arm64",
+  "platform": "iOS device",
+  "sdk": 27,
+  "unsigned": true,
+  "enterpriseExternalFolder": "user reports unavailable on build34; no fix claimed",
+  "enterpriseLocalFolder": "user reports available on build34",
+  "nativeKeyboard": "pending",
+  "cloudNativeCoreChecks": 38,
+  "cloudRun": 39233439812,
+  "firstAttempt": {
+    "coldStart1": true,
+    "coldStart2": false,
+    "stage": "page-readiness",
+    "deadlineSeconds": 60,
+    "coldStart3": "not run",
+    "screenshot": "not run",
+    "systemUI": "not run"
+  },
+  "cloudRerun": "pending"
+}
