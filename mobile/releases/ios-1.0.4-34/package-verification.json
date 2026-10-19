@@ -11,10 +11,22 @@
   "webAssetsMatch": true,
   "unsigned": true,
   "source": "85a16a3",
-  "nativeKeyboard": "geometry and actual Beta selection observed; test value-node assertion corrected, full flow retry pending",
+  "nativeKeyboard": "passed: two fully visible candidates, native Beta/Alpha taps, save, terminate/relaunch and reopen with Alpha",
   "enterpriseResigningDevice": "pending",
   "nativeCoreChecks": 38,
   "nativeColdStarts": 3,
   "folderRestartUI": "two passed",
-  "nativeRun": 39192872373
+  "nativeRun": 39194220872,
+  "nativeRunSource": "dffa7041e9b04efeaef82ecc692a110897d756e0",
+  "nativeUI": {
+    "tests": 3,
+    "failures": 0,
+    "seconds": 210.6,
+    "scope": "fresh iPhone 14 Pro / iOS 27.0 cloud simulator"
+  },
+  "nativeScreenshot": "passed",
+  "nativeWorkflow": "success",
+  "packagedAppSourceUnchanged": true,
+  "physicalKeyboardScrollFlash": "pending",
+  "physicalArchiveExportBackupCancelRetry": "pending"
 }
