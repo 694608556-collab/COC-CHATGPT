@@ -1,0 +1,18 @@
+{
+  "file": "coc-logbook-1.0.4-31.apk",
+  "version": "1.0.4",
+  "versionCode": 31,
+  "source": "20e79b8",
+  "bytes": 32121164,
+  "sha256": "a47d4edd87776b83cc92b88016a49076d54b155a2bcb0aea3a91a4cf5bebbfff",
+  "certificateMatchesPrevious": true,
+  "certificateSHA256": "cc3020afe7446589b5dff92eb9fe69b7593af18f614445b1d8e5805e853143e7",
+  "debuggable": false,
+  "minSdk": 28,
+  "targetSdk": 36,
+  "webAssetsMatch": true,
+  "originalFonts": 8,
+  "zipCRC": true,
+  "storedEntryAlignmentChecks": 226,
+  "deviceValidation": "pending"
+}
