@@ -4029,3 +4029,21 @@ body[data-dragging='true'] .resource-tile[data-dragging='true'] {
   padding: 12px 20px;
   white-space: pre-wrap;
 }
+
+/* 批量检测按模组显示，折叠按钮保持在模组名左侧。 */
+.check-grouped-results .check-module-toggle {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel2);
+  padding: 10px;
+  text-align: left;
+}
+.check-grouped-results .check-module-toggle small { color: var(--muted); }
+.check-grouped-results .check-module-records .check-result-row { padding-left: 36px; }
+.check-progress { margin-right: auto; line-height: 1.6; }
