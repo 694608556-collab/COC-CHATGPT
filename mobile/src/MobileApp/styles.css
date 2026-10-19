@@ -1568,6 +1568,11 @@ input[type='checkbox']:checked::after {
 .session-row.selected .record-card {
   background: var(--soft);
 }
+.session-row .record-card.reading-return {
+  background: var(--soft);
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 var(--accent);
+}
 .record-status {
   display: flex !important;
   align-items: flex-end;
