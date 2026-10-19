@@ -27,5 +27,12 @@
     "screenshot": "not run",
     "systemUI": "not run"
   },
-  "cloudRerun": "pending"
+  "cloudRerun": {
+    "run": 39233439812,
+    "attempt": 2,
+    "description": "iOS运行39233439812首次尝试：38项原生核心、设备Release和首启通过，第二次冷启动page-readiness超过60秒失败，第三次/截屏/4项系统UI未执行；同一源码第2次尝试的job118001155745仍在模拟器步骤运行中，尚无最终结果。接续时先检查该运行最新结果和公开日志/产物，保留首次失败记录，不将部分通过写为整轮通过；若失败，依据具体公开证据排查，不放宽断言掩盖失败。",
+    "status": "in_progress",
+    "job": 118001155745,
+    "passed": false
+  }
 }
