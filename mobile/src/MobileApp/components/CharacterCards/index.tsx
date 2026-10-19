@@ -14,6 +14,7 @@ export function CharacterCards(props: {
   modules: ModuleRecord[]
   onEdit(value: CharacterData): void
   onNew(edition: Edition): void
+  onImport(): void
   selected: string
   onSelect(id: string): void
   onDelete(id: string): void
@@ -41,6 +42,9 @@ export function CharacterCards(props: {
           </button>
           <button disabled={props.busy} onClick={() => props.onNew(7)}>
             新建七版角色
+          </button>
+          <button disabled={props.busy} onClick={props.onImport}>
+            导入七版角色卡
           </button>
         </div>
         {props.characters.map((c) => (
@@ -95,7 +99,7 @@ export function CharacterCards(props: {
           {character.basic.age ? character.basic.age + ' 岁' : '年龄未填写'}
         </p>
         <dl className="details character-basic">
-          {(['name', 'age', 'occupation', 'gender', 'birthplace', 'residence'] as const).map((key) => (
+          {(['name', 'age', 'occupation', 'gender', 'residence', 'birthplace'] as const).map((key) => (
             <div key={key}>
               <dt>
                 {{
@@ -103,7 +107,7 @@ export function CharacterCards(props: {
                   occupation: '职业',
                   age: '年龄',
                   gender: '性别',
-                  birthplace: '出生地',
+                  birthplace: '故乡',
                   residence: '居住地'
                 }[key] || key}
               </dt>

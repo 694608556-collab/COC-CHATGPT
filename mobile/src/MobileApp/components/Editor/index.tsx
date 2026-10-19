@@ -19,6 +19,7 @@ import { useItemLayout } from '../../useItemLayout'
 import { SystemMessage } from '../SystemMessage'
 import { SelectField } from '../SelectField'
 import { NameSuggest } from './components/NameSuggest'
+import type { Coc7ImportSummary } from '../../../data/coc7-import'
 
 export function Editor(props: {
   initial: Edit
@@ -28,6 +29,7 @@ export function Editor(props: {
   onClose(): void
   onConfirm(message: string): Promise<boolean>
   toolbarTarget: HTMLElement | null
+  importSummary?: Coc7ImportSummary
 }) {
   // 在线正文由存储边界保留；草稿及每次输入的脏检查不复制/编码这部分数据。
   const [original] = useState<Edit>(() => {
@@ -42,7 +44,13 @@ export function Editor(props: {
   const [nameSuggestionRequest, setNameSuggestionRequest] = useState(0)
   const itemLayout = useItemLayout()
   const dirty = JSON.stringify(draft) !== JSON.stringify(original)
-  const title = draft.kind === 'module' ? '编辑模组' : draft.kind === 'record' ? '编辑场次' : '编辑角色卡'
+  const title = props.importSummary
+    ? '导入七版角色卡预览'
+    : draft.kind === 'module'
+      ? '编辑模组'
+      : draft.kind === 'record'
+        ? '编辑场次'
+        : '编辑角色卡'
   const heading = useRef<HTMLHeadingElement>(null)
   const formId = useId()
   const viewport = useVisibleViewport()
@@ -200,6 +208,20 @@ export function Editor(props: {
         {title}
       </h2>
       <p className="muted">保存后更新本机数据；取消不会改变已保存数据。</p>
+      {props.importSummary && c && (
+        <section className="notice" aria-label="七版角色卡导入说明">
+          <p>
+            已读取“人物卡”：{c.skills.length}项技能、{c.items.length}项物品。请核对下方内容后保存。
+          </p>
+          <p>
+            仅保留普通成功率≥15的技能，已跳过{props.importSummary.skippedSkills}
+            项。职业点数、资产、法术、状态和部位未导入，内置徒手行已跳过。
+          </p>
+          {props.importSummary.warnings.map((message, i) => (
+            <SystemMessage kind="warning" message={message} key={i} />
+          ))}
+        </section>
+      )}
       {error && (
         <div ref={errorView}>
           <SystemMessage kind="error" message={error} onDismiss={() => setError('')} />
@@ -424,8 +446,8 @@ export function Editor(props: {
                   occupation: '职业',
                   age: '年龄',
                   gender: '性别',
-                  birthplace: '出生地',
-                  residence: '居住地'
+                  residence: '居住地',
+                  birthplace: '故乡'
                 }).map(([key, label]) =>
                   key === 'name' ? (
                     <NameSuggest

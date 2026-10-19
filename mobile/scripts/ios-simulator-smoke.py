@@ -44,6 +44,10 @@ def main():
         phase = 'install'
         command('xcrun', 'simctl', 'install', udid, 'ios/build/simulator/Build/Products/Debug-iphonesimulator/App.app', timeout=120)
         container = pathlib.Path(command('xcrun', 'simctl', 'get_app_container', udid, 'coc.logbook', 'data'))
+        # Only this newly created CI simulator receives the fictional picker file.
+        fixture_folder = container / 'Documents/COC-Picker-Public-Test'
+        fixture_folder.mkdir(parents=True, exist_ok=True)
+        (fixture_folder / 'public-coc7.xlsx').write_bytes(pathlib.Path('ios/build/public-coc7.xlsx').read_bytes())
         report = container / 'tmp/ios-smoke-result.json'
         attempts = []
         capture_errors = []

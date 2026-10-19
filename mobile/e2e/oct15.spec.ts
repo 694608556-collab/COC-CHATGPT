@@ -29,8 +29,8 @@ test('角色资料两排三列、技能编辑至少三列，折叠标题无默�
     '年龄',
     '职业',
     '性别',
-    '出生地',
-    '居住地'
+    '居住地',
+    '故乡'
   ])
   const boxes = await fields.evaluateAll((nodes) =>
     nodes.map((n) => {

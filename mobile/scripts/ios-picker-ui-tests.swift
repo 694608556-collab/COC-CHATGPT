@@ -17,6 +17,60 @@ final class PickerUITests: XCTestCase {
         web.descendants(matching: .any).matching(NSPredicate(format: "label == %@ AND value != nil AND elementType != %d", label, XCUIElement.ElementType.staticText.rawValue)).firstMatch
     }
 
+    private func pickPublicCoc7(_ app: XCUIApplication) {
+        app.webViews.buttons["导入七版角色卡"].firstMatch.tap()
+        let file = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "public-coc7")).firstMatch
+        if !file.waitForExistence(timeout: 5) {
+            let container = app.cells["COC 跑团记录簿, Container"].firstMatch
+            if container.waitForExistence(timeout: 5) { container.tap() }
+            let folder = app.staticTexts["COC-Picker-Public-Test"].firstMatch
+            if folder.waitForExistence(timeout: 5) { folder.tap() }
+        }
+        XCTAssertTrue(file.waitForExistence(timeout: 15), app.debugDescription)
+        file.tap()
+        let title = app.webViews.staticTexts["导入七版角色卡预览"].firstMatch
+        if !title.waitForExistence(timeout: 3) {
+            let open = app.buttons.matching(NSPredicate(format: "label IN %@", ["Open", "打开"])).firstMatch
+            if open.exists { open.tap() }
+        }
+        XCTAssertTrue(title.waitForExistence(timeout: 15), app.debugDescription)
+    }
+
+    func testCoc7ImportPickerCancelSaveAndRestart() throws {
+        let app = XCUIApplication(bundleIdentifier: "coc.logbook")
+        app.launchArguments = ["--coc-picker-ui", "--coc-picker-ui-fresh", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        let web = app.webViews
+        let local = web.buttons["使用本机归档文件夹"].firstMatch
+        XCTAssertTrue(local.waitForExistence(timeout: 30), app.debugDescription)
+        local.tap()
+        XCTAssertTrue(web.buttons["新增模组"].firstMatch.waitForExistence(timeout: 30), app.debugDescription)
+        web.buttons["角色卡"].firstMatch.tap()
+        pickPublicCoc7(app)
+        XCTAssertTrue(web.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "6项技能、4项物品")).firstMatch.exists, app.debugDescription)
+        XCTAssertEqual(web.textFields["居住地"].firstMatch.value as? String, "公开居住地", app.debugDescription)
+        XCTAssertEqual(web.textFields["故乡"].firstMatch.value as? String, "公开故乡", app.debugDescription)
+        web.buttons["取消编辑"].firstMatch.tap()
+        let saved = web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "公开七版调查员")).firstMatch
+        XCTAssertFalse(saved.exists, app.debugDescription)
+        pickPublicCoc7(app)
+        web.buttons["保存修改"].firstMatch.tap()
+        XCTAssertTrue(saved.waitForExistence(timeout: 15), app.debugDescription)
+        app.terminate()
+        app.launchArguments.removeAll { $0 == "--coc-picker-ui-fresh" }
+        app.launch()
+        XCTAssertTrue(web.buttons["新增模组"].firstMatch.waitForExistence(timeout: 30), app.debugDescription)
+        web.buttons["角色卡"].firstMatch.tap()
+        XCTAssertTrue(saved.waitForExistence(timeout: 15), app.debugDescription)
+        saved.tap()
+        XCTAssertTrue(web.staticTexts["取悦"].firstMatch.exists, app.debugDescription)
+        XCTAssertFalse(web.staticTexts["会计"].firstMatch.exists, app.debugDescription)
+        let story = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "公开经历首段")).firstMatch
+        XCTAssertTrue(story.exists, app.debugDescription)
+        XCTAssertTrue(story.label.contains("公开经历尾段"), app.debugDescription)
+        XCTAssertTrue(web.staticTexts["公开末行背包"].firstMatch.exists, app.debugDescription)
+    }
+
     func testFolderOpenReturnsAndSurvivesRestart() throws {
         let app = XCUIApplication(bundleIdentifier: "coc.logbook")
         app.launchArguments = ["--coc-picker-ui", "--coc-picker-ui-fresh", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]

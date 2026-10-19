@@ -45,6 +45,7 @@ jobs:
       - name: Check fresh native WKWebView startup in cloud simulator
         run: |
           gem install --user-install xcodeproj --no-document
+          node scripts/coc7-public-fixture.mjs
           python3 scripts/ios-simulator-smoke.py
       - uses: actions/upload-artifact@v4
         if: always()

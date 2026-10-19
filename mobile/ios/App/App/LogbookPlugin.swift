@@ -147,6 +147,12 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
             guard self.pickerCall == nil, let controller = self.bridge?.viewController, controller.presentedViewController == nil else { call.reject("请先关闭当前系统窗口。"); return }
             self.pickerCall = call; self.choosingFolder = folder
             let picker = UIDocumentPickerViewController(forOpeningContentTypes: folder ? [.folder] : [.data], asCopy: !folder)
+            #if DEBUG && targetEnvironment(simulator)
+            if !folder, ProcessInfo.processInfo.arguments.contains("--coc-picker-ui"),
+               let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                picker.directoryURL = documents.appendingPathComponent("COC-Picker-Public-Test", isDirectory: true)
+            }
+            #endif
             picker.allowsMultipleSelection = false; picker.delegate = self
             self.activePicker = picker
             if folder, let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {

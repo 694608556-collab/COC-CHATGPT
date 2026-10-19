@@ -40,6 +40,8 @@ import { checkPdfCancellation } from '../data/pdf'
 import type { PdfProgress } from '../data/pdf'
 import { importTable } from '../data/tables'
 import type { TablePreview } from '../data/tables'
+import { previewCoc7Import } from '../data/coc7-import'
+import type { Coc7ImportSummary } from '../data/coc7-import'
 import {
   prepareInBackground,
   prepareUploadInBackground,
@@ -177,7 +179,11 @@ export function MobileApp({
     }
   }, [])
   const [error, setError] = useState('')
-  const [editing, setEditing] = useState<{ draft: Edit; revision: number }>()
+  const [editing, setEditing] = useState<{
+    draft: Edit
+    revision: number
+    importSummary?: Coc7ImportSummary
+  }>()
   const [editorToolbar, setEditorToolbar] = useState<HTMLDivElement | null>(null)
   const viewport = useVisibleViewport()
   const [selectedCharacter, setSelectedCharacter] = useState('')
@@ -450,6 +456,22 @@ export function MobileApp({
       data: await importTable(complete, decodeBase64(selected.base64), selected.name, kind),
       revision: native.revision
     })
+  }
+  async function importCoc7() {
+    if (!native) return
+    const revision = native.revision
+    const selected = await port.openBackup({ kind: 'character-table' })
+    if (selected.cancelled || !selected.base64 || !selected.name) return
+    const imported = previewCoc7Import(decodeBase64(selected.base64), selected.name)
+    if (nativeRef.current?.revision !== revision) throw new Error('数据已变化，请重新选择角色卡。')
+    setNotice('')
+    setSaveStatus('')
+    setEditing({
+      draft: { kind: 'character', value: imported.character },
+      revision,
+      importSummary: { skippedSkills: imported.skippedSkills, warnings: imported.warnings }
+    })
+    window.scrollTo(0, 0)
   }
   async function confirmTable() {
     if (!tablePreview || !native || native.revision !== tablePreview.revision)
@@ -1024,6 +1046,7 @@ export function MobileApp({
               <Editor
                 toolbarTarget={editorToolbar}
                 initial={editing.draft}
+                importSummary={editing.importSummary}
                 snapshot={snapshot}
                 busy={busy}
                 onSave={persistEdit}
@@ -1103,6 +1126,7 @@ export function MobileApp({
                     modules={snapshot.modules}
                     selected={selectedCharacter}
                     onSelect={setSelectedCharacter}
+                    onImport={() => void perform(importCoc7)}
                     onDelete={(id) => void perform(() => act({ type: 'delete', kind: 'character', id }))}
                     onEdit={(value) => startEdit({ kind: 'character', value })}
                     onNew={(edition) =>
