@@ -1,3 +1,9 @@
+## 交接状态更新（先读此段）
+
+交接前最新结果：iOS Actions运行39233439812第2次尝试（job118001155745）已结束并失败；38项原生核心、设备Release、iPhone14 Pro/iOS27.0三次冷启动与截屏通过。4项系统UI中2通过（本机归档重启、真实键盘姓名候选），2失败：七版导入测试在ios-picker-ui-tests.swift:29未找到public-coc7文件；系统目录测试在:86失败。需先读取公开picker-ui.log/xcresult核对实际页面与选择器，根因尚未确认，不将其直接归为产品或测试错误，不放宽断言掩盖失败。公开诊断artifact12179572148、系统UI证据12179297328、启动证据12179512121；不重新上传私人日志。
+
+以下保留先前交接时的运行中记录供追溯；最新结论以本段为准。
+
 ## 家中电脑接续入口（2026-10-19，当前模拟器复跑未结束）
 
 仓库694608556-collab/COC-CHATGPT，iOS工作分支codex/ios-ipa-adaptation，安卓codex/ui-optimization-experiment。先保护接续电脑的数据、草稿及未提交修改，核对实际Git状态；不要reset/覆盖/clean/卸载清库。阅读本文件、mobile/IOS-DEVELOPMENT.md（iOS分支）与mobile/SAFETY-POLICY.md后继续。当前应用源码iOS e8eca74、安卓67f227c；后续提交仅为交付与进度记录。
