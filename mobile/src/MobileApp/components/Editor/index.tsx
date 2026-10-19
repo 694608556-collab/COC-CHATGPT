@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useVisibleViewport, visibleViewport } from '../../useVisibleViewport'
+import { useVisibleViewport, viewportRect } from '../../useVisibleViewport'
 import type { CharacterData, ModuleRecord, SessionRecord } from '../../../../../src/shared/types'
 import { MODULE_PLAY_STATUS_LABELS } from '../../../../../src/shared/types'
 import { sessionNameFor } from '../../../../../src/shared/session-number'
@@ -52,9 +52,9 @@ export function Editor(props: {
     const frame = requestAnimationFrame(() => {
       const box = errorView.current?.getBoundingClientRect()
       if (!box) return
-      const view = visibleViewport()
+      const view = viewportRect()
       const header = document.querySelector('.app-header')?.getBoundingClientRect()
-      window.scrollBy(0, box.top - Math.max(view.top + 8, (header?.bottom ?? 0) + 8))
+      window.scrollBy(0, box.top - Math.max(view.top + view.safeTop + 8, (header?.bottom ?? 0) + 8))
     })
     return () => cancelAnimationFrame(frame)
   }, [error])
@@ -70,10 +70,10 @@ export function Editor(props: {
           !editor.current?.contains(active)
         )
           return
-        const view = visibleViewport()
+        const view = viewportRect()
         const header = document.querySelector('.app-header')?.getBoundingClientRect()
         const dock = document.querySelector('.navigation-dock')?.getBoundingClientRect()
-        const top = Math.max(view.top + 8, (header?.bottom ?? 0) + 8)
+        const top = Math.max(view.top + view.safeTop + 8, (header?.bottom ?? 0) + 8)
         const bottom = Math.min(view.top + view.height - 8, (dock?.top ?? view.top + view.height) - 8)
         if (bottom <= top) return
         const box = active.getBoundingClientRect()

@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useVisibleViewport } from '../../../useVisibleViewport'
+import { useVisibleViewport, viewportRect } from '../../../useVisibleViewport'
 
 /** 姓名候选只填角色姓名，不建立或修改模组参与者绑定。 */
 export function NameSuggest(props: { value: string; names: string[]; onChange(name: string): void }) {
@@ -28,8 +28,9 @@ export function NameSuggest(props: { value: string; names: string[]; onChange(na
       if (!box || !base) return
       const dock = document.querySelector('.navigation-dock')?.getBoundingClientRect()
       const header = document.querySelector('.app-header')?.getBoundingClientRect()
-      const top = Math.max(viewport.top + 8, (header?.bottom ?? 0) + 8)
-      const bottom = Math.min(viewport.top + viewport.height - 8, (dock?.top ?? Infinity) - 8)
+      const view = viewportRect(viewport, base)
+      const top = Math.max(view.top + view.safeTop + 8, (header?.bottom ?? 0) + 8)
+      const bottom = Math.min(view.top + view.height - 8, (dock?.top ?? Infinity) - 8)
       if (box.bottom <= top || box.top >= bottom) {
         setPosition(undefined)
         return
@@ -43,13 +44,11 @@ export function NameSuggest(props: { value: string; names: string[]; onChange(na
         setPosition(undefined)
         return
       }
-      const width = Math.min(box.width, Math.max(0, viewport.width - 16))
+      const width = Math.min(box.width, Math.max(0, view.width - 16))
       const next = {
         // 与输入框测量同一坐标原点，避免 iOS 键盘平移 fixed 合成层。
         top: (upward ? box.top - maxHeight - 4 : box.bottom + 4) - base.top,
-        left:
-          Math.max(viewport.left + 8, Math.min(box.left, viewport.left + viewport.width - width - 8)) -
-          base.left,
+        left: Math.max(view.left + 8, Math.min(box.left, view.left + view.width - width - 8)) - base.left,
         width,
         maxHeight
       }

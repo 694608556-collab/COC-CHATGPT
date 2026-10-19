@@ -4,14 +4,14 @@ import { searchSample } from '../src/dev/sample'
 import { acceptAppConfirmations } from './helpers'
 
 /** @param page - 独立测试页面。 @returns 导入完成后的公开样本，不在页面切换中提前开始断言。 */
-async function ready(page: Page) {
+async function ready(page: Page, count = 35) {
   page.on('dialog', (dialog) => dialog.accept())
   await acceptAppConfirmations(page)
   await page.goto('/')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '数据与设置', exact: true }).click()
   const sample = searchSample()
-  sample.modules[0]!.pairs = Array.from({ length: 35 }, (_, i) => ({
+  sample.modules[0]!.pairs = Array.from({ length: count }, (_, i) => ({
     pc: `公开姓名${i + 1}`,
     pl: '公开玩家'
   }))
@@ -237,4 +237,44 @@ test('真实浏览器触摸：姓名列表原生滑动后可点选且键盘焦�
   } finally {
     await context.close()
   }
+})
+
+test('WebKit 键盘平移后的矩形坐标不重复叠加 offset，两候选完整可见且可选', async ({ page }) => {
+  await page.addInitScript(() => {
+    const probe = Object.assign(new EventTarget(), {
+      offsetTop: 0,
+      offsetLeft: 0,
+      width: innerWidth,
+      height: innerHeight
+    })
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: probe })
+  })
+  const sample = await ready(page, 2)
+  await page.getByRole('button', { name: '角色卡', exact: true }).click()
+  await page.getByRole('button', { name: '新建七版角色' }).click()
+  await page.getByRole('checkbox', { name: sample.modules[0]!.name, exact: true }).check()
+  const input = page.getByLabel('姓名', { exact: true })
+  await input.click()
+  await page.evaluate(() => {
+    Object.assign(window.visualViewport!, { offsetTop: 203, height: 456 })
+    // 模拟 WKWebView 平移文档和 fixed 合成层；BCR 已包含这 203px。
+    Object.assign(document.body.style, { position: 'relative', top: '-203px', paddingTop: '300px' })
+    document.documentElement.style.setProperty('--app-safe-top', '59px')
+    const dock = document.querySelector('.navigation-dock') as HTMLElement
+    dock.style.marginTop = '-203px'
+    const field = document.querySelector('input[role="combobox"]')!
+    window.scrollTo(0, scrollY + field.getBoundingClientRect().top - 276)
+    window.visualViewport!.dispatchEvent(new Event('resize'))
+  })
+  const menu = page.getByRole('listbox', { name: '模组PC姓名候选', exact: true })
+  await expect(menu).toBeVisible()
+  await expect.poll(async () => (await menu.boundingBox())!.height).toBeGreaterThanOrEqual(98)
+  const box = (await menu.boundingBox())!
+  for (const option of await menu.getByRole('option').all()) {
+    const row = (await option.boundingBox())!
+    expect(row.y).toBeGreaterThanOrEqual(box.y)
+    expect(row.y + row.height).toBeLessThanOrEqual(box.y + box.height)
+  }
+  await menu.getByRole('option', { name: '公开姓名2', exact: true }).click()
+  await expect(input).toHaveValue('公开姓名2')
 })

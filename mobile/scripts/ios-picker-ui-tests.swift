@@ -100,14 +100,19 @@ final class PickerUITests: XCTestCase {
         XCTAssertTrue(name.waitForExistence(timeout: 10), app.debugDescription)
         name.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), app.debugDescription)
-        let beta = web.descendants(matching: .any).matching(identifier: "Public Beta").firstMatch
+        let beta = web.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Public Beta")).firstMatch
         XCTAssertTrue(beta.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertGreaterThanOrEqual(beta.frame.minY, app.frame.minY + 40)
         XCTAssertLessThanOrEqual(beta.frame.maxY, app.keyboards.firstMatch.frame.minY)
+        let menu = web.descendants(matching: .any).matching(identifier: "模组PC姓名候选").firstMatch
+        XCTAssertTrue(menu.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertGreaterThanOrEqual(menu.frame.height, 98, app.debugDescription)
+        XCTAssertGreaterThanOrEqual(beta.frame.minY, menu.frame.minY)
+        XCTAssertLessThanOrEqual(beta.frame.maxY, menu.frame.maxY, app.debugDescription)
         beta.tap()
         XCTAssertEqual(name.value as? String, "Public Beta", app.debugDescription)
         name.tap()
-        let alpha = web.descendants(matching: .any).matching(identifier: "Public Alpha").firstMatch
+        let alpha = web.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Public Alpha")).firstMatch
         XCTAssertTrue(alpha.waitForExistence(timeout: 10), app.debugDescription)
         alpha.tap()
         XCTAssertEqual(name.value as? String, "Public Alpha", app.debugDescription)
