@@ -1,0 +1,360 @@
+{
+  "scope": "all",
+  "cycles": 3,
+  "network": "local generated responses; no remote requests",
+  "heapSamplePeriodMs": 2000,
+  "samples": [
+    {
+      "elapsed": 829,
+      "heap": 11439144,
+      "counts": {
+        "fetch": 29,
+        "staged": 27,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 2
+      }
+    },
+    {
+      "elapsed": 2847,
+      "heap": 19629572,
+      "counts": {
+        "fetch": 156,
+        "staged": 153,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 10
+      }
+    },
+    {
+      "elapsed": 4854,
+      "heap": 16957072,
+      "counts": {
+        "fetch": 282,
+        "staged": 279,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 17
+      }
+    },
+    {
+      "elapsed": 6881,
+      "heap": 17869964,
+      "counts": {
+        "fetch": 414,
+        "staged": 411,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 25
+      }
+    },
+    {
+      "elapsed": 8895,
+      "heap": 14926828,
+      "counts": {
+        "fetch": 539,
+        "staged": 536,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 32
+      }
+    },
+    {
+      "elapsed": 10912,
+      "heap": 17015512,
+      "counts": {
+        "fetch": 668,
+        "staged": 666,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 40
+      }
+    },
+    {
+      "elapsed": 12923,
+      "heap": 14947552,
+      "counts": {
+        "fetch": 804,
+        "staged": 802,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 48
+      }
+    },
+    {
+      "elapsed": 14945,
+      "heap": 16716336,
+      "counts": {
+        "fetch": 940,
+        "staged": 937,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 56
+      }
+    },
+    {
+      "elapsed": 16958,
+      "heap": 13103192,
+      "counts": {
+        "fetch": 1000,
+        "staged": 1000,
+        "commits": 1,
+        "wholeReads": 0,
+        "failed": 59
+      }
+    },
+    {
+      "elapsed": 18861,
+      "heap": 17619744,
+      "counts": {
+        "fetch": 1031,
+        "staged": 1029,
+        "commits": 1,
+        "wholeReads": 0,
+        "failed": 61
+      }
+    },
+    {
+      "elapsed": 20873,
+      "heap": 17107368,
+      "counts": {
+        "fetch": 1159,
+        "staged": 1156,
+        "commits": 1,
+        "wholeReads": 0,
+        "failed": 69
+      }
+    },
+    {
+      "elapsed": 22885,
+      "heap": 12824908,
+      "counts": {
+        "fetch": 1291,
+        "staged": 1289,
+        "commits": 1,
+        "wholeReads": 0,
+        "failed": 77
+      }
+    },
+    {
+      "elapsed": 24899,
+      "heap": 19008364,
+      "counts": {
+        "fetch": 1424,
+        "staged": 1421,
+        "commits": 1,
+        "wholeReads": 0,
+        "failed": 84
+      }
+    },
+    {
+      "elapsed": 26917,
+      "heap": 15385472,
+      "counts": {
+        "fetch": 1559,
+        "staged": 1557,
+        "commits": 1,
+        "wholeReads": 0,
+        "failed": 92
+      }
+    },
+    {
+      "elapsed": 28932,
+      "heap": 11180392,
+      "counts": {
+        "fetch": 1695,
+        "staged": 1693,
+        "commits": 1,
+        "wholeReads": 0,
+        "failed": 100
+      }
+    },
+    {
+      "elapsed": 30944,
+      "heap": 16675252,
+      "counts": {
+        "fetch": 1833,
+        "staged": 1830,
+        "commits": 1,
+        "wholeReads": 0,
+        "failed": 108
+      }
+    },
+    {
+      "elapsed": 32958,
+      "heap": 14855456,
+      "counts": {
+        "fetch": 1969,
+        "staged": 1966,
+        "commits": 1,
+        "wholeReads": 0,
+        "failed": 116
+      }
+    },
+    {
+      "elapsed": 34968,
+      "heap": 18271948,
+      "counts": {
+        "fetch": 2000,
+        "staged": 2000,
+        "commits": 2,
+        "wholeReads": 0,
+        "failed": 118
+      }
+    },
+    {
+      "elapsed": 36347,
+      "heap": 17795704,
+      "counts": {
+        "fetch": 2036,
+        "staged": 2033,
+        "commits": 2,
+        "wholeReads": 0,
+        "failed": 121
+      }
+    },
+    {
+      "elapsed": 38357,
+      "heap": 18388156,
+      "counts": {
+        "fetch": 2167,
+        "staged": 2165,
+        "commits": 2,
+        "wholeReads": 0,
+        "failed": 128
+      }
+    },
+    {
+      "elapsed": 40367,
+      "heap": 14338768,
+      "counts": {
+        "fetch": 2301,
+        "staged": 2298,
+        "commits": 2,
+        "wholeReads": 0,
+        "failed": 136
+      }
+    },
+    {
+      "elapsed": 42377,
+      "heap": 12142592,
+      "counts": {
+        "fetch": 2435,
+        "staged": 2433,
+        "commits": 2,
+        "wholeReads": 0,
+        "failed": 144
+      }
+    },
+    {
+      "elapsed": 44387,
+      "heap": 16086376,
+      "counts": {
+        "fetch": 2569,
+        "staged": 2566,
+        "commits": 2,
+        "wholeReads": 0,
+        "failed": 152
+      }
+    },
+    {
+      "elapsed": 46404,
+      "heap": 18884712,
+      "counts": {
+        "fetch": 2706,
+        "staged": 2703,
+        "commits": 2,
+        "wholeReads": 0,
+        "failed": 160
+      }
+    },
+    {
+      "elapsed": 48418,
+      "heap": 14592420,
+      "counts": {
+        "fetch": 2839,
+        "staged": 2837,
+        "commits": 2,
+        "wholeReads": 0,
+        "failed": 168
+      }
+    },
+    {
+      "elapsed": 50429,
+      "heap": 13538296,
+      "counts": {
+        "fetch": 2975,
+        "staged": 2972,
+        "commits": 2,
+        "wholeReads": 0,
+        "failed": 176
+      }
+    },
+    {
+      "elapsed": 52436,
+      "heap": 13540440,
+      "counts": {
+        "fetch": 3000,
+        "staged": 3000,
+        "commits": 3,
+        "wholeReads": 0,
+        "failed": 177
+      }
+    }
+  ],
+  "rounds": [
+    {
+      "round": 1,
+      "selected": 50,
+      "counts": {
+        "fetch": 1000,
+        "staged": 1000,
+        "commits": 1,
+        "wholeReads": 0,
+        "failed": 59
+      }
+    },
+    {
+      "round": 2,
+      "selected": 50,
+      "counts": {
+        "fetch": 2000,
+        "staged": 2000,
+        "commits": 2,
+        "wholeReads": 0,
+        "failed": 118
+      }
+    },
+    {
+      "round": 3,
+      "selected": 50,
+      "counts": {
+        "fetch": 3000,
+        "staged": 3000,
+        "commits": 3,
+        "wholeReads": 0,
+        "failed": 177
+      }
+    }
+  ],
+  "success": true,
+  "final": {
+    "revision": 16,
+    "records": 1050,
+    "deferred": 1050,
+    "manual": 50,
+    "counts": {
+      "fetch": 3000,
+      "staged": 3000,
+      "commits": 3,
+      "wholeReads": 0,
+      "failed": 177
+    }
+  },
+  "peakV8Bytes": 19629572,
+  "androidVersion": "12",
+  "appSource": "9d412cf0b3a8de08c0298d3425a8f0650c133145",
+  "fixtureOnline": 1000,
+  "fixtureManual": 50,
+  "campaigns": 50
+}
