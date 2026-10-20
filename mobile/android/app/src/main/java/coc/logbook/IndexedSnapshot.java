@@ -71,10 +71,11 @@ final class IndexedSnapshot {
             while(bodies.moveToNext()){bytes+=1+JsonFields.bytes(JSONObject.quote(bodies.getString(0)))+1+bodies.getLong(1);count++;}
         }db.execSQL("UPDATE indexed_records SET metadata=?,bytes=?,body_count=? WHERE row_key=?",new Object[]{metadata,bytes,count,key});
     }
-    void record(RawJson cursor,String expectedId,boolean keepBody)throws Exception{
+    void record(RawJson cursor,String expectedId,boolean keepBody)throws Exception{record(cursor,expectedId,keepBody,null);}
+    private void record(RawJson cursor,String expectedId,boolean keepBody,Long appendOrdinal)throws Exception{
         Long existing=expectedId==null?null:key(expectedId);long rowKey;
         Map<String,String> previous=existing==null?new LinkedHashMap<>():JsonFields.split(metadata(existing));
-        if(existing==null){try(SQLiteStatement insert=db.compileStatement("INSERT INTO indexed_records(id,ordinal,metadata) VALUES(NULL,(SELECT COALESCE(MAX(ordinal),-1)+1 FROM indexed_records),'{}')")){rowKey=insert.executeInsert();}}
+        if(existing==null){try(SQLiteStatement insert=db.compileStatement(appendOrdinal==null?"INSERT INTO indexed_records(id,ordinal,metadata) VALUES(NULL,(SELECT COALESCE(MAX(ordinal),-1)+1 FROM indexed_records),'{}')":"INSERT INTO indexed_records(id,ordinal,metadata) VALUES(NULL,?,'{}')")){if(appendOrdinal!=null)insert.bindLong(1,appendOrdinal);rowKey=insert.executeInsert();}}
         else rowKey=existing;
         if(!keepBody)db.execSQL("DELETE FROM indexed_bodies WHERE record_key=?",new Object[]{rowKey});
         Map<String,String> values=new LinkedHashMap<>();Set<String> seen=new HashSet<>();
@@ -121,9 +122,12 @@ final class IndexedSnapshot {
         Map<String,String> originals=new HashMap<>();
         if(previous.containsKey("records"))JsonFields.eachElement(previous.get("records"),raw->{try{originals.put(new JSONObject(raw).getString("id"),raw);}catch(Exception e){throw new IllegalArgumentException(e);}});
         JSONArray records=candidate.getJSONArray("records");
+        // The caller holds BEGIN IMMEDIATE: reserve the append range once, with no concurrent writer.
+        long nextOrdinal;
+        try(Cursor end=db.rawQuery("SELECT COALESCE(MAX(ordinal),-1)+1 FROM indexed_records",null)){end.moveToFirst();nextOrdinal=end.getLong(0);}
         for(int i=0;i<records.length();i++){
             JSONObject value=records.getJSONObject(i);String id=value.getString("id"),old=originals.get(id);
-            if(old==null){record(new RawJson(new StringReader(value.toString())),id,false);continue;}
+            if(old==null){record(new RawJson(new StringReader(value.toString())),id,false,nextOrdinal++);continue;}
             if(TableImport.equal(new JSONObject(old),value))continue;
             long rowKey=key(id);
             if(value.has("manualContent")){
