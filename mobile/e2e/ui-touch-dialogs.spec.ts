@@ -85,6 +85,7 @@ test('长导入弹窗只滚动正文，确认取消在窄屏和短视口内持�
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   }
   await page.setViewportSize({ width: 412, height: 700 })
+  await dialog.getByRole('button', { name: '显示更多场次（剩余 20 项）', exact: true }).click()
   await dialog.getByText('公开长预览 / 第 120 场', { exact: true }).scrollIntoViewIfNeeded()
   await expect(dialog.getByText('公开长预览 / 第 120 场', { exact: true })).toBeInViewport()
   await page.screenshot({ path: info.outputPath('fixed-import-actions-light.png') })
