@@ -28,7 +28,7 @@ jobs:
       - name: Check iOS native transactions, bodies and local archive protection
         run: |
           node scripts/ios-native-fixture.mjs
-          swiftc -swift-version 5 ios/App/App/LogbookStore.swift ios/App/App/LogbookValidation.swift ios/App/App/LogbookMutations.swift ios/App/App/LogbookArchive.swift scripts/ios-native-tests.swift -o ios/build/native-checks
+          swiftc -swift-version 5 ios/App/App/LogbookStore.swift ios/App/App/LogbookValidation.swift ios/App/App/LogbookMutations.swift ios/App/App/LogbookArchive.swift scripts/ios-native-tests.swift scripts/ios-scale-tests.swift -o ios/build/native-checks
           ios/build/native-checks ios/build/native-sample.json
       - run: pnpm ios:sync && node scripts/check-release-web.mjs
       - name: Build device arm64 IPA without Apple credentials
@@ -66,6 +66,7 @@ jobs:
             mobile/ios/build/simulator-environment.json
             mobile/ios/build/screenshot-error.json
             mobile/ios/build/simulator-failure.json
+            mobile/ios/build/ios-scale-result.json
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: failure()

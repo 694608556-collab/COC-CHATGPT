@@ -118,6 +118,7 @@ import Foundation
         } catch {
             try require(error.localizedDescription.contains("L3") && error.localizedDescription.contains("257") && !error.localizedDescription.contains("/private"), "diagnostic preserves stage and code but excludes private path")
         }
+        try IOSScaleChecks.run(root: root, fixture: fixture)
         print("iOS native core: \(checks) checks passed; macOS test folders only, no phone or system picker tested.")
     }
 }

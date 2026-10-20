@@ -28,6 +28,7 @@ import { RemoveButton } from './components/RemoveButton'
 import { applyAction } from '../data/actions'
 import type { DataAction } from '../data/actions'
 import { fetchRecords } from './fetch-records'
+import { stagedFetch } from './staged-fetch'
 import type { SavedDocument } from '../data/native'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
@@ -291,8 +292,54 @@ export function MobileApp({
     }
     setNotice(action.type === 'reorder' ? '排序已保存。' : '操作已保存。')
   }
+  async function probeIOS(ids: string[], onResult?: (record: SessionRecord) => void) {
+    if (!native) throw new Error('本机数据尚未读取。')
+    const { fetched, saved } = await stagedFetch(
+      port,
+      snapshot,
+      ids,
+      native.revision,
+      onResult ?? (() => {}),
+      ({ completed, total, succeeded, failed }) =>
+        setNotice(`正在检测：${completed}/${total}，成功 ${succeeded}，失败 ${failed}。整批尚未保存。`)
+    )
+    if (saved) {
+      const updates = new Map(fetched.map((r) => [r.id, r]))
+      const deferred = new Set(deferredRef.current)
+      for (const row of snapshot.records)
+        if (row.rawContent !== undefined || row.manualContent !== undefined) deferred.add(row.id)
+      for (const row of fetched) if (row.status === 'valid') deferred.add(row.id)
+      replaceDeferred(deferred)
+      const next: MobileSnapshot = {
+        ...snapshot,
+        exportedAt: saved.exportedAt,
+        records: snapshot.records.map(
+          ({ rawContent, manualContent, ...metadata }) => updates.get(metadata.id) ?? metadata
+        )
+      }
+      setSnapshot(next)
+      setNative((current) => current && { ...current, json: null, revision: saved.revision })
+      if (record) {
+        try {
+          const content = await port.getRecordContent({ ids: [record.id], expectedRevision: saved.revision })
+          if (content.revision !== saved.revision) throw new Error('数据已变化。')
+          const complete = mergeRecordContent(next, await readInBackground(content.json), [record.id])
+          deferred.delete(record.id)
+          replaceDeferred(new Set(deferred))
+          setSnapshot(complete)
+          setRecord(complete.records.find((row) => row.id === record.id))
+        } catch {
+          setRecord(undefined)
+          setError('检测结果已保存；正文暂未能重新显示，请从列表重试。')
+        }
+      }
+    }
+    const failed = fetched.filter((r) => r.status !== 'valid').length
+    setNotice(`检测结果已保存：成功 ${fetched.length - failed}，失败 ${failed}。`)
+  }
   /** @param ids - 用户选定的场次；只获取在线目标。 @returns 获取全部结束后一次校验／事务提交，失败不发布未保存结果。 */
   async function probe(ids: string[], onResult?: (record: SessionRecord) => void) {
+    if (Capacitor.getPlatform() === 'ios') return probeIOS(ids, onResult)
     const complete = await loadContent(snapshot.records.map((r) => r.id))
     const wanted = new Set(ids)
     const targets = complete.records.filter(

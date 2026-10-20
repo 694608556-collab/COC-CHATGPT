@@ -31,9 +31,14 @@ export async function fetchRecords(
     onProgress?: (progress: FetchProgress) => void
     /** 单场已解析结果；仅用于界面进度，不表示已提交。 */
     onResult?: (record: SessionRecord) => void
+    /** Native disk staging; await before releasing this slot's body. */
+    stageResult?: (record: SessionRecord) => Promise<void>
+    /** Keep metadata only after successful staging. Requires stageResult. */
+    releaseBodies?: boolean
   } = {}
 ): Promise<SessionRecord[]> {
   const concurrency = options.concurrency ?? 3
+  if (options.releaseBodies && !options.stageResult) throw new Error('缺少正文暂存接口。')
   if (![2, 3, 4].includes(concurrency)) throw new Error('正文并发数量必须为 2–4。')
   if (
     new Set(records.map((record) => record.id)).size !== records.length ||
@@ -52,8 +57,12 @@ export async function fetchRecords(
       const index = cursor++
       try {
         const next = await fetchRecord(port, records[index]!)
-        result[index] = next
-        options.onResult?.(next)
+        await options.stageResult?.(next)
+        const visible = options.releaseBodies
+          ? (({ rawContent, manualContent, ...metadata }) => metadata)(next)
+          : next
+        result[index] = visible
+        options.onResult?.(visible)
         progress.completed++
         if (next.status === 'valid') progress.succeeded++
         else progress.failed++

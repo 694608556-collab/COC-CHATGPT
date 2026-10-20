@@ -1,5 +1,6 @@
 import Foundation
 import SQLite3
+import CryptoKit
 
 typealias LogbookJSON = [String: Any]
 struct LogbookFailure: LocalizedError {
@@ -88,6 +89,42 @@ final class LogbookStore {
         return data
     }
     func deferredIDs() throws -> [String] { try rows("SELECT id FROM records WHERE body<>'{}' ORDER BY position").map { $0[0] } }
+    /// Captures one exact revision as a private file; only one existing body row is copied at once.
+    func backupFile(expected: Int, directory: URL) throws -> URL {
+        try check(expected)
+        guard var root = try metadata() else { throw LogbookFailure("尚无已保存数据。") }
+        root.removeValue(forKey: "records")
+        let url = directory.appendingPathComponent(UUID().uuidString + ".backup")
+        try Data().write(to: url, options: [.withoutOverwriting])
+        do {
+            let output = try FileHandle(forWritingTo: url); defer { try? output.close() }
+            var total = 0
+            func write(_ text: String) throws {
+                let bytes = Data(text.utf8); total += bytes.count
+                guard total <= logbookMaximumBytes else { throw LogbookFailure("备份超过 64 MB 上限。") }
+                try output.write(contentsOf: bytes)
+            }
+            try write("{\"format\":\"coc.logbook.android\",\"formatVersion\":1,\"exportedAt\":" + String(try logbookText([logbookNow()]).dropFirst().dropLast()) + ",\"restoreScope\":[\"modules\",\"records\",\"characters\"],\"snapshot\":")
+            try write(String(try logbookText(root).dropLast()) + ",\"records\":[")
+            let statement = try prepare("SELECT metadata,body FROM records ORDER BY position")
+            defer { sqlite3_finalize(statement) }
+            var status = sqlite3_step(statement), first = true
+            while status == SQLITE_ROW {
+                try autoreleasepool {
+                    guard let metadata = sqlite3_column_text(statement, 0), let body = sqlite3_column_text(statement, 1) else { throw LogbookFailure("场次正文读取失败。") }
+                    let head = String(cString: metadata), tail = String(cString: body)
+                    guard head.hasSuffix("}"), tail.hasPrefix("{"), tail.hasSuffix("}") else { throw LogbookFailure("本机正文格式异常。") }
+                    try write((first ? "" : ",") + (tail == "{}" ? head : String(head.dropLast()) + "," + String(tail.dropFirst())))
+                    first = false
+                }
+                status = sqlite3_step(statement)
+            }
+            guard status == SQLITE_DONE else { throw LogbookFailure("备份读取失败。") }
+            try write("]}}")
+            try check(expected); try output.synchronize()
+            return url
+        } catch { try? FileManager.default.removeItem(at: url); throw error }
+    }
     func fullSnapshot(selected: [String]? = nil) throws -> LogbookJSON? {
         guard var data = try metadata() else { return nil }
         var result: [LogbookJSON] = []
@@ -160,5 +197,133 @@ final class LogbookStore {
             try saveRoot(data, revision: expected + 1)
         }
         return (revision, now)
+    }
+
+    /// Bodies remain in their existing v1 rows. Only successful selected results replace a body.
+    /// The private spool has already been unlinked; its open descriptor survives until this ends.
+    func finishFetch(_ batch: LogbookFetchBatch) throws -> (Int, String) {
+        guard batch.segments.count == batch.targets.count else { throw LogbookFailure("检测结果尚未取齐；未保存。") }
+        let input = try FileHandle(forReadingFrom: batch.url)
+        defer { try? input.close() }
+        try FileManager.default.removeItem(at: batch.url)
+        let now = logbookNow()
+        let revision = try transaction(batch.expected) {
+            guard var root = try metadata() else { throw LogbookFailure("本机数据缺失。") }
+            for id in batch.ids {
+                try autoreleasepool {
+                    guard let segment = batch.segments[id], let old = batch.targets[id],
+                          let stored = try rows("SELECT metadata FROM records WHERE id=?", [id]).first?.first,
+                          try logbookData(logbookObject(stored)) == logbookData(old) else { throw LogbookFailure("场次来源已变化；未保存。") }
+                    try input.seek(toOffset: segment.offset)
+                    guard let bytes = try input.read(upToCount: segment.bytes), bytes.count == segment.bytes,
+                          LogbookArchive.digest(bytes) == segment.sha256,
+                          let text = String(data: bytes, encoding: .utf8) else { throw LogbookFailure("检测暂存回读校验失败；未保存。") }
+                    var value = try logbookObject(text)
+                    try batch.validate(value)
+                    let body = value.removeValue(forKey: "rawContent")
+                    try execute("UPDATE records SET metadata=? WHERE id=?", [try logbookText(value), id])
+                    if value["status"] as? String == "valid", let body {
+                        try execute("UPDATE records SET body=? WHERE id=?", [try logbookText(["rawContent": body]), id])
+                    }
+                }
+            }
+            root["exportedAt"] = now
+            try saveRoot(root, revision: batch.expected + 1)
+        }
+        return (revision, now)
+    }
+}
+
+/// One bounded upload at a time, then one append-only spool. Neither retains batch bodies in RAM.
+final class LogbookSnapshotUpload {
+    let id = UUID().uuidString
+    let url: URL
+    let expected: Int
+    let bytes: Int
+    let sha256: String
+    private var output: FileHandle?
+    private var written = 0
+    private var index = 0
+    init(directory: URL, expected: Int, bytes: Int, sha256: String) throws {
+        guard bytes > 0, bytes <= logbookMaximumBytes, sha256.count == 64,
+              sha256.allSatisfy({ "0123456789abcdef".contains($0) }) else { throw LogbookFailure("暂存长度或摘要无效。") }
+        self.expected = expected; self.bytes = bytes; self.sha256 = sha256
+        url = directory.appendingPathComponent(id + ".upload")
+        try Data().write(to: url, options: [.withoutOverwriting])
+        output = try FileHandle(forWritingTo: url)
+    }
+    deinit { try? output?.close(); try? FileManager.default.removeItem(at: url) }
+    func append(index: Int, base64: String) throws {
+        guard index == self.index, base64.utf8.count <= 349528,
+              let chunk = Data(base64Encoded: base64), !chunk.isEmpty, chunk.count <= 262144,
+              written + chunk.count <= bytes, let output else { throw LogbookFailure("暂存片段缺失、乱序或超过上限。") }
+        try output.write(contentsOf: chunk); written += chunk.count; self.index += 1
+    }
+    func snapshot() throws -> LogbookJSON {
+        guard written == bytes, let output else { throw LogbookFailure("暂存尚未取齐。") }
+        try output.synchronize(); try output.close(); self.output = nil
+        let data = try Data(contentsOf: url)
+        guard data.count == bytes, LogbookArchive.digest(data) == sha256,
+              let text = String(data: data, encoding: .utf8) else { throw LogbookFailure("暂存长度、摘要或 UTF-8 校验失败。") }
+        let value = try logbookObject(text)
+        try LogbookValidation.snapshot(value)
+        return value
+    }
+}
+
+final class LogbookFetchBatch {
+    struct Segment { let offset: UInt64; let bytes: Int; let sha256: String }
+    let id = UUID().uuidString
+    let url: URL
+    let expected: Int
+    let bookmark: Data
+    let ids: [String]
+    let targets: [String: LogbookJSON]
+    private(set) var segments: [String: Segment] = [:]
+    private var written = 0
+    init(directory: URL, store: LogbookStore, ids: [String], expected: Int, bookmark: Data) throws {
+        try store.check(expected)
+        guard !ids.isEmpty, ids.count <= 50000, Set(ids).count == ids.count,
+              let data = try store.metadata() else { throw LogbookFailure("批量检测目标无效。") }
+        let wanted = Set(ids)
+        let rows = (data["records"] as! [LogbookJSON]).filter { wanted.contains($0["id"] as! String) }
+        guard rows.count == ids.count, rows.allSatisfy({ $0["sourceType"] as? String == "online" }) else { throw LogbookFailure("批量检测目标已变化。") }
+        self.ids = ids; self.expected = expected; self.bookmark = bookmark
+        targets = Dictionary(uniqueKeysWithValues: rows.map { ($0["id"] as! String, $0) })
+        url = directory.appendingPathComponent(id + ".batch")
+        try Data().write(to: url, options: [.withoutOverwriting])
+    }
+    deinit { try? FileManager.default.removeItem(at: url) }
+    func validate(_ value: LogbookJSON) throws {
+        try LogbookValidation.record(value)
+        guard let id = value["id"] as? String, var old = targets[id], value["manualContent"] == nil,
+              ["valid", "invalid", "fetch_failed"].contains(value["status"] as? String ?? "") else { throw LogbookFailure("检测场次不匹配。") }
+        var next = value
+        let mutable = ["status", "lastError", "rawContent", "fetchedAt", "cacheSourceUrl", "playDate", "dateSource"]
+        for key in mutable { old.removeValue(forKey: key); next.removeValue(forKey: key) }
+        guard try logbookData(old) == logbookData(next) else { throw LogbookFailure("检测不得更改场次来源或其他字段。") }
+        if let old = targets[id], old["dateSource"] as? String == "manual" {
+            guard value["dateSource"] as? String == "manual", value["playDate"] as? String == old["playDate"] as? String else { throw LogbookFailure("检测不得更改手动日期。") }
+        }
+        if value["status"] as? String == "valid" {
+            guard value["rawContent"] != nil, value["cacheSourceUrl"] as? String == targets[id]?["link"] as? String else { throw LogbookFailure("成功结果缺少对应来源的正文。") }
+        } else if value["rawContent"] != nil { throw LogbookFailure("失败结果不得替换旧正文。") }
+    }
+    func stage(_ upload: LogbookSnapshotUpload) throws {
+        guard upload.expected == expected else { throw LogbookFailure("暂存版本不一致。") }
+        try autoreleasepool {
+            let snapshot = try upload.snapshot()
+            guard let records = snapshot["records"] as? [LogbookJSON], records.count == 1 else { throw LogbookFailure("每次只能暂存一场检测结果。") }
+            let value = records[0]
+            try validate(value)
+            let id = value["id"] as! String
+            guard segments[id] == nil else { throw LogbookFailure("检测结果重复。") }
+            let data = try logbookData(value)
+            guard written + data.count <= logbookMaximumBytes else { throw LogbookFailure("检测结果超过 64 MB 上限；未保存，可减少所选场次后重试。") }
+            let output = try FileHandle(forWritingTo: url); defer { try? output.close() }
+            try output.seekToEnd(); try output.write(contentsOf: data); try output.synchronize()
+            segments[id] = Segment(offset: UInt64(written), bytes: data.count, sha256: LogbookArchive.digest(data))
+            written += data.count
+        }
     }
 }

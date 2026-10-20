@@ -101,6 +101,30 @@ def main():
                     command('xcrun', 'xcresulttool', 'export', 'attachments', '--path', 'ios/build/picker-ui.xcresult', '--output-path', 'ios/build/picker-attachments', timeout=60)
                 except Exception as error:
                     print('Public UI attachment export failed: ' + str(error), flush=True)
+        phase = 'public-scale-fixture'
+        # The simulator was created by this job. Never seed a physical/user device.
+        subprocess.run(['xcrun', 'simctl', 'terminate', udid, 'coc.logbook'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+        database = container / 'Library/Application Support/COCLogbook/logbook.sqlite'
+        # Preserve all earlier public system-UI fixtures as evidence rather than clearing them.
+        for suffix in ['', '-wal', '-shm']:
+            existing = pathlib.Path(str(database) + suffix)
+            if existing.exists():
+                existing.rename(pathlib.Path(str(existing) + '.pre-scale'))
+        command('python3', 'scripts/ios-scale-fixture.py', str(database), timeout=60)
+        (container / 'tmp/ios-scale-webview.js').write_text(pathlib.Path('scripts/ios-scale-webview.js').read_text())
+        scale_report = container / 'tmp/ios-scale-result.json'
+        phase = 'public-scale-wkwebview'
+        command('xcrun', 'simctl', 'launch', udid, 'coc.logbook', '--coc-ios-scale', timeout=120)
+        deadline = time.monotonic() + 950
+        while not scale_report.exists() and time.monotonic() < deadline:
+            time.sleep(1)
+        if not scale_report.exists():
+            raise TimeoutError('Public 50-campaign WKWebView scale report not produced')
+        scale = json.loads(scale_report.read_text())
+        (OUTPUT / 'ios-scale-result.json').write_text(json.dumps(scale, ensure_ascii=False))
+        print(json.dumps(scale), flush=True)
+        if not scale.get('passed'):
+            raise RuntimeError('Public WKWebView scale failed: ' + str(scale))
         if capture_errors:
             raise RuntimeError('Required screenshot capture failed after startup/UI checks: ' + '; '.join(capture_errors))
     except Exception as error:

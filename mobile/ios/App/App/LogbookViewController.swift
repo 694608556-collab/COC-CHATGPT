@@ -5,8 +5,23 @@ import WebKit
 final class LogbookViewController: CAPBridgeViewController {
     #if DEBUG
     private var smokeStarted = false
+    private var scaleMode: Bool {
+        #if targetEnvironment(simulator)
+        return ProcessInfo.processInfo.arguments.contains("--coc-ios-scale")
+        #else
+        return false
+        #endif
+    }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        if scaleMode, !smokeStarted {
+            smokeStarted = true
+            do {
+                let script = try String(contentsOf: FileManager.default.temporaryDirectory.appendingPathComponent("ios-scale-webview.js"), encoding: .utf8)
+                startSmokeWhenReady(script, deadline: Date().addingTimeInterval(60))
+            } catch { writeSmokeResult(["passed": false, "stage": "public-scale-script", "error": error.localizedDescription]) }
+            return
+        }
         guard ProcessInfo.processInfo.arguments.contains("--coc-ios-smoke"), !smokeStarted else { return }
         smokeStarted = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
@@ -72,7 +87,7 @@ final class LogbookViewController: CAPBridgeViewController {
                     if let error = error {
                         self.writeSmokeResult(["passed": false, "stage": "javascript-start", "error": error.localizedDescription])
                     } else {
-                        self.pollSmokeResult(deadline: Date().addingTimeInterval(90))
+                        self.pollSmokeResult(deadline: Date().addingTimeInterval(self.scaleMode ? 900 : 90))
                     }
                 }
             } else if Date() >= deadline {
@@ -114,12 +129,18 @@ final class LogbookViewController: CAPBridgeViewController {
             output["scrollEdgeEffectsHidden"] = hidden
             if !hidden { output["passed"] = false }
         }
-        try? logbookData(output).write(to: FileManager.default.temporaryDirectory.appendingPathComponent("ios-smoke-result.json"), options: [.atomic])
+        try? logbookData(output).write(to: FileManager.default.temporaryDirectory.appendingPathComponent(scaleMode ? "ios-scale-result.json" : "ios-smoke-result.json"), options: [.atomic])
     }
     #endif
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(LogbookPlugin())
         #if DEBUG && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--coc-ios-scale") {
+            do {
+                let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("COCLogbook")
+                _ = try LogbookArchive(directory: directory).chooseLocalDirectory()
+            } catch { writeSmokeResult(["passed": false, "stage": "public-scale-directory", "error": error.localizedDescription]) }
+        }
         if ProcessInfo.processInfo.arguments.contains("--coc-picker-ui"),
            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
             // Public empty fixture exists only in the fresh CI simulator's container.

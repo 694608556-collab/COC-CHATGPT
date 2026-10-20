@@ -155,8 +155,35 @@ final class LogbookArchive {
         throw LogbookFailure("同名文件过多，请更换文件名。")
     }
     func write(name: String, mime: String, bytes: Data, purpose: String, bookmark: Data? = nil) throws -> LogbookJSON {
-        try Self.validateName(name)
         guard bytes.count <= logbookMaximumBytes else { throw LogbookFailure("文件超过 64 MB。") }
+        return try publish(name: name, mime: mime, purpose: purpose, bookmark: bookmark,
+                           proof: (bytes.count, Self.digest(bytes))) { output in try output.write(contentsOf: bytes) }
+    }
+    static func fileProof(_ url: URL) throws -> (Int, String) {
+        let input = try FileHandle(forReadingFrom: url); defer { try? input.close() }
+        var total = 0, hash = SHA256()
+        while let chunk = try input.read(upToCount: 65536), !chunk.isEmpty {
+            total += chunk.count
+            guard total <= logbookMaximumBytes else { throw LogbookFailure("文件超过 64 MB。") }
+            hash.update(data: chunk)
+        }
+        return (total, hash.finalize().map { String(format: "%02x", $0) }.joined())
+    }
+    func writeFile(name: String, mime: String, source: URL, purpose: String, bookmark: Data) throws -> LogbookJSON {
+        let proof = try Self.fileProof(source)
+        return try publish(name: name, mime: mime, purpose: purpose, bookmark: bookmark, proof: proof) { output in
+            let input = try FileHandle(forReadingFrom: source); defer { try? input.close() }
+            var written = 0
+            while let chunk = try input.read(upToCount: 65536), !chunk.isEmpty {
+                written += chunk.count
+                guard written <= proof.0 else { throw LogbookFailure("备份暂存已变化。") }
+                try output.write(contentsOf: chunk)
+            }
+            guard written == proof.0 else { throw LogbookFailure("备份暂存不完整。") }
+        }
+    }
+    private func publish(name: String, mime: String, purpose: String, bookmark: Data?, proof: (Int, String), write: @escaping (FileHandle) throws -> Void) throws -> LogbookJSON {
+        try Self.validateName(name)
         let captured = try bookmark ?? self.bookmark()
         return try access(captured) { directory in
             var failure: NSError?, outcome: Result<LogbookJSON, Error>?
@@ -165,10 +192,10 @@ final class LogbookArchive {
                     let (file, descriptor) = try self.reserve(directory, name)
                     do {
                         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-                        do { try handle.write(contentsOf: bytes); try handle.synchronize(); try handle.close() } catch { try? handle.close(); throw error }
-                        let actual = try self.readBounded(file)
-                        guard actual == bytes else { throw LogbookFailure("文件回读校验失败。") }
-                        let document: LogbookJSON = ["uri": "coc-ios-document://" + UUID().uuidString, "name": file.lastPathComponent, "bytes": actual.count, "sha256": Self.digest(actual), "purpose": purpose]
+                        do { try write(handle); try handle.synchronize(); try handle.close() } catch { try? handle.close(); throw error }
+                        let actual = try Self.fileProof(file)
+                        guard actual == proof else { throw LogbookFailure("文件回读校验失败。") }
+                        let document: LogbookJSON = ["uri": "coc-ios-document://" + UUID().uuidString, "name": file.lastPathComponent, "bytes": actual.0, "sha256": actual.1, "purpose": purpose]
                         self.registryLock.lock(); defer { self.registryLock.unlock() }
                         var rows = try self.registry()
                         rows.append(["document": document, "mime": mime, "bookmark": captured.base64EncodedString(), "archive": Self.digest(captured), "createdAt": Date().timeIntervalSince1970 * 1000])

@@ -9,7 +9,7 @@ import Network
 public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate, QLPreviewControllerDataSource {
     public let identifier = "LogbookPlugin"
     public let jsName = "Logbook"
-    public let pluginMethods: [CAPPluginMethod] = ["claimFirstLaunchIntro", "getOverview", "getState", "getStatus", "getRecordContent", "commitSettings", "commitModule", "commitEntity", "commitAction", "commitEdit", "commitRestore", "selectArchive", "openBackup", "writeArchive", "readDocument", "listDocuments", "openDocument", "shareDocument", "fetchLog", "automaticBackup"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise)! }
+    public let pluginMethods: [CAPPluginMethod] = ["beginFetchBatch", "stageFetchResult", "finishFetchBatch", "cancelFetchBatch", "beginSnapshotEdit", "appendSnapshotEdit", "cancelSnapshotEdit", "claimFirstLaunchIntro", "getOverview", "getState", "getStatus", "getRecordContent", "commitSettings", "commitModule", "commitEntity", "commitAction", "commitEdit", "commitRestore", "selectArchive", "openBackup", "writeArchive", "readDocument", "listDocuments", "openDocument", "shareDocument", "fetchLog", "automaticBackup"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise)! }
     private let work = DispatchQueue(label: "coc.logbook.storage", qos: .userInitiated)
     private let backupWriter = DispatchQueue(label: "coc.logbook.automatic-backup", qos: .utility)
     private let monitor = NWPathMonitor()
@@ -62,6 +62,79 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
             let show = !preferences.bool(forKey: key)
             if show { preferences.set(true, forKey: key); guard preferences.synchronize() else { throw LogbookFailure("首次欢迎状态未保存。") } }
             return ["show": show]
+        }
+    }
+    private var fetchBatch: LogbookFetchBatch?
+    private var snapshotUpload: LogbookSnapshotUpload?
+    private var stagingDirectory: URL?
+    private func fetchDirectory() throws -> URL {
+        if let stagingDirectory { return stagingDirectory }
+        let base = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("ios-fetch-staging", isDirectory: true)
+        // Only our private interrupted fetch candidates, never database or archive files.
+        if FileManager.default.fileExists(atPath: base.path) { try FileManager.default.removeItem(at: base) }
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        stagingDirectory = base
+        return base
+    }
+    @objc func beginFetchBatch(_ call: CAPPluginCall) {
+        run(call) { store, archive in
+            guard self.fetchBatch == nil, let ids = call.options["ids"] as? [String] else { throw LogbookFailure("已有批量检测或目标无效。") }
+            try archive.requirePermission()
+            let batch = try LogbookFetchBatch(directory: self.fetchDirectory(), store: store, ids: ids, expected: self.expected(call), bookmark: archive.bookmark())
+            self.fetchBatch = batch
+            return ["id": batch.id]
+        }
+    }
+    @objc func beginSnapshotEdit(_ call: CAPPluginCall) {
+        run(call) { store, archive in
+            let expected = try self.expected(call)
+            try store.check(expected); try archive.requirePermission()
+            guard self.snapshotUpload == nil, let batch = self.fetchBatch, batch.expected == expected,
+                  let bytes = call.getInt("bytes"), let hash = call.getString("sha256") else { throw LogbookFailure("正文暂存请求无效。") }
+            let upload = try LogbookSnapshotUpload(directory: self.fetchDirectory(), expected: expected, bytes: bytes, sha256: hash)
+            self.snapshotUpload = upload
+            return ["id": upload.id]
+        }
+    }
+    @objc func appendSnapshotEdit(_ call: CAPPluginCall) {
+        run(call) { _, _ in
+            guard let upload = self.snapshotUpload, call.getString("id") == upload.id,
+                  let index = call.getInt("index"), let base64 = call.getString("base64") else { throw LogbookFailure("正文暂存标识无效。") }
+            try upload.append(index: index, base64: base64)
+            return [:]
+        }
+    }
+    @objc func stageFetchResult(_ call: CAPPluginCall) {
+        run(call) { store, archive in
+            guard let batch = self.fetchBatch, batch.id == call.getString("batchId"),
+                  let upload = self.snapshotUpload, upload.id == call.getString("id"),
+                  try archive.bookmark() == batch.bookmark else { throw LogbookFailure("检测暂存或保存位置已变化。") }
+            try store.check(batch.expected); try archive.requirePermission()
+            try batch.stage(upload)
+            self.snapshotUpload = nil
+            return [:]
+        }
+    }
+    @objc func finishFetchBatch(_ call: CAPPluginCall) {
+        run(call) { store, archive in
+            guard let batch = self.fetchBatch, batch.id == call.getString("id"), self.snapshotUpload == nil,
+                  try archive.bookmark() == batch.bookmark else { throw LogbookFailure("检测暂存或保存位置已变化。") }
+            try archive.requirePermission()
+            let result = try store.finishFetch(batch)
+            self.fetchBatch = nil
+            return ["revision": result.0, "exportedAt": result.1]
+        }
+    }
+    @objc func cancelSnapshotEdit(_ call: CAPPluginCall) {
+        run(call) { _, _ in
+            if self.snapshotUpload?.id == call.getString("id") { self.snapshotUpload = nil }
+            return [:]
+        }
+    }
+    @objc func cancelFetchBatch(_ call: CAPPluginCall) {
+        run(call) { _, _ in
+            if self.fetchBatch?.id == call.getString("id") { self.snapshotUpload = nil; self.fetchBatch = nil }
+            return [:]
         }
     }
     @objc func getOverview(_ call: CAPPluginCall) {
@@ -262,14 +335,14 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
                 guard !self.backupRunning else { throw LogbookFailure("自动备份正在进行。") }
                 let (store, archive) = try self.resources(), expected = try self.expected(call)
                 try store.check(expected); try archive.requirePermission()
-                guard let snapshot = try store.fullSnapshot() else { throw LogbookFailure("尚无已保存数据。") }
                 let bookmark = try archive.bookmark()
-                let bytes = try logbookData(["format": "coc.logbook.android", "formatVersion": 1, "exportedAt": logbookNow(), "restoreScope": ["modules", "records", "characters"], "snapshot": snapshot])
+                let backupDirectory = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+                let source = try store.backupFile(expected: expected, directory: backupDirectory)
                 self.backupRunning = true
                 self.backupWriter.async {
-                    defer { self.work.async { self.backupRunning = false } }
+                    defer { try? FileManager.default.removeItem(at: source); self.work.async { self.backupRunning = false } }
                     do {
-                        let document = try archive.write(name: "auto-backup-\(Int(Date().timeIntervalSince1970 * 1000)).json", mime: "application/json", bytes: bytes, purpose: "auto", bookmark: bookmark)
+                        let document = try archive.writeFile(name: "auto-backup-\(Int(Date().timeIntervalSince1970 * 1000)).json", mime: "application/json", source: source, purpose: "auto", bookmark: bookmark)
                         let savedAt = try self.work.sync { () throws -> Int in
                             guard try archive.bookmark() == bookmark else { throw LogbookFailure("保存位置已变化；文件保留，未标记新位置已备份。") }
                             let savedAt = Int(Date().timeIntervalSince1970 * 1000)
