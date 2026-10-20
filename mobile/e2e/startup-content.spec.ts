@@ -209,6 +209,20 @@ test('重开后从未阅读也能备份全部正文，表格追加不会丢失�
     mimeType: 'text/csv',
     buffer: Buffer.from('\uFEFF模组,场次\n公开追加模组,公开追加场次\n')
   })
+  const preview = page.getByRole('dialog', { name: '表格导入预览' })
+  await expect(preview).toBeVisible()
+  expect((await probe(page)).requests).toEqual([])
+  await preview.getByRole('button', { name: '取消', exact: true }).click()
+  expect((await probe(page)).requests).toEqual([])
+  const retry = page.waitForEvent('filechooser')
+  await page.getByRole('button', { name: '导入场次表格' }).click()
+  await (
+    await retry
+  ).setFiles({
+    name: 'public-startup.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from('\uFEFF模组,场次\n公开追加模组,公开追加场次\n')
+  })
   await page.getByRole('button', { name: '确认添加表格数据' }).click()
   await expect(page.getByRole('status')).toContainText('表格数据已添加')
   await page.reload()

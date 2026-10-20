@@ -42,6 +42,7 @@ import type { ExportFormat } from '../data/export'
 import { checkPdfCancellation } from '../data/pdf'
 import type { PdfProgress } from '../data/pdf'
 import type { TablePreview } from '../data/tables'
+import { tablePreviewBaseline, restoreTableBodies } from '../data/table-preview'
 import { previewCoc7Import } from '../data/coc7-import'
 import type { Coc7ImportSummary } from '../data/coc7-import'
 import {
@@ -539,8 +540,12 @@ export function MobileApp({
   async function previewTable(kind: 'records' | 'characters') {
     const selected = await port.openBackup({ kind: kind === 'records' ? 'record-table' : 'character-table' })
     if (selected.cancelled || !selected.base64 || !selected.name || !native) return
-    const complete = await loadContent(snapshot.records.map((r) => r.id))
-    const data = await importTableInBackground(complete, selected.base64, selected.name, kind)
+    const data = await importTableInBackground(
+      tablePreviewBaseline(snapshot),
+      selected.base64,
+      selected.name,
+      kind
+    )
     setTablePreviewLimit({ names: 100, warnings: 100 })
     setTablePreview({
       data,
@@ -578,7 +583,9 @@ export function MobileApp({
     )
       return
     if (nativeRef.current?.revision !== tablePreview.revision) throw new Error('数据已变化，请重新选择表格。')
-    await commit(tablePreview.data.next)
+    const complete = await loadContent(snapshot.records.map((r) => r.id))
+    if (nativeRef.current?.revision !== tablePreview.revision) throw new Error('数据已变化，请重新选择表格。')
+    await commit(restoreTableBodies(tablePreview.data.next, complete))
     setTablePreview(undefined)
     setNotice(tablePreview.data.updated ? '表格数据已添加或更新并保存。' : '表格数据已添加并保存。')
   }
