@@ -1020,7 +1020,7 @@ export function MobileApp({
           <img src="icon.png" alt="" />
           <strong>COC 跑团记录簿</strong>
         </div>
-        <span className="version">1.0.6</span>
+        <span className="version">1.0.7</span>
       </header>
       <main
         className={page === 'settings' && !editing ? 'settings-page' : undefined}

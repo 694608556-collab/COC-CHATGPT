@@ -1,9 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { matchRanges, searchExcerpt } from './search'
+import { matchRanges, recordMessages, searchExcerpt } from './search'
 import { searchSample } from '../dev/sample'
 import { previewBackup, encodeBackup } from './backup'
 
 describe('正文搜索', () => {
+  it('手动正文跳过空白卡片，保留有效行、原始ID及保存内容', () => {
+    const sample = searchSample()
+    const record = { ...sample.records[1]!, manualContent: '\r\n  首段  \r\n\t\r\n　\n末段\r尾段\n' }
+    const original = record.manualContent
+    expect(recordMessages(record, sample.settings.filterPreset)).toEqual([
+      { id: 'manual-1', header: '', text: '  首段  ', images: [] },
+      { id: 'manual-4', header: '', text: '末段', images: [] },
+      { id: 'manual-5', header: '', text: '尾段', images: [] }
+    ])
+    expect(record.manualContent).toBe(original)
+    expect(recordMessages({ ...record, manualContent: '\n \t\r\n　' }, sample.settings.filterPreset)).toEqual(
+      []
+    )
+  })
   it('中文重复命中与空关键词', () => {
     expect(matchRanges('灯塔旁还有灯塔', ' 灯塔 ')).toEqual([
       { start: 0, end: 2 },
