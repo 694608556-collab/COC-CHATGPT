@@ -54,7 +54,9 @@ it('已有50模组1000场时检测20场：不读取旧正文，只逐场上传�
       finished++
       return { revision: 8, exportedAt: 'saved' }
     },
-    async cancelFetchBatch() {},
+    async cancelFetchBatch() {
+      throw new Error('已提交批次不应再次取消')
+    },
     async fetchLog({ url }: { url: string }) {
       return {
         url,
