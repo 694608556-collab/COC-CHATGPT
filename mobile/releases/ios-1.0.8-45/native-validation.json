@@ -1,0 +1,37 @@
+{
+  "version": "1.0.8",
+  "build": 45,
+  "applicationSource": "3dc44da",
+  "runId": 39438799587,
+  "attempt": 2,
+  "jobId": 118689344626,
+  "passed": true,
+  "unitTests": 100,
+  "browser": {
+    "startTime": "2026-10-20T14:45:01.521Z",
+    "duration": 285777.42500000005,
+    "expected": 110,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "nativeCoreChecks": 60,
+  "coldStarts": 3,
+  "systemUiTests": 4,
+  "nativeSystemVersion": "27.0",
+  "scale": {
+    "commits": 4,
+    "failed": 178,
+    "fetch": 3020,
+    "staged": 3020,
+    "wholeReads": 0
+  },
+  "physicalIPhoneTested": false,
+  "firstAttempt": {
+    "passed": false,
+    "coldStart": 2,
+    "stage": "page-readiness",
+    "timeoutSeconds": 60,
+    "retained": true
+  }
+}

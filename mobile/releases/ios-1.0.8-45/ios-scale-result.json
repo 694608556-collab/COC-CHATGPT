@@ -1,0 +1,61 @@
+{
+  "appBuild": "45",
+  "appVersion": "1.0.8",
+  "campaigns": 50,
+  "counts": {
+    "commits": 4,
+    "failed": 178,
+    "fetch": 3020,
+    "staged": 3020,
+    "wholeReads": 0
+  },
+  "manual": 50,
+  "nativeSystemVersion": "27.0",
+  "network": "generated public responses only",
+  "online": 1000,
+  "passed": true,
+  "rounds": [
+    {
+      "commits": 1,
+      "failed": 59,
+      "fetch": 1000,
+      "revision": 2,
+      "round": 1,
+      "scope": "all",
+      "staged": 1000,
+      "wholeReads": 0
+    },
+    {
+      "commits": 2,
+      "failed": 118,
+      "fetch": 2000,
+      "revision": 3,
+      "round": 2,
+      "scope": "all",
+      "staged": 2000,
+      "wholeReads": 0
+    },
+    {
+      "commits": 3,
+      "failed": 177,
+      "fetch": 3000,
+      "revision": 4,
+      "round": 3,
+      "scope": "all",
+      "staged": 3000,
+      "wholeReads": 0
+    },
+    {
+      "commits": 4,
+      "failed": 178,
+      "fetch": 3020,
+      "revision": 5,
+      "round": 4,
+      "scope": "last-module",
+      "staged": 3020,
+      "wholeReads": 0
+    }
+  ],
+  "scrollEdgeEffectsHidden": true,
+  "stage": "complete"
+}
