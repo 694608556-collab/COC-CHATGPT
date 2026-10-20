@@ -79,7 +79,9 @@ public class IndexedPressureTest {
                     assertEquals(failedBefore,bodyHash(sql,19));assertEquals(unselected,bodyHash(sql,999));
                     assertEquals(0,scalar(sql,"SELECT COUNT(*) FROM touched WHERE id NOT IN (SELECT row_key FROM indexed_records WHERE id IN ('r0','r1','r2','r3','r4','r5','r6','r7','r8','r9','r10','r11','r12','r13','r14','r15','r16','r17','r18'))"));
                 }
-                assertTrue(Runtime.getRuntime().maxMemory()<=192L*1024*1024); // Ordinary MuMu heap, no largeHeap escape.
+                // Ordinary heap quotas differ by device (S9: 256 MiB). Verify the actual contract.
+                assertEquals(0, context().getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_LARGE_HEAP);
+                System.out.println("Public pressure ordinary maxHeapMiB="+(Runtime.getRuntime().maxMemory()/1024/1024));
                 assertNotNull(hash(db,ids(999,1)));
             }
             try(LogbookDatabase reopened=new LogbookDatabase(context(),name)){
