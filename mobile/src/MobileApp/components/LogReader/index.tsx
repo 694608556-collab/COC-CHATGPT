@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FilterPreset, SessionRecord } from '../../../../../src/shared/types'
-import { matchRanges, recordMessages, searchExcerpt } from '../../../data/search'
+import { hasMatch, matchRanges, recordMessages, searchExcerpt } from '../../../data/search'
 import { SystemMessage } from '../SystemMessage'
 
 function Highlight({ text, query }: { text: string; query: string }) {
@@ -53,8 +53,7 @@ export function LogReader(props: {
     () =>
       needle
         ? messages.reduce<number[]>((found, message, index) => {
-            if (matchRanges(message.header, needle).length || matchRanges(message.text, needle).length)
-              found.push(index)
+            if (hasMatch(message.header, needle) || hasMatch(message.text, needle)) found.push(index)
             return found
           }, [])
         : [],
