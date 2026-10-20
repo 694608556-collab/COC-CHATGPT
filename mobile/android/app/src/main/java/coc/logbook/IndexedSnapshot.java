@@ -122,7 +122,7 @@ final class IndexedSnapshot {
         Map<String,String> originals=new HashMap<>();
         if(previous.containsKey("records"))JsonFields.eachElement(previous.get("records"),raw->{try{originals.put(new JSONObject(raw).getString("id"),raw);}catch(Exception e){throw new IllegalArgumentException(e);}});
         JSONArray records=candidate.getJSONArray("records");
-        // The caller holds BEGIN IMMEDIATE: reserve the append range once, with no concurrent writer.
+        // The caller holds the SQLite write transaction: reserve the append range once, with no concurrent writer.
         long nextOrdinal;
         try(Cursor end=db.rawQuery("SELECT COALESCE(MAX(ordinal),-1)+1 FROM indexed_records",null)){end.moveToFirst();nextOrdinal=end.getLong(0);}
         for(int i=0;i<records.length();i++){

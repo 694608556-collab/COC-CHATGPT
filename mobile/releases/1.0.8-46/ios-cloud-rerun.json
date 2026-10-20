@@ -1,0 +1,24 @@
+{
+  "source": "801bc8a",
+  "workflowRun": 39448999303,
+  "firstAttempt": {
+    "nativeCorePassed": 67,
+    "coldStartsPassed": 3,
+    "uiPassed": 3,
+    "uiFailed": 1,
+    "case": "testPublicNameCandidatesWithNativeKeyboard",
+    "observation": "exact Public Beta value assertion saw trailing whitespace",
+    "scaleStage": "not run"
+  },
+  "secondAttempt": {
+    "sameSource": true,
+    "sameAssertionsAndTimeouts": true,
+    "nativeCorePassed": 67,
+    "coldStartsPassed": 3,
+    "uiPassed": 4,
+    "scaleStaged": 3020,
+    "scaleCommits": 4,
+    "wholeReads": 0
+  },
+  "rootCause": "undetermined; first failure evidence preserved; rerun pass is not a product fix claim"
+}

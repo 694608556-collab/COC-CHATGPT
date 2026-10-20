@@ -1,0 +1,15 @@
+{
+  "scope": "host in-memory SQLite microbenchmark, 1050 existing metadata rows plus 6000 append inserts, not full app/device timing",
+  "originalMs": [
+    639.7,
+    634.4,
+    634.7
+  ],
+  "cachedOrdinalMs": [
+    7.8,
+    7.7,
+    16.8
+  ],
+  "originalMedianMs": 634.7,
+  "cachedMedianMs": 7.8
+}

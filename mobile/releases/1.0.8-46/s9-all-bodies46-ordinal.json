@@ -1,0 +1,13 @@
+{
+  "build": 46,
+  "onlineTextsVerified": 1000,
+  "manualTextsVerified": 50,
+  "unchangedMetadata": 1050,
+  "bodyChunksExactlyEqual": 1050,
+  "bodyTokensSha256": "12bd8b135fd36d2ab48fde16857aeccb1288eee1c3992630453c42a5c60831a9",
+  "revision": 8,
+  "records": 7050,
+  "appendOrdinalsVerified": 6000,
+  "csvOrderVerified": true,
+  "success": true
+}

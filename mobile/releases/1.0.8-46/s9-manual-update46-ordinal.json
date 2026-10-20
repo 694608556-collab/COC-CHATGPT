@@ -1,0 +1,16 @@
+{
+  "build": 46,
+  "cancelled": {
+    "revision": 8,
+    "oldBodyReads": 0
+  },
+  "saveMs": 3769,
+  "after": {
+    "revision": 9,
+    "records": 7050,
+    "explicitManualTextSaved": true,
+    "emptyLinesPreserved": true,
+    "unselectedManualPreserved": true
+  },
+  "success": true
+}
