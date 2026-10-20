@@ -58,17 +58,37 @@ final class JsonFields {
     /** Element fragments retain raw body text and number precision. */
     static java.util.List<String> elements(String json) {
         java.util.List<String> rows = new java.util.ArrayList<>();
+        eachElement(json, rows::add);
+        return rows;
+    }
+    /** Visit one trusted fragment at a time instead of retaining another full array copy. */
+    static void eachElement(String json, java.util.function.Consumer<String> visitor) {
         int i = space(json, 0);
         if (json.charAt(i++) != '[') throw new IllegalArgumentException("快照数组错误。");
         while (true) {
             i = space(json, i);
             if (json.charAt(i) == ']') break;
-            int start = i; i = valueEnd(json, i); rows.add(json.substring(start, i).trim());
+            int start = i; i = valueEnd(json, i); visitor.accept(json.substring(start, i).trim());
             i = space(json, i);
             if (json.charAt(i) == ']') break;
             if (json.charAt(i++) != ',') throw new IllegalArgumentException("快照数组分隔错误。");
         }
-        return rows;
+    }
+    static void write(java.io.Writer out, Map<String,String> fields) throws java.io.IOException {
+        out.write('{'); boolean comma = false;
+        for (Map.Entry<String,String> entry : fields.entrySet()) {
+            if (comma) out.write(','); comma = true;
+            out.write('"'); out.write(entry.getKey().replace("\\", "\\\\").replace("\"", "\\\"")); out.write("\":");
+            writeText(out, entry.getValue());
+        }
+        out.write('}');
+    }
+    static void writeText(java.io.Writer out, String text) throws java.io.IOException {
+        for (int start = 0; start < text.length();) {
+            int end = Math.min(start + 32768, text.length());
+            if (end < text.length() && Character.isHighSurrogate(text.charAt(end - 1))) end--;
+            out.write(text, start, end - start); start = end;
+        }
     }
     private static int space(String json, int i) {
         while (i < json.length() && Character.isWhitespace(json.charAt(i))) i++;

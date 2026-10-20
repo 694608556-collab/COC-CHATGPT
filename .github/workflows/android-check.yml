@@ -42,7 +42,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck && pnpm test && pnpm build
       - run: pnpm exec cap sync android
-      - run: chmod +x android/gradlew && cd android && ./gradlew assembleDebug assembleRelease --no-daemon --console=plain
+      - run: chmod +x android/gradlew && cd android && ./gradlew assembleDebug assembleRelease assembleDebugAndroidTest --no-daemon --console=plain
       - name: Prepare unsigned release for local signing
         run: |
           mkdir -p android/app/build/outputs/local-signing
@@ -53,6 +53,11 @@ jobs:
         with:
           name: coc-logbook-debug-apk
           path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coc-logbook-native-instrumentation-tests
+          path: mobile/android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           retention-days: 7
       - uses: actions/upload-artifact@v4
         with:

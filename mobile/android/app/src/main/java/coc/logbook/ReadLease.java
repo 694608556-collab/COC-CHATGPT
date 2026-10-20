@@ -25,25 +25,38 @@ final class ReadLease implements AutoCloseable {
         for (File file : stale) delete(file);
     }
     Value create(String json, long revision) throws Exception {
+        return create(writer -> {
+            for(int start=0;start<json.length();) {
+                int end=Math.min(start+32768,json.length());
+                if(end<json.length() && Character.isHighSurrogate(json.charAt(end-1)))end--;
+                writer.write(json,start,end-start); start=end;
+            }
+        }, revision);
+    }
+    interface Producer { void write(Writer writer) throws Exception; }
+    Value create(Producer producer, long revision) throws Exception {
         if (active != null) throw new IllegalStateException("已有只读正文任务。");
         String id = UUID.randomUUID().toString(); File file = new File(directory, "coc-read-" + id + ".json");
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             try (FileOutputStream output = new FileOutputStream(file);
-                 Writer writer = new OutputStreamWriter(new DigestOutputStream(output,digest), StandardCharsets.UTF_8)) {
-                // Small writes bound encoder memory; the existing snapshot ceiling remains unchanged.
-                for (int start = 0; start < json.length();) {
-                    int end = Math.min(json.length(), start + 32768);
-                    if (end < json.length() && Character.isHighSurrogate(json.charAt(end-1))) end--;
-                    writer.write(json,start,end-start); writer.flush();
-                    if (file.length() > PdfSpool.MAX_BYTES) throw new IOException("正文超过 64 MB，未创建导出文件。");
-                    start = end;
-                }
+                 Writer writer = new BufferedWriter(new OutputStreamWriter(new DigestOutputStream(new FilterOutputStream(output) {
+                     long count;
+                     @Override public void write(byte[] bytes, int offset, int length) throws IOException {
+                         if (count + length > PdfSpool.MAX_BYTES) throw new IOException("正文超过 64 MB，未创建导出文件。");
+                         out.write(bytes, offset, length); count += length;
+                     }
+                     @Override public void write(int value) throws IOException {
+                         if (++count > PdfSpool.MAX_BYTES) throw new IOException("正文超过 64 MB，未创建导出文件。");
+                         out.write(value);
+                     }
+                 },digest), StandardCharsets.UTF_8))) {
+                producer.write(writer);
             }
             StringBuilder hash = new StringBuilder();
             for (byte b : digest.digest()) hash.append(String.format("%02x",b&255));
             active = new Value(id,file,file.length(),hash.toString(),revision); return active;
-        } catch (Exception error) { delete(file); throw error; }
+        } catch (Exception | OutOfMemoryError error) { delete(file); throw error; }
     }
     void release(String id) throws Exception { if (active != null && active.id.equals(id)) close(); }
     private static void delete(File file) throws IOException {

@@ -24,9 +24,10 @@ final class RecordOverlay {
     }
     static Map<String,Map<String,String>> rows(Map<String,String> fields) throws Exception {
         Map<String,Map<String,String>> rows = new LinkedHashMap<>();
-        for (String raw : JsonFields.elements(fields.get("records"))) {
-            Map<String,String> row = JsonFields.split(raw); rows.put(id(row), row);
-        }
+        JsonFields.eachElement(fields.get("records"), raw -> {
+            Map<String,String> row = JsonFields.split(raw);
+            try { rows.put(id(row), row); } catch (Exception error) { throw new IllegalArgumentException(error); }
+        });
         JSONObject values = new JSONObject(fields.containsKey("recordValues") ? fields.get("recordValues") : "{}");
         java.util.Iterator<String> keys = values.keys();
         while (keys.hasNext()) {
@@ -79,5 +80,25 @@ final class RecordOverlay {
         }
         fields.put("records", records.append(']').toString());
         fields.remove("recordOrders"); fields.remove("recordValues"); fields.remove("recordDeleted");
+    }
+    /** Same exact-revision projection as view, without assembling the selected body JSON. */
+    static void writeView(java.io.Writer out, Map<String,String> fields, java.util.Set<String> selected) throws Exception {
+        Map<String,Map<String,String>> records = rows(fields);
+        if (!records.keySet().containsAll(selected)) throw new IllegalArgumentException("场次已变化，请重新读取。");
+        out.write('{'); boolean comma = false;
+        for (Map.Entry<String,String> field : fields.entrySet()) {
+            if (java.util.Arrays.asList("recordOrders", "recordValues", "recordDeleted").contains(field.getKey())) continue;
+            if (comma) out.write(','); comma = true;
+            out.write('"'); out.write(field.getKey()); out.write("\":");
+            if (!field.getKey().equals("records")) JsonFields.writeText(out, field.getValue());
+            else {
+                out.write('['); boolean recordComma = false;
+                for (Map.Entry<String,Map<String,String>> row : records.entrySet()) if (selected.contains(row.getKey())) {
+                    if (recordComma) out.write(','); recordComma = true; JsonFields.write(out, row.getValue());
+                }
+                out.write(']');
+            }
+        }
+        out.write('}');
     }
 }

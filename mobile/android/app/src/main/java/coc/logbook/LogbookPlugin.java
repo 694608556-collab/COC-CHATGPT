@@ -246,12 +246,21 @@ public final class LogbookPlugin extends Plugin {
     @PluginMethod public void createExportSource(PluginCall call) {
         execute(() -> {
             try {
-                JSONObject view = selectedContent(call);
+                Long expected = call.getData().has("expectedRevision") ? call.getData().getLong("expectedRevision") : null;
+                if (expected == null || database.revision() != expected) throw new IllegalStateException("数据已变化，请重新读取。");
+                JSONArray ids = call.getArray("ids"); java.util.Set<String> selected = new java.util.HashSet<>();
+                if (ids == null || ids.length() == 0) throw new IllegalArgumentException("请选择场次。");
+                for (int i=0;i<ids.length();i++) if(!selected.add(ids.getString(i))) throw new IllegalArgumentException("场次选择重复。");
+                java.util.Map<String,String> fields = database.fields();
+                if (fields == null) throw new IllegalStateException("尚无已保存数据。");
                 if (readLease == null) readLease = new ReadLease(new java.io.File(getContext().getCacheDir(), "export-read-sources"));
-                ReadLease.Value value = readLease.create(view.getString("json"),view.getLong("revision"));
+                ReadLease.Value value = readLease.create(writer -> RecordOverlay.writeView(writer,fields,selected),expected);
+                if(database.revision()!=expected){readLease.release(value.id);throw new IllegalStateException("数据已变化，请重新读取。");}
+                database.releaseReadCache();
                 JSObject result = new JSObject(); result.put("id",value.id); result.put("fileUri",Uri.fromFile(value.file).toString());
                 result.put("bytes",value.bytes); result.put("sha256",value.sha256); result.put("revision",value.revision); call.resolve(result);
-            } catch (Exception error) { call.reject("导出正文读取失败；原数据未改变：" + error.getMessage(),error); }
+            } catch (OutOfMemoryError error) { database.releaseReadCache(); call.reject("正文读取内存不足；原数据未改变，请重试。"); }
+            catch (Exception error) { call.reject("导出正文读取失败；原数据未改变：" + error.getMessage(),error); }
         });
     }
     @PluginMethod public void releaseExportSource(PluginCall call) {
@@ -695,14 +704,16 @@ public final class LogbookPlugin extends Plugin {
             JSObject out=snapshotUpload.finish(call.getString("id",""),(file,tree,expected)->{
                 if(expected!=database.revision()||!tree.equals(prefs().getString("tree","")))throw new IllegalStateException("数据或保存位置已变化，未保存。");
                 requireArchivePermission(tree);
-                byte[] bytes=java.nio.file.Files.readAllBytes(file.toPath());
-                String json=StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT).onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT).decode(java.nio.ByteBuffer.wrap(bytes)).toString();
-                validateJsonText(json);validateSnapshot(new JSONObject(json));
+                database.releaseReadCache();
+                SnapshotStream.validate(java.nio.file.Files.newBufferedReader(file.toPath(),StandardCharsets.UTF_8));
                 requireArchivePermission(tree);
-                if(!file.delete())throw new IllegalStateException("数据暂存清理失败，未保存。");
-                long revision=database.replace(json,expected);JSObject result=new JSObject();result.put("revision",revision);return result;
+                try(java.io.Reader reader=java.nio.file.Files.newBufferedReader(file.toPath(),StandardCharsets.UTF_8)) {
+                    if(!file.delete())throw new IllegalStateException("数据暂存清理失败，未保存。");
+                    long revision=database.replace(reader,expected);JSObject result=new JSObject();result.put("revision",revision);return result;
+                }
             });call.resolve(out);
-        } catch(Exception error){call.reject("编辑未保存："+error.getMessage(),error);} });
+        } catch(OutOfMemoryError error){database.releaseReadCache();call.reject("保存内存不足；原数据未改变，请重试。");}
+          catch(Exception error){call.reject("编辑未保存："+error.getMessage(),error);} });
     }
     @PluginMethod public void commitEdit(PluginCall call) {
         commitSnapshot(call, false);

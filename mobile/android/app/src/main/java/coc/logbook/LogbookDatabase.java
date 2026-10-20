@@ -8,7 +8,8 @@ import android.database.sqlite.SQLiteOpenHelper;
 /** Versioned Android-owned snapshot store, never opens the desktop database. */
 final class LogbookDatabase extends SQLiteOpenHelper {
     private java.util.Map<String, String> baseFields;
-    LogbookDatabase(Context context) { super(context, "coc-logbook.sqlite", null, 3); }
+    LogbookDatabase(Context context) { this(context, "coc-logbook.sqlite"); }
+    LogbookDatabase(Context context, String name) { super(context, name, null, 3); }
     @Override public void onCreate(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE app_state(id INTEGER PRIMARY KEY CHECK(id=1), json TEXT, revision INTEGER NOT NULL)");
         db.execSQL("INSERT INTO app_state VALUES(1,NULL,0)");
@@ -124,6 +125,30 @@ final class LogbookDatabase extends SQLiteOpenHelper {
             db.setTransactionSuccessful();
             baseFields = null;
             return expected + 1;
+        } finally { db.endTransaction(); }
+    }
+    /** Drop only an in-memory read cache. Failed edits reload the unchanged committed database. */
+    synchronized void releaseReadCache() { baseFields = null; }
+    /** Streaming replacement retains the same CAS, transaction and bounded SQLite rows. */
+    synchronized long replace(java.io.Reader reader, long expected) throws Exception {
+        SQLiteDatabase db = getWritableDatabase(); db.beginTransaction();
+        try {
+            if (revision() != expected) throw new IllegalStateException("数据已变化，请重新预览备份。");
+            db.execSQL("DELETE FROM snapshot_chunks"); db.execSQL("DELETE FROM snapshot_fields");
+            try (android.database.sqlite.SQLiteStatement insert = db.compileStatement("INSERT INTO snapshot_chunks VALUES(?,?)")) {
+                char[] buffer = new char[65536]; int length = 0, position = 0, count;
+                while ((count = reader.read(buffer, length, buffer.length - length)) != -1) {
+                    length += count;
+                    if (length == buffer.length) {
+                        int end = Character.isHighSurrogate(buffer[length - 1]) ? length - 1 : length;
+                        insert.bindLong(1,position++); insert.bindString(2,new String(buffer,0,end)); insert.executeInsert();
+                        if(end < length) buffer[0]=buffer[end]; length -= end;
+                    }
+                }
+                if (length > 0) { insert.bindLong(1,position); insert.bindString(2,new String(buffer,0,length)); insert.executeInsert(); }
+            }
+            db.execSQL("UPDATE app_state SET json='chunked-v1',revision=? WHERE id=1",new Object[]{expected+1});
+            db.setTransactionSuccessful(); baseFields=null; return expected+1;
         } finally { db.endTransaction(); }
     }
 }
