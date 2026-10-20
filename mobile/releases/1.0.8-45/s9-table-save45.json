@@ -1,0 +1,21 @@
+{
+  "build": 45,
+  "scope": "S9, 50 MiB existing 1050 records plus 6000 CSV rows",
+  "before": {
+    "oldBodyReads": 0,
+    "preview": true
+  },
+  "saveMs": 65130,
+  "after": {
+    "revision": 8,
+    "modules": 350,
+    "records": 7050,
+    "deferred": 1050
+  },
+  "originalBodies": {
+    "records": 3,
+    "manualPreserved": true,
+    "firstAndLastOnlinePreserved": true
+  },
+  "success": true
+}

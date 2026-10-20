@@ -1,0 +1,13 @@
+{
+  "build": 45,
+  "version": "1.0.8",
+  "bytes": 32280908,
+  "sha256": "93bc39a05b9dd9fe4541b21335bf87a7d81d6dccfabf36e585b26ac81f897b98",
+  "independentWebAssetsMatch": true,
+  "originalFonts": 8,
+  "v3Signature": true,
+  "zipalign16KiB": true,
+  "certificateSha256": "cc3020afe7446589b5dff92eb9fe69b7593af18f614445b1d8e5805e853143e7",
+  "s9NativeTests": 8,
+  "s9NativeSeconds": 68.373
+}

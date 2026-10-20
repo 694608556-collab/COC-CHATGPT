@@ -1,0 +1,75 @@
+{
+  "scope": "Samsung S9 WebView78 pure search algorithms, 200000 repeated matches; not full UI latency",
+  "results": [
+    {
+      "variant": "before",
+      "result": [
+        {
+          "operation": "has",
+          "value": true,
+          "runsMs": [
+            144.7,
+            79.2,
+            66.3
+          ],
+          "medianMs": 79.2
+        },
+        {
+          "operation": "count",
+          "value": 200000,
+          "runsMs": [
+            88.8,
+            43.1,
+            36.2
+          ],
+          "medianMs": 43.1
+        },
+        {
+          "operation": "excerpt",
+          "value": 62,
+          "runsMs": [
+            55,
+            40.4,
+            36.7
+          ],
+          "medianMs": 40.4
+        }
+      ]
+    },
+    {
+      "variant": "after",
+      "result": [
+        {
+          "operation": "has",
+          "value": true,
+          "runsMs": [
+            0.1,
+            0.1,
+            0
+          ],
+          "medianMs": 0.1
+        },
+        {
+          "operation": "count",
+          "value": 200000,
+          "runsMs": [
+            33.4,
+            33.3,
+            30.5
+          ],
+          "medianMs": 33.3
+        },
+        {
+          "operation": "excerpt",
+          "value": 62,
+          "runsMs": [
+            0.1,
+            0.1,
+            0
+          ],
+          "medianMs": 0.1
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "build": 45,
+  "applicationSource": "2a42f88",
+  "typecheck": true,
+  "unitTests": 98,
+  "browser": {
+    "startTime": "2026-10-20T14:39:24.168Z",
+    "duration": 322004.235,
+    "expected": 108,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "s9NativeTests": 8,
+  "s9NativeSeconds": 68.373,
+  "browserTableAndBodyRegression": 9
+}

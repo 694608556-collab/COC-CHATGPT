@@ -1,0 +1,35 @@
+{
+  "scope": "Windows Node pure algorithm, 200000 repeated matches; not UI latency",
+  "results": [
+    {
+      "operation": "has",
+      "value": true,
+      "runsMs": [
+        0.004,
+        0.001,
+        0.001
+      ],
+      "medianMs": 0.001
+    },
+    {
+      "operation": "count",
+      "value": 200000,
+      "runsMs": [
+        3.143,
+        3.148,
+        3.097
+      ],
+      "medianMs": 3.143
+    },
+    {
+      "operation": "excerpt",
+      "value": 62,
+      "runsMs": [
+        0.008,
+        0.002,
+        0.001
+      ],
+      "medianMs": 0.002
+    }
+  ]
+}

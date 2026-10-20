@@ -1,0 +1,25 @@
+{
+  "scope": "Windows Node algorithm benchmark; not iPhone timing",
+  "results": [
+    {
+      "rows": 6000,
+      "modules": 300,
+      "runsMs": [
+        99.4,
+        86.5,
+        82.9
+      ],
+      "medianMs": 86.5
+    },
+    {
+      "rows": 12000,
+      "modules": 600,
+      "runsMs": [
+        165.7,
+        171,
+        163.7
+      ],
+      "medianMs": 165.7
+    }
+  ]
+}
