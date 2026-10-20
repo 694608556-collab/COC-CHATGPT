@@ -42,7 +42,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck && pnpm test && pnpm build
       - run: pnpm exec cap sync android
-      - run: chmod +x android/gradlew && cd android && ./gradlew assembleDebug assembleRelease assembleDebugAndroidTest --no-daemon --console=plain
+      - run: chmod +x android/gradlew && cd android && ./gradlew :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest --no-daemon --console=plain
       - name: Prepare unsigned release for local signing
         run: |
           mkdir -p android/app/build/outputs/local-signing
