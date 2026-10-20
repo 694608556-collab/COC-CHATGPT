@@ -18,7 +18,7 @@ android {
     }
     buildTypes {
         debug {
-            applicationIdSuffix ".debug42"
+            applicationIdSuffix ".debug43"
             versionNameSuffix "-dev"
             resValue "string", "app_name", "COC 跑团记录簿（开发版）"
             resValue "string", "title_activity_main", "COC 跑团记录簿（开发版）"
