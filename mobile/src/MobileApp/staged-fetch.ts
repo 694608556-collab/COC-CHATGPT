@@ -35,6 +35,7 @@ export async function stagedFetch(
     throw new Error('批量暂存接口不可用。')
   const batch = await port.beginFetchBatch({ ids: targets.map((r) => r.id), expectedRevision })
   let queue = Promise.resolve()
+  let committed = false
   try {
     const fetched = await fetchRecords(port, targets, {
       onResult,
@@ -68,8 +69,10 @@ export async function stagedFetch(
       }
     })
     const saved = await port.finishFetchBatch({ id: batch.id })
+    committed = true
     return { fetched, saved }
   } finally {
-    await port.cancelFetchBatch({ id: batch.id })
+    // 原生完成提交已释放批次；不要让额外清理请求掩盖已保存的revision。
+    if (!committed) await port.cancelFetchBatch({ id: batch.id })
   }
 }
