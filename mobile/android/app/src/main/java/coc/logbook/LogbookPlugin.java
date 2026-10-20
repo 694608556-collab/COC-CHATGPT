@@ -310,14 +310,17 @@ public final class LogbookPlugin extends Plugin {
             } catch (Exception error) { call.reject("目录未配置成功：" + error.getMessage(), error); }
         });
     }
-    @PluginMethod public void openBackup(PluginCall call) {
+    /** Build the system picker contract; Android 9 reports CSV as text/comma-separated-values. */
+    static Intent importDocumentIntent(String kind) {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
-        String kind = call.getString("kind", "backup");
         intent.putExtra(Intent.EXTRA_MIME_TYPES, kind.equals("backup")
             ? new String[]{"application/json", "application/zip", "application/octet-stream", "text/plain"}
-            : new String[]{"text/csv","application/vnd.ms-excel","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/octet-stream"});
+            : new String[]{"text/csv","text/comma-separated-values","application/vnd.ms-excel","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/octet-stream"});
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        startActivityForResult(call, intent, "backupChosen");
+        return intent;
+    }
+    @PluginMethod public void openBackup(PluginCall call) {
+        startActivityForResult(call, importDocumentIntent(call.getString("kind", "backup")), "backupChosen");
     }
     @ActivityCallback private void backupChosen(PluginCall call, ActivityResult result) {
         if (call == null) return;
