@@ -15,5 +15,16 @@
   "unsigned": true,
   "enterpriseExternalFolder": "user reports unavailable on build34; no fix claimed",
   "enterpriseLocalFolder": "user reports available on build34",
-  "nativeKeyboard": "pending"
+  "nativeKeyboard": "passed in cloud simulator; physical device pending",
+  "nativeValidation": {
+    "run": 39374776065,
+    "conclusion": "success",
+    "coreChecks": 38,
+    "coldStarts": 3,
+    "systemUITests": 4,
+    "uiEvidence": 12243223093,
+    "startupEvidence": 12243183059,
+    "firstRun": 39373298574,
+    "firstRunFailure": "optional xcodebuild -help timeout before system UI tests; retained"
+  }
 }
