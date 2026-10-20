@@ -1,0 +1,19 @@
+{
+  "build": 41,
+  "fixture": "fictional XLSX selected using Android system picker",
+  "missing": {
+    "invalidCount": 1,
+    "value": "",
+    "border": "rgb(196, 60, 71)",
+    "hint": true
+  },
+  "saveMs": 187,
+  "saved": {
+    "revision": 9,
+    "modules": 50,
+    "records": 1050,
+    "characters": 1,
+    "name": "公开七版调查员"
+  },
+  "success": true
+}

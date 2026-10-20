@@ -1,0 +1,22 @@
+{
+  "nativeTests": 7,
+  "nativeFailures": 0,
+  "nativeSeconds": 72.523,
+  "restarted": {
+    "revision": 9,
+    "modules": 50,
+    "records": 1050,
+    "characters": 1,
+    "hpCurrent": 10
+  },
+  "returnRowStyle": {
+    "border": "1px solid rgb(109, 69, 245)",
+    "background": "rgb(255, 255, 255)",
+    "boxShadow": "none"
+  },
+  "releaseWebAssetsMatch": true,
+  "originalFonts": 8,
+  "signatureScheme": "v3",
+  "certificateSha256": "cc3020afe7446589b5dff92eb9fe69b7593af18f614445b1d8e5805e853143e7",
+  "zipalign16KiB": true
+}

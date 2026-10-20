@@ -1,0 +1,741 @@
+{
+  "port": "9230",
+  "scope": "all",
+  "cycles": 1,
+  "network": "local generated responses; no remote requests",
+  "heapSamplePeriodMs": 2000,
+  "samples": [
+    {
+      "elapsed": 1950,
+      "heap": 11607120,
+      "counts": {
+        "fetch": 5,
+        "staged": 3,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 1
+      }
+    },
+    {
+      "elapsed": 4052,
+      "heap": 15214212,
+      "counts": {
+        "fetch": 23,
+        "staged": 20,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 2
+      }
+    },
+    {
+      "elapsed": 6148,
+      "heap": 16732008,
+      "counts": {
+        "fetch": 41,
+        "staged": 38,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 3
+      }
+    },
+    {
+      "elapsed": 8294,
+      "heap": 23319584,
+      "counts": {
+        "fetch": 57,
+        "staged": 54,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 4
+      }
+    },
+    {
+      "elapsed": 10445,
+      "heap": 18211228,
+      "counts": {
+        "fetch": 74,
+        "staged": 71,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 5
+      }
+    },
+    {
+      "elapsed": 12541,
+      "heap": 15958216,
+      "counts": {
+        "fetch": 90,
+        "staged": 88,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 6
+      }
+    },
+    {
+      "elapsed": 14662,
+      "heap": 12042744,
+      "counts": {
+        "fetch": 106,
+        "staged": 104,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 7
+      }
+    },
+    {
+      "elapsed": 16816,
+      "heap": 18450332,
+      "counts": {
+        "fetch": 123,
+        "staged": 121,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 8
+      }
+    },
+    {
+      "elapsed": 18931,
+      "heap": 16952064,
+      "counts": {
+        "fetch": 139,
+        "staged": 136,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 9
+      }
+    },
+    {
+      "elapsed": 21050,
+      "heap": 16110288,
+      "counts": {
+        "fetch": 156,
+        "staged": 153,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 10
+      }
+    },
+    {
+      "elapsed": 23169,
+      "heap": 13900520,
+      "counts": {
+        "fetch": 173,
+        "staged": 170,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 11
+      }
+    },
+    {
+      "elapsed": 25284,
+      "heap": 10393460,
+      "counts": {
+        "fetch": 189,
+        "staged": 187,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 12
+      }
+    },
+    {
+      "elapsed": 27405,
+      "heap": 18124248,
+      "counts": {
+        "fetch": 205,
+        "staged": 202,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 13
+      }
+    },
+    {
+      "elapsed": 29569,
+      "heap": 15619144,
+      "counts": {
+        "fetch": 222,
+        "staged": 219,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 14
+      }
+    },
+    {
+      "elapsed": 31671,
+      "heap": 12449640,
+      "counts": {
+        "fetch": 239,
+        "staged": 237,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 15
+      }
+    },
+    {
+      "elapsed": 33800,
+      "heap": 21679120,
+      "counts": {
+        "fetch": 257,
+        "staged": 254,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 16
+      }
+    },
+    {
+      "elapsed": 35957,
+      "heap": 19426540,
+      "counts": {
+        "fetch": 275,
+        "staged": 273,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 17
+      }
+    },
+    {
+      "elapsed": 38125,
+      "heap": 15693672,
+      "counts": {
+        "fetch": 292,
+        "staged": 289,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 18
+      }
+    },
+    {
+      "elapsed": 40279,
+      "heap": 13700188,
+      "counts": {
+        "fetch": 309,
+        "staged": 306,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 19
+      }
+    },
+    {
+      "elapsed": 42423,
+      "heap": 21282072,
+      "counts": {
+        "fetch": 325,
+        "staged": 322,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 20
+      }
+    },
+    {
+      "elapsed": 44542,
+      "heap": 16173972,
+      "counts": {
+        "fetch": 341,
+        "staged": 339,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 21
+      }
+    },
+    {
+      "elapsed": 46644,
+      "heap": 13497180,
+      "counts": {
+        "fetch": 358,
+        "staged": 356,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 22
+      }
+    },
+    {
+      "elapsed": 48807,
+      "heap": 20941020,
+      "counts": {
+        "fetch": 376,
+        "staged": 374,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 23
+      }
+    },
+    {
+      "elapsed": 50943,
+      "heap": 17352120,
+      "counts": {
+        "fetch": 392,
+        "staged": 389,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 24
+      }
+    },
+    {
+      "elapsed": 53078,
+      "heap": 16528632,
+      "counts": {
+        "fetch": 410,
+        "staged": 407,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 25
+      }
+    },
+    {
+      "elapsed": 55201,
+      "heap": 13870920,
+      "counts": {
+        "fetch": 426,
+        "staged": 424,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 26
+      }
+    },
+    {
+      "elapsed": 57311,
+      "heap": 19940916,
+      "counts": {
+        "fetch": 443,
+        "staged": 441,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 27
+      }
+    },
+    {
+      "elapsed": 59482,
+      "heap": 19117528,
+      "counts": {
+        "fetch": 462,
+        "staged": 459,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 28
+      }
+    },
+    {
+      "elapsed": 61599,
+      "heap": 16002720,
+      "counts": {
+        "fetch": 479,
+        "staged": 476,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 29
+      }
+    },
+    {
+      "elapsed": 63711,
+      "heap": 12491816,
+      "counts": {
+        "fetch": 495,
+        "staged": 493,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 30
+      }
+    },
+    {
+      "elapsed": 65835,
+      "heap": 19136552,
+      "counts": {
+        "fetch": 512,
+        "staged": 509,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 31
+      }
+    },
+    {
+      "elapsed": 67966,
+      "heap": 17024488,
+      "counts": {
+        "fetch": 529,
+        "staged": 526,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 32
+      }
+    },
+    {
+      "elapsed": 70084,
+      "heap": 14501544,
+      "counts": {
+        "fetch": 546,
+        "staged": 544,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 33
+      }
+    },
+    {
+      "elapsed": 72226,
+      "heap": 22523348,
+      "counts": {
+        "fetch": 563,
+        "staged": 561,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 34
+      }
+    },
+    {
+      "elapsed": 74352,
+      "heap": 17790564,
+      "counts": {
+        "fetch": 580,
+        "staged": 577,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 35
+      }
+    },
+    {
+      "elapsed": 76423,
+      "heap": 15507988,
+      "counts": {
+        "fetch": 596,
+        "staged": 594,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 36
+      }
+    },
+    {
+      "elapsed": 78534,
+      "heap": 13688352,
+      "counts": {
+        "fetch": 616,
+        "staged": 613,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 37
+      }
+    },
+    {
+      "elapsed": 80723,
+      "heap": 19969388,
+      "counts": {
+        "fetch": 632,
+        "staged": 630,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 38
+      }
+    },
+    {
+      "elapsed": 82852,
+      "heap": 17485432,
+      "counts": {
+        "fetch": 650,
+        "staged": 647,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 39
+      }
+    },
+    {
+      "elapsed": 84965,
+      "heap": 13009300,
+      "counts": {
+        "fetch": 666,
+        "staged": 664,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 40
+      }
+    },
+    {
+      "elapsed": 87156,
+      "heap": 21040648,
+      "counts": {
+        "fetch": 682,
+        "staged": 679,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 41
+      }
+    },
+    {
+      "elapsed": 89289,
+      "heap": 17169244,
+      "counts": {
+        "fetch": 700,
+        "staged": 697,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 42
+      }
+    },
+    {
+      "elapsed": 91458,
+      "heap": 14830024,
+      "counts": {
+        "fetch": 717,
+        "staged": 714,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 43
+      }
+    },
+    {
+      "elapsed": 93592,
+      "heap": 22266668,
+      "counts": {
+        "fetch": 735,
+        "staged": 732,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 44
+      }
+    },
+    {
+      "elapsed": 95694,
+      "heap": 17356868,
+      "counts": {
+        "fetch": 752,
+        "staged": 750,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 45
+      }
+    },
+    {
+      "elapsed": 97863,
+      "heap": 15549400,
+      "counts": {
+        "fetch": 769,
+        "staged": 766,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 46
+      }
+    },
+    {
+      "elapsed": 99963,
+      "heap": 11357932,
+      "counts": {
+        "fetch": 786,
+        "staged": 784,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 47
+      }
+    },
+    {
+      "elapsed": 102112,
+      "heap": 19500912,
+      "counts": {
+        "fetch": 803,
+        "staged": 800,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 48
+      }
+    },
+    {
+      "elapsed": 104302,
+      "heap": 17033804,
+      "counts": {
+        "fetch": 820,
+        "staged": 817,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 49
+      }
+    },
+    {
+      "elapsed": 106439,
+      "heap": 14185452,
+      "counts": {
+        "fetch": 837,
+        "staged": 834,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 50
+      }
+    },
+    {
+      "elapsed": 108604,
+      "heap": 11590232,
+      "counts": {
+        "fetch": 855,
+        "staged": 852,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 51
+      }
+    },
+    {
+      "elapsed": 110691,
+      "heap": 20129596,
+      "counts": {
+        "fetch": 873,
+        "staged": 870,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 52
+      }
+    },
+    {
+      "elapsed": 112785,
+      "heap": 17412244,
+      "counts": {
+        "fetch": 890,
+        "staged": 888,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 53
+      }
+    },
+    {
+      "elapsed": 114900,
+      "heap": 15138752,
+      "counts": {
+        "fetch": 907,
+        "staged": 905,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 54
+      }
+    },
+    {
+      "elapsed": 117021,
+      "heap": 21675408,
+      "counts": {
+        "fetch": 924,
+        "staged": 921,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 55
+      }
+    },
+    {
+      "elapsed": 119157,
+      "heap": 19378032,
+      "counts": {
+        "fetch": 942,
+        "staged": 939,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 56
+      }
+    },
+    {
+      "elapsed": 121271,
+      "heap": 16459904,
+      "counts": {
+        "fetch": 959,
+        "staged": 956,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 57
+      }
+    },
+    {
+      "elapsed": 123402,
+      "heap": 12324036,
+      "counts": {
+        "fetch": 974,
+        "staged": 972,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 58
+      }
+    },
+    {
+      "elapsed": 125535,
+      "heap": 20931208,
+      "counts": {
+        "fetch": 992,
+        "staged": 989,
+        "commits": 0,
+        "wholeReads": 0,
+        "failed": 59
+      }
+    },
+    {
+      "elapsed": 127659,
+      "heap": 14681348,
+      "counts": {
+        "fetch": 1000,
+        "staged": 1000,
+        "commits": 1,
+        "wholeReads": 0,
+        "failed": 59
+      }
+    },
+    {
+      "elapsed": 129743,
+      "heap": 14714316,
+      "counts": {
+        "fetch": 1000,
+        "staged": 1000,
+        "commits": 1,
+        "wholeReads": 0,
+        "failed": 59
+      }
+    },
+    {
+      "elapsed": 131845,
+      "heap": 14746908,
+      "counts": {
+        "fetch": 1000,
+        "staged": 1000,
+        "commits": 1,
+        "wholeReads": 0,
+        "failed": 59
+      }
+    },
+    {
+      "elapsed": 133921,
+      "heap": 14783452,
+      "counts": {
+        "fetch": 1000,
+        "staged": 1000,
+        "commits": 1,
+        "wholeReads": 0,
+        "failed": 59
+      }
+    },
+    {
+      "elapsed": 136011,
+      "heap": 10471928,
+      "counts": {
+        "fetch": 1000,
+        "staged": 1000,
+        "commits": 1,
+        "wholeReads": 0,
+        "failed": 59
+      }
+    }
+  ],
+  "rounds": [
+    {
+      "round": 1,
+      "selected": 50,
+      "counts": {
+        "fetch": 1000,
+        "staged": 1000,
+        "commits": 1,
+        "wholeReads": 0,
+        "failed": 59
+      }
+    }
+  ],
+  "success": true,
+  "final": {
+    "revision": 8,
+    "records": 1050,
+    "deferred": 1050,
+    "manual": 50,
+    "counts": {
+      "fetch": 1000,
+      "staged": 1000,
+      "commits": 1,
+      "wholeReads": 0,
+      "failed": 59
+    }
+  },
+  "peakV8Bytes": 23319584
+}

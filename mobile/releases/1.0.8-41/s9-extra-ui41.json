@@ -1,0 +1,41 @@
+{
+  "build": 41,
+  "fixture": "public 50 modules, 1050 records",
+  "actions": [
+    {
+      "name": "character tab",
+      "ms": 155
+    },
+    {
+      "name": "new seventh character draft",
+      "ms": 259
+    },
+    {
+      "name": "cancel clean character draft",
+      "ms": 56
+    },
+    {
+      "name": "settings tab",
+      "ms": 89
+    },
+    {
+      "name": "保存空白模板 CSV",
+      "ms": 159
+    },
+    {
+      "name": "保存空白模板 Excel",
+      "ms": 272
+    }
+  ],
+  "documents": [
+    {
+      "name": "COC跑团记录导入模板.xlsx",
+      "bytes": 10127
+    },
+    {
+      "name": "COC跑团记录导入模板.csv",
+      "bytes": 1068
+    }
+  ],
+  "success": true
+}

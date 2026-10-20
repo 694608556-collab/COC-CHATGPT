@@ -1,0 +1,32 @@
+{
+  "device": "Samsung S9 / Android 9 / WebView 78",
+  "build": 41,
+  "fixture": "50 modules / 1050 records / generated public data",
+  "actions": [
+    {
+      "name": "expand module",
+      "ms": 33
+    },
+    {
+      "name": "open saved body",
+      "ms": 488
+    },
+    {
+      "name": "return to list",
+      "ms": 333
+    },
+    {
+      "name": "character tab",
+      "ms": 65
+    },
+    {
+      "name": "settings tab",
+      "ms": 61
+    },
+    {
+      "name": "records tab",
+      "ms": 379
+    }
+  ],
+  "success": true
+}

@@ -1,0 +1,65 @@
+{
+  "build": 41,
+  "actions": [
+    {
+      "name": "records tab",
+      "ms": 3
+    },
+    {
+      "name": "expand first module",
+      "ms": 0
+    },
+    {
+      "name": "open manual body",
+      "ms": 149
+    },
+    {
+      "name": "export TXT",
+      "ms": 557
+    },
+    {
+      "name": "open export dialog",
+      "ms": 158
+    },
+    {
+      "name": "export DOCX",
+      "ms": 538
+    },
+    {
+      "name": "open export dialog",
+      "ms": 104
+    },
+    {
+      "name": "export PDF",
+      "ms": 824
+    }
+  ],
+  "files": [
+    {
+      "name": "COC跑团记录导入模板.xlsx",
+      "bytes": 10127,
+      "manualBeforeKP": true
+    },
+    {
+      "name": "COC跑团记录导入模板.csv",
+      "bytes": 1068,
+      "manualBeforeKP": true
+    },
+    {
+      "name": "日期未知公开压力模组 01公开手动正文.pdf",
+      "bytes": 399189,
+      "signature": "25504446"
+    },
+    {
+      "name": "日期未知公开压力模组 01公开手动正文.docx",
+      "bytes": 8712,
+      "signature": "504b0304"
+    },
+    {
+      "name": "日期未知公开压力模组 01公开手动正文.txt",
+      "bytes": 2400,
+      "signature": "e585ace5"
+    }
+  ],
+  "success": true
+}
