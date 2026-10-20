@@ -11,10 +11,10 @@ export function tablePreviewBaseline(current: MobileSnapshot): MobileSnapshot {
   }
 }
 
-/** 用户确认后合并原正文，仅表格明确提供的正文覆盖原值。
+/** 用户合并传入快照已持有的正文，仅表格明确提供的正文覆盖原值。
  * @param preview 已校验的完整预览候选，不含原有大正文。
- * @param complete 已按同一revision读取全部正文的原快照。
- * @returns 保留预览元数据/新记录/手动更新与其他旧正文的完整候选；调用方仍走原CAS。
+ * @param complete 同一revision的原快照，可仅持有已缓存正文；未读正文仍由原生库保留。
+ * @returns 保留预览元数据/新记录/手动更新与传入旧正文的候选；不主动读取缺失正文。
  */
 export function restoreTableBodies(preview: MobileSnapshot, complete: MobileSnapshot): MobileSnapshot {
   const originals = new Map(complete.records.map((record) => [record.id, record]))
@@ -39,6 +39,11 @@ export function restoreTableBodies(preview: MobileSnapshot, complete: MobileSnap
  * @returns 保留全部旧正文的完整候选；非法删改在写入前拒绝。
  */
 export function mergeTableImport(proposed: MobileSnapshot, current?: MobileSnapshot): MobileSnapshot {
+  /** 比较已通过快照校验的JSON字段，忽略可选字段的undefined外壳。
+   * @param a 旧字段值。
+   * @param b 候选字段值。
+   * @returns 字段及子项是否等价，不编码或修改正文。
+   */
   const equal = (a: unknown, b: unknown): boolean => {
     if (a === b) return true
     if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false
@@ -49,6 +54,7 @@ export function mergeTableImport(proposed: MobileSnapshot, current?: MobileSnaps
       keys.every((key) => equal((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]))
     )
   }
+  /** @returns 始终抛出候选非法错误，由调用方保持原存储不变。 */
   const fail = (): never => {
     throw new Error('表格候选包含旧数据删除、来源变更或非手动覆盖；未保存。')
   }
@@ -69,6 +75,7 @@ export function mergeTableImport(proposed: MobileSnapshot, current?: MobileSnaps
       if (after[index]?.id !== old.id) fail()
       const next = rows.get(old.id)
       if (!next) fail()
+      /** @param row 待比较的元数据。 @returns 去除该导入类型允许变更的字段后的副本。 */
       const strip = (row: object) =>
         Object.fromEntries(
           Object.entries(row).filter(([key]) => !(allowed as readonly string[]).includes(key))

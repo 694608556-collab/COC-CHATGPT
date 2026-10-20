@@ -1,0 +1,97 @@
+{
+  "build": 46,
+  "version": "1.0.8",
+  "androidUnits": 101,
+  "iosUnits": 103,
+  "androidBrowser": {
+    "startTime": "2026-10-20T15:51:51.367Z",
+    "duration": 328346.709,
+    "expected": 108,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "iosBrowser": {
+    "startTime": "2026-10-20T15:58:26.519Z",
+    "duration": 302614.458,
+    "expected": 110,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "s9NativePassed": 10,
+  "iosNativePassed": 67,
+  "iosColdStartsPassed": 3,
+  "iosSystemUiPassed": 4,
+  "iosScale": {
+    "appBuild": "46",
+    "appVersion": "1.0.8",
+    "campaigns": 50,
+    "counts": {
+      "commits": 4,
+      "failed": 178,
+      "fetch": 3020,
+      "staged": 3020,
+      "wholeReads": 0
+    },
+    "manual": 50,
+    "nativeSystemVersion": "27.0",
+    "network": "generated public responses only",
+    "online": 1000,
+    "passed": true,
+    "rounds": [
+      {
+        "commits": 1,
+        "failed": 59,
+        "fetch": 1000,
+        "revision": 2,
+        "round": 1,
+        "scope": "all",
+        "staged": 1000,
+        "wholeReads": 0
+      },
+      {
+        "commits": 2,
+        "failed": 118,
+        "fetch": 2000,
+        "revision": 3,
+        "round": 2,
+        "scope": "all",
+        "staged": 2000,
+        "wholeReads": 0
+      },
+      {
+        "commits": 3,
+        "failed": 177,
+        "fetch": 3000,
+        "revision": 4,
+        "round": 3,
+        "scope": "all",
+        "staged": 3000,
+        "wholeReads": 0
+      },
+      {
+        "commits": 4,
+        "failed": 178,
+        "fetch": 3020,
+        "revision": 5,
+        "round": 4,
+        "scope": "last-module",
+        "staged": 3020,
+        "wholeReads": 0
+      }
+    ],
+    "scrollEdgeEffectsHidden": true,
+    "stage": "complete"
+  },
+  "iosCloudAttempt": 2,
+  "iosFirstUiFailure": {
+    "case": "testPublicNameCandidatesWithNativeKeyboard",
+    "observed": "trailing whitespace after selecting Public Beta",
+    "rootCause": "undetermined; same source retry passed"
+  },
+  "bytes": 25621017,
+  "sha256": "b70027651c4bca11b81ad4a09799d83c8bd9d94d7260de2a5e782e9050bda9e5",
+  "independentWebAssets": 5,
+  "originalFonts": 8
+}

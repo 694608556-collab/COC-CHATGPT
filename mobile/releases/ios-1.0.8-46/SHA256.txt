@@ -1,0 +1,1 @@
+b70027651c4bca11b81ad4a09799d83c8bd9d94d7260de2a5e782e9050bda9e5  coc-logbook-1.0.8-46-ios-arm64-unsigned.ipa
