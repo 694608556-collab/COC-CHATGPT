@@ -47,6 +47,8 @@ final class LogbookViewController: CAPBridgeViewController {
             await document.fonts.ready;
             if(!document.body.innerText.includes('选择并确认保存位置')) throw new Error('Native startup screen not ready: '+document.body.innerText);
             stage='ios-appearance'; window.__cocSmokeStage=stage;
+            const header=document.querySelector('.app-header'), brand=header.querySelector('.app-brand');
+            if(header.querySelector('.app-back') || !brand || Math.abs(brand.getBoundingClientRect().left-header.getBoundingClientRect().left-parseFloat(getComputedStyle(header).paddingLeft))>=1) throw new Error('iOS header back button or brand alignment mismatch');
             if(!document.querySelector('meta[name="viewport"]').content.includes('maximum-scale=1')) throw new Error('Missing iOS focus scale bound');
             document.documentElement.dataset.theme='dark';
             await new Promise(requestAnimationFrame);

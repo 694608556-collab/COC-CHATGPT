@@ -1816,6 +1816,9 @@ input[type='checkbox']:checked::after {
   grid-column: 2;
   color: var(--muted);
 }
+.batch-check .check-selector label:last-child {
+  border-bottom: 0;
+}
 .batch-check .check-module-toggle {
   width: 100%;
   display: grid;

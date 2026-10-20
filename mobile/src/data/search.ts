@@ -25,7 +25,8 @@ export function recordMessages(record: SessionRecord, preset: FilterPreset) {
     ? applyLogFilters(record.rawContent, preset)
     : record.manualContent !== undefined
       ? record.manualContent
-          .split(/\r?\n/)
+          .split(/\r\n?|\n/)
           .map((text, i) => ({ id: 'manual-' + i, header: '', text, images: [] }))
+          .filter((message) => message.text.trim().length > 0)
       : []
 }

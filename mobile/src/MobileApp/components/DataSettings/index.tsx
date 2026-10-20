@@ -267,7 +267,7 @@ export function DataSettings(props: {
         </button>
       </section>
       <footer className="settings-version" role="region" aria-label="版本说明">
-        <p>COC 跑团记录簿 · 1.0.6</p>
+        <p>COC 跑团记录簿 · 1.0.7</p>
         <p>数据仅本机保存、无账户</p>
         <p>仅海豹链接相关联网</p>
         <p>应用制作：亦如长风万里沙</p>

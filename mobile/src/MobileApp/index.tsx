@@ -1002,32 +1002,34 @@ export function MobileApp({
         />
       )}
       <header className="app-header">
-        <button
-          type="button"
-          className="app-back"
-          aria-label={atHome && Capacitor.getPlatform() === 'android' ? '返回手机桌面' : '返回上一页'}
-          disabled={atHome && Capacitor.getPlatform() !== 'android'}
-          onClick={() => backHandler.current()}
-        >
-          <svg
-            width="22"
-            height="22"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
+        {Capacitor.getPlatform() !== 'ios' && (
+          <button
+            type="button"
+            className="app-back"
+            aria-label={atHome && Capacitor.getPlatform() === 'android' ? '返回手机桌面' : '返回上一页'}
+            disabled={atHome && Capacitor.getPlatform() !== 'android'}
+            onClick={() => backHandler.current()}
           >
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </button>
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </button>
+        )}
         <div className="app-brand">
           <img src="icon.png" alt="" />
           <strong>COC 跑团记录簿</strong>
         </div>
-        <span className="version">1.0.6</span>
+        <span className="version">1.0.7</span>
       </header>
       <main
         className={page === 'settings' && !editing ? 'settings-page' : undefined}

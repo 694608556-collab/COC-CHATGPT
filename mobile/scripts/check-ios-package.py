@@ -8,8 +8,8 @@ import sys
 app = pathlib.Path(sys.argv[1])
 info = plistlib.loads((app / 'Info.plist').read_bytes())
 assert info['CFBundleIdentifier'] == 'coc.logbook'
-assert info['CFBundleShortVersionString'] == '1.0.6'
-assert info['CFBundleVersion'] == '40'
+assert info['CFBundleShortVersionString'] == '1.0.7'
+assert info['CFBundleVersion'] == '41'
 architectures = subprocess.check_output(['lipo', '-archs', str(app / info['CFBundleExecutable'])], text=True).strip()
 assert 'arm64' in architectures.split(), architectures
 public = app / 'public'
