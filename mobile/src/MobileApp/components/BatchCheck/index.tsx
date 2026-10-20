@@ -20,6 +20,20 @@ interface ResultRow {
   message: string
 }
 
+/** 按模组一次分组，避免进度刷新时对每个模组重扫全部场次。
+ * @param rows 当前选择或当前批次的行。
+ * @returns 模组ID到该模组行的索引，保持输入顺序。
+ */
+function groupByModule<T extends { moduleId: string }>(rows: readonly T[]): Map<string, T[]> {
+  const groups = new Map<string, T[]>()
+  for (const row of rows) {
+    const group = groups.get(row.moduleId)
+    if (group) group.push(row)
+    else groups.set(row.moduleId, [row])
+  }
+  return groups
+}
+
 /** 判断正文是否由用户手动保存。@param record 场次。@returns 是否无需联网检测。 */
 function isManual(record: SessionRecord): boolean {
   return record.sourceType === 'manual' || Boolean(record.manualContent)
@@ -66,6 +80,7 @@ export function BatchCheck({
   const [refreshError, setRefreshError] = useState('')
 
   const selectable = useMemo(() => records.filter((record) => record.link || isManual(record)), [records])
+  const selectorGroups = useMemo(() => groupByModule(selectable), [selectable])
   const selected = useMemo(
     () =>
       selectable.filter((record) =>
@@ -74,7 +89,11 @@ export function BatchCheck({
     [selectable, mode, moduleIds, recordIds]
   )
   const targets = selected.filter((record) => !isManual(record))
-  const displayed = results.length ? results : selected.map(initialResult)
+  const displayed = useMemo(
+    () => (results.length ? results : selected.map(initialResult)),
+    [results, selected]
+  )
+  const resultGroups = useMemo(() => groupByModule(displayed), [displayed])
   const manualCount = displayed.filter((item) => item.state === 'manual').length
   const succeeded = results.filter((item) => item.state === 'done').length
   const failed = results.filter((item) => item.state === 'failed').length
@@ -152,7 +171,7 @@ export function BatchCheck({
           <div className="check-selector">
             {mode === 'module'
               ? modules.map((module) => {
-                  const group = selectable.filter((record) => record.moduleId === module.id)
+                  const group = selectorGroups.get(module.id) ?? []
                   const manual = group.filter(isManual).length
                   return (
                     <label key={module.id}>
@@ -203,7 +222,7 @@ export function BatchCheck({
           {displayed.length > 0 && (
             <div className="check-results check-grouped-results">
               {modules.map((module) => {
-                const rows = displayed.filter((item) => item.moduleId === module.id)
+                const rows = resultGroups.get(module.id) ?? []
                 if (!rows.length) return null
                 const open = expanded.has(module.id)
                 return (
