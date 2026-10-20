@@ -1,0 +1,144 @@
+package coc.logbook;
+
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteStatement;
+import java.io.*;
+import java.util.*;
+import org.json.*;
+
+/** SQLite v4: metadata and raw body values are independent, bounded rows. */
+final class IndexedSnapshot {
+    private final SQLiteDatabase db;
+    IndexedSnapshot(SQLiteDatabase db){this.db=db;}
+    static void create(SQLiteDatabase db){
+        db.execSQL("CREATE TABLE IF NOT EXISTS indexed_fields(field TEXT NOT NULL,position INTEGER NOT NULL,data TEXT NOT NULL,PRIMARY KEY(field,position))");
+        db.execSQL("CREATE TABLE IF NOT EXISTS indexed_records(row_key INTEGER PRIMARY KEY,id TEXT UNIQUE,ordinal INTEGER NOT NULL,metadata TEXT NOT NULL,bytes INTEGER NOT NULL DEFAULT 0,body_count INTEGER NOT NULL DEFAULT 0)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS indexed_bodies(record_key INTEGER NOT NULL,kind TEXT NOT NULL,position INTEGER NOT NULL,data TEXT NOT NULL,bytes INTEGER NOT NULL,PRIMARY KEY(record_key,kind,position))");
+        db.execSQL("CREATE INDEX IF NOT EXISTS indexed_body_sizes ON indexed_bodies(record_key,kind,bytes)");
+    }
+    static final class CursorReader extends Reader {
+        private final Cursor cursor;private String current="";private int offset;
+        CursorReader(Cursor cursor){this.cursor=cursor;}
+        public int read(char[] buffer,int start,int length)throws IOException{
+            if(length==0)return 0;
+            while(offset==current.length()){if(!cursor.moveToNext())return -1;current=cursor.getString(0);offset=0;}
+            int count=Math.min(length,current.length()-offset);current.getChars(offset,offset+count,buffer,start);offset+=count;return count;
+        }
+        public void close(){cursor.close();}
+    }
+    /** One value encoder, no allocation or SQLite cell exceeds 65536 UTF-16 units. */
+    private final class BodyWriter extends Writer {
+        private final long key;private final String kind;private final char[] buffer=new char[65536];private int length,position;
+        BodyWriter(long key,String kind){this.key=key;this.kind=kind;}
+        public void write(int c)throws IOException{buffer[length++]=(char)c;if(length==buffer.length)flushPart(false);}
+        public void write(char[] chars,int offset,int count)throws IOException{for(int i=0;i<count;i++)write(chars[offset+i]);}
+        private void flushPart(boolean end){
+            if(length==0)return;int count=!end&&Character.isHighSurrogate(buffer[length-1])?length-1:length;
+            String text=new String(buffer,0,count);
+            db.execSQL("INSERT INTO indexed_bodies VALUES(?,?,?,?,?)",new Object[]{key,kind,position++,text,JsonFields.bytes(text)});
+            if(count<length)buffer[0]=buffer[count];length-=count;
+        }
+        public void flush(){} public void close(){flushPart(true);}
+    }
+    private static void chunks(String text,Chunk consumer)throws Exception{
+        int position=0;for(int start=0;start<text.length();){int end=Math.min(start+65536,text.length());if(end<text.length()&&Character.isHighSurrogate(text.charAt(end-1)))end--;consumer.put(position++,text.substring(start,end));start=end;}
+    }
+    interface Chunk{void put(int position,String data)throws Exception;}
+    private void field(String name,String value)throws Exception{
+        db.execSQL("DELETE FROM indexed_fields WHERE field=?",new Object[]{name});
+        chunks(value,(position,data)->db.execSQL("INSERT INTO indexed_fields VALUES(?,?,?)",new Object[]{name,position,data}));
+    }
+    Map<String,String> rootFields(){
+        Map<String,String> fields=new LinkedHashMap<>();String previous=null;StringBuilder value=new StringBuilder();
+        try(Cursor rows=db.rawQuery("SELECT field,data FROM indexed_fields ORDER BY field,position",null)){
+            while(rows.moveToNext()){String name=rows.getString(0);if(!name.equals(previous)){if(previous!=null)fields.put(previous,value.toString());previous=name;value.setLength(0);}value.append(rows.getString(1));}
+        }if(previous!=null)fields.put(previous,value.toString());return fields;
+    }
+    Map<String,String> fields(){
+        Map<String,String> fields=rootFields();StringBuilder records=new StringBuilder("[");
+        try(Cursor rows=db.rawQuery("SELECT metadata FROM indexed_records ORDER BY ordinal,row_key",null)){
+            while(rows.moveToNext()){if(records.length()>1)records.append(',');records.append(rows.getString(0));}
+        }fields.put("records",records.append(']').toString());return fields;
+    }
+    JSONArray deferred(){JSONArray ids=new JSONArray();try(Cursor rows=db.rawQuery("SELECT id FROM indexed_records WHERE body_count>0 ORDER BY ordinal,row_key",null)){while(rows.moveToNext())ids.put(rows.getString(0));}return ids;}
+    private Long key(String id){try(Cursor rows=db.rawQuery("SELECT row_key FROM indexed_records WHERE id=?",new String[]{id})){return rows.moveToFirst()?rows.getLong(0):null;}}
+    private String metadata(long key){try(Cursor row=db.rawQuery("SELECT metadata FROM indexed_records WHERE row_key=?",new String[]{Long.toString(key)})){if(!row.moveToFirst())throw new IllegalStateException("场次已变化。");return row.getString(0);}}
+    private void remove(String id){Long key=key(id);if(key!=null){db.execSQL("DELETE FROM indexed_bodies WHERE record_key=?",new Object[]{key});db.execSQL("DELETE FROM indexed_records WHERE row_key=?",new Object[]{key});}}
+    private void refreshSize(long key,String metadata)throws Exception{
+        long bytes=JsonFields.bytes(metadata);int count=0;
+        try(Cursor bodies=db.rawQuery("SELECT kind,SUM(bytes) FROM indexed_bodies WHERE record_key=? GROUP BY kind",new String[]{Long.toString(key)})){
+            while(bodies.moveToNext()){bytes+=1+JsonFields.bytes(JSONObject.quote(bodies.getString(0)))+1+bodies.getLong(1);count++;}
+        }db.execSQL("UPDATE indexed_records SET metadata=?,bytes=?,body_count=? WHERE row_key=?",new Object[]{metadata,bytes,count,key});
+    }
+    void record(RawJson cursor,String expectedId,boolean keepBody)throws Exception{
+        Long existing=expectedId==null?null:key(expectedId);long rowKey;
+        Map<String,String> previous=existing==null?new LinkedHashMap<>():JsonFields.split(metadata(existing));
+        if(existing==null){try(SQLiteStatement insert=db.compileStatement("INSERT INTO indexed_records(id,ordinal,metadata) VALUES(NULL,(SELECT COALESCE(MAX(ordinal),-1)+1 FROM indexed_records),'{}')")){rowKey=insert.executeInsert();}}
+        else rowKey=existing;
+        if(!keepBody)db.execSQL("DELETE FROM indexed_bodies WHERE record_key=?",new Object[]{rowKey});
+        Map<String,String> values=new LinkedHashMap<>();Set<String> seen=new HashSet<>();
+        cursor.object((name,input)->{
+            if(!seen.add(name))throw new IllegalArgumentException("场次字段重复。");
+            if(name.equals("rawContent")||name.equals("manualContent")){
+                if(keepBody){input.skip();return;}
+                try(Writer writer=new BodyWriter(rowKey,name)){input.copy(writer);}
+            }else values.put(name,input.take());
+        });
+        String id=RecordOverlay.id(values);
+        if(id.isEmpty()||expectedId!=null&&!expectedId.equals(id))throw new IllegalArgumentException("场次标识无效或已变化。");
+        if(keepBody)for(String name:new String[]{"cacheSourceUrl","fetchedAt"})if(previous.containsKey(name))values.put(name,previous.get(name));
+        db.execSQL("UPDATE indexed_records SET id=? WHERE row_key=?",new Object[]{id,rowKey});
+        refreshSize(rowKey,JsonFields.join(values));
+    }
+    void replace(Reader source)throws Exception{
+        db.execSQL("DELETE FROM indexed_fields");db.execSQL("DELETE FROM indexed_bodies");db.execSQL("DELETE FROM indexed_records");
+        RawJson reader=new RawJson(source);Set<String> seen=new HashSet<>();
+        reader.object((name,value)->{if(!seen.add(name))throw new IllegalArgumentException("快照字段重复。");if(name.equals("records"))value.array(row->record(row,null,false));else field(name,value.take());});reader.end();checkSize();
+    }
+    void patch(Map<String,String> changes)throws Exception{
+        if(changes.containsKey("records")){
+            db.execSQL("DELETE FROM indexed_bodies");db.execSQL("DELETE FROM indexed_records");
+            new RawJson(new StringReader(changes.get("records"))).array(row->record(row,null,false));
+        }
+        JSONArray deleted=new JSONArray(changes.containsKey("recordDeleted")?changes.get("recordDeleted"):"[]");for(int i=0;i<deleted.length();i++)remove(deleted.getString(i));
+        if(changes.containsKey("recordValues")){
+            Map<String,String> entries=JsonFields.split(changes.get("recordValues"));
+            for(Map.Entry<String,String> item:entries.entrySet()){
+                Map<String,String> entry=JsonFields.split(item.getValue());
+                record(new RawJson(new StringReader(entry.get("value"))),item.getKey(),"true".equals(entry.get("keepBody")));
+            }
+        }
+        JSONObject orders=new JSONObject(changes.containsKey("recordOrders")?changes.get("recordOrders"):"{}");Iterator<String> ids=orders.keys();
+        while(ids.hasNext()){String id=ids.next();Long key=key(id);if(key!=null){Map<String,String> value=JsonFields.split(metadata(key));value.put("order",orders.get(id).toString());refreshSize(key,JsonFields.join(value));}}
+        for(Map.Entry<String,String> entry:changes.entrySet())if(!Arrays.asList("records","recordValues","recordOrders","recordDeleted").contains(entry.getKey()))field(entry.getKey(),entry.getValue());
+        checkSize();
+    }
+    long bytes(){Map<String,String> root=rootFields();root.put("records","[]");try(Cursor rows=db.rawQuery("SELECT COUNT(*),COALESCE(SUM(bytes),0) FROM indexed_records",null)){rows.moveToFirst();return JsonFields.objectBytes(root)+rows.getLong(1)+Math.max(0,rows.getLong(0)-1);}}
+    void checkSize(){if(bytes()>PdfSpool.MAX_BYTES)throw new IllegalArgumentException("数据超过 64 MiB；原数据未改变。");}
+    void write(Writer out,Set<String> selected)throws Exception{
+        Map<String,String> root=rootFields();out.write('{');boolean comma=false;
+        for(Map.Entry<String,String> field:root.entrySet()){if(comma)out.write(',');comma=true;out.write(JSONObject.quote(field.getKey()));out.write(':');JsonFields.writeText(out,field.getValue());}
+        if(comma)out.write(',');out.write("\"records\":[");Set<String> found=new HashSet<>();boolean recordComma=false;
+        try(Cursor rows=db.rawQuery("SELECT row_key,id,metadata FROM indexed_records ORDER BY ordinal,row_key",null)){
+            while(rows.moveToNext()){
+                String id=rows.getString(1);if(selected!=null&&!selected.contains(id))continue;found.add(id);
+                if(recordComma)out.write(',');recordComma=true;
+                String metadata=rows.getString(2);JsonFields.writeText(out,metadata.substring(0,metadata.length()-1));
+                String kind=null;
+                try(Cursor parts=db.rawQuery("SELECT kind,data FROM indexed_bodies WHERE record_key=? ORDER BY kind,position",new String[]{Long.toString(rows.getLong(0))})){
+                    while(parts.moveToNext()){if(!parts.getString(0).equals(kind)){kind=parts.getString(0);out.write(',');out.write(JSONObject.quote(kind));out.write(':');}JsonFields.writeText(out,parts.getString(1));}
+                }out.write('}');
+            }
+        }out.write("]}");if(selected!=null&&!found.equals(selected))throw new IllegalArgumentException("场次已变化，请重新读取。");
+    }
+    void migrateLegacy()throws Exception{
+        Map<String,String> overrides=new LinkedHashMap<>();String previous=null;StringBuilder value=new StringBuilder();
+        try(Cursor rows=db.rawQuery("SELECT field,data FROM snapshot_fields ORDER BY field,position",null)){while(rows.moveToNext()){String name=rows.getString(0);if(!name.equals(previous)){if(previous!=null)overrides.put(previous,value.toString());previous=name;value.setLength(0);}value.append(rows.getString(1));}}if(previous!=null)overrides.put(previous,value.toString());
+        boolean chunks;try(Cursor rows=db.rawQuery("SELECT 1 FROM snapshot_chunks LIMIT 1",null)){chunks=rows.moveToFirst();}
+        if(chunks){try(Reader input=new CursorReader(db.rawQuery("SELECT data FROM snapshot_chunks ORDER BY position",null))){replace(input);}}
+        else {try(Cursor row=db.rawQuery("SELECT json FROM app_state WHERE id=1",null)){if(!row.moveToFirst()||row.isNull(0))throw new IllegalStateException("原正文缺失。");replace(new StringReader(row.getString(0)));}}
+        patch(overrides);db.execSQL("UPDATE app_state SET json='indexed-v4' WHERE id=1");
+        db.execSQL("DELETE FROM snapshot_chunks");db.execSQL("DELETE FROM snapshot_fields");
+    }
+}

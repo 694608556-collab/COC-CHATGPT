@@ -40,6 +40,7 @@ public final class LogbookPlugin extends Plugin {
     private ArchiveRegistry archives;
     private PdfSpool pdfSpool;
     private SnapshotUpload snapshotUpload;
+    private FetchBatch fetchBatch;
     private volatile TextPdfJobs textPdfJobs;
     private ReadLease readLease;
     private ArchivePublication publication;
@@ -55,7 +56,7 @@ public final class LogbookPlugin extends Plugin {
     @Override public void load() { database = new LogbookDatabase(getContext()); archives = new ArchiveRegistry(getContext()); }
     @Override protected void handleOnDestroy() {
         networkQueue.close(); backupWriter.shutdown();
-        execute(() -> { try { if (snapshotUpload != null) snapshotUpload.close(); if (readLease != null) readLease.close(); if (textPdfJobs != null) textPdfJobs.close(); if (pdfSpool != null) pdfSpool.close(); } catch (Exception ignored) { } finally { if (archives != null) archives.close(); } });
+        execute(() -> { try { if (fetchBatch != null) fetchBatch.close(); if (snapshotUpload != null) snapshotUpload.close(); if (readLease != null) readLease.close(); if (textPdfJobs != null) textPdfJobs.close(); if (pdfSpool != null) pdfSpool.close(); } catch (Exception ignored) { } finally { if (archives != null) archives.close(); } });
         if (database != null) database.close();
     }
     private SharedPreferences prefs() { return getContext().getSharedPreferences("archive-location", 0); }
@@ -202,8 +203,7 @@ public final class LogbookPlugin extends Plugin {
                 JSObject out = new JSObject();
                 if (fields == null) { out.put("json",JSONObject.NULL); out.put("deferredRecordIds",new JSONArray()); }
                 else {
-                    JSONObject view = RecordOverlay.view(fields,null);
-                    out.put("json",view.getString("json")); out.put("deferredRecordIds",view.getJSONArray("deferredRecordIds"));
+                    out.put("json",JsonFields.join(fields)); out.put("deferredRecordIds",database.deferred());
                 }
                 if (database.revision() != revision) throw new IllegalStateException("数据已变化，请重新读取。");
                 out.put("revision",revision);
@@ -238,7 +238,8 @@ public final class LogbookPlugin extends Plugin {
                 for (int i=0;i<ids.length();i++) if (!selected.add(ids.getString(i))) throw new IllegalArgumentException("场次选择重复。");
                 java.util.Map<String,String> fields = database.fields();
                 if (fields == null) throw new IllegalStateException("尚无已保存数据。");
-                JSONObject view = RecordOverlay.view(fields,selected);
+                java.io.StringWriter writer=new java.io.StringWriter();database.writeSnapshot(writer,selected);
+                JSONObject view = new JSONObject().put("json",writer.toString());
                 if (database.revision() != expected) throw new IllegalStateException("数据已变化，请重新读取。");
                 view.put("revision",expected); return view;
     }
@@ -254,7 +255,7 @@ public final class LogbookPlugin extends Plugin {
                 java.util.Map<String,String> fields = database.fields();
                 if (fields == null) throw new IllegalStateException("尚无已保存数据。");
                 if (readLease == null) readLease = new ReadLease(new java.io.File(getContext().getCacheDir(), "export-read-sources"));
-                ReadLease.Value value = readLease.create(writer -> RecordOverlay.writeView(writer,fields,selected),expected);
+                ReadLease.Value value = readLease.create(writer -> database.writeSnapshot(writer,selected),expected);
                 if(database.revision()!=expected){readLease.release(value.id);throw new IllegalStateException("数据已变化，请重新读取。");}
                 database.releaseReadCache();
                 JSObject result = new JSObject(); result.put("id",value.id); result.put("fileUri",Uri.fromFile(value.file).toString());
@@ -611,19 +612,23 @@ public final class LogbookPlugin extends Plugin {
             try {
                 Long expected = call.getData().has("expectedRevision") ? call.getData().getLong("expectedRevision") : null;
                 if (expected == null || expected != database.revision()) throw new IllegalStateException("数据已变化，请稍后备份。");
-                String current = database.snapshot();
-                if (current == null) throw new IllegalStateException("尚无已保存数据。");
                 String tree = prefs().getString("tree", ""); requireArchivePermission(tree);
+                ReadLease lease=new ReadLease(new java.io.File(getContext().getCacheDir(),"automatic-read-sources"));
+                ReadLease.Value current;
+                try {current=lease.create(writer->{
+                    writer.write("{\"format\":\"coc.logbook.android\",\"formatVersion\":1,\"exportedAt\":"+JSONObject.quote(java.time.Instant.now().toString())+",\"restoreScope\":[\"modules\",\"records\",\"characters\"],\"snapshot\":");
+                    database.writeSnapshot(writer,null);writer.write('}');
+                },expected);}catch(Exception|OutOfMemoryError error){lease.close();throw error;}
                 // Capture the exact immutable version, then release the storage queue before card I/O.
-                backupWriter.execute(() -> finishAutomaticBackup(call,current,expected,tree));
+                try {backupWriter.execute(() -> finishAutomaticBackup(call,lease,current,expected,tree));}
+                catch(Exception error){lease.close();throw error;}
             } catch (Exception error) { backupRunning.set(false); call.reject("自动备份未完成：" + error.getMessage(), error); }
         });
     }
-    private void finishAutomaticBackup(PluginCall call, String current, long expected, String tree) {
+    private void finishAutomaticBackup(PluginCall call, ReadLease lease, ReadLease.Value current, long expected, String tree) {
         try {
             requireArchivePermission(tree);
-            String envelope = "{\"format\":\"coc.logbook.android\",\"formatVersion\":1,\"exportedAt\":" + JSONObject.quote(java.time.Instant.now().toString()) + ",\"restoreScope\":[\"modules\",\"records\",\"characters\"],\"snapshot\":" + current + "}";
-            JSObject saved = write("auto-backup-" + System.currentTimeMillis() + ".json", "application/json", envelope.getBytes(StandardCharsets.UTF_8), "auto",tree);
+            JSObject saved = publishArchive(current.file,tree,"auto-backup-"+System.currentTimeMillis()+".json","application/json","auto",current.bytes,current.sha256);
             if (!tree.equals(prefs().getString("tree", ""))) throw new IllegalStateException("保存位置已变化；旧位置文件保留，本次未标记为已备份。");
             long savedAt = System.currentTimeMillis();
             JSONObject owned = new JSONObject(saved.toString()); owned.put("tree", tree); owned.put("createdAt", savedAt);
@@ -643,7 +648,7 @@ public final class LogbookPlugin extends Plugin {
             if (!prefs().edit().putString("automatic-documents", retained.toString()).commit()) warning = "自动备份已保存，但轮换登记未更新。";
             JSObject reply = new JSObject(); reply.put("document", saved); reply.put("savedAt", savedAt); reply.put("revision",expected); reply.put("warning", warning); call.resolve(reply);
         } catch (Exception error) { call.reject("自动备份未完成：" + error.getMessage(), error); }
-        finally { backupRunning.set(false); }
+        finally { try {lease.close();} catch(Exception ignored){} backupRunning.set(false); }
     }
     private Set<String> entityIds(JSONArray rows) throws Exception {
         Set<String> ids = new HashSet<>();
@@ -714,6 +719,46 @@ public final class LogbookPlugin extends Plugin {
             });call.resolve(out);
         } catch(OutOfMemoryError error){database.releaseReadCache();call.reject("保存内存不足；原数据未改变，请重试。");}
           catch(Exception error){call.reject("编辑未保存："+error.getMessage(),error);} });
+    }
+    @PluginMethod public void beginFetchBatch(PluginCall call) {
+        execute(()->{try{
+            if(fetchBatch!=null)throw new IllegalStateException("已有批量检测正在进行。");
+            long expected=call.getData().getLong("expectedRevision");
+            if(database.revision()!=expected)throw new IllegalStateException("数据已变化，请重新读取。");
+            String tree=prefs().getString("tree","");requireArchivePermission(tree);
+            JSONArray input=call.getArray("ids");java.util.Set<String> ids=new java.util.LinkedHashSet<>();
+            if(input==null)throw new IllegalArgumentException("缺少检测目标。");
+            for(int i=0;i<input.length();i++)if(!ids.add(input.getString(i)))throw new IllegalArgumentException("检测目标重复。");
+            fetchBatch=new FetchBatch(new java.io.File(getContext().getCacheDir(),"fetch-batches"),tree,expected,ids,database.fields());
+            JSObject out=new JSObject();out.put("id",fetchBatch.id);call.resolve(out);
+        }catch(Exception error){call.reject("检测暂存未开始："+error.getMessage(),error);}});
+    }
+    @PluginMethod public void stageFetchResult(PluginCall call) {
+        execute(()->{try{
+            if(fetchBatch==null||snapshotUpload==null)throw new IllegalStateException("检测暂存已失效。");
+            fetchBatch.require(call.getString("batchId",""));
+            snapshotUpload.finish(call.getString("id",""),(file,tree,expected)->{
+                if(expected!=fetchBatch.revision||database.revision()!=expected||!tree.equals(fetchBatch.tree)||!tree.equals(prefs().getString("tree","")))throw new IllegalStateException("数据或保存位置已变化，未保存。");
+                requireArchivePermission(tree);fetchBatch.stage(file);return null;
+            });call.resolve();
+        }catch(OutOfMemoryError error){call.reject("本场正文内存不足；整批未保存。");}
+         catch(Exception error){call.reject("检测结果未暂存："+error.getMessage(),error);}});
+    }
+    @PluginMethod public void finishFetchBatch(PluginCall call) {
+        execute(()->{try{
+            if(fetchBatch==null)throw new IllegalStateException("检测批次已失效。");
+            fetchBatch.require(call.getString("id",""));
+            if(database.revision()!=fetchBatch.revision||!fetchBatch.tree.equals(prefs().getString("tree","")))throw new IllegalStateException("数据或保存位置已变化，整批未保存。");
+            requireArchivePermission(fetchBatch.tree);
+            String now=java.time.Instant.now().toString();long revision=fetchBatch.finish(database,now);
+            JSObject out=new JSObject();out.put("revision",revision);out.put("exportedAt",now);call.resolve(out);
+        }catch(OutOfMemoryError error){call.reject("保存内存不足；整批未保存。");}
+         catch(Exception error){call.reject("检测结果未保存："+error.getMessage(),error);}
+         finally{if(fetchBatch!=null)try{fetchBatch.close();}catch(Exception ignored){}fetchBatch=null;}});
+    }
+    @PluginMethod public void cancelFetchBatch(PluginCall call) {
+        execute(()->{try{if(fetchBatch!=null){fetchBatch.require(call.getString("id",""));fetchBatch.close();fetchBatch=null;}call.resolve();}
+        catch(Exception error){call.reject("检测暂存清理失败："+error.getMessage(),error);}});
     }
     @PluginMethod public void commitEdit(PluginCall call) {
         commitSnapshot(call, false);
@@ -926,7 +971,7 @@ public final class LogbookPlugin extends Plugin {
                         if ("online".equals(metadata.getString("sourceType"))) {
                             java.util.Map<String,String> value = new java.util.LinkedHashMap<>(original); value.remove("rawContent"); value.remove("cacheSourceUrl"); value.remove("fetchedAt");
                             value.put("previousStatus",value.get("status")); value.put("status",JSONObject.quote("pending")); value.remove("lastError");
-                            JSONObject entry = new JSONObject(); entry.put("value",new JSONObject(JsonFields.join(value))); entry.put("keepBody",original.containsKey("rawContent")); values.put(id,entry);
+                            JSONObject entry = new JSONObject(); entry.put("value",new JSONObject(JsonFields.join(value))); entry.put("keepBody",true); values.put(id,entry);
                         }
                     }
                     changes.put("recordDeleted",deleted.toString()); changes.put("recordValues",values.toString()); changes.put("recordOrders",orders.toString());
@@ -982,7 +1027,7 @@ public final class LogbookPlugin extends Plugin {
                 String json = call.getString("json", "");
                 if (json.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) throw new IllegalArgumentException("数据超过首阶段大小上限。");
                 validateJsonText(json);
-                JSONObject next = new JSONObject(json); validateSnapshot(next);
+                SnapshotStream.validate(new java.io.StringReader(json));
                 String tree = prefs().getString("tree", "");
                 requireArchivePermission(tree);
                 JSONArray files = restoring ? call.getArray("attachments") : null;

@@ -28,6 +28,7 @@ import { RemoveButton } from './components/RemoveButton'
 import { applyAction } from '../data/actions'
 import type { DataAction } from '../data/actions'
 import { fetchRecords } from './fetch-records'
+import { stagedFetch } from './staged-fetch'
 import type { SavedDocument } from '../data/native'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
@@ -473,7 +474,21 @@ export function MobileApp({
     let failure: unknown
     await perform(async () => {
       try {
-        await probe(ids, onResult)
+        if (Capacitor.getPlatform() === 'android') {
+          if (!native) throw new Error('本机数据尚未读取。')
+          const fetched = await stagedFetch(
+            port,
+            snapshot,
+            ids,
+            native.revision,
+            onResult,
+            ({ completed, total, succeeded, failed }) =>
+              setNotice(`正在检测：${completed}/${total}，成功 ${succeeded}，失败 ${failed}。整批尚未保存。`)
+          )
+          await reload()
+          const failed = fetched.filter((r) => r.status !== 'valid').length
+          setNotice(`检测结果已保存：成功 ${fetched.length - failed}，失败 ${failed}。`)
+        } else await probe(ids, onResult)
       } catch (error) {
         failure = error
         throw error

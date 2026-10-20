@@ -39,6 +39,11 @@ export interface SavedDocument {
 }
 /** 所有请求/响应与本工程 LogbookPlugin.java 一一对应，不访问推测的 HTTP 接口。 */
 export interface LogbookPort {
+  /** Android: private staged results, one revision/CAS transaction for the entire batch. */
+  beginFetchBatch?(options: { ids: string[]; expectedRevision: number }): Promise<{ id: string }>
+  stageFetchResult?(options: { batchId: string; id: string }): Promise<void>
+  finishFetchBatch?(options: { id: string }): Promise<{ revision: number; exportedAt: string }>
+  cancelFetchBatch?(options: { id: string }): Promise<void>
   /** @param options - 当前版本及完整 UTF-8 总长/摘要。 @returns 单次私有上传标识，至多 64 MiB，不写业务。 */
   beginSnapshotEdit?(options: {
     expectedRevision: number

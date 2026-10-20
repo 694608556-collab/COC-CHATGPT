@@ -91,6 +91,6 @@ final class EntityEdits {
         if (before != null) value.put("createdAt",before.getString("createdAt"));
         if (before != null && !unchanged) { value.remove("lastError"); value.put("status","manual".equals(source) ? "manual" : "pending"); }
         value.put("updatedAt",now);
-        JSONObject entry = new JSONObject(); entry.put("value",value); entry.put("keepBody",unchanged && (old.containsKey("rawContent") || old.containsKey("cacheSourceUrl") || old.containsKey("fetchedAt"))); return entry;
+        JSONObject entry = new JSONObject(); entry.put("value",value); entry.put("keepBody",unchanged && "online".equals(source)); return entry;
     }
 }

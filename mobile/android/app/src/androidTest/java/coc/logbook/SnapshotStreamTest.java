@@ -14,6 +14,7 @@ import java.util.UUID;
 /** Only random test databases in the separate debug package; never the user's database. */
 @RunWith(AndroidJUnit4.class)
 public class SnapshotStreamTest {
+    private String indexed(String json){java.util.Map<String,String> fields=JsonFields.split(json);String records=fields.remove("records");java.util.Map<String,String> canonical=new java.util.LinkedHashMap<>(new java.util.TreeMap<>(fields));canonical.put("records",records);return JsonFields.join(canonical);}
     private static final String SAMPLE="{\"schemaVersion\":2,\"exportedAt\":\"date\",\"modules\":[{\"id\":\"m\"}],\"records\":[{\"id\":\"r\",\"moduleId\":\"m\",\"rawContent\":{\"messages\":[{\"text\":\"public😀\",\"raw\":900719925474099312345}]}}],\"characters\":[],\"settings\":{}}";
     private void refuses(String text) throws Exception {
         try { SnapshotStream.validate(new StringReader(text)); fail("Invalid snapshot accepted"); } catch (Exception expected) { }
@@ -42,9 +43,9 @@ public class SnapshotStreamTest {
             assertEquals(1,db.replace(SAMPLE,0));
             String large=SAMPLE.replace("public😀",new String(new char[65520]).replace('\0','中')+"😀末尾");
             SnapshotStream.validate(new StringReader(large));
-            assertEquals(2,db.replace(new StringReader(large),1)); assertEquals(large,db.snapshot());
+            assertEquals(2,db.replace(new StringReader(large),1)); assertEquals(indexed(large),db.snapshot());
             try{db.replace(new StringReader(SAMPLE),1);fail("Stale CAS accepted");}catch(IllegalStateException expected){}
-            assertEquals(2,db.revision()); assertEquals(large,db.snapshot());
+            assertEquals(2,db.revision()); assertEquals(indexed(large),db.snapshot());
         } finally {context.deleteDatabase(name);}
     }
     @Test public void ioFailureRollsBackChunksFieldsAndRevision() throws Exception {
@@ -53,7 +54,7 @@ public class SnapshotStreamTest {
             db.replace(SAMPLE,0); db.releaseReadCache();
             Reader broken=new Reader(){int count;public int read(char[] buffer,int offset,int length)throws IOException{if(count++>1)throw new IOException("public injected read failure");java.util.Arrays.fill(buffer,offset,offset+length,'x');return length;}public void close(){}};
             try{db.replace(broken,1);fail("Partial stream committed");}catch(IOException expected){}
-            assertEquals(1,db.revision()); assertEquals(SAMPLE,db.snapshot());
+            assertEquals(1,db.revision()); assertEquals(indexed(SAMPLE),db.snapshot());
         } finally {context.deleteDatabase(name);}
     }
 }
