@@ -46,6 +46,54 @@ public class IndexedPressureTest {
         try(Cursor rows=db.rawQuery("SELECT data FROM indexed_bodies WHERE record_key=(SELECT row_key FROM indexed_records WHERE id=?) ORDER BY kind,position",new String[]{"r"+id})){while(rows.moveToNext())digest.update(rows.getString(0).getBytes(StandardCharsets.UTF_8));}
         return java.util.Base64.getEncoder().encodeToString(digest.digest());
     }
+    @Test public void tableManualUpdateKeepsRawTokenAndEmptyLines()throws Exception {
+        String name="public-manual-table-"+UUID.randomUUID()+".sqlite";
+        File input=fixture(1,100,0,"valid");
+        try(LogbookDatabase database=new LogbookDatabase(context(),name)){
+            try(Reader reader=new InputStreamReader(new FileInputStream(input),StandardCharsets.UTF_8)){database.replace(reader,0);}
+            org.json.JSONObject initial=new org.json.JSONObject(JsonFields.join(database.fields()));
+            initial.getJSONArray("records").put(new org.json.JSONObject("{\"id\":\"manual\",\"moduleId\":\"m0\",\"sourceType\":\"manual\",\"manualContent\":\"old\",\"updatedAt\":\"before\"}"));
+            database.edit(1,store->store.importTable(initial));
+            // A legacy manual record can also own an opaque raw cache: explicit manual updates must retain it.
+            database.getWritableDatabase().execSQL("INSERT INTO indexed_bodies VALUES((SELECT row_key FROM indexed_records WHERE id='manual'),'rawContent',0,?,?)",new Object[]{"{\"raw\":900719925474099312345}",JsonFields.bytes("{\"raw\":900719925474099312345}")});
+            org.json.JSONObject changed=new org.json.JSONObject(JsonFields.join(database.fields()));
+            changed.getJSONArray("records").getJSONObject(1).put("manualContent","public\n\n中文😀").put("updatedAt","after");
+            assertEquals(3,database.edit(2,store->store.importTable(changed)));
+            try(Cursor row=database.getReadableDatabase().rawQuery("SELECT data FROM indexed_bodies WHERE record_key=(SELECT row_key FROM indexed_records WHERE id='manual') AND kind='rawContent'",null)){assertTrue(row.moveToFirst());assertEquals("{\"raw\":900719925474099312345}",row.getString(0));}
+            StringWriter output=new StringWriter();database.writeSnapshot(output,Collections.singleton("manual"));
+            assertEquals("public\n\n中文😀",new org.json.JSONObject(output.toString()).getJSONArray("records").getJSONObject(0).getString("manualContent"));
+        }finally{input.delete();context().deleteDatabase(name);}
+    }
+    @Test public void tableAppendPreservesNativeBodiesAndRollsBackEveryFailure()throws Exception {
+        String name="public-table-"+UUID.randomUUID()+".sqlite";
+        File input=fixture(1000,52000,0,"valid");
+        try(LogbookDatabase database=new LogbookDatabase(context(),name)){
+            try(Reader reader=new InputStreamReader(new FileInputStream(input),StandardCharsets.UTF_8)){database.replace(reader,0);}
+            SQLiteDatabase db=database.getWritableDatabase();String untouched=hash(database,ids(0,1000));
+            org.json.JSONObject candidate=new org.json.JSONObject(JsonFields.join(database.fields()));
+            org.json.JSONArray records=candidate.getJSONArray("records");
+            for(int i=1000;i<7000;i++)records.put(new org.json.JSONObject("{\"id\":\"r"+i+"\",\"moduleId\":\"m0\",\"sourceType\":\"online\",\"link\":\"https://log.weizaima.com/?key=public-new-"+i+"\",\"status\":\"pending\",\"order\":"+i+"}"));
+            // Any attempt to touch pre-existing bodies fails this transaction, even a redundant rewrite.
+            db.execSQL("CREATE TRIGGER guard_old_body BEFORE DELETE ON indexed_bodies BEGIN SELECT RAISE(ABORT,'old body touched'); END");
+            assertEquals(2,database.edit(1,store->store.importTable(candidate)));
+            assertEquals(7000,scalar(db,"SELECT COUNT(*) FROM indexed_records"));assertEquals(untouched,hash(database,ids(0,1000)));
+            try{database.edit(1,store->store.importTable(candidate));fail("stale revision accepted");}catch(IllegalStateException expected){}
+            org.json.JSONObject deleted=new org.json.JSONObject(candidate.toString());deleted.getJSONArray("records").remove(0);
+            try{database.edit(2,store->store.importTable(deleted));fail("deletion accepted");}catch(IllegalArgumentException expected){}
+            org.json.JSONObject source=new org.json.JSONObject(candidate.toString());source.getJSONArray("records").getJSONObject(0).put("link","changed");
+            try{database.edit(2,store->store.importTable(source));fail("source change accepted");}catch(IllegalArgumentException expected){}
+            db.execSQL("CREATE TRIGGER fail_table_root BEFORE UPDATE ON app_state BEGIN SELECT RAISE(ABORT,'injected'); END");
+            org.json.JSONObject added=new org.json.JSONObject(candidate.toString());added.getJSONArray("records").put(new org.json.JSONObject("{\"id\":\"rollback\",\"moduleId\":\"m0\",\"sourceType\":\"manual\",\"manualContent\":\"public\"}"));
+            try{database.edit(2,store->store.importTable(added));fail("injected failure accepted");}catch(android.database.sqlite.SQLiteException expected){}
+            db.execSQL("DROP TRIGGER fail_table_root");
+            assertEquals(2,database.revision());assertEquals(7000,scalar(db,"SELECT COUNT(*) FROM indexed_records"));assertEquals(untouched,hash(database,ids(0,1000)));
+            org.json.JSONObject oversized=new org.json.JSONObject(candidate.toString());char[] large=new char[14*1024*1024];Arrays.fill(large,'x');
+            oversized.getJSONArray("records").put(new org.json.JSONObject().put("id","oversized").put("moduleId","m0").put("sourceType","manual").put("manualContent",new String(large)));
+            try{database.edit(2,store->store.importTable(oversized));fail("capacity accepted");}catch(IllegalArgumentException expected){}
+            assertEquals(2,database.revision());assertEquals(7000,scalar(db,"SELECT COUNT(*) FROM indexed_records"));
+            db.execSQL("DROP TRIGGER guard_old_body");
+        }finally{input.delete();context().deleteDatabase(name);}
+    }
     @Test public void migratesFiftyCampaignsThousandBodiesAndWritesOnlySelected()throws Exception{
         String name="public-migration-"+UUID.randomUUID()+".sqlite";File fixture=fixture(1000,52000,0,"valid");
         assertTrue(fixture.length()>49L*1024*1024);assertTrue(fixture.length()<64L*1024*1024);

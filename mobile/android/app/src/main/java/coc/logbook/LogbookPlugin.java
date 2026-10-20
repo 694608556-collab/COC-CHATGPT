@@ -766,6 +766,23 @@ public final class LogbookPlugin extends Plugin {
         execute(()->{try{if(fetchBatch!=null){fetchBatch.require(call.getString("id",""));fetchBatch.close();fetchBatch=null;}call.resolve();}
         catch(Exception error){call.reject("检测暂存清理失败："+error.getMessage(),error);}});
     }
+    /** Table confirmation transmits no old bodies and uses the existing CAS/size transaction. */
+    @PluginMethod public void commitTable(PluginCall call) {
+        execute(() -> {try {
+            Long expected=call.getData().has("expectedRevision")?call.getData().getLong("expectedRevision"):null;
+            if(expected==null||expected!=database.revision())throw new IllegalStateException("数据已变化，请重新选择表格。");
+            String tree=prefs().getString("tree","");requireArchivePermission(tree);
+            String json=call.getString("json");
+            if(json==null||JsonFields.bytes(json)>PdfSpool.MAX_BYTES)throw new IllegalArgumentException("表格数据缺失或超过 64 MiB。");
+            SnapshotStream.validate(new java.io.StringReader(json));
+            JSONObject candidate=new JSONObject(json);
+            long revision=database.edit(expected,store->{
+                if(!tree.equals(prefs().getString("tree","")))throw new IllegalStateException("保存位置已变化，未保存。");
+                requireArchivePermission(tree);store.importTable(candidate);
+            });
+            JSObject result=new JSObject();result.put("revision",revision);call.resolve(result);
+        } catch(Exception error){call.reject("表格未保存："+error.getMessage(),error);} });
+    }
     @PluginMethod public void commitEdit(PluginCall call) {
         commitSnapshot(call, false);
     }

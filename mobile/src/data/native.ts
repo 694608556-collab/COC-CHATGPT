@@ -149,6 +149,14 @@ export interface LogbookPort {
     action: DataAction
     expectedRevision: number
   }): Promise<{ revision: number; exportedAt: string; safetyBackup?: SavedDocument }>
+  /** 表格增量确认：候选只含元数据与明确导入的手动正文，原生事务保留旧正文。
+   * @param options 已校验候选JSON与预览版本；不能删除或更改旧场次来源。
+   * @returns 一次CAS提交的新版本；失败不发布部分导入。
+   */
+  commitTable?(options: {
+    json: string
+    expectedRevision: number
+  }): Promise<{ revision: number; exportedAt?: string }>
   /** 校验后的编辑快照；直接保存，不创建操作前副本，保留授权、版本检查及事务。 */
   commitEdit(options: {
     json: string

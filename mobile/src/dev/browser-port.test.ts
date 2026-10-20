@@ -1,3 +1,4 @@
+import { tablePreviewBaseline } from '../data/table-preview'
 import 'fake-indexeddb/auto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createBrowserPort } from './browser-port'
@@ -21,6 +22,32 @@ async function setup() {
 }
 
 describe('浏览器测试存储事务：自动备份与数据保存独立', () => {
+  it('表格增量保留未读正文，删除候选和旧版本不写入，重开可读新增数据', async () => {
+    const { browser, snapshot, json, name } = await setup()
+    await browser.port.commitRestore({ json, expectedRevision: 0, confirmed: true })
+    const proposed = tablePreviewBaseline(snapshot)
+    proposed.records.push({ ...proposed.records[0]!, id: 'table-new', rawContent: undefined })
+    const saved = await browser.port.commitTable!({ json: JSON.stringify(proposed), expectedRevision: 1 })
+    expect(saved.revision).toBe(2)
+    const state = await browser.port.getState()
+    expect(JSON.parse(state.json!).records[0].rawContent).toEqual(snapshot.records[0]!.rawContent)
+    await expect(
+      browser.port.commitTable!({ json: JSON.stringify(proposed), expectedRevision: 1 })
+    ).rejects.toThrow('变化')
+    proposed.records.shift()
+    await expect(
+      browser.port.commitTable!({ json: JSON.stringify(proposed), expectedRevision: 2 })
+    ).rejects.toThrow()
+    expect(await browser.port.getState()).toEqual(state)
+    const reopened = createBrowserPort(name)
+    expect(JSON.parse((await reopened.port.getState()).json!).records).toHaveLength(
+      snapshot.records.length + 1
+    )
+    expect(await reopened.documents()).toHaveLength(0)
+    await reopened.close()
+    await browser.close()
+  })
+
   it('文字导出顺序分段后完整发布，同名不覆盖，失败不修改业务数据', async () => {
     const { browser, json } = await setup()
     await browser.port.commitRestore({ json, expectedRevision: 0, confirmed: true })

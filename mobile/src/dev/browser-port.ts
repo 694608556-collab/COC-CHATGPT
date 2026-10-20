@@ -1,3 +1,4 @@
+import { mergeTableImport } from '../data/table-preview'
 import type { LogbookPort, NativeState, SavedDocument } from '../data/native'
 import { decodeBase64 } from '../data/native'
 import { encodeBackup, previewBackup } from '../data/backup'
@@ -607,6 +608,14 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
         tx.onerror = () => reject(tx.error)
       })
       return { revision: expectedRevision + 1, exportedAt }
+    },
+    async commitTable({ json, expectedRevision }) {
+      const before = await readState()
+      if (before.revision !== expectedRevision) throw new Error('数据已变化，请重新选择表格。')
+      const proposed = JSON.parse(await checkJsonInBackground(json))
+      const current = before.json ? JSON.parse(await checkJsonInBackground(before.json)) : undefined
+      const next = mergeTableImport(proposed, current)
+      return commit(JSON.stringify(next), expectedRevision)
     },
     /** 浏览器独立存储实现相同的安全/版本边界，不进入 APK。 */
     async commitAction({ action, expectedRevision }) {
