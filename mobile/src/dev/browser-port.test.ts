@@ -22,6 +22,23 @@ async function setup() {
 }
 
 describe('浏览器测试存储事务：自动备份与数据保存独立', () => {
+  it('表格在确认时记录修改时间，预览停留不会提前首次自动备份', async () => {
+    const { browser, snapshot, json } = await setup()
+    await browser.port.commitRestore({ json, expectedRevision: 0, confirmed: true })
+    const proposed = tablePreviewBaseline(snapshot)
+    proposed.exportedAt = '2026-10-20T00:00:00.000Z'
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const confirmedAt = '2026-10-20T12:00:00.000Z'
+    vi.setSystemTime(new Date(confirmedAt))
+    try {
+      await browser.port.commitTable!({ json: JSON.stringify(proposed), expectedRevision: 1 })
+      expect(JSON.parse((await browser.port.getState()).json!).exportedAt).toBe(confirmedAt)
+    } finally {
+      vi.useRealTimers()
+      await browser.close()
+    }
+  })
+
   it('表格增量保留未读正文，删除候选和旧版本不写入，重开可读新增数据', async () => {
     const { browser, snapshot, json, name } = await setup()
     await browser.port.commitRestore({ json, expectedRevision: 0, confirmed: true })

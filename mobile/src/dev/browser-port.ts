@@ -614,8 +614,9 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
       if (before.revision !== expectedRevision) throw new Error('数据已变化，请重新选择表格。')
       const proposed = JSON.parse(await checkJsonInBackground(json))
       const current = before.json ? JSON.parse(await checkJsonInBackground(before.json)) : undefined
-      const next = mergeTableImport(proposed, current)
-      return commit(JSON.stringify(next), expectedRevision)
+      const exportedAt = new Date().toISOString()
+      const next = { ...mergeTableImport(proposed, current), exportedAt }
+      return { ...(await commit(JSON.stringify(next), expectedRevision)), exportedAt }
     },
     /** 浏览器独立存储实现相同的安全/版本边界，不进入 APK。 */
     async commitAction({ action, expectedRevision }) {

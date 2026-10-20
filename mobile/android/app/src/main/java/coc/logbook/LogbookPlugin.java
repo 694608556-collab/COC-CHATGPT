@@ -776,11 +776,12 @@ public final class LogbookPlugin extends Plugin {
             if(json==null||JsonFields.bytes(json)>PdfSpool.MAX_BYTES)throw new IllegalArgumentException("表格数据缺失或超过 64 MiB。");
             SnapshotStream.validate(new java.io.StringReader(json));
             JSONObject candidate=new JSONObject(json);
+            String now=java.time.Instant.now().toString();candidate.put("exportedAt",now);
             long revision=database.edit(expected,store->{
                 if(!tree.equals(prefs().getString("tree","")))throw new IllegalStateException("保存位置已变化，未保存。");
                 requireArchivePermission(tree);store.importTable(candidate);
             });
-            JSObject result=new JSObject();result.put("revision",revision);call.resolve(result);
+            JSObject result=new JSObject();result.put("revision",revision);result.put("exportedAt",now);call.resolve(result);
         } catch(Exception error){call.reject("表格未保存："+error.getMessage(),error);} });
     }
     @PluginMethod public void commitEdit(PluginCall call) {
