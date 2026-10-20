@@ -225,6 +225,7 @@ test('重开后从未阅读也能备份全部正文，表格追加不会丢失�
   })
   await page.getByRole('button', { name: '确认添加表格数据' }).click()
   await expect(page.getByRole('status')).toContainText('表格数据已添加')
+  expect((await probe(page)).requests).toEqual([])
   await page.reload()
   expect((await probe(page)).requests).toEqual([])
   await page.getByRole('button', { name: '数据与设置', exact: true }).click()

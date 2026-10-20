@@ -578,9 +578,25 @@ export function MobileApp({
     )
       return
     if (nativeRef.current?.revision !== tablePreview.revision) throw new Error('数据已变化，请重新选择表格。')
-    const complete = await loadContent(snapshot.records.map((r) => r.id))
-    if (nativeRef.current?.revision !== tablePreview.revision) throw new Error('数据已变化，请重新选择表格。')
-    await commit(restoreTableBodies(tablePreview.data.next, complete))
+    if (port.commitTable) {
+      setNotice('正在后台校验表格数据…')
+      const prepared = await prepareInBackground(tablePreview.data.next)
+      if (nativeRef.current?.revision !== tablePreview.revision)
+        throw new Error('数据已变化，请重新选择表格。')
+      setNotice('正在保存新增场次和明确更新的手动正文…')
+      const result = await port.commitTable({ json: prepared.json, expectedRevision: tablePreview.revision })
+      // 仅恢复界面已经缓存的正文；延迟正文仍留在原生库，绝不为确认导入读取整库。
+      setSnapshot({
+        ...restoreTableBodies(prepared.snapshot, snapshot),
+        exportedAt: result.exportedAt ?? prepared.snapshot.exportedAt
+      })
+      setNative((current) => current && { ...current, json: null, revision: result.revision })
+    } else {
+      const complete = await loadContent(snapshot.records.map((r) => r.id))
+      if (nativeRef.current?.revision !== tablePreview.revision)
+        throw new Error('数据已变化，请重新选择表格。')
+      await commit(restoreTableBodies(tablePreview.data.next, complete))
+    }
     setTablePreview(undefined)
     setNotice(tablePreview.data.updated ? '表格数据已添加或更新并保存。' : '表格数据已添加并保存。')
   }

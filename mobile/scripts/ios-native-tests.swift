@@ -118,6 +118,30 @@ import Foundation
         } catch {
             try require(error.localizedDescription.contains("L3") && error.localizedDescription.contains("257") && !error.localizedDescription.contains("/private"), "diagnostic preserves stage and code but excludes private path")
         }
+        let tableStore = try LogbookStore(url: root.appendingPathComponent("table-increment.sqlite"))
+        _ = try tableStore.replace(fixture, expected: 0)
+        let originalBodies = try tableStore.rows("SELECT id,body FROM records ORDER BY position")
+        var table = try tableStore.metadata()!
+        var tableRows = table["records"] as! [LogbookJSON]
+        var appended = tableRows[0]; appended["id"] = "public-table-added"; appended["name"] = "public added"
+        tableRows.append(appended); table["records"] = tableRows
+        _ = try tableStore.mutate(expected: 1) { try LogbookMutations.table(table, data: &$0) }
+        try require(try tableStore.rows("SELECT id,body FROM records WHERE id<>'public-table-added' ORDER BY position") == originalBodies, "table append preserves exact stored body strings")
+        try rejects("table CAS") { _ = try tableStore.mutate(expected: 1) { try LogbookMutations.table(table, data: &$0) } }
+        var deletedTable = table; deletedTable["records"] = Array(tableRows.dropFirst())
+        try rejects("table deletion") { _ = try tableStore.mutate(expected: 2) { try LogbookMutations.table(deletedTable, data: &$0) } }
+        var changedTable = table, changedRows = tableRows; changedRows[0]["link"] = "https://log.weizaima.com/?key=changed"; changedTable["records"] = changedRows
+        try rejects("table source mutation") { _ = try tableStore.mutate(expected: 2) { try LogbookMutations.table(changedTable, data: &$0) } }
+        let beforeTableFailure = try logbookData(tableStore.fullSnapshot()!)
+        try tableStore.execute("CREATE TRIGGER refuse_table BEFORE UPDATE ON state BEGIN SELECT RAISE(ABORT,'injected'); END")
+        try rejects("table SQL rollback") { _ = try tableStore.mutate(expected: 2) { try LogbookMutations.table(table, data: &$0) } }
+        try require(try tableStore.revision() == 2 && logbookData(tableStore.fullSnapshot()!) == beforeTableFailure, "table failure preserves revision and every body")
+        try tableStore.execute("DROP TRIGGER refuse_table")
+        var manualTable = try tableStore.metadata()!, manualRows = manualTable["records"] as! [LogbookJSON]
+        let manualIndex = manualRows.firstIndex(where: { $0["sourceType"] as? String == "manual" })!
+        manualRows[manualIndex]["manualContent"] = "public manual\n\n中文😀"; manualRows[manualIndex]["updatedAt"] = logbookNow(); manualTable["records"] = manualRows
+        _ = try tableStore.mutate(expected: 2) { try LogbookMutations.table(manualTable, data: &$0) }
+        try require((try tableStore.fullSnapshot(selected: [manualRows[manualIndex]["id"] as! String])!["records"] as! [LogbookJSON])[0]["manualContent"] as? String == "public manual\n\n中文😀", "table updates only explicit manual text")
         try IOSScaleChecks.run(root: root, fixture: fixture)
         print("iOS native core: \(checks) checks passed; macOS test folders only, no phone or system picker tested.")
     }

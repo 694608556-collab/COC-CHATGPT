@@ -62,6 +62,31 @@ enum LogbookMutations {
             value["updatedAt"] = logbookNow(); replace(&records, value); data["records"] = records
         } else { throw LogbookFailure("不支持此编辑类型。") }
     }
+    /// A table may append entities/participants and explicitly update manual text, never replace old bodies.
+    static func table(_ candidate: LogbookJSON, data: inout LogbookJSON) throws {
+        try LogbookValidation.snapshot(candidate)
+        let records = candidate["records"] as! [LogbookJSON]
+        guard records.allSatisfy({ $0["rawContent"] == nil }) else { throw LogbookFailure("表格不得覆盖缓存正文。") }
+        guard try logbookData(candidate["settings"]!) == logbookData(data["settings"]!) else { throw LogbookFailure("表格不得修改设置。") }
+        for kind in ["modules", "characters", "records"] {
+            let before = data[kind] as! [LogbookJSON], after = candidate[kind] as! [LogbookJSON]
+            guard after.count >= before.count else { throw LogbookFailure("表格不得删除已有数据。") }
+            for (index, old) in before.enumerated() {
+                let next = after[index]
+                guard old["id"] as? String == next["id"] as? String else { throw LogbookFailure("表格不得重排或替换已有数据。") }
+                var a = old, b = next
+                var ignored: [String] = []
+                if kind == "modules" { ignored = ["kps", "pairs"] }
+                if kind == "records", next["manualContent"] != nil {
+                    guard old["sourceType"] as? String == "manual" else { throw LogbookFailure("表格不得覆盖在线正文。") }
+                    ignored = ["manualContent", "updatedAt", "playDate", "dateSource"]
+                }
+                for key in ignored { a.removeValue(forKey: key); b.removeValue(forKey: key) }
+                guard try logbookData(a) == logbookData(b) else { throw LogbookFailure("旧场次来源或非导入字段已变化；未保存。") }
+            }
+        }
+        data["modules"] = candidate["modules"]; data["characters"] = candidate["characters"]; data["records"] = records
+    }
     static func action(_ action: LogbookJSON, data: inout LogbookJSON) throws {
         guard let type = action["type"] as? String else { throw LogbookFailure("操作类型缺失。") }
         var modules = data["modules"] as! [LogbookJSON], records = data["records"] as! [LogbookJSON], characters = data["characters"] as! [LogbookJSON]

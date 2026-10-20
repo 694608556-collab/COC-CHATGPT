@@ -9,7 +9,7 @@ import Network
 public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate, QLPreviewControllerDataSource {
     public let identifier = "LogbookPlugin"
     public let jsName = "Logbook"
-    public let pluginMethods: [CAPPluginMethod] = ["beginFetchBatch", "stageFetchResult", "finishFetchBatch", "cancelFetchBatch", "beginSnapshotEdit", "appendSnapshotEdit", "cancelSnapshotEdit", "claimFirstLaunchIntro", "getOverview", "getState", "getStatus", "getRecordContent", "commitSettings", "commitModule", "commitEntity", "commitAction", "commitEdit", "commitRestore", "selectArchive", "openBackup", "writeArchive", "readDocument", "listDocuments", "openDocument", "shareDocument", "fetchLog", "automaticBackup"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise)! }
+    public let pluginMethods: [CAPPluginMethod] = ["beginFetchBatch", "stageFetchResult", "finishFetchBatch", "cancelFetchBatch", "beginSnapshotEdit", "appendSnapshotEdit", "cancelSnapshotEdit", "claimFirstLaunchIntro", "getOverview", "getState", "getStatus", "getRecordContent", "commitSettings", "commitModule", "commitEntity", "commitAction", "commitTable", "commitEdit", "commitRestore", "selectArchive", "openBackup", "writeArchive", "readDocument", "listDocuments", "openDocument", "shareDocument", "fetchLog", "automaticBackup"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise)! }
     private let work = DispatchQueue(label: "coc.logbook.storage", qos: .userInitiated)
     private let backupWriter = DispatchQueue(label: "coc.logbook.automatic-backup", qos: .utility)
     private let monitor = NWPathMonitor()
@@ -190,6 +190,22 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
     }
     @objc func commitAction(_ call: CAPPluginCall) {
         mutate(call) { data in guard let action = call.getObject("action") else { throw LogbookFailure("操作参数缺失。") }; try LogbookMutations.action(action, data: &data) }
+    }
+    @objc func commitTable(_ call: CAPPluginCall) {
+        run(call) { store, archive in
+            let expected = try self.expected(call); try store.check(expected); try archive.requirePermission()
+            guard let json = call.getString("json"), json.utf8.count <= logbookMaximumBytes else { throw LogbookFailure("表格数据缺失或超过 64 MB。") }
+            let bookmark = try archive.bookmark()
+            let candidate = try logbookObject(json)
+            let result = try store.mutate(expected: expected) { data in
+                guard try archive.bookmark() == bookmark else { throw LogbookFailure("保存位置已变化，未保存。") }
+                try archive.requirePermission()
+                // A fresh store has platform defaults; retain the candidate's validated defaults only for its first save.
+                if try store.metadata() == nil { data["settings"] = candidate["settings"] }
+                try LogbookMutations.table(candidate, data: &data)
+            }
+            return ["revision": result.0, "exportedAt": result.1]
+        }
     }
     @objc func commitEdit(_ call: CAPPluginCall) { commitSnapshot(call, restoring: false) }
     @objc func commitRestore(_ call: CAPPluginCall) { commitSnapshot(call, restoring: true) }
