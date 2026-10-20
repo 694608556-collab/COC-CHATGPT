@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import type { FilterPreset, SessionRecord } from '../../../../../src/shared/types'
-import { matchRanges, recordMessages, searchExcerpt } from '../../../data/search'
+import { countMatches, recordMessages, searchExcerpt } from '../../../data/search'
 
 /** 只搜索此模组的已保存正文，不更改列表选择、排序或业务数据。 */
 export function ModuleBodySearch(props: {
@@ -37,7 +37,7 @@ export function ModuleBodySearch(props: {
           excerpt = ''
         for (const message of messages) {
           const text = message.header + '\n' + message.text
-          const count = matchRanges(text, needle).length
+          const count = countMatches(text, needle)
           if (count && !matches) excerpt = searchExcerpt(text, needle)
           matches += count
         }
