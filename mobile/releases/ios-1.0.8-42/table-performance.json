@@ -1,0 +1,62 @@
+{
+  "scope": "Windows Node24.21.0 algorithm timing; not iPhone timing",
+  "baselineSource": "7d87bb057f54394966a6e908aec473831a2ffc61",
+  "optimizedSource": "641cd9d249c491f607da76a6242bfe41486036d9",
+  "timingMethod": "one warmup and three measured runs per size; median; full table import and validation",
+  "before": [
+    {
+      "rows": 6000,
+      "modules": 300,
+      "runsMs": [
+        359.8,
+        334.8,
+        325.9
+      ],
+      "medianMs": 334.8
+    },
+    {
+      "rows": 12000,
+      "modules": 600,
+      "runsMs": [
+        1158.5,
+        1178.1,
+        1145.8
+      ],
+      "medianMs": 1158.5
+    }
+  ],
+  "after": [
+    {
+      "rows": 6000,
+      "modules": 300,
+      "runsMs": [
+        101.1,
+        100.4,
+        110.5
+      ],
+      "medianMs": 101.1
+    },
+    {
+      "rows": 12000,
+      "modules": 600,
+      "runsMs": [
+        175.8,
+        183.1,
+        156.6
+      ],
+      "medianMs": 175.8
+    }
+  ],
+  "tableRegression": {
+    "modules": 300,
+    "records": 6000,
+    "quadraticRecordFilterVisitsBefore": 18003000,
+    "previewInitiallyRenderedNames": 100,
+    "increment": 100,
+    "cpuSlowdown": 6,
+    "maxPreviewFrameGapAssertionMs": 350,
+    "fullSaveRestartLastRecord": true
+  },
+  "browserTestsPassed": 110,
+  "unitTestsPassed": 95
+}

@@ -1,0 +1,41 @@
+{
+  "version": "1.0.8",
+  "build": 42,
+  "source": "641cd9d249c491f607da76a6242bfe41486036d9",
+  "workflowRun": 39417154544,
+  "filename": "coc-logbook-1.0.8-42-ios-arm64-unsigned.ipa",
+  "bytes": 25616475,
+  "sha256": "b881926ae3e629f12e4995e68cd40a0a2a5df6f8d94003ab0794eee3c3285cf8",
+  "architecture": "arm64",
+  "signing": "unsigned; requires Apple signing",
+  "zipCrc": true,
+  "productionAssetsMatchIndependentTrackedSourceBuild": true,
+  "assetSha256": {
+    "app.js": "41696166bd75e2646ea034a9108ecc1ba782dd17543b8fbabfd497da98441e9c",
+    "app.css": "9e306f09dd65ad62d3a3afbd1197e4cbaa28a3ecd2d8a397dc5f11200be8b80d",
+    "snapshot-worker.js": "e613526ad7e9dce1415bb06934c8bd630cea2d25dfb44e43b7b3e1bb8447963c",
+    "export-worker.js": "12c4bd350d27b81a37c96ed20bf08ebf7e0ce25bdfcd9a290ee2411ffe58d415",
+    "index.html": "9014e503177333b218f7965bf04dbed84a16c20a150bac53c53b3726d1b23f9d"
+  },
+  "originalFontsMatch": 8,
+  "noPrivateOrDebugFiles": true,
+  "nativeFinalResult": "passed",
+  "validationRun": 39418874480,
+  "validationRevision": "26515bb103ce26ce87cabe2e2516f3c6cd69580e",
+  "applicationChangesSinceBuild": false,
+  "nativeCoreChecks": 60,
+  "nativeScaleSeconds": 27.90550696849823,
+  "coldStartsPassed": 3,
+  "systemUiTestsPassed": 4,
+  "systemUiFailures": 0,
+  "systemUiSeconds": 239.377,
+  "scale": {
+    "commits": 4,
+    "failed": 178,
+    "fetch": 3020,
+    "staged": 3020,
+    "wholeReads": 0
+  },
+  "uiArtifact": 12263805403,
+  "startupArtifact": 12263609187
+}
