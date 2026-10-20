@@ -102,6 +102,9 @@ def main():
                 except Exception as error:
                     print('Public UI attachment export failed: ' + str(error), flush=True)
         phase = 'public-scale-fixture'
+        # Xcode UI testing may reinstall the app and rotate its data container.
+        # Re-query this job's isolated simulator before touching public fixtures.
+        container = pathlib.Path(command('xcrun', 'simctl', 'get_app_container', udid, 'coc.logbook', 'data'))
         # The simulator was created by this job. Never seed a physical/user device.
         subprocess.run(['xcrun', 'simctl', 'terminate', udid, 'coc.logbook'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
         database = container / 'Library/Application Support/COCLogbook/logbook.sqlite'
@@ -111,6 +114,7 @@ def main():
             if existing.exists():
                 existing.rename(pathlib.Path(str(existing) + '.pre-scale'))
         command('python3', 'scripts/ios-scale-fixture.py', str(database), timeout=60)
+        (container / 'tmp').mkdir(parents=True, exist_ok=True)
         (container / 'tmp/ios-scale-webview.js').write_text(pathlib.Path('scripts/ios-scale-webview.js').read_text())
         scale_report = container / 'tmp/ios-scale-result.json'
         phase = 'public-scale-wkwebview'
