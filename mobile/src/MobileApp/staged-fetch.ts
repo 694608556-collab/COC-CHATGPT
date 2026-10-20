@@ -22,7 +22,7 @@ export async function stagedFetch(
   const targets = snapshot.records
     .filter((r) => wanted.has(r.id) && r.sourceType === 'online')
     .map(({ rawContent, manualContent, ...metadata }) => metadata)
-  if (!targets.length) return []
+  if (!targets.length) return { fetched: [], saved: undefined }
   if (
     !port.beginFetchBatch ||
     !port.stageFetchResult ||
@@ -67,8 +67,8 @@ export async function stagedFetch(
         return task
       }
     })
-    await port.finishFetchBatch({ id: batch.id })
-    return fetched
+    const saved = await port.finishFetchBatch({ id: batch.id })
+    return { fetched, saved }
   } finally {
     await port.cancelFetchBatch({ id: batch.id })
   }

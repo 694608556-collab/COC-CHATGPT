@@ -476,7 +476,7 @@ export function MobileApp({
       try {
         if (Capacitor.getPlatform() === 'android') {
           if (!native) throw new Error('本机数据尚未读取。')
-          const fetched = await stagedFetch(
+          const { fetched, saved } = await stagedFetch(
             port,
             snapshot,
             ids,
@@ -485,7 +485,22 @@ export function MobileApp({
             ({ completed, total, succeeded, failed }) =>
               setNotice(`正在检测：${completed}/${total}，成功 ${succeeded}，失败 ${failed}。整批尚未保存。`)
           )
-          await reload()
+          if (saved) {
+            const updates = new Map(fetched.map((r) => [r.id, r]))
+            const deferred = new Set(deferredRef.current)
+            for (const row of snapshot.records)
+              if (row.rawContent !== undefined || row.manualContent !== undefined) deferred.add(row.id)
+            for (const row of fetched) if (row.status === 'valid') deferred.add(row.id)
+            replaceDeferred(deferred)
+            setSnapshot({
+              ...snapshot,
+              exportedAt: saved.exportedAt,
+              records: snapshot.records.map(
+                ({ rawContent, manualContent, ...metadata }) => updates.get(metadata.id) ?? metadata
+              )
+            })
+            setNative((current) => current && { ...current, json: null, revision: saved.revision })
+          }
           const failed = fetched.filter((r) => r.status !== 'valid').length
           setNotice(`检测结果已保存：成功 ${fetched.length - failed}，失败 ${failed}。`)
         } else await probe(ids, onResult)

@@ -55,7 +55,9 @@ public class IndexedPressureTest {
                 legacy.execSQL("CREATE TABLE app_state(id INTEGER PRIMARY KEY,json TEXT,revision INTEGER NOT NULL)");legacy.execSQL("INSERT INTO app_state VALUES(1,'chunked-v1',7)");
                 legacy.execSQL("CREATE TABLE snapshot_chunks(position INTEGER PRIMARY KEY,data TEXT NOT NULL)");legacy.execSQL("CREATE TABLE snapshot_fields(field TEXT,position INTEGER,data TEXT,PRIMARY KEY(field,position))");
                 try(Reader input=new InputStreamReader(new FileInputStream(fixture),StandardCharsets.UTF_8)){
-                    char[] chars=new char[65536];int count,position=0;while((count=input.read(chars))!=-1)legacy.execSQL("INSERT INTO snapshot_chunks VALUES(?,?)",new Object[]{position++,new String(chars,0,count)});
+                    char[] chars=new char[65536];int count,position=0,length=0;
+                    while((count=input.read(chars,length,chars.length-length))!=-1){length+=count;if(length==chars.length){int end=Character.isHighSurrogate(chars[length-1])?length-1:length;legacy.execSQL("INSERT INTO snapshot_chunks VALUES(?,?)",new Object[]{position++,new String(chars,0,end)});if(end<length)chars[0]=chars[end];length-=end;}}
+                    if(length>0)legacy.execSQL("INSERT INTO snapshot_chunks VALUES(?,?)",new Object[]{position,new String(chars,0,length)});
                 }
                 legacy.execSQL("INSERT INTO snapshot_fields VALUES('exportedAt',0,'\"after metadata\"')");legacy.setVersion(3);
             }

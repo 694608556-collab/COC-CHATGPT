@@ -52,7 +52,7 @@ public final class LogbookPlugin extends Plugin {
     private final Object namingLock = new Object();
     private final NetworkQueue networkQueue = new NetworkQueue();
     private final java.util.concurrent.ExecutorService backupWriter = java.util.concurrent.Executors.newSingleThreadExecutor();
-    private final java.util.concurrent.atomic.AtomicBoolean backupRunning = new java.util.concurrent.atomic.AtomicBoolean();
+    private static final java.util.concurrent.atomic.AtomicBoolean backupRunning = new java.util.concurrent.atomic.AtomicBoolean();
     @Override public void load() { database = new LogbookDatabase(getContext()); archives = new ArchiveRegistry(getContext()); }
     @Override protected void handleOnDestroy() {
         networkQueue.close(); backupWriter.shutdown();
@@ -191,7 +191,8 @@ public final class LogbookPlugin extends Plugin {
                 out.put("lastAutoBackupAt", prefs().getLong("last-auto-backup", 0));
                 if (prefs().contains("last-auto-backup-revision")) out.put("lastAutoBackupRevision",prefs().getLong("last-auto-backup-revision",-1));
                 out.put("archive", location(true)); call.resolve(out);
-            } catch (Exception error) { call.reject("读取失败；未清空数据。", error); }
+            } catch (OutOfMemoryError error) { call.reject("读取内存不足；原数据未改变，请按场次读取。"); }
+              catch (Exception error) { call.reject("读取失败；未清空数据。", error); }
         });
     }
     /** Cold-start overview: no log bodies cross the bridge and no archive probe file is created. */
@@ -225,7 +226,8 @@ public final class LogbookPlugin extends Plugin {
             try {
                 JSONObject view = selectedContent(call);
                 JSObject out = new JSObject(); out.put("json",view.getString("json")); out.put("revision",view.getLong("revision")); call.resolve(out);
-            } catch (Exception error) { call.reject("正文读取失败；原数据未改变。",error); }
+            } catch (OutOfMemoryError error) { call.reject("所选正文内存不足；原数据未改变，请减少读取场次。"); }
+              catch (Exception error) { call.reject("正文读取失败；原数据未改变。",error); }
         });
     }
     /** The same exact-revision projection backs both reader responses and immutable export sources. */
@@ -622,7 +624,8 @@ public final class LogbookPlugin extends Plugin {
                 // Capture the exact immutable version, then release the storage queue before card I/O.
                 try {backupWriter.execute(() -> finishAutomaticBackup(call,lease,current,expected,tree));}
                 catch(Exception error){lease.close();throw error;}
-            } catch (Exception error) { backupRunning.set(false); call.reject("自动备份未完成：" + error.getMessage(), error); }
+            } catch (OutOfMemoryError error) { backupRunning.set(false); call.reject("自动备份内存不足；原数据未改变。"); }
+              catch (Exception error) { backupRunning.set(false); call.reject("自动备份未完成：" + error.getMessage(), error); }
         });
     }
     private void finishAutomaticBackup(PluginCall call, ReadLease lease, ReadLease.Value current, long expected, String tree) {
