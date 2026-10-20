@@ -41,11 +41,11 @@ import { saveGeneratedExport } from '../data/export-archive'
 import type { ExportFormat } from '../data/export'
 import { checkPdfCancellation } from '../data/pdf'
 import type { PdfProgress } from '../data/pdf'
-import { importTable } from '../data/tables'
 import type { TablePreview } from '../data/tables'
 import { previewCoc7Import } from '../data/coc7-import'
 import type { Coc7ImportSummary } from '../data/coc7-import'
 import {
+  importTableInBackground,
   prepareInBackground,
   prepareUploadInBackground,
   uploadChunkInBackground,
@@ -198,6 +198,7 @@ export function MobileApp({
     combined: boolean
     filters: FilterPreset
   }>()
+  const [tablePreviewLimit, setTablePreviewLimit] = useState({ names: 100, warnings: 100 })
   const [tablePreview, setTablePreview] = useState<{ data: TablePreview; revision: number }>()
   async function commit(next: MobileSnapshot) {
     if (!native) throw new Error('本机数据尚未读取。')
@@ -534,8 +535,10 @@ export function MobileApp({
     const selected = await port.openBackup({ kind: kind === 'records' ? 'record-table' : 'character-table' })
     if (selected.cancelled || !selected.base64 || !selected.name || !native) return
     const complete = await loadContent(snapshot.records.map((r) => r.id))
+    const data = await importTableInBackground(complete, selected.base64, selected.name, kind)
+    setTablePreviewLimit({ names: 100, warnings: 100 })
     setTablePreview({
-      data: await importTable(complete, decodeBase64(selected.base64), selected.name, kind),
+      data,
       revision: native.revision
     })
   }
@@ -1392,12 +1395,35 @@ export function MobileApp({
                 {tablePreview.data.updated ? '将添加或更新' : '新增'} {tablePreview.data.names.length} 项；
                 {tablePreview.data.updated ? '手动正文更新已在下方列明。' : '当前业务数据保留。'}
               </p>
-              {tablePreview.data.names.map((name, i) => (
+              {tablePreview.data.names.slice(0, tablePreviewLimit.names).map((name, i) => (
                 <p key={i}>{name}</p>
               ))}
-              {tablePreview.data.warnings.map((warning, i) => (
+              {tablePreview.data.names.length > tablePreviewLimit.names && (
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    setTablePreviewLimit((current) => ({ ...current, names: current.names + 100 }))
+                  }
+                >
+                  显示更多场次（剩余 {tablePreview.data.names.length - tablePreviewLimit.names} 项）
+                </button>
+              )}
+              {!!tablePreview.data.warnings.length && (
+                <p>导入提醒共 {tablePreview.data.warnings.length} 条</p>
+              )}
+              {tablePreview.data.warnings.slice(0, tablePreviewLimit.warnings).map((warning, i) => (
                 <SystemMessage kind="warning" message={warning} key={i} />
               ))}
+              {tablePreview.data.warnings.length > tablePreviewLimit.warnings && (
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    setTablePreviewLimit((current) => ({ ...current, warnings: current.warnings + 100 }))
+                  }
+                >
+                  显示更多提醒（剩余 {tablePreview.data.warnings.length - tablePreviewLimit.warnings} 条）
+                </button>
+              )}
             </div>
             <div className="dialog-actions">
               <button disabled={busy} onClick={() => setTablePreview(undefined)}>

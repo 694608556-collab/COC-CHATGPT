@@ -1,5 +1,6 @@
 import { performSnapshotJob } from './snapshot-job'
 import type { SnapshotJob } from './snapshot-job'
+import type { TablePreview } from './tables'
 import type { ImportPreview, MobileSnapshot } from './types'
 import type { NormalizedLog, ModuleRecord, SessionRecord, FilterPreset } from '../../../src/shared/types'
 import type { ExportFormat } from './export'
@@ -230,4 +231,20 @@ export function uploadChunkInBackground(id: string, index: number): Promise<stri
 /** @param id - 本次后台上传租约。 @returns 幂等释放字节确认；不影响其他租约。 */
 export function closeUploadInBackground(id: string): Promise<void> {
   return runJob({ type: 'upload-close', id })
+}
+
+/** 后台解析表格并生成独立预览；不改变业务库。
+ * @param snapshot 全部正文已读取的基线快照。
+ * @param base64 用户所选表格内容。
+ * @param name 文件名。
+ * @param kind 导入种类。
+ * @returns 已校验的候选快照、名称及警告；仍需用户确认和CAS提交。
+ */
+export function importTableInBackground(
+  snapshot: MobileSnapshot,
+  base64: string,
+  name: string,
+  kind: 'records' | 'characters'
+): Promise<TablePreview> {
+  return runJob({ type: 'table-import', snapshot, base64, name, kind })
 }

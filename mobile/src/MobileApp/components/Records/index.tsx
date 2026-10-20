@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { MODULE_PLAY_STATUS_LABELS } from '../../../../../src/shared/types'
 import type { ModuleRecord, SessionRecord } from '../../../../../src/shared/types'
 import type { MobileSnapshot } from '../../../data/types'
@@ -40,6 +40,17 @@ export function Records(props: {
   busy: boolean
 }) {
   const { snapshot } = props
+  // 正文进度提示不改变records引用；同一份场次只分组和排序一次。
+  const recordsByModule = useMemo(() => {
+    const groups = new Map<string, SessionRecord[]>()
+    for (const record of snapshot.records) {
+      const rows = groups.get(record.moduleId)
+      if (rows) rows.push(record)
+      else groups.set(record.moduleId, [record])
+    }
+    for (const rows of groups.values()) rows.sort((a, b) => a.order - b.order)
+    return groups
+  }, [snapshot.records])
   const [expanded, setExpanded] = useState<string[]>(() =>
     snapshot.modules
       .filter(
@@ -110,9 +121,7 @@ export function Records(props: {
         </>
       )}
       {modules.map((m) => {
-        const allRecords = snapshot.records
-          .filter((r) => r.moduleId === m.id)
-          .sort((a, b) => a.order - b.order)
+        const allRecords = recordsByModule.get(m.id) ?? []
         const records = allRecords
         const open = expanded.includes(m.id)
         const ids = records.filter((r) => selected.includes(r.id)).map((r) => r.id)

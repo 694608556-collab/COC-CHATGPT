@@ -4,9 +4,22 @@ import type { MobileSnapshot } from './types'
 import { readSource } from './local-source'
 import type { ExportSource } from './export-source'
 import { decodeSeaResponse } from './sea-response'
+import { importTable } from './tables'
 
 /** 只读后台任务；不接触目录授权、数据库或原生写入接口。 */
 export type SnapshotJob =
+  | {
+      /** 表格只读解析与预览校验，不持有写库能力。 */
+      type: 'table-import'
+      /** 全部正文已读取的预览基线。 */
+      snapshot: MobileSnapshot
+      /** 已选文件的Base64内容。 */
+      base64: string
+      /** 文件名，用于识别CSV或工作簿。 */
+      name: string
+      /** 跑团场次或旧版角色表格。 */
+      kind: 'records' | 'characters'
+    }
   | { type: 'preview'; bytes: Uint8Array }
   | { type: 'preview-base64'; base64: string }
   | { type: 'read'; json: string }
@@ -46,6 +59,8 @@ let uploadSequence = 0
  * @returns 校验预览、编码文本、完整海豹正文或校验后的快照与 JSON，或待上传字节的私有租约/分段。
  */
 export async function performSnapshotJob(job: SnapshotJob) {
+  if (job.type === 'table-import')
+    return importTable(job.snapshot, decodeBase64(job.base64), job.name, job.kind)
   if (job.type === 'upload-close') {
     if (upload?.id === job.id) upload = undefined
     return
