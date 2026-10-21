@@ -1,6 +1,6 @@
 import { BatchCheck } from './components/BatchCheck'
 import { buildTableImportTemplateCsv, buildTableImportTemplateXlsx } from '../../../src/shared/table-import'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { DEFAULT_FILTER_PRESET } from '../../../src/shared/types'
 import type { FilterPreset, SessionRecord } from '../../../src/shared/types'
 import { Native, decodeBase64, encodeBase64 } from '../data/native'
@@ -137,8 +137,21 @@ export function MobileApp({
   const [batchCheck, setBatchCheck] = useState(false)
   const [page, setPage] = useState<'records' | 'characters' | 'settings'>('records')
   const [record, setRecord] = useState<SessionRecord>()
-  // 仅记录成功打开的场次；列表重建时恢复阅读上下文，不写入业务数据。
+  // 正文返回产生的临时定位目标；下一次点击消费，不写入业务数据。
   const [lastReadRecordId, setLastReadRecordId] = useState<string>()
+  // 主页面切换开启普通列表；正文返回仍由 Records 单独定位。
+  useLayoutEffect(() => {
+    window.scrollTo(0, 0)
+  }, [page])
+  /** 任意点击或系统返回都结束旧定位，不改变列表展开或业务数据。@returns 无返回值。 */
+  function dismissReaderReturn() {
+    if (lastReadRecordId) setLastReadRecordId(undefined)
+  }
+  /** 仅真正退出正文时产生一次定位提示；后续点击由外层捕获并清除。@returns 无返回值。 */
+  function closeReader() {
+    setLastReadRecordId(record?.id)
+    setRecord(undefined)
+  }
   const [readerQuery, setReaderQuery] = useState('')
   const [moduleQueries, setModuleQueries] = useState<Record<string, string>>({})
   const [preview, setPreview] = useState<ImportPreview>()
@@ -712,6 +725,7 @@ export function MobileApp({
       setNotice('浏览器预览：已请求返回手机桌面，草稿和数据未清除。')
   }
   backHandler.current = () => {
+    dismissReaderReturn()
     if (confirmationResolver.current) {
       resolveConfirmation(false)
       return
@@ -730,7 +744,7 @@ export function MobileApp({
     else if (exportRequest) setExportRequest(undefined)
     else if (tablePreview) setTablePreview(undefined)
     else if (editing) window.dispatchEvent(new Event('logbook-editor-back'))
-    else if (record) setRecord(undefined)
+    else if (record) closeReader()
     else if (selectedCharacter) setSelectedCharacter('')
     else if (page !== 'records') setPage('records')
     else if (Capacitor.isNativePlatform()) void CapacitorApp.minimizeApp()
@@ -1107,7 +1121,7 @@ export function MobileApp({
     !selectedCharacter &&
     page === 'records'
   return (
-    <div className="mobile-shell">
+    <div className="mobile-shell" onClickCapture={dismissReaderReturn}>
       <div className="app-edge-zone left" data-navigation-zone="left" aria-hidden="true" />
       <div className="app-edge-zone right" data-navigation-zone="right" aria-hidden="true" />
       <div className="app-home-zone" data-navigation-zone="home" aria-hidden="true" />
@@ -1235,7 +1249,7 @@ export function MobileApp({
                       initialQuery={readerQuery}
                       preset={snapshot.settings.filterPreset}
                       busy={busy}
-                      onBack={() => setRecord(undefined)}
+                      onBack={closeReader}
                       onEdit={() => startEdit({ kind: 'record', value: record })}
                       onFetch={() => void perform(() => probe([record.id]))}
                       onReset={() => void perform(() => act({ type: 'reset', id: record.id }))}
@@ -1281,12 +1295,10 @@ export function MobileApp({
                           void perform(async () => {
                             const loaded = await loadContent([value.id])
                             setReaderQuery(query)
-                            setLastReadRecordId(value.id)
                             setRecord(loaded.records.find((r) => r.id === value.id))
                           }, 'read')
                         } else {
                           setReaderQuery(query)
-                          setLastReadRecordId(value.id)
                           setRecord(value)
                         }
                       }}

@@ -1,10 +1,11 @@
 import { acceptAppConfirmations } from './helpers'
 import { expect, test } from '@playwright/test'
-test('四项统计、删除的设置项及离线内置桌面字体', async ({ page }) => {
+test('四项统计、删除的设置项及离线内置桌面字体', async ({ page, baseURL }) => {
   await page.setViewportSize({ width: 320, height: 740 })
   const remoteFonts: string[] = []
+  const appOrigin = new URL(baseURL!).origin
   page.on('request', (request) => {
-    if (/\.(ttf|otf)/.test(request.url()) && !request.url().startsWith('http://127.0.0.1:4173/'))
+    if (/\.(ttf|otf)/.test(request.url()) && new URL(request.url()).origin !== appOrigin)
       remoteFonts.push(request.url())
   })
   page.on('dialog', (dialog) => dialog.accept())
