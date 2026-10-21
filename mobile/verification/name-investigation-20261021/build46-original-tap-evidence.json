@@ -1,0 +1,57 @@
+{
+  "scope": "Original public build46 attempt1 evidence; no app data or signing material",
+  "run": 39448999303,
+  "attempt": 1,
+  "artifact": 12277614100,
+  "appSource": "801bc8afd0bee993711474cc9fb5c3a42d88988d",
+  "synthesizedTap": {
+    "attachment": "9F700958-B778-4022-A161-3B4986F3156D",
+    "timeMs": 1792511385091,
+    "x": 108,
+    "y": 534.571044921875,
+    "sha256": "b55a318056c87667f98f6a70183bb222df2d19613449f71f00a86b62b2189246"
+  },
+  "predictiveBarFromOriginalAX": {
+    "top": 524,
+    "height": 44,
+    "firstColumnLeft": 0,
+    "firstColumnWidth": 131
+  },
+  "observedAfterTap": "Public Beta ",
+  "codePoints": [
+    "50",
+    "75",
+    "62",
+    "6c",
+    "69",
+    "63",
+    "20",
+    "42",
+    "65",
+    "74",
+    "61",
+    "20"
+  ],
+  "recording": {
+    "file": "D962D46A-F3E4-43F9-962A-38D1F235CCFA.mp4",
+    "sha256": "1ff663ca48f29ec4026f4043a01f6253b2b9e654f5899131cfebe067f4013c9d",
+    "frames": [
+      {
+        "timeSeconds": 67,
+        "file": "build46-attempt1-67s.png",
+        "sha256": "8835707afbf939646cc26269663c42c6a51887cbd6344b6e3fa936513c8b9599"
+      },
+      {
+        "timeSeconds": 69.3,
+        "file": "build46-attempt1-69.3s.png",
+        "sha256": "e347646279c494b6bdcacf9cbe5ed05cdd40f95cff5592a65ca40cbed2688122"
+      },
+      {
+        "timeSeconds": 70,
+        "file": "build46-attempt1-70s.png",
+        "sha256": "551f56561aec97bae24583a264f3ce0d1511bd4bedcdecc33ce7d52d8fba1351"
+      }
+    ]
+  },
+  "finding": "Original synthesized tap hits the first native predictive-text cell; recording shows that cell highlight, followed by changed predictions and the exact assertion reporting Public Beta plus one trailing space. Candidate/input were obscured before the tap. Original beforeinput/input events were not instrumented."
+}

@@ -1,0 +1,304 @@
+{
+  "scope": "Failed public native runs preserved; none constitutes final acceptance",
+  "runs": [
+    {
+      "run": 39534775657,
+      "source": "ed5757b",
+      "url": "https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39534775657",
+      "finding": "Alpha touch hit editor-actions overlay; native pageTop already included keyboard pan",
+      "events": 2471,
+      "launches": 5,
+      "candidateClicks": 10,
+      "uiResults": [
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidateRepeatedSwitchFocusAndKeyboard]' failed (111.432 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesSecondLaunchWithNativeKeyboard]' failed (75.776 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesThirdLaunchWithNativeKeyboard]' failed (67.145 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesWithNativeKeyboard]' passed (72.890 seconds)."
+      ],
+      "trailingWhitespaceObservations": 0,
+      "savedRoundTrips": [
+        {
+          "id": "fbf1d50d-f7e4-4ed2-acc2-f2c44d8601b1",
+          "requested": {
+            "codePoints": [
+              "50",
+              "75",
+              "62",
+              "6c",
+              "69",
+              "63",
+              "20",
+              "41",
+              "6c",
+              "70",
+              "68",
+              "61"
+            ],
+            "value": "Public Alpha"
+          },
+          "stored": {
+            "value": "Public Alpha"
+          },
+          "exact": true,
+          "evidence": "native startup overview captured"
+        }
+      ]
+    },
+    {
+      "run": 39537419175,
+      "source": "eba40dd",
+      "url": "https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39537419175",
+      "finding": "Pointerdown-only reopening insufficient; native acceptance failed",
+      "events": 2312,
+      "launches": 5,
+      "candidateClicks": 7,
+      "uiResults": [
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidateRepeatedSwitchFocusAndKeyboard]' failed (97.093 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesSecondLaunchWithNativeKeyboard]' failed (95.025 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesThirdLaunchWithNativeKeyboard]' failed (103.837 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesWithNativeKeyboard]' passed (111.062 seconds)."
+      ],
+      "trailingWhitespaceObservations": 0,
+      "savedRoundTrips": [
+        {
+          "id": "4ffc4518-1a1c-4f01-8dad-d42a0e2fe452",
+          "requested": {
+            "codePoints": [
+              "50",
+              "75",
+              "62",
+              "6c",
+              "69",
+              "63",
+              "20",
+              "41",
+              "6c",
+              "70",
+              "68",
+              "61"
+            ],
+            "value": "Public Alpha"
+          },
+          "stored": {
+            "value": "Public Alpha"
+          },
+          "exact": true,
+          "evidence": "native startup overview captured"
+        }
+      ]
+    },
+    {
+      "run": 39538249494,
+      "source": "18b708d",
+      "url": "https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39538249494",
+      "finding": "Initial Beta/Alpha exact; native edit menu covered stress Alpha; two PC2 setup failures; xcodebuild later process timeout",
+      "events": 644,
+      "launches": 1,
+      "candidateClicks": 6,
+      "uiResults": [
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidateRepeatedSwitchFocusAndKeyboard]' failed (142.092 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesSecondLaunchWithNativeKeyboard]' passed (98.177 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesThirdLaunchWithNativeKeyboard]' failed (50.040 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesWithNativeKeyboard]' failed (39.915 seconds)."
+      ],
+      "trailingWhitespaceObservations": 0,
+      "savedRoundTrips": []
+    },
+    {
+      "run": 39538934752,
+      "source": "cd38782",
+      "url": "https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39538934752",
+      "finding": "Same app; public-folder starting state helper fixed; edit-menu and PC2 setup failures persisted",
+      "events": 647,
+      "launches": 1,
+      "candidateClicks": 6,
+      "uiResults": [
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidateRepeatedSwitchFocusAndKeyboard]' failed (139.164 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesSecondLaunchWithNativeKeyboard]' passed (115.470 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesThirdLaunchWithNativeKeyboard]' failed (50.464 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesWithNativeKeyboard]' failed (48.483 seconds)."
+      ],
+      "trailingWhitespaceObservations": 0,
+      "savedRoundTrips": []
+    },
+    {
+      "run": 39542881145,
+      "source": "45da14b",
+      "url": "https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39542881145",
+      "finding": "Native menu gap allowed cycle0 candidate taps; return from occupation/closed keyboard failed native focus; PC2 fixture failures",
+      "events": 1560,
+      "launches": 4,
+      "candidateClicks": 10,
+      "uiResults": [
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidateRepeatedSwitchFocusAndKeyboard]' failed (96.182 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesSecondLaunchWithNativeKeyboard]' passed (72.650 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesThirdLaunchWithNativeKeyboard]' failed (32.232 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesWithNativeKeyboard]' failed (32.912 seconds)."
+      ],
+      "trailingWhitespaceObservations": 0,
+      "savedRoundTrips": [
+        {
+          "id": "87d29709-3554-4cc2-88f3-f9ceb016314e",
+          "requested": {
+            "codePoints": [
+              "50",
+              "75",
+              "62",
+              "6c",
+              "69",
+              "63",
+              "20",
+              "41",
+              "6c",
+              "70",
+              "68",
+              "61"
+            ],
+            "value": "Public Alpha"
+          },
+          "stored": {
+            "value": "Public Alpha"
+          },
+          "exact": true,
+          "evidence": "native startup overview captured"
+        }
+      ]
+    },
+    {
+      "run": 39544987667,
+      "source": "403b020",
+      "url": "https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39544987667",
+      "finding": "Core six UI all passed after existing-character popup fixture correction; stress Beta frame above allowed visible area",
+      "events": 1897,
+      "launches": 5,
+      "candidateClicks": 7,
+      "uiResults": [
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesSecondLaunchWithNativeKeyboard]' passed (86.850 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesThirdLaunchWithNativeKeyboard]' passed (72.709 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesWithNativeKeyboard]' passed (71.317 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidateRepeatedSwitchFocusAndKeyboard]' failed (47.484 seconds)."
+      ],
+      "trailingWhitespaceObservations": 0,
+      "savedRoundTrips": [
+        {
+          "id": "1d47e658-26b5-4395-8152-ddbb28c80364",
+          "requested": {
+            "codePoints": [
+              "50",
+              "75",
+              "62",
+              "6c",
+              "69",
+              "63",
+              "20",
+              "41",
+              "6c",
+              "70",
+              "68",
+              "61"
+            ],
+            "value": "Public Alpha"
+          },
+          "stored": {
+            "value": "Public Alpha"
+          },
+          "exact": true,
+          "evidence": "native startup overview captured"
+        },
+        {
+          "id": "00af82d0-f6cc-4f0f-b52f-27c7678c1908",
+          "requested": {
+            "codePoints": [
+              "50",
+              "75",
+              "62",
+              "6c",
+              "69",
+              "63",
+              "20",
+              "41",
+              "6c",
+              "70",
+              "68",
+              "61"
+            ],
+            "value": "Public Alpha"
+          },
+          "stored": {
+            "value": "Public Alpha"
+          },
+          "exact": true,
+          "evidence": "native startup overview captured"
+        }
+      ]
+    },
+    {
+      "run": 39546450574,
+      "source": "3b82009",
+      "url": "https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39546450574",
+      "finding": "Three regular name UI cases passed; stress Beta geometry failed; Files grid cell container not hittable",
+      "events": 1907,
+      "launches": 5,
+      "candidateClicks": 7,
+      "uiResults": [
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesSecondLaunchWithNativeKeyboard]' passed (132.359 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesThirdLaunchWithNativeKeyboard]' passed (121.697 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesWithNativeKeyboard]' passed (129.509 seconds).",
+        "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidateRepeatedSwitchFocusAndKeyboard]' failed (71.335 seconds)."
+      ],
+      "trailingWhitespaceObservations": 0,
+      "savedRoundTrips": [
+        {
+          "id": "a728245f-d867-4e3c-be6c-805a6b0c7560",
+          "requested": {
+            "codePoints": [
+              "50",
+              "75",
+              "62",
+              "6c",
+              "69",
+              "63",
+              "20",
+              "41",
+              "6c",
+              "70",
+              "68",
+              "61"
+            ],
+            "value": "Public Alpha"
+          },
+          "stored": {
+            "value": "Public Alpha"
+          },
+          "exact": true,
+          "evidence": "native startup overview captured"
+        },
+        {
+          "id": "21fafae8-c72c-4ce6-9c44-07c9a9552c34",
+          "requested": {
+            "codePoints": [
+              "50",
+              "75",
+              "62",
+              "6c",
+              "69",
+              "63",
+              "20",
+              "41",
+              "6c",
+              "70",
+              "68",
+              "61"
+            ],
+            "value": "Public Alpha"
+          },
+          "stored": {
+            "value": "Public Alpha"
+          },
+          "exact": true,
+          "evidence": "native startup overview captured"
+        }
+      ]
+    }
+  ]
+}

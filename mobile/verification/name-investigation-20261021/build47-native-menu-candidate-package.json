@@ -1,0 +1,29 @@
+{
+  "scope": "Superseded build47 candidate, NOT delivered: run39542881145 failed native acceptance (4 UI passed, 3 failed)",
+  "appSource": "45da14b99b0aaede0fd277c4a83cd616e398e560",
+  "testSource": "45da14b99b0aaede0fd277c4a83cd616e398e560",
+  "run": 39542881145,
+  "artifact": 12320172980,
+  "version": "1.0.8",
+  "build": 47,
+  "bundle": "coc.logbook",
+  "architecture": "arm64",
+  "bytes": 25621102,
+  "sha256": "9f5350bd0ebfad5ebc64e3a7b24868d6a3493773f01d2be365f49d5cbd30cb19",
+  "zipIntegrity": true,
+  "debugTraceMarkersAbsent": [
+    "cocPublicNameTrace",
+    "ios-name-events.jsonl",
+    "__cocPublicNameTrace",
+    "--coc-name-trace"
+  ],
+  "webAssetsMatch": {
+    "app.js": "25221a7f9ad55698814d72d02b4f07e42d2c70a8f4b827a3edf19c1a8c08f395",
+    "app.css": "2078d93a95c8364fc833d4f2c155d9f61056ff2d2ce9ff1319836843ba8d3167",
+    "snapshot-worker.js": "90f2ca0ec08302b808b6c09ae85018b3450872824ebac5d3057cd32fb4111c78",
+    "export-worker.js": "18efc4b8e160e4fca6c4a604a74d91a2a2012b3dae80b12f7a6eddab50593eb1",
+    "index.html": "9014e503177333b218f7965bf04dbed84a16c20a150bac53c53b3726d1b23f9d"
+  },
+  "originalFontsMatch": 8,
+  "signing": "unsigned; requires valid Apple signing and physical-device acceptance"
+}
