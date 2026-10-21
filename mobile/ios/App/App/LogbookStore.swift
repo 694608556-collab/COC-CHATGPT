@@ -2,6 +2,21 @@ import Foundation
 import SQLite3
 import CryptoKit
 
+/// Opt-in diagnostics only. Fixed phase names and durations never contain snapshot values or paths.
+final class LogbookTableTiming {
+    private let started: TimeInterval
+    private var previous: TimeInterval
+    private var phases: [String: Double] = [:]
+    init() { let now = ProcessInfo.processInfo.systemUptime; started = now; previous = now }
+    func mark(_ phase: String) {
+        let now = ProcessInfo.processInfo.systemUptime
+        phases[phase] = (phases[phase] ?? 0) + (now - previous) * 1000
+        previous = now
+    }
+    func result() -> LogbookJSON {
+        ["clock": "native-monotonic", "totalMs": (ProcessInfo.processInfo.systemUptime - started) * 1000, "phasesMs": phases]
+    }
+}
 typealias LogbookJSON = [String: Any]
 struct LogbookFailure: LocalizedError {
     let message: String
@@ -149,14 +164,16 @@ final class LogbookStore {
         var root = value; root.removeValue(forKey: "records")
         try execute("UPDATE state SET json=?,revision=? WHERE id=1", [try logbookText(root), String(revision)])
     }
-    private func transaction(_ expected: Int, _ action: () throws -> Void) throws -> Int {
+    private func transaction(_ expected: Int, timing: LogbookTableTiming? = nil, _ action: () throws -> Void) throws -> Int {
         try execute("BEGIN IMMEDIATE")
+        timing?.mark("transactionBegin")
         do {
-            try check(expected); try action()
+            try check(expected); timing?.mark("transactionCAS"); try action()
             let size = Int(try rows("SELECT COALESCE(SUM(length(CAST(metadata AS BLOB))+length(CAST(body AS BLOB))),0) FROM records")[0][0]) ?? logbookMaximumBytes + 1
             let rootSize = Int(try rows("SELECT COALESCE(length(CAST(json AS BLOB)),0) FROM state WHERE id=1")[0][0]) ?? logbookMaximumBytes + 1
             guard size + rootSize <= logbookMaximumBytes else { throw LogbookFailure("数据超过 64 MB 上限。") }
-            try execute("COMMIT"); return expected + 1
+            timing?.mark("capacity")
+            try execute("COMMIT"); timing?.mark("transactionEnd"); return expected + 1
         } catch { try? execute("ROLLBACK"); throw error }
     }
     func replace(_ data: LogbookJSON, expected: Int) throws -> Int {
@@ -168,14 +185,17 @@ final class LogbookStore {
             try saveRoot(data, revision: expected + 1)
         }
     }
-    func mutate(expected: Int, _ operation: (inout LogbookJSON) throws -> Void) throws -> (Int, String) {
+    func mutate(expected: Int, timing: LogbookTableTiming? = nil, _ operation: (inout LogbookJSON) throws -> Void) throws -> (Int, String) {
         let now = logbookNow()
-        let revision = try transaction(expected) {
+        let revision = try transaction(expected, timing: timing) {
             var data = try metadata() ?? Self.empty()
             let before = data["records"] as! [LogbookJSON]
+            timing?.mark("metadataRead")
             try operation(&data)
+            timing?.mark("tableRules")
             data["exportedAt"] = now
             try LogbookValidation.snapshot(data, metadataOnly: true)
+            timing?.mark("mergedValidation")
             let after = data["records"] as! [LogbookJSON]
             let existing = Dictionary(uniqueKeysWithValues: before.map { ($0["id"] as! String, $0) })
             let retained = Set(after.map { $0["id"] as! String })
@@ -195,6 +215,7 @@ final class LogbookStore {
                 }
             }
             try saveRoot(data, revision: expected + 1)
+            timing?.mark("recordCompareAndWrite")
         }
         return (revision, now)
     }

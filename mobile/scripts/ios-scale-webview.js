@@ -102,6 +102,134 @@ window.__cocSmokeTask = (async () => {
       button('检测完毕').click()
       await sleep(150)
     }
+    stage = 'table-confirm-profile'
+    window.__cocSmokeStage = stage
+    const tableTiming = []
+    const metadata = JSON.parse((await native('Logbook', 'getOverview', {})).json)
+    check(metadata.records.length === 1050 && metadata.modules.length === 50, 'Profile baseline changed')
+    const candidate = structuredClone(metadata)
+    const module = candidate.modules[0]
+    for (let i = 0; i < 300; i++)
+      candidate.modules.push({
+        ...module,
+        id: 'public-profile-module-' + i,
+        name: '公开计时模组' + i,
+        order: 50 + i,
+        pairs: [],
+        kps: []
+      })
+    const record = candidate.records.find((r) => r.sourceType === 'online')
+    for (let i = 0; i < 6000; i++) {
+      const value = {
+        ...record,
+        id: 'public-profile-record-' + i,
+        moduleId: 'public-profile-module-' + Math.floor(i / 20),
+        name: '公开计时场次' + i,
+        order: i % 20,
+        sequenceNo: (i % 20) + 1,
+        status: 'pending',
+        link: 'https://log.weizaima.com/?key=public-profile-' + i
+      }
+      delete value.fetchedAt
+      delete value.cacheSourceUrl
+      candidate.records.push(value)
+    }
+    const profileWorker = new Worker('snapshot-worker.js')
+    let profileId = 0
+    async function measuredCommit(snapshot, revision, scenario) {
+      check(
+        snapshot.records.every((r) => r.rawContent === undefined),
+        'Profile must not transport old bodies'
+      )
+      const started = performance.now()
+      const prepared = await new Promise((resolve, reject) => {
+        const id = ++profileId
+        profileWorker.onmessage = (event) => {
+          if (event.data.id !== id) return
+          if (event.data.error) reject(new Error(event.data.error))
+          else resolve(event.data.result)
+        }
+        profileWorker.onerror = () => reject(new Error('Profile Worker failed'))
+        profileWorker.postMessage({ id, job: { type: 'prepare', snapshot, measure: true } })
+      })
+      const preparedAt = performance.now()
+      const inputBytes = new TextEncoder().encode(prepared.json).length
+      const bridgeAt = performance.now()
+      const result = await native('Logbook', 'commitTable', {
+        json: prepared.json,
+        expectedRevision: revision,
+        measure: true
+      })
+      const receivedAt = performance.now()
+      for (const timing of [prepared.timing, result.timing]) {
+        check(
+          timing &&
+            Number.isFinite(timing.totalMs) &&
+            timing.totalMs >= 0 &&
+            Object.values(timing.phasesMs).every((ms) => Number.isFinite(ms) && ms >= 0),
+          'Missing or invalid timing'
+        )
+        check(
+          Object.values(timing.phasesMs).reduce((a, b) => a + b, 0) <= timing.totalMs,
+          'Overlapping timing slices'
+        )
+      }
+      check(result.revision === revision + 1, 'Profile must commit once')
+      const state = await native('Logbook', 'getOverview', {})
+      const saved = JSON.parse(state.json)
+      check(
+        state.revision === result.revision && saved.records.length === 7050 && saved.modules.length === 350,
+        'Incomplete profile save'
+      )
+      for (const old of metadata.records)
+        check(
+          JSON.stringify(saved.records.find((r) => r.id === old.id)) === JSON.stringify(old) ||
+            (scenario === 'single-manual-update' &&
+              old.id === snapshot.records.find((r) => r.manualContent !== undefined)?.id),
+          'Old metadata changed'
+        )
+      if (scenario === 'single-manual-update') {
+        const manual = snapshot.records.find((r) => r.manualContent !== undefined)
+        const full = JSON.parse(
+          (
+            await native('Logbook', 'getRecordContent', {
+              ids: [manual.id],
+              expectedRevision: result.revision
+            })
+          ).json
+        )
+        check(
+          full.records.length === 1 && full.records[0].manualContent === manual.manualContent,
+          'Manual blank lines/Unicode changed'
+        )
+      }
+      tableTiming.push({
+        scenario,
+        clock: 'webview-monotonic',
+        fixture: 'after-3020-generated-public-fetch-results',
+        modules: saved.modules.length,
+        records: saved.records.length,
+        inputBytes,
+        diagnosticByteCountMs: bridgeAt - preparedAt,
+        totalMs: receivedAt - started,
+        prepareRoundTripMs: preparedAt - started,
+        // Encoding for the diagnostic byte count is excluded from this bridge interval.
+        bridgeRoundTripMs: receivedAt - bridgeAt,
+        worker: prepared.timing,
+        native: result.timing
+      })
+      return { saved, revision: result.revision }
+    }
+    try {
+      const appended = await measuredCommit(candidate, initial.revision + 4, 'append-6000')
+      const single = appended.saved
+      const manual = single.records.find((r) => r.sourceType === 'manual')
+      manual.manualContent = '公开计时首行\n\n公开计时末行😀'
+      manual.updatedAt = new Date().toISOString()
+      await measuredCommit(single, appended.revision, 'single-manual-update')
+    } finally {
+      profileWorker.terminate()
+    }
     return {
       passed: true,
       stage: 'complete',
@@ -110,7 +238,10 @@ window.__cocSmokeTask = (async () => {
       online: 1000,
       manual: 50,
       rounds,
-      counts
+      counts,
+      tableTiming,
+      countsScope: 'four fetch rounds; profile manual proof readback happens after timed confirmation',
+      profileManualReadbacks: 1
     }
   } catch (error) {
     return { passed: false, stage, error: String(error?.message || error), counts, rounds }

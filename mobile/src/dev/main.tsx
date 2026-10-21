@@ -15,6 +15,16 @@ import type { GestureTestSource } from '../MobileApp/components/GestureTestingCo
 import { AppLaunch } from '../AppLaunch'
 import { claimWelcome } from '../data/presentation'
 import { browserPresentation } from './presentation'
+import type { TableConfirmTiming } from '../data/table-timing'
+
+// Explicit browser-fixture opt-in. This entry is never included in an APK/IPA.
+const tableTimings: TableConfirmTiming[] = []
+const onTableTiming = new URLSearchParams(location.search).has('table-timing')
+  ? (timing: TableConfirmTiming) => {
+      tableTimings.splice(0, tableTimings.length, timing)
+      Object.assign(window, { __publicTableTimings: tableTimings })
+    }
+  : undefined
 
 const browser = createBrowserPort()
 function download(name: string, bytes: Uint8Array, mime: string) {
@@ -110,6 +120,7 @@ function Preview() {
       </aside>
       <MobileApp
         port={browser.port}
+        onTableTiming={onTableTiming}
         testBackup={() => new TextEncoder().encode(JSON.stringify(searchSample()))}
       />
     </GestureTestingContext.Provider>

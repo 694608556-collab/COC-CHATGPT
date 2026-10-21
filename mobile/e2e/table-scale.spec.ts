@@ -1,11 +1,12 @@
 import { expect, test } from '@playwright/test'
 import { acceptAppConfirmations } from './helpers'
+import type { TableConfirmTiming } from '../src/data/table-timing'
 
 test('300模组6000场后台导入、分批预览、取消及完整保存重开', async ({ page }, info) => {
   test.setTimeout(90000)
   page.on('dialog', (dialog) => dialog.accept())
   await acceptAppConfirmations(page)
-  await page.goto('/')
+  await page.goto('/?table-timing')
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '数据与设置', exact: true }).click()
   const lines = ['模组名,场次名,海豹链接,手动保存内容']
@@ -66,6 +67,19 @@ test('300模组6000场后台导入、分批预览、取消及完整保存重开'
   await dialog.getByRole('button', { name: '确认添加表格数据', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.getByRole('region', { name: '数据统计' })).toContainText('6000')
+  const timing = await page.evaluate(
+    () => (window as unknown as { __publicTableTimings: TableConfirmTiming[] }).__publicTableTimings[0]!
+  )
+  expect(timing.clock).toBe('webview-monotonic')
+  expect(timing.worker?.clock).toBe('worker-monotonic')
+  expect(timing.native).toBeUndefined() // IndexedDB is not a native device measurement.
+  expect(timing.totalMs).toBeGreaterThanOrEqual(timing.prepareRoundTripMs + timing.bridgeRoundTripMs)
+  expect(timing.prepareRoundTripMs).toBeGreaterThanOrEqual(timing.worker!.totalMs)
+  expect(Object.values(timing.worker!.phasesMs).every((ms) => Number.isFinite(ms) && ms >= 0)).toBe(true)
+  await info.attach('public-table-confirm-browser-timing.json', {
+    body: JSON.stringify({ environment: 'host Edge, real Worker, IndexedDB adapter', timing }),
+    contentType: 'application/json'
+  })
   await page.reload()
   await page.getByRole('button', { name: '数据与设置', exact: true }).click()
   await expect(page.getByRole('region', { name: '数据统计' })).toContainText('6000')

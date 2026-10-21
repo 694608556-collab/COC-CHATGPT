@@ -195,19 +195,26 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         mutate(call) { data in guard let action = call.getObject("action") else { throw LogbookFailure("操作参数缺失。") }; try LogbookMutations.action(action, data: &data) }
     }
     @objc func commitTable(_ call: CAPPluginCall) {
+        let timing = call.getBool("measure") == true ? LogbookTableTiming() : nil
         run(call) { store, archive in
+            timing?.mark("queueAndResources")
             let expected = try self.expected(call); try store.check(expected); try archive.requirePermission()
-            guard let json = call.getString("json"), json.utf8.count <= logbookMaximumBytes else { throw LogbookFailure("表格数据缺失或超过 64 MB。") }
             let bookmark = try archive.bookmark()
+            timing?.mark("authorization")
+            guard let json = call.getString("json"), json.utf8.count <= logbookMaximumBytes else { throw LogbookFailure("表格数据缺失或超过 64 MB。") }
+            timing?.mark("inputSize")
             let candidate = try logbookObject(json)
-            let result = try store.mutate(expected: expected) { data in
+            timing?.mark("candidateParse")
+            let result = try store.mutate(expected: expected, timing: timing) { data in
                 guard try archive.bookmark() == bookmark else { throw LogbookFailure("保存位置已变化，未保存。") }
                 try archive.requirePermission()
                 // A fresh store has platform defaults; retain the candidate's validated defaults only for its first save.
                 if try store.metadata() == nil { data["settings"] = candidate["settings"] }
                 try LogbookMutations.table(candidate, data: &data)
             }
-            return ["revision": result.0, "exportedAt": result.1]
+            var response: LogbookJSON = ["revision": result.0, "exportedAt": result.1]
+            if let timing { response["timing"] = timing.result() }
+            return response
         }
     }
     @objc func commitEdit(_ call: CAPPluginCall) { commitSnapshot(call, restoring: false) }

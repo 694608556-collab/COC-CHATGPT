@@ -125,16 +125,20 @@ import Foundation
         var tableRows = table["records"] as! [LogbookJSON]
         var appended = tableRows[0]; appended["id"] = "public-table-added"; appended["name"] = "public added"
         tableRows.append(appended); table["records"] = tableRows
-        _ = try tableStore.mutate(expected: 1) { try LogbookMutations.table(table, data: &$0) }
+        let tableTiming = LogbookTableTiming()
+        _ = try tableStore.mutate(expected: 1, timing: tableTiming) { try LogbookMutations.table(table, data: &$0) }
+        let measured = tableTiming.result()
+        let phases = measured["phasesMs"] as! [String: Double]
+        try require(Set(measured.keys) == Set(["clock", "totalMs", "phasesMs"]) && measured["clock"] as? String == "native-monotonic" && Set(phases.keys) == Set(["transactionBegin", "transactionCAS", "metadataRead", "tableRules", "mergedValidation", "recordCompareAndWrite", "capacity", "transactionEnd"]) && phases.values.allSatisfy { $0.isFinite && $0 >= 0 } && measured["totalMs"] as! Double >= phases.values.reduce(0, +), "opt-in table timing contains only non-overlapping monotonic durations")
         try require(try tableStore.rows("SELECT id,body FROM records WHERE id<>'public-table-added' ORDER BY position") == originalBodies, "table append preserves exact stored body strings")
-        try rejects("table CAS") { _ = try tableStore.mutate(expected: 1) { try LogbookMutations.table(table, data: &$0) } }
+        try rejects("table CAS") { _ = try tableStore.mutate(expected: 1, timing: LogbookTableTiming()) { try LogbookMutations.table(table, data: &$0) } }
         var deletedTable = table; deletedTable["records"] = Array(tableRows.dropFirst())
         try rejects("table deletion") { _ = try tableStore.mutate(expected: 2) { try LogbookMutations.table(deletedTable, data: &$0) } }
         var changedTable = table, changedRows = tableRows; changedRows[0]["link"] = "https://log.weizaima.com/?key=changed"; changedTable["records"] = changedRows
         try rejects("table source mutation") { _ = try tableStore.mutate(expected: 2) { try LogbookMutations.table(changedTable, data: &$0) } }
         let beforeTableFailure = try logbookData(tableStore.fullSnapshot()!)
         try tableStore.execute("CREATE TRIGGER refuse_table BEFORE UPDATE ON state BEGIN SELECT RAISE(ABORT,'injected'); END")
-        try rejects("table SQL rollback") { _ = try tableStore.mutate(expected: 2) { try LogbookMutations.table(table, data: &$0) } }
+        try rejects("table SQL rollback") { _ = try tableStore.mutate(expected: 2, timing: LogbookTableTiming()) { try LogbookMutations.table(table, data: &$0) } }
         try require(try tableStore.revision() == 2 && logbookData(tableStore.fullSnapshot()!) == beforeTableFailure, "table failure preserves revision and every body")
         try tableStore.execute("DROP TRIGGER refuse_table")
         var manualTable = try tableStore.metadata()!, manualRows = manualTable["records"] as! [LogbookJSON]

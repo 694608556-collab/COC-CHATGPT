@@ -5,6 +5,7 @@ import { readSource } from './local-source'
 import type { ExportSource } from './export-source'
 import { decodeSeaResponse } from './sea-response'
 import { importTable } from './tables'
+import type { TablePhaseTiming } from './table-timing'
 
 /** 只读后台任务；不接触目录授权、数据库或原生写入接口。 */
 export type SnapshotJob =
@@ -24,7 +25,7 @@ export type SnapshotJob =
   | { type: 'preview-base64'; base64: string }
   | { type: 'read'; json: string }
   | { type: 'checked-json'; json: string }
-  | { type: 'prepare'; snapshot: MobileSnapshot }
+  | { type: 'prepare'; snapshot: MobileSnapshot; measure?: boolean }
   | { type: 'prepare-upload'; snapshot: MobileSnapshot }
   | { type: 'read-local'; source: ExportSource }
   | { type: 'upload-chunk'; id: string; index: number }
@@ -94,8 +95,24 @@ export async function performSnapshotJob(job: SnapshotJob) {
   }
   if (job.type === 'encode') return encodeBase64(job.bytes)
   if (job.type === 'serialize') return JSON.stringify(job.snapshot)
-  const snapshot = (await previewBackup(new TextEncoder().encode(JSON.stringify(job.snapshot)))).snapshot
+  // Timing is opt-in and cannot bypass or change any validation. No values/IDs are recorded.
+  const started = job.type === 'prepare' && job.measure === true ? performance.now() : undefined
+  let previous = started
+  const phasesMs: Record<string, number> = {}
+  const mark = (name: string) => {
+    if (previous === undefined) return
+    const now = performance.now()
+    phasesMs[name] = now - previous
+    previous = now
+  }
+  const input = JSON.stringify(job.snapshot)
+  mark('inputJson')
+  const inputBytes = new TextEncoder().encode(input)
+  mark('utf8Encode')
+  const snapshot = (await previewBackup(inputBytes)).snapshot
+  mark('decodeParseValidate')
   const json = JSON.stringify(snapshot)
+  mark('outputJson')
   if (job.type === 'prepare-upload') {
     const bytes = new TextEncoder().encode(json)
     if (bytes.length > 64 * 1024 * 1024) throw new Error('待保存数据超过 64 MiB。')
@@ -107,5 +124,9 @@ export async function performSnapshotJob(job: SnapshotJob) {
     upload = { id, bytes }
     return { snapshot, bytes: bytes.length, sha256, id, count: Math.ceil(bytes.length / (256 * 1024)) }
   }
-  return { snapshot, json }
+  const timing: TablePhaseTiming | undefined =
+    started === undefined
+      ? undefined
+      : { clock: 'worker-monotonic', totalMs: performance.now() - started, phasesMs }
+  return { snapshot, json, ...(timing ? { timing } : {}) }
 }

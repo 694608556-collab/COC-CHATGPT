@@ -155,7 +155,9 @@ export interface LogbookPort {
   commitTable?(options: {
     json: string
     expectedRevision: number
-  }): Promise<{ revision: number; exportedAt?: string }>
+    /** Optional content-free diagnostics; never changes authorization, validation or writes. */
+    measure?: boolean
+  }): Promise<{ revision: number; exportedAt?: string; timing?: import('./table-timing').TablePhaseTiming }>
   /** 校验后的编辑快照；直接保存，不创建操作前副本，保留授权、版本检查及事务。 */
   commitEdit(options: {
     json: string
