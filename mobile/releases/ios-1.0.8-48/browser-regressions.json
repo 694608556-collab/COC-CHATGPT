@@ -1,0 +1,159 @@
+{
+  "scope": "Public browser fixtures; original failed runs retained; no native/physical-device timing claims",
+  "latestAppSource": "4bf1b26541466996acefe1b5bf6d401de0626cc4",
+  "checks": [
+    {
+      "name": "name-pointerdown-before",
+      "startTime": "2026-10-21T02:46:53.117Z",
+      "duration": 7267.763,
+      "expected": 0,
+      "skipped": 0,
+      "unexpected": 1,
+      "flaky": 0
+    },
+    {
+      "name": "name-pointerdown-after",
+      "startTime": "2026-10-21T02:47:18.764Z",
+      "duration": 16355.007,
+      "expected": 10,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    {
+      "name": "name-pointerdown-full",
+      "startTime": "2026-10-21T02:51:56.199Z",
+      "duration": 233061.978,
+      "expected": 112,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    {
+      "name": "name-occlusion-before",
+      "startTime": "2026-10-21T03:19:32.620Z",
+      "duration": 7232.452,
+      "expected": 0,
+      "skipped": 0,
+      "unexpected": 1,
+      "flaky": 0
+    },
+    {
+      "name": "name-occlusion-after",
+      "startTime": "2026-10-21T03:19:57.945Z",
+      "duration": 17216.188000000002,
+      "expected": 11,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    {
+      "name": "name-viewport-full",
+      "startTime": "2026-10-21T03:22:18.495Z",
+      "duration": 237373.726,
+      "expected": 113,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    {
+      "name": "name-native-menu-before",
+      "startTime": "2026-10-21T04:09:26.893Z",
+      "duration": 14560.795,
+      "expected": 0,
+      "skipped": 0,
+      "unexpected": 2,
+      "flaky": 0
+    },
+    {
+      "name": "name-native-menu-after",
+      "startTime": "2026-10-21T04:11:11.343Z",
+      "duration": 19474.998,
+      "expected": 13,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    {
+      "name": "name-native-menu-full",
+      "startTime": "2026-10-21T04:13:54.301Z",
+      "duration": 238875.42500000002,
+      "expected": 114,
+      "skipped": 0,
+      "unexpected": 1,
+      "flaky": 0
+    },
+    {
+      "name": "name-touch-scroll-investigation",
+      "startTime": "2026-10-21T04:21:36.945Z",
+      "duration": 19979.327,
+      "expected": 5,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    {
+      "name": "name-native-menu-full-final",
+      "startTime": "2026-10-21T04:23:21.840Z",
+      "duration": 238093.624,
+      "expected": 115,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    {
+      "name": "name-native-focus-before",
+      "startTime": "2026-10-21T04:48:30.585Z",
+      "duration": 13860.233999999999,
+      "expected": 0,
+      "skipped": 0,
+      "unexpected": 2,
+      "flaky": 0
+    },
+    {
+      "name": "name-native-focus-after",
+      "startTime": "2026-10-21T04:49:49.084Z",
+      "duration": 20091.391,
+      "expected": 15,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    {
+      "name": "name-native-focus-full",
+      "startTime": "2026-10-21T04:53:31.339Z",
+      "duration": 237201.90600000002,
+      "expected": 117,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    {
+      "name": "name-viewport-lag-before",
+      "startTime": "2026-10-21T05:16:54.655Z",
+      "duration": 7302.523,
+      "expected": 0,
+      "skipped": 0,
+      "unexpected": 1,
+      "flaky": 0
+    },
+    {
+      "name": "name-viewport-lag-after",
+      "startTime": "2026-10-21T05:18:35.160Z",
+      "duration": 21147.304,
+      "expected": 16,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    {
+      "name": "name-viewport-lag-full",
+      "startTime": "2026-10-21T05:20:24.785Z",
+      "duration": 241733.984,
+      "expected": 118,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    }
+  ]
+}

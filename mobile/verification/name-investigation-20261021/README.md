@@ -1,5 +1,13 @@
 # 公开姓名候选取证与回归
 
+## 最终验收与交付
+
+取证轮39549311163和无跟踪完整复验39558630093均成功，各7系统UI/3冷启动/3020公开结果；[33次点击及3个回读](build48-traced/validation.json)、[27次点击及1个回读](build48-no-trace-repeat/validation.json)均保留原始JSONL/UI日志的无损gzip及SHA256。后轮三个常规姓名用例全部关闭事件跟踪。中间目录失败记录继续保留；以下历史“正在运行/尚未交付”以本节为准。
+
+[中间7UI通过但整个CI超时](build48-all-ui-ci-timeout/validation.json)仍保留：批量刚开始即被35分钟任务预算取消，未记完整成功。最终3/3/1分组、总任务50分钟，每组900秒和姓名10秒精确断言不变。
+
+[最终build48安装包和校验](../../releases/ios-1.0.8-48/README.md)。仍需实体iPhone及签名后目录/第三方提供器验收；当前无测试设备。
+
 本目录只含公开模拟器夹具和浏览器结果，不含私人正文、数据库、实体设备序列号或签名材料。取证轮39549311163已完整通过；无跟踪轮39550718620的姓名用例全部通过、目录用例失败，补选择器就绪步骤后的39554201188正在运行。IPA尚未最终交付，下列失败和候选包校验不代表修复已交付。
 
 原build46：[运行39448999303](https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39448999303) attempt1、artifact12277614100。[触摸/录屏摘要](build46-original-tap-evidence.json)保留原附件SHA256、触摸坐标、原精确值及Unicode码点；[67秒](build46-attempt1-67s.png)、[69.3秒](build46-attempt1-69.3s.png)、[70秒](build46-attempt1-70s.png)为原公开录屏提取帧。期望Beta候选的触摸(108,534.571)落入原生预测栏首项，随后原断言观察到`Public Beta `。原beforeinput/input尚未安装，不能补造这部分事件。

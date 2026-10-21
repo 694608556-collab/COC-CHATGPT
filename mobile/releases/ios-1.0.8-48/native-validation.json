@@ -1,0 +1,1599 @@
+{
+  "appSource": "4bf1b26541466996acefe1b5bf6d401de0626cc4",
+  "testSource": "be34cfb285c5a8078c8256f685f0c257dee60de3",
+  "typecheck": true,
+  "unitTests": 103,
+  "fullEdge": 118,
+  "fullEdgeFailed": 0,
+  "fullEdgeSkipped": 0,
+  "fullEdgeFlaky": 0,
+  "runs": [
+    {
+      "scope": "Public isolated iPhone14Pro/iOS27.0 simulator, exact assertions retained; physical device and enterprise signing acceptance separate",
+      "run": 39549311163,
+      "url": "https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39549311163",
+      "testSource": "4bf1b26541466996acefe1b5bf6d401de0626cc4",
+      "appSource": "4bf1b26541466996acefe1b5bf6d401de0626cc4",
+      "uiResults": [
+        {
+          "test": "testCoc7ImportPickerCancelSaveAndRestart",
+          "result": "passed",
+          "seconds": 114.271
+        },
+        {
+          "test": "testExplicitLocalFolderReturnsAndSurvivesRestart",
+          "result": "passed",
+          "seconds": 41.636
+        },
+        {
+          "test": "testFolderOpenReturnsAndSurvivesRestart",
+          "result": "passed",
+          "seconds": 65.275
+        },
+        {
+          "test": "testPublicNameCandidatesSecondLaunchWithNativeKeyboard",
+          "result": "passed",
+          "seconds": 101.179
+        },
+        {
+          "test": "testPublicNameCandidatesThirdLaunchWithNativeKeyboard",
+          "result": "passed",
+          "seconds": 105.32
+        },
+        {
+          "test": "testPublicNameCandidatesWithNativeKeyboard",
+          "result": "passed",
+          "seconds": 104.488
+        },
+        {
+          "test": "testPublicNameCandidateRepeatedSwitchFocusAndKeyboard",
+          "result": "passed",
+          "seconds": 274.055
+        }
+      ],
+      "swiftCoreChecks": 67,
+      "coldStarts": 3,
+      "stressCycles": 6,
+      "candidateClicks": 33,
+      "exactAfter350ms": 33,
+      "trailingWhitespaceObservations": 0,
+      "events": 3093,
+      "savedRoundTrips": [
+        {
+          "id": "f820eb38-e96d-49e8-a05c-4a8e14b50b51",
+          "requested": {
+            "codePoints": [
+              "50",
+              "75",
+              "62",
+              "6c",
+              "69",
+              "63",
+              "20",
+              "41",
+              "6c",
+              "70",
+              "68",
+              "61"
+            ],
+            "value": "Public Alpha"
+          },
+          "stored": {
+            "value": "Public Alpha"
+          },
+          "exact": true,
+          "evidence": "native startup overview captured"
+        },
+        {
+          "id": "ca3fd08c-c459-4c53-ae24-c90ac24c9f1c",
+          "requested": {
+            "codePoints": [
+              "50",
+              "75",
+              "62",
+              "6c",
+              "69",
+              "63",
+              "20",
+              "41",
+              "6c",
+              "70",
+              "68",
+              "61"
+            ],
+            "value": "Public Alpha"
+          },
+          "stored": {
+            "value": "Public Alpha"
+          },
+          "exact": true,
+          "evidence": "native startup overview captured"
+        },
+        {
+          "id": "50676d6d-a4bc-427e-a147-ed574311d8f8",
+          "requested": {
+            "codePoints": [
+              "50",
+              "75",
+              "62",
+              "6c",
+              "69",
+              "63",
+              "20",
+              "41",
+              "6c",
+              "70",
+              "68",
+              "61"
+            ],
+            "value": "Public Alpha"
+          },
+          "stored": {
+            "value": "Public Alpha"
+          },
+          "exact": true,
+          "evidence": "native startup overview captured"
+        }
+      ],
+      "candidateTimeline": [
+        {
+          "timeMs": 1792561252041,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": false
+        },
+        {
+          "timeMs": 1792561265984,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561272271,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561351608,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": false
+        },
+        {
+          "timeMs": 1792561367938,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561373375,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561594416,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": false
+        },
+        {
+          "timeMs": 1792561608905,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561613617,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561619478,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561626149,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561632517,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561639586,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561652434,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561660204,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561666576,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561672498,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561683467,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561690044,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561695760,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561702019,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561712261,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561718411,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561724098,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561730379,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561740901,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561747154,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561753080,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561759888,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561772854,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561779028,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561784478,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792561790728,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        }
+      ],
+      "scale": {
+        "appBuild": "48",
+        "appVersion": "1.0.8",
+        "campaigns": 50,
+        "counts": {
+          "commits": 4,
+          "failed": 178,
+          "fetch": 3020,
+          "staged": 3020,
+          "wholeReads": 0
+        },
+        "manual": 50,
+        "nativeSystemVersion": "27.0",
+        "network": "generated public responses only",
+        "online": 1000,
+        "passed": true,
+        "rounds": [
+          {
+            "commits": 1,
+            "failed": 59,
+            "fetch": 1000,
+            "revision": 2,
+            "round": 1,
+            "scope": "all",
+            "staged": 1000,
+            "wholeReads": 0
+          },
+          {
+            "commits": 2,
+            "failed": 118,
+            "fetch": 2000,
+            "revision": 3,
+            "round": 2,
+            "scope": "all",
+            "staged": 2000,
+            "wholeReads": 0
+          },
+          {
+            "commits": 3,
+            "failed": 177,
+            "fetch": 3000,
+            "revision": 4,
+            "round": 3,
+            "scope": "all",
+            "staged": 3000,
+            "wholeReads": 0
+          },
+          {
+            "commits": 4,
+            "failed": 178,
+            "fetch": 3020,
+            "revision": 5,
+            "round": 4,
+            "scope": "last-module",
+            "staged": 3020,
+            "wholeReads": 0
+          }
+        ],
+        "scrollEdgeEffectsHidden": true,
+        "stage": "complete"
+      },
+      "rawEvidence": [
+        {
+          "file": "ios-name-events.jsonl.gz",
+          "originalBytes": 3953057,
+          "originalSHA256": "901dae9a0b48557793fcc1347177a31a98c34f413a6f6619e870d4affde1a7ad",
+          "gzipBytes": 82071,
+          "gzipSHA256": "dab962a4a2cf1e0a27a2472a0e05f17e35b54b970b6c30ae06dab1cb04b9d855"
+        },
+        {
+          "file": "picker-ui.log.gz",
+          "originalBytes": 263284,
+          "originalSHA256": "05d93a24c5e97801794011d16245e0ba440d86ab9aa7cac0a78bf3f430ea0454",
+          "gzipBytes": 25419,
+          "gzipSHA256": "d97a8841d857aca235fd529834bdd610eb0dbedaf6470fc27c74292ee7049ddb"
+        }
+      ]
+    },
+    {
+      "scope": "Public isolated iPhone14Pro/iOS27.0 simulator, exact assertions retained; physical device and enterprise signing acceptance separate",
+      "run": 39558630093,
+      "url": "https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39558630093",
+      "testSource": "be34cfb285c5a8078c8256f685f0c257dee60de3",
+      "appSource": "4bf1b26541466996acefe1b5bf6d401de0626cc4",
+      "uiResults": [
+        {
+          "test": "testCoc7ImportPickerCancelSaveAndRestart",
+          "result": "passed",
+          "seconds": 141.0
+        },
+        {
+          "test": "testExplicitLocalFolderReturnsAndSurvivesRestart",
+          "result": "passed",
+          "seconds": 25.241
+        },
+        {
+          "test": "testFolderOpenReturnsAndSurvivesRestart",
+          "result": "passed",
+          "seconds": 49.153
+        },
+        {
+          "test": "testPublicNameCandidatesSecondLaunchWithNativeKeyboard",
+          "result": "passed",
+          "seconds": 80.902
+        },
+        {
+          "test": "testPublicNameCandidatesThirdLaunchWithNativeKeyboard",
+          "result": "passed",
+          "seconds": 91.262
+        },
+        {
+          "test": "testPublicNameCandidatesWithNativeKeyboard",
+          "result": "passed",
+          "seconds": 102.067
+        },
+        {
+          "test": "testPublicNameCandidateRepeatedSwitchFocusAndKeyboard",
+          "result": "passed",
+          "seconds": 347.723
+        }
+      ],
+      "swiftCoreChecks": 67,
+      "coldStarts": 3,
+      "stressCycles": 6,
+      "candidateClicks": 27,
+      "exactAfter350ms": 27,
+      "trailingWhitespaceObservations": 0,
+      "events": 1719,
+      "savedRoundTrips": [
+        {
+          "id": "9c5742e8-4c6c-4308-b22d-fbe9000afe1b",
+          "requested": {
+            "codePoints": [
+              "50",
+              "75",
+              "62",
+              "6c",
+              "69",
+              "63",
+              "20",
+              "41",
+              "6c",
+              "70",
+              "68",
+              "61"
+            ],
+            "value": "Public Alpha"
+          },
+          "stored": {
+            "value": "Public Alpha"
+          },
+          "exact": true,
+          "evidence": "native startup overview captured"
+        }
+      ],
+      "candidateTimeline": [
+        {
+          "timeMs": 1792567066098,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": false
+        },
+        {
+          "timeMs": 1792567082588,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567088601,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567095668,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567106114,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567116633,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567124093,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567139717,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567147471,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567154344,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567162216,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567175900,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567183831,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567190206,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567197244,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567211205,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567219915,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567227487,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567236057,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567252439,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567259886,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567266820,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567273931,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567285336,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567292426,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567300677,
+          "candidate": "Public Beta",
+          "actualAfter350ms": "Public Beta",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "focused": true
+        },
+        {
+          "timeMs": 1792567310021,
+          "candidate": "Public Alpha",
+          "actualAfter350ms": "Public Alpha",
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "focused": true
+        }
+      ],
+      "scale": {
+        "appBuild": "48",
+        "appVersion": "1.0.8",
+        "campaigns": 50,
+        "counts": {
+          "commits": 4,
+          "failed": 178,
+          "fetch": 3020,
+          "staged": 3020,
+          "wholeReads": 0
+        },
+        "manual": 50,
+        "nativeSystemVersion": "27.0",
+        "network": "generated public responses only",
+        "online": 1000,
+        "passed": true,
+        "rounds": [
+          {
+            "commits": 1,
+            "failed": 59,
+            "fetch": 1000,
+            "revision": 2,
+            "round": 1,
+            "scope": "all",
+            "staged": 1000,
+            "wholeReads": 0
+          },
+          {
+            "commits": 2,
+            "failed": 118,
+            "fetch": 2000,
+            "revision": 3,
+            "round": 2,
+            "scope": "all",
+            "staged": 2000,
+            "wholeReads": 0
+          },
+          {
+            "commits": 3,
+            "failed": 177,
+            "fetch": 3000,
+            "revision": 4,
+            "round": 3,
+            "scope": "all",
+            "staged": 3000,
+            "wholeReads": 0
+          },
+          {
+            "commits": 4,
+            "failed": 178,
+            "fetch": 3020,
+            "revision": 5,
+            "round": 4,
+            "scope": "last-module",
+            "staged": 3020,
+            "wholeReads": 0
+          }
+        ],
+        "scrollEdgeEffectsHidden": true,
+        "stage": "complete"
+      },
+      "rawEvidence": [
+        {
+          "file": "ios-name-events.jsonl.gz",
+          "originalBytes": 2346799,
+          "originalSHA256": "53b049364a5dd25a307c76ba6fdef166fe36172303cf966104b850fb5cf463d5",
+          "gzipBytes": 48129,
+          "gzipSHA256": "2ee0b39d3757b2b0c64a296b9210b8d609aba797d26cefc50ef614b12f666aea"
+        },
+        {
+          "file": "picker-ui.log.gz",
+          "originalBytes": 302558,
+          "originalSHA256": "1adbba33e87bc8b585b7ad70c7feb0912281c79c0346b43c1661bce110ebb144",
+          "gzipBytes": 28372,
+          "gzipSHA256": "f405d29bd5c71f25977da0e53622151d828dec51fddb94599466a9be1ac5c9d0"
+        }
+      ],
+      "overallPassed": true,
+      "untracedRegularCasesSavedReadback": {
+        "source": "First native startup overview of subsequent stress case, after all three regular cases with application event tracing disabled; no stress character has been saved yet",
+        "timeMs": 1792567026133.389,
+        "distinctSavedIDs": 3,
+        "exactValue": "Public Alpha",
+        "characters": [
+          {
+            "id": "95000915-1c88-411e-98f5-d26e284b5017",
+            "name": {
+              "value": "Public Alpha"
+            }
+          },
+          {
+            "id": "de8997d0-9509-4c12-974b-b4a8f63e001d",
+            "name": {
+              "value": "Public Alpha"
+            }
+          },
+          {
+            "id": "d7ab11e4-af6a-41f6-96b0-459423958fb6",
+            "name": {
+              "value": "Public Alpha"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "rawEvidenceDirectory": "../../verification/name-investigation-20261021/",
+  "assertions": "Original exact name values and 10s waits retained; no trimming, disabling autocorrect, or retry-to-pass",
+  "physicalIPhoneAndEnterpriseSigningAcceptance": "pending, cannot be replaced by cloud simulator",
+  "intermediateRuns": [
+    {
+      "run": 39550718620,
+      "conclusion": "failure",
+      "scope": "All name cases passed; one folder-readiness failure; scale did not run",
+      "evidence": "../../verification/name-investigation-20261021/build48-no-trace-folder-failure/validation.json"
+    },
+    {
+      "run": 39554201188,
+      "conclusion": "cancelled",
+      "scope": "All seven UI cases passed; entire35m CI cancelled just-started scale; no completed scale report",
+      "evidence": "../../verification/name-investigation-20261021/build48-all-ui-ci-timeout/validation.json"
+    }
+  ],
+  "finalHarness": {
+    "groups": [
+      3,
+      3,
+      1
+    ],
+    "groupProcessLimitSeconds": 900,
+    "exactNameAssertionWaitSeconds": 10,
+    "wholeJobBudgetMinutes": 50,
+    "reason": "Entire35m job cancelled after all seven UI passed, before scale completion; no functional assertion or per-group process limit relaxed"
+  }
+}
