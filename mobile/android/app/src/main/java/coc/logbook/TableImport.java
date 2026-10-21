@@ -48,11 +48,40 @@ final class TableImport {
             }
             for(int i=0;i<added.length();i++){
                 JSONObject value=added.getJSONObject(i);Object rawID=value.get("id");if(!(rawID instanceof String))fail();String id=(String)rawID;
-                if(id.isEmpty()||!seen.add(id)||positions.containsKey(id)||group[0].equals("records")&&value.has("rawContent"))fail();rows.put(value);
+                if(id.isEmpty()||!seen.add(id)||positions.containsKey(id)||group[0].equals("records")&&(value.has("rawContent")||value.has("manualContent")&&!(value.get("manualContent") instanceof String)))fail();rows.put(value);
             }
             result.put(group[0],rows);
         }
+        validateLinks(result);
         return result;
+    }
+    /** Validate references against the complete merged graph, including unchanged entities. */
+    private static void validateLinks(JSONObject candidate)throws Exception {
+        JSONArray modules=candidate.getJSONArray("modules"),characters=candidate.getJSONArray("characters");
+        Set<String> characterIDs=new HashSet<>(),moduleIDs=new HashSet<>();
+        for(int i=0;i<modules.length();i++)moduleIDs.add(modules.getJSONObject(i).getString("id"));
+        for(int i=0;i<characters.length();i++)characterIDs.add(characters.getJSONObject(i).getString("id"));
+        for(int i=0;i<characters.length();i++){
+            JSONObject character=characters.getJSONObject(i);
+            if(character.has("moduleId")&&(!(character.get("moduleId") instanceof String)||!moduleIDs.contains(character.getString("moduleId"))))fail();
+            if(character.has("moduleIds")){
+                JSONArray linked=character.getJSONArray("moduleIds");Set<String> seen=new HashSet<>();
+                for(int m=0;m<linked.length();m++){
+                    Object id=linked.get(m);
+                    if(!(id instanceof String)||!moduleIDs.contains(id)||!seen.add((String)id))fail();
+                }
+            }
+        }
+        for(int i=0;i<modules.length();i++){
+            JSONObject module=modules.getJSONObject(i);
+            if(module.has("pairs")){
+                JSONArray pairs=module.getJSONArray("pairs");
+                for(int p=0;p<pairs.length();p++){
+                    JSONObject pair=pairs.getJSONObject(p);
+                    if(pair.has("characterId")&&(!(pair.get("characterId") instanceof String)||!characterIDs.contains(pair.getString("characterId"))))fail();
+                }
+            }
+        }
     }
     static void validate(JSONObject candidate,Map<String,String> previous)throws Exception {
         JSONArray records=candidate.getJSONArray("records");
