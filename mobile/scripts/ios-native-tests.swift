@@ -146,6 +146,52 @@ import Foundation
         manualRows[manualIndex]["manualContent"] = "public manual\n\n中文😀"; manualRows[manualIndex]["updatedAt"] = logbookNow(); manualTable["records"] = manualRows
         _ = try tableStore.mutate(expected: 2) { try LogbookMutations.table(manualTable, data: &$0) }
         try require((try tableStore.fullSnapshot(selected: [manualRows[manualIndex]["id"] as! String])!["records"] as! [LogbookJSON])[0]["manualContent"] as? String == "public manual\n\n中文😀", "table updates only explicit manual text")
+        // Delta has its own native validation, fresh-store semantics and atomic failure checks.
+        let deltaStore = try LogbookStore(url: root.appendingPathComponent("table-delta.sqlite"))
+        _ = try deltaStore.replace(fixture, expected: 0)
+        let deltaBefore = try deltaStore.metadata()!
+        let deltaBodies = try deltaStore.rows("SELECT id,body FROM records ORDER BY position")
+        var delta: LogbookJSON = ["protocolVersion": 1, "initialSettings": deltaBefore["settings"]!, "modulesAdded": [LogbookJSON](), "moduleParticipants": [LogbookJSON](), "charactersAdded": [LogbookJSON](), "recordsAdded": [appended], "manualUpdates": [LogbookJSON]()]
+        var equivalent = deltaBefore
+        try LogbookMutations.table(table, data: &equivalent)
+        _ = try deltaStore.importTableDelta(delta, expected: 1)
+        var actual = try deltaStore.metadata()!; actual["exportedAt"] = equivalent["exportedAt"]
+        try require(try logbookData(actual) == logbookData(equivalent), "delta equals full table metadata and order")
+        try require(try deltaStore.rows("SELECT id,body FROM records WHERE id<>'public-table-added' ORDER BY position") == deltaBodies, "delta preserves exact native body strings")
+        let stableDelta = try logbookData(deltaStore.fullSnapshot()!)
+        try rejects("delta stale CAS") { _ = try deltaStore.importTableDelta(delta, expected: 1) }
+        try rejects("delta duplicate addition") { _ = try deltaStore.importTableDelta(delta, expected: 2) }
+        delta["recordsAdded"] = [LogbookJSON]()
+        var invalid = delta; invalid["delete"] = []
+        try rejects("delta unknown operation") { _ = try deltaStore.importTableDelta(invalid, expected: 2) }
+        invalid = delta; invalid["protocolVersion"] = true
+        try rejects("delta boolean version") { _ = try deltaStore.importTableDelta(invalid, expected: 2) }
+        invalid = delta; var missing = appended; missing["id"] = "missing-link"; missing["moduleId"] = "absent"; invalid["recordsAdded"] = [missing]
+        try rejects("delta complete graph validation") { _ = try deltaStore.importTableDelta(invalid, expected: 2) }
+        invalid = delta; var foreign = (deltaBefore["records"] as! [LogbookJSON])[0]; foreign["manualContent"] = "bad"; invalid["manualUpdates"] = [foreign]
+        try rejects("delta online body overwrite") { _ = try deltaStore.importTableDelta(invalid, expected: 2) }
+        invalid = delta; var altered = manualRows[manualIndex]; altered["moduleId"] = "absent"; invalid["manualUpdates"] = [altered]
+        try rejects("delta non import field") { _ = try deltaStore.importTableDelta(invalid, expected: 2) }
+        invalid = delta; invalid["manualUpdates"] = [manualRows[manualIndex], manualRows[manualIndex]]
+        try rejects("delta repeated manual update") { _ = try deltaStore.importTableDelta(invalid, expected: 2) }
+        try rejects("delta directory authorization") { _ = try deltaStore.importTableDelta(delta, expected: 2) { throw LogbookFailure("injected authorization") } }
+        try require(try deltaStore.revision() == 2 && logbookData(deltaStore.fullSnapshot()!) == stableDelta, "all rejected deltas retain complete prior state")
+        delta["manualUpdates"] = [manualRows[manualIndex]]
+        try deltaStore.execute("CREATE TRIGGER fail_delta BEFORE UPDATE ON state BEGIN SELECT RAISE(ABORT,'injected'); END")
+        try rejects("delta SQL rollback after manual write") { _ = try deltaStore.importTableDelta(delta, expected: 2) }
+        try deltaStore.execute("DROP TRIGGER fail_delta")
+        try require(try deltaStore.revision() == 2 && logbookData(deltaStore.fullSnapshot()!) == stableDelta, "delta rollback restores metadata and body")
+        var oversized = delta, largeManual = manualRows[manualIndex]; largeManual["manualContent"] = String(repeating: "x", count: logbookMaximumBytes)
+        oversized["manualUpdates"] = [largeManual]
+        try rejects("delta whole library capacity rollback") { _ = try deltaStore.importTableDelta(oversized, expected: 2) }
+        try require(try deltaStore.revision() == 2 && logbookData(deltaStore.fullSnapshot()!) == stableDelta, "capacity rejection retains all data")
+        _ = try deltaStore.importTableDelta(delta, expected: 2)
+        let reopenedDelta = try LogbookStore(url: root.appendingPathComponent("table-delta.sqlite"))
+        try require(try reopenedDelta.revision() == 3 && (reopenedDelta.fullSnapshot(selected: [manualRows[manualIndex]["id"] as! String])!["records"] as! [LogbookJSON])[0]["manualContent"] as? String == "public manual\n\n中文😀", "delta manual Unicode and blank lines survive reopening")
+        let freshDelta = try LogbookStore(url: root.appendingPathComponent("table-delta-fresh.sqlite"))
+        var first = delta; first["manualUpdates"] = [LogbookJSON](); first["modulesAdded"] = deltaBefore["modules"]; first["charactersAdded"] = deltaBefore["characters"]; first["recordsAdded"] = deltaBefore["records"]
+        _ = try freshDelta.importTableDelta(first, expected: 0)
+        try require(try logbookData(freshDelta.metadata()!["settings"]!) == logbookData(deltaBefore["settings"]!), "fresh native store accepts validated initial settings")
         try IOSScaleChecks.run(root: root, fixture: fixture)
         print("iOS native core: \(checks) checks passed; macOS test folders only, no phone or system picker tested.")
     }

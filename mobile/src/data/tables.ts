@@ -7,6 +7,7 @@ import { previewBackup } from './backup'
 import { parseSeaLogUrl } from './sea-parser'
 
 export interface TablePreview {
+  lease?: string
   next: MobileSnapshot
   names: string[]
   warnings: string[]

@@ -9,7 +9,7 @@ import Network
 public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate, QLPreviewControllerDataSource {
     public let identifier = "LogbookPlugin"
     public let jsName = "Logbook"
-    public let pluginMethods: [CAPPluginMethod] = ["beginFetchBatch", "stageFetchResult", "finishFetchBatch", "cancelFetchBatch", "beginSnapshotEdit", "appendSnapshotEdit", "cancelSnapshotEdit", "claimFirstLaunchIntro", "getOverview", "getState", "getStatus", "getRecordContent", "commitSettings", "commitModule", "commitEntity", "commitAction", "commitTable", "commitEdit", "commitRestore", "selectArchive", "openBackup", "writeArchive", "readDocument", "listDocuments", "openDocument", "shareDocument", "fetchLog", "automaticBackup"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise)! }
+    public let pluginMethods: [CAPPluginMethod] = ["beginFetchBatch", "stageFetchResult", "finishFetchBatch", "cancelFetchBatch", "beginSnapshotEdit", "appendSnapshotEdit", "cancelSnapshotEdit", "claimFirstLaunchIntro", "getOverview", "getState", "getStatus", "getRecordContent", "commitSettings", "commitModule", "commitEntity", "commitAction", "commitTable", "commitTableDelta", "commitEdit", "commitRestore", "selectArchive", "openBackup", "writeArchive", "readDocument", "listDocuments", "openDocument", "shareDocument", "fetchLog", "automaticBackup"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise)! }
     private let work = DispatchQueue(label: "coc.logbook.storage", qos: .userInitiated)
     private let backupWriter = DispatchQueue(label: "coc.logbook.automatic-backup", qos: .utility)
     private let monitor = NWPathMonitor()
@@ -43,7 +43,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         return value.intValue
     }
     private func state(_ store: LogbookStore, _ archive: LogbookArchive) throws -> LogbookJSON {
-        var result: LogbookJSON = ["revision": try store.revision(), "archive": archive.location(), "networkConnected": connected, "lastAutoBackupAt": 0]
+        var result: LogbookJSON = ["tableDeltaVersion": 1, "revision": try store.revision(), "archive": archive.location(), "networkConnected": connected, "lastAutoBackupAt": 0]
         if let saved = archive.preferences.dictionary(forKey: "coc.automatic-backup") { result["lastAutoBackupAt"] = saved["savedAt"]; result["lastAutoBackupRevision"] = saved["revision"] }
         return result
     }
@@ -193,6 +193,26 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
     }
     @objc func commitAction(_ call: CAPPluginCall) {
         mutate(call) { data in guard let action = call.getObject("action") else { throw LogbookFailure("操作参数缺失。") }; try LogbookMutations.action(action, data: &data) }
+    }
+    @objc func commitTableDelta(_ call: CAPPluginCall) {
+        let timing = call.getBool("measure") == true ? LogbookTableTiming() : nil
+        run(call) { store, archive in
+            timing?.mark("queueAndResources")
+            let expected = try self.expected(call); try store.check(expected); try archive.requirePermission()
+            let bookmark = try archive.bookmark()
+            timing?.mark("authorization")
+            guard let json = call.getString("json"), json.utf8.count <= logbookMaximumBytes else { throw LogbookFailure("表格差量缺失或超过 64 MiB。") }
+            timing?.mark("inputSize")
+            let delta = try logbookObject(json)
+            timing?.mark("candidateParse")
+            let result = try store.importTableDelta(delta, expected: expected, timing: timing) {
+                guard try archive.bookmark() == bookmark else { throw LogbookFailure("保存位置已变化，未保存。") }
+                try archive.requirePermission()
+            }
+            var response: LogbookJSON = ["revision": result.0, "exportedAt": result.1]
+            if let timing { response["timing"] = timing.result() }
+            return response
+        }
     }
     @objc func commitTable(_ call: CAPPluginCall) {
         let timing = call.getBool("measure") == true ? LogbookTableTiming() : nil

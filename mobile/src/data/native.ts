@@ -14,6 +14,7 @@ export interface ArchiveLocation {
 }
 /** 原生数据库与授权读取结果。 */
 export interface NativeState {
+  tableDeltaVersion?: 1
   lastAutoBackupAt?: number
   lastAutoBackupRevision?: number
   /** 当前是否有活动网络；类型为 boolean，不表示远程日志网站一定可达。 */
@@ -152,6 +153,7 @@ export interface LogbookPort {
    * @param options 已校验候选JSON与预览版本；不能删除或更改旧场次来源。
    * @returns 一次CAS提交的新版本；失败不发布部分导入。
    */
+  commitTableDelta?: NonNullable<LogbookPort['commitTable']>
   commitTable?(options: {
     json: string
     expectedRevision: number

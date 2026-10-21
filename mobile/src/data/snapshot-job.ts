@@ -5,6 +5,7 @@ import { readSource } from './local-source'
 import type { ExportSource } from './export-source'
 import { decodeSeaResponse } from './sea-response'
 import { importTable } from './tables'
+import { createTableDelta } from './table-delta'
 import type { TablePhaseTiming } from './table-timing'
 
 /** 只读后台任务；不接触目录授权、数据库或原生写入接口。 */
@@ -12,6 +13,7 @@ export type SnapshotJob =
   | {
       /** 表格只读解析与预览校验，不持有写库能力。 */
       type: 'table-import'
+      revision?: number
       /** 全部正文已读取的预览基线。 */
       snapshot: MobileSnapshot
       /** 已选文件的Base64内容。 */
@@ -21,6 +23,8 @@ export type SnapshotJob =
       /** 跑团场次或旧版角色表格。 */
       kind: 'records' | 'characters'
     }
+  | { type: 'table-confirm'; id: string; revision: number; measure?: boolean }
+  | { type: 'table-release'; id: string }
   | { type: 'preview'; bytes: Uint8Array }
   | { type: 'preview-base64'; base64: string }
   | { type: 'read'; json: string }
@@ -53,6 +57,9 @@ export type SnapshotJob =
 let upload: { id: string; bytes: Uint8Array } | undefined
 let preparing: object | undefined
 let uploadSequence = 0
+let tableLease:
+  { id: string; revision: number; baseline: MobileSnapshot; candidate: MobileSnapshot } | undefined
+let tableGeneration = 0
 
 /**
  * 运行只读文件任务，保留既有大小/结构/ZIP/关联校验。
@@ -60,8 +67,43 @@ let uploadSequence = 0
  * @returns 校验预览、编码文本、完整海豹正文或校验后的快照与 JSON，或待上传字节的私有租约/分段。
  */
 export async function performSnapshotJob(job: SnapshotJob) {
-  if (job.type === 'table-import')
-    return importTable(job.snapshot, decodeBase64(job.base64), job.name, job.kind)
+  if (job.type === 'table-release') {
+    if (tableLease?.id === job.id) tableLease = undefined
+    return
+  }
+  if (job.type === 'table-import') {
+    const generation = ++tableGeneration
+    tableLease = undefined
+    const baseline = structuredClone(job.snapshot)
+    const result = await importTable(baseline, decodeBase64(job.base64), job.name, job.kind)
+    if (job.revision === undefined) return result
+    if (!Number.isSafeInteger(job.revision) || job.revision < 0 || generation !== tableGeneration)
+      throw new Error('表格预览已失效。')
+    const id = crypto.randomUUID()
+    tableLease = { id, revision: job.revision, baseline, candidate: structuredClone(result.next) }
+    return { ...result, lease: id }
+  }
+  if (job.type === 'table-confirm') {
+    const lease = tableLease
+    if (!lease || lease.id !== job.id || lease.revision !== job.revision)
+      throw new Error('表格预览已失效，请重新选择表格。')
+    const prepared = (await performSnapshotJob({
+      type: 'prepare',
+      snapshot: lease.candidate,
+      measure: job.measure
+    })) as { snapshot: MobileSnapshot; json: string; timing?: TablePhaseTiming }
+    const started = performance.now()
+    const delta = createTableDelta(lease.baseline, prepared.snapshot)
+    const json = JSON.stringify(delta)
+    if (new TextEncoder().encode(json).length > 64 * 1024 * 1024) throw new Error('表格差量超过 64 MiB。')
+    if (tableLease !== lease) throw new Error('表格预览已失效。')
+    if (prepared.timing) {
+      const elapsed = performance.now() - started
+      prepared.timing.phasesMs.deltaEncode = elapsed
+      prepared.timing.totalMs += elapsed
+    }
+    return { ...prepared, json }
+  }
   if (job.type === 'upload-close') {
     if (upload?.id === job.id) upload = undefined
     return

@@ -185,6 +185,34 @@ final class LogbookStore {
             try saveRoot(data, revision: expected + 1)
         }
     }
+    /// Delta writes skip comparison/serialization of untouched records; all graph and capacity checks remain.
+    func importTableDelta(_ delta: LogbookJSON, expected: Int, timing: LogbookTableTiming? = nil, authorize: () throws -> Void = {}) throws -> (Int, String) {
+        let now = logbookNow()
+        let revision = try transaction(expected, timing: timing) {
+            try authorize()
+            let stored = try metadata()
+            var data = stored ?? Self.empty()
+            let oldCount = (data["records"] as! [LogbookJSON]).count
+            timing?.mark("metadataRead")
+            let touched = try LogbookMutations.tableDelta(delta, data: &data, fresh: stored == nil)
+            timing?.mark("tableRules")
+            data["exportedAt"] = now
+            try LogbookValidation.snapshot(data, metadataOnly: true)
+            timing?.mark("mergedValidation")
+            for (index, value) in (data["records"] as! [LogbookJSON]).enumerated() where touched.contains(value["id"] as! String) {
+                if index >= oldCount { try writeRecord(value, position: index) }
+                else {
+                    var metadata = value
+                    let manual = metadata.removeValue(forKey: "manualContent") as! String
+                    // Only replace the explicit manual field; all other native body members remain in SQLite.
+                    try execute("UPDATE records SET metadata=?,body=json_set(body,'$.manualContent',?) WHERE id=?", [try logbookText(metadata), manual, value["id"] as! String])
+                }
+            }
+            try saveRoot(data, revision: expected + 1)
+            timing?.mark("recordCompareAndWrite")
+        }
+        return (revision, now)
+    }
     func mutate(expected: Int, timing: LogbookTableTiming? = nil, _ operation: (inout LogbookJSON) throws -> Void) throws -> (Int, String) {
         let now = logbookNow()
         let revision = try transaction(expected, timing: timing) {

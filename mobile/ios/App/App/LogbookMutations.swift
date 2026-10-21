@@ -63,6 +63,45 @@ enum LogbookMutations {
         } else { throw LogbookFailure("不支持此编辑类型。") }
     }
     /// A table may append entities/participants and explicitly update manual text, never replace old bodies.
+    /// The caller validates the complete merged graph before writing anything.
+    static func tableDelta(_ delta: LogbookJSON, data: inout LogbookJSON, fresh: Bool) throws -> Set<String> {
+        try LogbookValidation.shape(delta, "protocolVersion,initialSettings,modulesAdded,moduleParticipants,charactersAdded,recordsAdded,manualUpdates")
+        guard LogbookValidation.number(delta["protocolVersion"]), (delta["protocolVersion"] as? NSNumber)?.doubleValue == 1,
+              let settings = delta["initialSettings"] as? LogbookJSON else { throw LogbookFailure("差量版本或设置不合法。") }
+        try LogbookValidation.settings(settings)
+        if fresh { data["settings"] = settings }
+        else if try logbookData(settings) != logbookData(data["settings"]!) { throw LogbookFailure("表格不得修改设置。") }
+        var touched = Set<String>()
+        for (kind, addedKey, changedKey, ignored) in [
+            ("modules", "modulesAdded", "moduleParticipants", ["kps", "pairs"]),
+            ("characters", "charactersAdded", "", [String]()),
+            ("records", "recordsAdded", "manualUpdates", ["manualContent", "updatedAt", "playDate", "dateSource"])
+        ] {
+            var rows = data[kind] as! [LogbookJSON]
+            let positions = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($0.element["id"] as! String, $0.offset) })
+            let added = try LogbookValidation.objects(delta[addedKey])
+            let changed: [LogbookJSON] = try changedKey.isEmpty ? [] : LogbookValidation.objects(delta[changedKey])
+            let ids = try LogbookValidation.ids(added + changed)
+            for value in changed {
+                let id = value["id"] as! String
+                guard let index = positions[id] else { throw LogbookFailure("差量更新目标不存在。") }
+                var a = rows[index], b = value
+                if kind == "records" {
+                    guard a["sourceType"] as? String == "manual", value["manualContent"] is String, value["rawContent"] == nil else { throw LogbookFailure("只能明确更新手动正文。") }
+                }
+                for key in ignored { a.removeValue(forKey: key); b.removeValue(forKey: key) }
+                guard try logbookData(a) == logbookData(b) else { throw LogbookFailure("非导入字段已变化。") }
+                rows[index] = value
+            }
+            for value in added {
+                guard positions[value["id"] as! String] == nil, kind != "records" || value["rawContent"] == nil else { throw LogbookFailure("新增标识冲突或缓存覆盖。") }
+                rows.append(value)
+            }
+            data[kind] = rows
+            if kind == "records" { touched = ids }
+        }
+        return touched
+    }
     static func table(_ candidate: LogbookJSON, data: inout LogbookJSON) throws {
         try LogbookValidation.snapshot(candidate)
         let records = candidate["records"] as! [LogbookJSON]

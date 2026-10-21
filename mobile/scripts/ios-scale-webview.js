@@ -134,6 +134,7 @@ window.__cocSmokeTask = (async () => {
       delete value.cacheSourceUrl
       candidate.records.push(value)
     }
+    let profileBaseline = metadata
     const profileWorker = new Worker('snapshot-worker.js')
     let profileId = 0
     async function measuredCommit(snapshot, revision, scenario) {
@@ -153,10 +154,23 @@ window.__cocSmokeTask = (async () => {
         profileWorker.postMessage({ id, job: { type: 'prepare', snapshot, measure: true } })
       })
       const preparedAt = performance.now()
-      const inputBytes = new TextEncoder().encode(prepared.json).length
+      // This diagnostic retains full Worker prepare for comparison. Production uses its preview lease.
+      const delta = {
+        protocolVersion: 1,
+        initialSettings: prepared.snapshot.settings,
+        modulesAdded: prepared.snapshot.modules.slice(profileBaseline.modules.length),
+        moduleParticipants: [],
+        charactersAdded: [],
+        recordsAdded: prepared.snapshot.records.slice(profileBaseline.records.length),
+        manualUpdates: prepared.snapshot.records
+          .slice(0, profileBaseline.records.length)
+          .filter((r) => r.manualContent !== undefined)
+      }
+      const json = JSON.stringify(delta)
+      const inputBytes = new TextEncoder().encode(json).length
       const bridgeAt = performance.now()
-      const result = await native('Logbook', 'commitTable', {
-        json: prepared.json,
+      const result = await native('Logbook', 'commitTableDelta', {
+        json,
         expectedRevision: revision,
         measure: true
       })
@@ -205,6 +219,8 @@ window.__cocSmokeTask = (async () => {
       }
       tableTiming.push({
         scenario,
+        protocol: 'table-delta-v1',
+        preparation: 'full Worker prepare plus diagnostic delta encoding; production uses preview lease',
         clock: 'webview-monotonic',
         fixture: 'after-3020-generated-public-fetch-results',
         modules: saved.modules.length,
@@ -218,6 +234,7 @@ window.__cocSmokeTask = (async () => {
         worker: prepared.timing,
         native: result.timing
       })
+      profileBaseline = structuredClone(saved)
       return { saved, revision: result.revision }
     }
     try {
