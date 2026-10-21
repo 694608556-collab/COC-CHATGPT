@@ -17,7 +17,7 @@ final class FetchBatch implements AutoCloseable {
     FetchBatch(File directory,String tree,long revision,Set<String> ids,Map<String,String> fields)throws Exception{
         this.tree=tree;this.revision=revision;
         Map<String,Map<String,String>> rows=RecordOverlay.rows(fields);
-        for(String id:ids){Map<String,String> row=rows.get(id);if(row==null||!"\"online\"".equals(row.get("sourceType")))throw new IllegalArgumentException("检测目标已变化。");targets.put(id,row);}
+        for(String id:ids){Map<String,String> row=rows.get(id);if(row==null||!"online".equals(stringValue(row.get("sourceType"))))throw new IllegalArgumentException("检测目标已变化。");targets.put(id,row);}
         if(targets.isEmpty())throw new IllegalArgumentException("没有在线检测目标。");
         if(!directory.isDirectory()&&!directory.mkdirs())throw new IOException("无法创建检测暂存。");
         // This directory is exclusive to batch staging; stale files never contain committed data.
@@ -49,13 +49,23 @@ final class FetchBatch implements AutoCloseable {
         try{
             String key=RecordOverlay.id(metadata);Map<String,String> before=targets.get(key);
             if(count[0]!=1||before==null||parts.containsKey(key))throw new IllegalArgumentException("检测结果缺失、重复或目标不符。");
-            for(String name:new String[]{"moduleId","sourceType","link"})if(!Objects.equals(before.get(name),metadata.get(name)))throw new IllegalArgumentException("检测来源已变化。");
-            String status=metadata.get("status");boolean success="\"valid\"".equals(status);
-            if(!Arrays.asList("\"valid\"","\"invalid\"","\"fetch_failed\"").contains(status)||metadata.containsKey("manualContent"))throw new IllegalArgumentException("检测结果无效。");
-            if(success&&(!body[0]||!Objects.equals(metadata.get("cacheSourceUrl"),before.get("link"))))throw new IllegalArgumentException("检测正文或来源不完整。");
+            for(String name:new String[]{"moduleId","sourceType","link"})if(!sameString(before.get(name),metadata.get(name)))throw new IllegalArgumentException("检测来源已变化。");
+            String status=stringValue(metadata.get("status"));boolean success="valid".equals(status);
+            if(!Arrays.asList("valid","invalid","fetch_failed").contains(status)||metadata.containsKey("manualContent"))throw new IllegalArgumentException("检测结果无效。");
+            if(success&&(!body[0]||!sameString(before.get("link"),metadata.get("cacheSourceUrl"))))throw new IllegalArgumentException("检测正文或来源不完整。");
             if(file.length()>PdfSpool.MAX_BYTES)throw new IllegalArgumentException("检测正文超过 64 MiB；整批未保存。");
             Part part=new Part();part.start=start;part.length=file.length()-start;part.hash=digest.digest();part.keepBody=!success;parts.put(key,part);
         }catch(Exception error){try(RandomAccessFile output=new RandomAccessFile(file,"rw")){output.setLength(start);}throw error;}
+    }
+    /** Compare JSON string values, not native/JS escape spelling; never coerce other JSON types. */
+    private static String stringValue(String token)throws JSONException{
+        if(token==null||token.length()<2||token.charAt(0)!='"'||token.charAt(token.length()-1)!='"')return null;
+        JSONArray values=new JSONArray("["+token+"]");Object value=values.get(0);
+        return values.length()==1&&value instanceof String?(String)value:null;
+    }
+    /** Exact decoded identity: no URL normalization, trimming, or changes to the opaque body tokens. */
+    private static boolean sameString(String expected,String actual)throws JSONException{
+        String value=stringValue(expected);return value!=null&&value.equals(stringValue(actual));
     }
     /** All hashes and complete target coverage are checked before deleting the candidate and opening CAS. */
     long finish(LogbookDatabase database,String exportedAt)throws Exception{

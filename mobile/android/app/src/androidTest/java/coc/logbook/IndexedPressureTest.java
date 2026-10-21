@@ -35,6 +35,109 @@ public class IndexedPressureTest {
         }return file;
     }
     private Set<String> ids(int start,int count){Set<String> result=new LinkedHashSet<>();for(int i=start;i<start+count;i++)result.add("r"+i);return result;}
+    /** Android-native JSON and JS JSON may encode the same URL with different slash escapes. */
+    @Test public void fetchStageAcceptsEquivalentJsonSlashEscapes()throws Exception {
+        String name="public-fetch-source-"+UUID.randomUUID()+".sqlite";
+        File baseline=fixture(1,100,0,"valid"),staged=fixture(1,120,0,"valid");
+        String original=new String(java.nio.file.Files.readAllBytes(baseline.toPath()),StandardCharsets.UTF_8);
+        java.nio.file.Files.write(baseline.toPath(),original.replace("/","\\/").getBytes(StandardCharsets.UTF_8));
+        try(LogbookDatabase database=new LogbookDatabase(context(),name)){
+            try(Reader input=java.nio.file.Files.newBufferedReader(baseline.toPath(),StandardCharsets.UTF_8)){database.replace(input,0);}
+            long before=database.revision();
+            String oldBody=bodyHash(database.getReadableDatabase(),0);
+            try(FetchBatch batch=new FetchBatch(new File(context().getCacheDir(),"public-source-"+UUID.randomUUID()),"public-tree",before,ids(0,1),database.fields())){
+                batch.stage(staged);
+                assertEquals(before,database.revision());
+                assertEquals(oldBody,bodyHash(database.getReadableDatabase(),0));
+                assertEquals(before+1,batch.finish(database,"public-after"));
+            }
+            assertNotEquals(oldBody,bodyHash(database.getReadableDatabase(),0));
+            assertTrue(database.snapshot().contains("900719925474099312345"));
+        }finally{baseline.delete();staged.delete();context().deleteDatabase(name);}
+    }
+    /** Exercise the real native table writers before the JS-style result upload, for single and bulk checks. */
+    @Test public void fetchStageAfterNativeTableImportAcceptsUnchangedSource()throws Exception {
+        for(boolean delta:new boolean[]{false,true})for(int count:new int[]{1,3}){
+            String name="public-table-fetch-"+UUID.randomUUID()+".sqlite";
+            File baseline=fixture(1,100,0,"valid"),added=fixture(count,0,1,"pending");
+            try(LogbookDatabase database=new LogbookDatabase(context(),name)){
+                try(Reader input=java.nio.file.Files.newBufferedReader(baseline.toPath(),StandardCharsets.UTF_8)){database.replace(input,0);}
+                org.json.JSONObject candidate=new org.json.JSONObject(JsonFields.join(database.fields()));
+                org.json.JSONArray additions=new org.json.JSONObject(new String(java.nio.file.Files.readAllBytes(added.toPath()),StandardCharsets.UTF_8)).getJSONArray("records");
+                for(int i=0;i<additions.length();i++)candidate.getJSONArray("records").put(additions.get(i));
+                assertEquals(2,database.edit(1,store->{if(delta)store.importTableDelta(publicDelta(candidate,1),"public-table",null);else store.importTable(candidate);}));
+                Map<String,String> stored=RecordOverlay.rows(database.fields()).get("r1");
+                assertTrue("Android's native table writer must exercise escaped URL tokens",stored.get("link").contains("\\/"));
+                String unchanged=bodyHash(database.getReadableDatabase(),0);
+                try(FetchBatch batch=new FetchBatch(new File(context().getCacheDir(),"public-table-source-"+UUID.randomUUID()),"public-tree",2,ids(1,count),database.fields())){
+                    for(int i=1;i<=count;i++){
+                        File result=fixture(1,120,i,"valid");
+                        try{batch.stage(result);}finally{result.delete();}
+                    }
+                    assertEquals(2,database.revision());assertEquals(unchanged,bodyHash(database.getReadableDatabase(),0));
+                    assertEquals(3,batch.finish(database,"public-after"));
+                }
+                assertEquals(unchanged,bodyHash(database.getReadableDatabase(),0));
+                org.json.JSONArray saved=new org.json.JSONObject(database.snapshot()).getJSONArray("records");
+                for(int i=1;i<=count;i++)assertEquals("valid",saved.getJSONObject(i).getString("status"));
+            }finally{baseline.delete();added.delete();context().deleteDatabase(name);}
+        }
+    }
+    /** Rewrite only one public metadata token; leave raw body numbers and text untouched. */
+    private void resultField(File snapshot,String field,String token)throws Exception{
+        Map<String,String> root=JsonFields.split(new String(java.nio.file.Files.readAllBytes(snapshot.toPath()),StandardCharsets.UTF_8));
+        Map<String,String> row=JsonFields.split(JsonFields.elements(root.get("records")).get(0));
+        if(token==null)row.remove(field);else row.put(field,token);
+        root.put("records","["+JsonFields.join(row)+"]");
+        java.nio.file.Files.write(snapshot.toPath(),JsonFields.join(root).getBytes(StandardCharsets.UTF_8));
+    }
+    @Test public void fetchStageAcceptsEquivalentUnicodeEscapesAndKeepsFailedBody()throws Exception{
+        String name="public-unicode-fetch-"+UUID.randomUUID()+".sqlite";
+        File baseline=fixture(2,100,0,"valid"),success=fixture(1,120,0,"valid"),failed=fixture(1,0,1,"fetch_failed");
+        String original=new String(java.nio.file.Files.readAllBytes(baseline.toPath()),StandardCharsets.UTF_8);
+        java.nio.file.Files.write(baseline.toPath(),original.replace("/","\\/").replace("\"m0\"","\"m\\u0030\"").replace("\"online\"","\"onl\\u0069ne\"").getBytes(StandardCharsets.UTF_8));
+        resultField(success,"status","\"v\\u0061lid\"");
+        resultField(success,"cacheSourceUrl","\"https:\\u002f\\/log.weizaima.com/?key=public-0\"");
+        try(LogbookDatabase database=new LogbookDatabase(context(),name)){
+            try(Reader input=java.nio.file.Files.newBufferedReader(baseline.toPath(),StandardCharsets.UTF_8)){database.replace(input,0);}
+            String unchanged=bodyHash(database.getReadableDatabase(),1);
+            String previousCache=RecordOverlay.rows(database.fields()).get("r1").get("cacheSourceUrl");
+            try(FetchBatch batch=new FetchBatch(new File(context().getCacheDir(),"public-unicode-source-"+UUID.randomUUID()),"public-tree",1,ids(0,2),database.fields())){
+                batch.stage(success);batch.stage(failed);assertEquals(2,batch.finish(database,"public-after"));
+            }
+            assertEquals(unchanged,bodyHash(database.getReadableDatabase(),1));
+            assertEquals(previousCache,RecordOverlay.rows(database.fields()).get("r1").get("cacheSourceUrl"));
+            org.json.JSONArray records=new org.json.JSONObject(database.snapshot()).getJSONArray("records");
+            assertEquals("valid",records.getJSONObject(0).getString("status"));
+            assertEquals("fetch_failed",records.getJSONObject(1).getString("status"));
+            assertTrue(database.snapshot().contains("900719925474099312345"));
+        }finally{baseline.delete();success.delete();failed.delete();context().deleteDatabase(name);}
+    }
+    @Test public void fetchStageRejectsChangedOrNonStringSourcesAndAllowsCleanRetry()throws Exception{
+        for(String[] changed:new String[][]{
+            {"link","\"https://log.weizaima.com/?key=public-changed\""},{"moduleId","\"m1\""},{"sourceType","\"manual\""},
+            {"link","\"https://log.weizaima.com/?key=%70ublic-1\""},{"link","\" https://log.weizaima.com/?key=public-1\""},
+            {"link",null},{"link","null"},{"link","7"},{"link","true"},{"link","{}"},{"link","[]"},
+            {"cacheSourceUrl",null},{"cacheSourceUrl","null"},{"cacheSourceUrl","7"},{"cacheSourceUrl","\"https://log.weizaima.com/?key=public-changed\""}
+        }){
+            String name="public-rejected-fetch-"+UUID.randomUUID()+".sqlite";
+            File baseline=fixture(2,100,0,"valid"),first=fixture(1,120,0,"valid"),second=fixture(1,120,1,"valid"),invalid=fixture(1,120,1,"valid");
+            resultField(invalid,changed[0],changed[1]);
+            try(LogbookDatabase database=new LogbookDatabase(context(),name)){
+                try(Reader input=java.nio.file.Files.newBufferedReader(baseline.toPath(),StandardCharsets.UTF_8)){database.replace(input,0);}
+                String unchanged=hash(database,null);
+                try(FetchBatch batch=new FetchBatch(new File(context().getCacheDir(),"public-rejected-source-"+UUID.randomUUID()),"public-tree",1,ids(0,2),database.fields())){
+                    batch.stage(first);
+                    try{batch.stage(invalid);fail("changed source accepted: "+Arrays.toString(changed));}
+                    catch(IllegalArgumentException expected){assertEquals(changed[0].equals("cacheSourceUrl")?"检测正文或来源不完整。":"检测来源已变化。",expected.getMessage());}
+                    try{batch.finish(database,"must-not-commit");fail("incomplete batch committed");}catch(IllegalStateException expected){}
+                    assertEquals(1,database.revision());assertEquals(unchanged,hash(database,null));
+                    batch.stage(second);assertEquals(2,batch.finish(database,"public-clean-retry"));
+                }
+                assertNotEquals(unchanged,hash(database,null));
+            }finally{baseline.delete();first.delete();second.delete();invalid.delete();context().deleteDatabase(name);}
+        }
+    }
     private long scalar(SQLiteDatabase db,String query){try(Cursor row=db.rawQuery(query,null)){assertTrue(row.moveToFirst());return row.getLong(0);}}
     private String hash(LogbookDatabase db,Set<String> selected)throws Exception{
         MessageDigest digest=MessageDigest.getInstance("SHA-256");
