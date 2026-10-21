@@ -20,7 +20,7 @@ const STATUS_LABELS = {
  * @returns 手机记录汇总页面。
  */
 export function Records(props: {
-  /** 最近阅读场次的 ID；仅用于本次会话中的展开、居中及高亮。 */
+  /** 正文返回后的临时场次 ID；下一次点击清除展开定位及高亮目标。 */
   returnRecordId?: string
   deferredRecords: ReadonlySet<string>
   snapshot: MobileSnapshot
