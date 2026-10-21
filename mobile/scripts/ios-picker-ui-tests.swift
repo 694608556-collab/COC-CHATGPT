@@ -258,7 +258,9 @@ final class PickerUITests: XCTestCase {
                 for expected in ["Public Alpha", "Public Beta", "Public Beta", "Public Alpha"] {
                     nameInput.tap()
                     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), app.debugDescription)
-                    let option = menu.descendants(matching: .any).matching(NSPredicate(format: "label == %@", expected)).firstMatch
+                    // WebKit exposes the option wrapper as "Name, Name" on this runtime.
+                    // Match that observed accessibility form; the input value stays exact.
+                    let option = menu.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", [expected, expected + ", " + expected])).firstMatch
                     XCTAssertTrue(option.waitForExistence(timeout: 10), app.debugDescription)
                     option.tap()
                     attachNameValue(nameInput, app: app, stage: "cycle-\(cycle)-\(expected)")
