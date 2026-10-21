@@ -29,8 +29,8 @@ const savedRoundTrips = events.flatMap((event, index) =>
           .slice(index + 1)
           .find(
             (entry) =>
-              entry.kind === 'bridge-result' &&
-              entry.method === 'getOverview' &&
+              (entry.kind === 'native-overview' ||
+                (entry.kind === 'bridge-result' && entry.method === 'getOverview')) &&
               entry.saved?.characters?.some((saved) => saved.id === character.id)
           )
         const stored = later?.saved.characters.find((saved) => saved.id === character.id)
@@ -40,7 +40,7 @@ const savedRoundTrips = events.flatMap((event, index) =>
           stored: stored?.name ?? null,
           exact: stored ? stored.name?.value === character.name.value : null,
           evidence: stored
-            ? 'startup overview captured'
+            ? `${later.kind === 'native-overview' ? 'native' : 'bridge'} startup overview captured`
             : 'startup overview not captured; not evidence of data loss'
         }
       })

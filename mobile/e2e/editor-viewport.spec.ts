@@ -53,6 +53,28 @@ test('勾选关联模组直接在姓名框下方显示候选，无需先点姓�
   await expect(input).toHaveValue('公开姓名2')
 })
 
+test('姓名已聚焦且候选关闭时，原生仅送达pointerdown也重新提供候选，不依赖合成click', async ({ page }) => {
+  const sample = await ready(page, 2)
+  await page.getByRole('button', { name: '角色卡', exact: true }).click()
+  await page.getByRole('button', { name: '新建七版角色' }).click()
+  await page.getByRole('checkbox', { name: sample.modules[0]!.name, exact: true }).check()
+  const input = page.getByLabel('姓名', { exact: true })
+  const menu = page.getByRole('listbox', { name: '模组PC姓名候选', exact: true })
+  await input.click()
+  await menu.getByRole('option', { name: '公开姓名2', exact: true }).click()
+  await expect(input).toBeFocused()
+  await expect(menu).toHaveCount(0)
+  // 云端实际收到这一事件后没有合成click，焦点仍在原姓名框。
+  await input.dispatchEvent('pointerdown', { pointerId: 21, pointerType: 'touch', bubbles: true })
+  await expect(menu).toBeVisible()
+  await expect(input).toBeFocused()
+  await expect(input).toHaveValue('公开姓名2')
+  await input.dispatchEvent('pointerup', { pointerId: 21, pointerType: 'touch', bubbles: true })
+  await menu.getByRole('option', { name: '公开姓名1', exact: true }).click()
+  await expect(input).toHaveValue('公开姓名1')
+  await expect(input).toBeFocused()
+})
+
 test('模拟可见区域缩小和偏移时姓名菜单及保存栏避让，候选键盘滚动和保存重开有效', async ({ page }, info) => {
   await page.addInitScript(() => {
     const probe = Object.assign(new EventTarget(), {

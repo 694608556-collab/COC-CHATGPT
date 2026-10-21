@@ -86,6 +86,15 @@ export function NameSuggest(props: {
         aria-controls={id + '-names'}
         aria-activedescendant={open && rows[highlight] ? id + '-name-' + highlight : undefined}
         value={props.value}
+        onPointerDown={() => {
+          // WKWebView在已聚焦输入框内移动插入点时可能不合成click。
+          // 先提供候选，不阻止原生插入点、键盘或滚动行为。
+          if (!open) {
+            setOpen(true)
+            setFilter('')
+            setHighlight(-1)
+          }
+        }}
         onFocus={() => {
           setOpen(true)
           setFilter('')
