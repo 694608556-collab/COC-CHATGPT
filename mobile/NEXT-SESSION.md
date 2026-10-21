@@ -1,5 +1,7 @@
 ## 2026-10-21 最新交付：Android 1.0.8 / build48
 
+后续性能工作：用户确认公司电脑当前没有可用测试设备。先在隔离测试设备补7050场单手动更新和1050→7050追加的Worker/桥接/原生分段计时，再据证据实现差量。两端通用契约草案及Windows主机载荷评估见[iOS分支差量评估](https://github.com/694608556-collab/COC-CHATGPT/blob/codex/ios-ipa-adaptation/mobile/TABLE-DELTA-ASSESSMENT-20261021.md)：五类新增/明确更新操作、完整关联校验、原目录/授权/revision/CAS/事务与容量回滚；只允许共享协议设计，Android继续独立v4/SAF/PDF实现。草案尚未实现，3.769秒/约7秒的设备时间未被本轮姓名修正再次降低。实体iPhone/企业签名/第三方提供器、正式APK生产覆盖升级待设备验收；超过64MiB仍须单独设计，不能调高数字直接放行。
+
 共享姓名候选修正已交付：仅已有姓名焦点时补pointerdown无click路径，首次获焦保留原生focus/click；pageTop/pageLeft换算修正保留。类型/101单元/112完整Edge通过，0跳过/失败/flaky；云端39546964634成功。应用源码8f01cf4，原证书正式APK、SHA256和资源校验在[releases/1.0.8-48](releases/1.0.8-48/README.md)。APK32,285,004字节，SHA256 dd2083fd2a730df1fbc07b5a4fed280294198d350f45565ea233007b4227edf0；5网页/8字体与独立源码一致。旧47/46及更早包保留。Android实体机未复现iOS尾空格，iOS专用文本菜单/视口动画修正不机械移植。正式签名生产覆盖升级和实体键盘/目录验收仍待保护真实数据后执行；本轮未操作生产应用，S9原生10项仍为46基线。v4/PDF/SAF、64MiB、授权、CAS、事务及备份规则不变。以下历史阶段的“待验”以本节为准。
 
 ## 2026-10-21 姓名触摸获焦顺序：Android build48验证中
