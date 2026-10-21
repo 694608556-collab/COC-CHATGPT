@@ -1,3 +1,47 @@
+# 2026-10-21 实机复现：系统书签拒绝与签名标识不匹配
+
+## 最新结果
+
+用户通过爱思连接iPhone，现有USB信任和只读syslog通道已实际接通。当前手机上运行的是**1.0.7/build41**，包标识为`coc.logbook`，不是已交付的build48。用户确认故障位于“我的iPhone”本机目录：点Open后选择器不返回；进入已有普通子文件夹后仍无响应。用户使用全能签默认签名选项，不清楚证书/描述文件来源。
+
+第一轮120秒采集完整结束，出现11组系统错误：书签解析返回`NSCocoaErrorDomain Code=257`，随后DocumentManager报告准备交付的项目数组为空。这是系统选择结果生成/解析阶段的实际失败证据，不能再只登记为待实机检测。原始日志、设备标识、证书和描述文件内容均未上传，只保留在仓库外。仓库外回放检查已实际执行，返回`CONFIRMED_OPEN_FAILURE`、退出码1；缺少日志不会被记成修复成功。
+
+第二轮子文件夹对照由用户明确反馈仍失败，但日志流约26秒后以`ConnectionTerminatedError`中断，没有捕获对应的同类错误链；该轮只有人工失败反馈，不能扩写成第二轮完整日志复现。之后USB再次枚举和只读安装信息查询正常。CoreSpotlight的`Missing entitlement`在第二轮也出现，不作为本问题根因或修复依据。
+
+## 已确认的签名配置异常
+
+通过只读InstallationProxy查询当前应用的安装记录，并只读枚举已安装描述文件，在本机内比较后仅输出布尔量：
+
+| 检查 | 结果 |
+| --- | --- |
+| 当前安装记录`application-identifier`后半部分是否等于`coc.logbook` | 否 |
+| 是否有描述文件允许安装记录中的该`application-identifier` | 是，找到1份 |
+| 该描述文件是否覆盖`coc.logbook` | 否 |
+| 该描述文件是否为通配符App ID | 否 |
+| 该描述文件是否为企业分发且尚未过期 | 是 |
+| 描述文件证书Common Name与安装记录SignerIdentity是否相同 | 是；这是名称比较，不是Mach-O密码学验签 |
+| 当前keychain groups是否均由该描述文件允许 | 是；不把它们与Team ID前缀不同直接判为非法 |
+| 已安装文件中，同证书名称、未过期且允许`coc.logbook`的候选描述文件 | 0份；未检查全能签私人文件库 |
+
+**已确认存在应用包标识、安装记录App ID与描述文件不一致的问题。**它与系统书签权限拒绝吻合，是当前优先处理方向；尚未用相同应用源码、匹配签名配置完成成功对照，因此不宣称因果已最终验证或目录问题已修复。没有导出或公开证书、描述文件原文、私钥、签名标识实际值，也没有读取业务库/正文。
+
+源码对照：从已交付build41的`e02a2e7`到当前源码，`presentPicker`至目录选择delegate的完整流程逐字相同。尚无证据需要修改Open按钮、放宽权限校验、替换旧书签或绕过系统目录授权。
+
+## 下一步与数据保护
+
+1. 在全能签中只查看可选证书/描述文件，确认是否存在明确允许`coc.logbook`或覆盖它的通配符配置；如果没有，需要描述文件提供方或有权限的开发者账号生成匹配配置。现有不匹配描述文件不能靠手改plist扩展其授权。
+2. 签名成品、描述文件及包标识的一致性先在本机验证，不能只改安装记录或手写一个新entitlement就声称有效。匹配描述文件的准备不需要用户把证书、密码或描述文件发到聊天或GitHub。
+3. 当前已安装App ID与目标不一致，修正后可能触发系统覆盖升级拒绝。重签/安装之前先保护完整业务数据、偏好/登记及实际归档，并确认可保留数据升级路线；如系统拒绝覆盖，不以卸载/清库解决，不自动更改包标识，也不覆盖原有效授权。
+4. 在相同版本/源码、相同目录条件下，只改变签名配置再复验Open、取消、导出回读、备份和重启持久授权。真实成功后才能确认修复；本机归档入口可用继续保留，但不代替外部目录验收。
+
+本轮仅完成只读实机诊断与脱敏交接；没有修改应用实现、生产数据或签名状态，没有安装/卸载应用或生成新安装包。Android上滑优化仍按用户决定关闭，64MiB及容量方向保持。
+
+官方依据：[Apple TN2415](https://developer.apple.com/library/archive/technotes/tn2415/)说明`application-identifier`由App ID prefix和bundle ID组成，并要求沿签名/描述文件流程核对授权；[TN3125](https://developer.apple.com/documentation/technotes/tn3125-inside-code-signing-provisioning-profiles)说明描述文件的entitlement允许范围；[TN2319](https://developer.apple.com/library/archive/technotes/tn2319/_index.html)记录升级时application-identifier不匹配可能导致拒绝安装。不要把App ID prefix不等于Team ID本身判为故障，参见[QA1879](https://developer.apple.com/library/archive/qa/qa1879/_index.html)。
+
+---
+
+# 以下为连接设备前的历史准备记录
+
 # 2026-10-21 全能签系统外部目录：Open无响应
 
 ## 用户确认与优先级
