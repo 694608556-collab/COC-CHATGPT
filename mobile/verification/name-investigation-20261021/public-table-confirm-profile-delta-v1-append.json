@@ -1,0 +1,96 @@
+{
+  "scope": "Windows Node host, public metadata only; no native write, directory permission, bridge, old bodies or phone timing measured",
+  "scenario": "append",
+  "baseline": {
+    "modules": 50,
+    "records": 1050,
+    "finalModules": 350,
+    "finalRecords": 7050,
+    "manualUpdates": 0,
+    "addedRecords": 6000
+  },
+  "bytes": {
+    "currentFullCandidate": 2575752,
+    "proposedDeltaOnly": 2221619
+  },
+  "deltaV1": {
+    "scope": "Read-only complete-entity proposal reconstruction, no native protocol or write implementation",
+    "utf8Bytes": 2221639,
+    "operationCounts": {
+      "modulesAdded": 300,
+      "moduleParticipants": 0,
+      "charactersAdded": 0,
+      "recordsAdded": 6000,
+      "manualUpdates": 0
+    },
+    "metadataAndExplicitBodiesEqual": true,
+    "fullWorkerValidationAndEncodedJSONEqual": true,
+    "commitTimestamp": "native-owned at actual confirmation; preview timestamp used only for candidate equivalence",
+    "wireOverhead": "Does not include a real bridge envelope, expectedRevision or capability/preview token fields"
+  },
+  "medianMs": {
+    "cloneMs": 7.90360000000004,
+    "inputJsonMs": 4.899399999999957,
+    "utf8EncodeMs": 2.6492000000000075,
+    "fullValidationMs": 8.279499999999985,
+    "outputJsonMs": 4.975899999999967,
+    "totalMs": 28.809699999999964
+  },
+  "samples": [
+    {
+      "iteration": 0,
+      "cloneMs": 8.246700000000004,
+      "inputJsonMs": 4.785499999999985,
+      "utf8EncodeMs": 2.598399999999998,
+      "fullValidationMs": 13.824600000000004,
+      "outputJsonMs": 5.109700000000004,
+      "totalMs": 34.564899999999994
+    },
+    {
+      "iteration": 1,
+      "cloneMs": 7.90360000000004,
+      "inputJsonMs": 4.825800000000015,
+      "utf8EncodeMs": 2.6492000000000075,
+      "fullValidationMs": 8.279499999999985,
+      "outputJsonMs": 4.858000000000004,
+      "totalMs": 28.51610000000005
+    },
+    {
+      "iteration": 2,
+      "cloneMs": 8.20999999999998,
+      "inputJsonMs": 4.950800000000015,
+      "utf8EncodeMs": 2.5985000000000014,
+      "fullValidationMs": 11.277199999999993,
+      "outputJsonMs": 4.975899999999967,
+      "totalMs": 32.01239999999996
+    },
+    {
+      "iteration": 3,
+      "cloneMs": 8.312399999999968,
+      "inputJsonMs": 4.933799999999962,
+      "utf8EncodeMs": 2.6217999999999506,
+      "fullValidationMs": 9.665300000000002,
+      "outputJsonMs": 5.252599999999973,
+      "totalMs": 30.785899999999856
+    },
+    {
+      "iteration": 4,
+      "cloneMs": 7.260599999999954,
+      "inputJsonMs": 4.573200000000043,
+      "utf8EncodeMs": 2.7013000000000034,
+      "fullValidationMs": 8.172900000000027,
+      "outputJsonMs": 4.555700000000002,
+      "totalMs": 27.26370000000003
+    },
+    {
+      "iteration": 5,
+      "cloneMs": 7.666899999999998,
+      "inputJsonMs": 4.899399999999957,
+      "utf8EncodeMs": 2.7069999999999936,
+      "fullValidationMs": 8.137499999999989,
+      "outputJsonMs": 5.398900000000026,
+      "totalMs": 28.809699999999964
+    }
+  ],
+  "deltaStatus": "size comparison only; protocol not implemented; complete native association checks and CAS/authorization/transaction/64MiB rollback remain required"
+}

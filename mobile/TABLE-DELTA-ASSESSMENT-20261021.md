@@ -75,3 +75,18 @@ Android继续v4正文块和长度索引，仅写新增/明确变化实体；iOS�
 先建立原生端明确阶段计时，再比较完全相同的公开1050→7050追加场景及7050场单手动更新。每次同时保留总墙钟、Worker校验/编码、桥接往返、原生排队/校验/读取元数据/SQL/容量/提交阶段，时钟域分别计算；设备未连接时不填设备耗时。计时只记录阶段、数量、字节和耗时，不记录正文/目录URI/设备标识。
 
 回归需先验证旧路径与delta重建结果等价，再覆盖重复/未知ID、旧实体伪新增、非法关联、在线缓存覆盖、非导入字段变更、顺序、首次空库、能力缺失、丢失回复、Worker重启、取消、授权/目录变化、旧revision、中途SQL/容量失败、手动空行/Unicode及进程重启。保留全部旧正文原始块/元数据和6000条新增顺序的逐项校验；通过这些检查前不切换生产确认路径。
+
+### 完整变化实体的只读重建评估
+
+评估脚本新增`delta-v1`模式，直接使用真实importTable生成候选，再抽取上述五类完整变化实体。它把操作应用于公开原基线，逐项比较全部元数据、数组顺序和明确手动正文；随后调用真实performSnapshotJob完整校验，并断言最终快照与JSON编码均同原完整候选一致。只在这项候选等价比较中保留预览exportedAt；真实提交时间仍必须由原生确认路径产生。本脚本不实现原生差量写入，也不模拟目录权限、CAS、SQLite或旧正文。
+
+| 公开场景 | 当前完整候选UTF-8字节 | 草案完整变化实体UTF-8字节 | 重建与完整Worker编码 |
+| --- | ---: | ---: | --- |
+| 7050场只改一场手动正文 | 2,424,345 | 449 | 逐项/逐字一致 |
+| 同库改一场手动正文及一模组KP/PC/PL | 2,424,406 | 706 | 逐项/逐字一致 |
+| 同库只新增一名完整角色 | 2,429,188 | 5,027 | 逐项/逐字一致 |
+| 1050场追加6000场及300模组 | 2,575,752 | 2,221,639 | 逐项/逐字一致 |
+
+上述草案字节含protocolVersion及五个数组，尚未包含实际桥接封装、expectedRevision、能力/预览标识。449字节比旧271字节示例更接近完整实体契约，不能把旧示例当作正式载荷。仍需完整原生校验，载荷缩减不等于设备耗时同比下降；大批新增本身仍占主要载荷。
+
+复现：在mobile目录运行`node scripts/profile-table-confirm.mjs single delta-v1`；将single分别换为participants、characters、append。脚本显式从mobile/node_modules解析共享表格依赖，不需要根目录重复安装。四项均通过，原有103单元/118完整浏览器的应用源码未变。新结果单独保存，不替换此前主机测量：[单手动更新](verification/name-investigation-20261021/public-table-confirm-profile-delta-v1-single.json)、[参与者和手动更新](verification/name-investigation-20261021/public-table-confirm-profile-delta-v1-participants.json)、[新增角色](verification/name-investigation-20261021/public-table-confirm-profile-delta-v1-characters.json)、[6000场追加](verification/name-investigation-20261021/public-table-confirm-profile-delta-v1-append.json)。记录中的毫秒只属于Windows Node主机，不是Worker线程消息/原生桥接或手机保存时间。
