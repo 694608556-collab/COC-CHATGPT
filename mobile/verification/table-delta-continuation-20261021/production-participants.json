@@ -1,0 +1,17 @@
+{
+  "scope": "Production delta encoder on Windows Node public metadata; not native or device timing",
+  "scenario": "participants",
+  "records": 7050,
+  "fullBytes": 2424406,
+  "deltaBytes": 936,
+  "counts": {
+    "modulesAdded": 0,
+    "moduleParticipants": 1,
+    "charactersAdded": 0,
+    "recordsAdded": 0,
+    "manualUpdates": 1
+  },
+  "completeReconstructionEqual": true,
+  "fullWorkerValidationAndEncodedJSONEqual": true,
+  "utf8BytesEqual": true
+}

@@ -69,10 +69,19 @@ for(let iteration=0;iteration<6;iteration++) {
 const touched=preview.next.records.find(r=>r.id==='public-manual-0')
 if(process.argv[3]==='production') {
   const before=(await performSnapshotJob({type:'prepare',snapshot:current})).snapshot
-  const after=(await performSnapshotJob({type:'prepare',snapshot:preview.next})).snapshot
+  const expected=await performSnapshotJob({type:'prepare',snapshot:preview.next})
+  const after=expected.snapshot
   const delta=createTableDelta(before,after)
-  assert.deepEqual(applyTableDelta(delta,before,after.exportedAt),after)
-  const result={scope:'Production delta encoder on Windows Node public metadata; not native or device timing',scenario,records:after.records.length,fullBytes:encoder.encode(JSON.stringify(after)).length,deltaBytes:encoder.encode(JSON.stringify(delta)).length,counts:Object.fromEntries(['modulesAdded','moduleParticipants','charactersAdded','recordsAdded','manualUpdates'].map(key=>[key,delta[key].length])),completeReconstructionEqual:true}
+  const deltaJson=JSON.stringify(delta)
+  const rebuilt=applyTableDelta(JSON.parse(deltaJson),before,after.exportedAt)
+  // Optional undefined body shells disappear on the actual JSON wire. Require
+  // exact full serialization before revalidating every business field and link.
+  assert.equal(JSON.stringify(rebuilt),expected.json)
+  const checked=await performSnapshotJob({type:'prepare',snapshot:rebuilt})
+  assert.deepEqual(checked.snapshot,expected.snapshot)
+  assert.equal(checked.json,expected.json)
+  assert.deepEqual(encoder.encode(checked.json),encoder.encode(expected.json))
+  const result={scope:'Production delta encoder on Windows Node public metadata; not native or device timing',scenario,records:after.records.length,fullBytes:encoder.encode(expected.json).length,deltaBytes:encoder.encode(deltaJson).length,counts:Object.fromEntries(['modulesAdded','moduleParticipants','charactersAdded','recordsAdded','manualUpdates'].map(key=>[key,delta[key].length])),completeReconstructionEqual:true,fullWorkerValidationAndEncodedJSONEqual:true,utf8BytesEqual:true}
   writeFileSync('ios/build/public-table-delta-production-'+scenario+'.json',JSON.stringify(result,null,2))
   console.log(JSON.stringify(result));return
 }
