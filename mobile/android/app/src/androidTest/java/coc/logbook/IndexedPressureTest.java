@@ -35,6 +35,34 @@ public class IndexedPressureTest {
         }return file;
     }
     private Set<String> ids(int start,int count){Set<String> result=new LinkedHashSet<>();for(int i=start;i<start+count;i++)result.add("r"+i);return result;}
+    /** Generated 114-record, approximately 44 MiB native staging/commit benchmark, excluding network and JS. */
+    @Test public void public114FetchStorageProfile()throws Exception {
+        String name="public-fetch-profile-"+UUID.randomUUID()+".sqlite";
+        File baseline=fixture(114,0,0,"pending");long bytes=0,stageNanos=0,commitNanos;
+        Map<Integer,String> hashes=new LinkedHashMap<>();
+        char[] padding=new char[385000];Arrays.fill(padding,'a');
+        String expectedBody="{\"messages\":[{\"text\":\""+new String(padding)+"中文😀\",\"raw\":900719925474099312345}]}";
+        String expectedHash=java.util.Base64.getEncoder().encodeToString(MessageDigest.getInstance("SHA-256").digest(expectedBody.getBytes(StandardCharsets.UTF_8)));
+        try(LogbookDatabase database=new LogbookDatabase(context(),name)) {
+            try(Reader input=java.nio.file.Files.newBufferedReader(baseline.toPath(),StandardCharsets.UTF_8)){database.replace(input,0);}
+            try(FetchBatch batch=new FetchBatch(new File(context().getCacheDir(),"public-profile-"+UUID.randomUUID()),"public-tree",1,ids(0,114),database.fields())) {
+                for(int i=0;i<114;i++) {
+                    File result=fixture(1,385000,i,"valid");
+                    try {
+                        bytes+=result.length();long begin=System.nanoTime();batch.stage(result);stageNanos+=System.nanoTime()-begin;
+                    }finally{assertTrue(result.delete());}
+                }
+                assertEquals(1,database.revision());long begin=System.nanoTime();assertEquals(2,batch.finish(database,"public-profile"));commitNanos=System.nanoTime()-begin;
+            }
+            assertEquals(114,database.deferred().length());
+            for(int i=0;i<114;i++){String saved=bodyHash(database.getReadableDatabase(),i);assertEquals(expectedHash,saved);hashes.put(i,saved);}
+        }finally{assertTrue(baseline.delete());}
+        try(LogbookDatabase reopened=new LogbookDatabase(context(),name)) {
+            assertEquals(2,reopened.revision());assertEquals(114,reopened.deferred().length());
+            for(int i=0;i<114;i++)assertEquals(hashes.get(i),bodyHash(reopened.getReadableDatabase(),i));
+        }finally{context().deleteDatabase(name);}
+        System.out.println("PUBLIC_ANDROID_STORAGE records=114 bytes="+bytes+" stageMs="+stageNanos/1e6+" commitMs="+commitNanos/1e6);
+    }
     /** Android-native JSON and JS JSON may encode the same URL with different slash escapes. */
     @Test public void fetchStageAcceptsEquivalentJsonSlashEscapes()throws Exception {
         String name="public-fetch-source-"+UUID.randomUUID()+".sqlite";
