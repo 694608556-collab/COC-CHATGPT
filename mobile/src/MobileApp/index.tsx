@@ -327,8 +327,11 @@ export function MobileApp({
       ids,
       native.revision,
       onResult ?? (() => {}),
-      ({ completed, total, succeeded, failed }) =>
-        setNotice(`正在检测：${completed}/${total}，成功 ${succeeded}，失败 ${failed}。整批尚未保存。`)
+      ({ completed, total, succeeded, failed }) => {
+        // 检测弹窗持有本轮真实计数；避免每场结果再让外层整张列表重绘。
+        if (!onResult)
+          setNotice(`正在检测：${completed}/${total}，成功 ${succeeded}，失败 ${failed}。整批尚未保存。`)
+      }
     )
     if (saved) {
       const updates = new Map(fetched.map((r) => [r.id, r]))
@@ -374,8 +377,10 @@ export function MobileApp({
     )
     const fetched = await fetchRecords(port, targets, {
       onResult,
-      onProgress: ({ completed, total, succeeded, failed }) =>
-        setNotice(`正在获取正文：${completed}/${total}，成功 ${succeeded}，失败 ${failed}。尚未保存。`)
+      onProgress: ({ completed, total, succeeded, failed }) => {
+        if (!onResult)
+          setNotice(`正在获取正文：${completed}/${total}，成功 ${succeeded}，失败 ${failed}。尚未保存。`)
+      }
     })
     const updates = new Map(fetched.map((item) => [item.id, item]))
     const next = { ...complete, records: complete.records.map((item) => updates.get(item.id) ?? item) }
