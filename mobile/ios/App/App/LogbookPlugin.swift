@@ -142,6 +142,9 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
             var result = try self.state(store, archive); result["json"] = NSNull()
             if let snapshot = try store.metadata() {
                 result["json"] = try logbookText(snapshot)
+                #if DEBUG && targetEnvironment(simulator)
+                PublicNameTrace.overview(snapshot, revision: try store.revision())
+                #endif
                 self.systemTheme((snapshot["settings"] as? LogbookJSON)?["theme"] as? String)
             } else { self.systemTheme("light") }
             result["deferredRecordIds"] = try store.deferredIDs(); return result

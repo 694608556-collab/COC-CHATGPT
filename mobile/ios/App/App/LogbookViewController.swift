@@ -180,20 +180,22 @@ final class LogbookViewController: CAPBridgeViewController {
 
 #if DEBUG && targetEnvironment(simulator)
 /// Public CI fixtures only: unavailable in Release and on physical devices.
-private final class PublicNameTrace: NSObject, WKScriptMessageHandler {
-    private let file = FileManager.default.temporaryDirectory.appendingPathComponent("ios-name-events.jsonl")
+final class PublicNameTrace: NSObject, WKScriptMessageHandler {
+    private static let file = FileManager.default.temporaryDirectory.appendingPathComponent("ios-name-events.jsonl")
+    private static let lock = NSLock()
     private var observers: [NSObjectProtocol] = []
     override init() {
         super.init()
-        append(["kind": "launch", "time": Date().timeIntervalSince1970])
+        Self.append(["kind": "launch", "time": Date().timeIntervalSince1970 * 1000])
         for name in [UIResponder.keyboardWillShowNotification, UIResponder.keyboardDidShowNotification, UIResponder.keyboardWillHideNotification, UIResponder.keyboardDidHideNotification] {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                self?.append(["kind": "keyboard", "event": name.rawValue, "time": Date().timeIntervalSince1970])
+                if self != nil { Self.append(["kind": "keyboard", "event": name.rawValue, "time": Date().timeIntervalSince1970 * 1000]) }
             })
         }
     }
     deinit { for observer in observers { NotificationCenter.default.removeObserver(observer) } }
-    private func append(_ value: [String: Any]) {
+    private static func append(_ value: [String: Any]) {
+        lock.lock(); defer { lock.unlock() }
         do {
             var bytes = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
             bytes.append(10)
@@ -204,7 +206,19 @@ private final class PublicNameTrace: NSObject, WKScriptMessageHandler {
         } catch { NSLog("Public name trace write failed: %@", error.localizedDescription) }
     }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        if let value = message.body as? [String: Any] { append(value) }
+        if let value = message.body as? [String: Any] { Self.append(value) }
+    }
+    /// Capture persisted public names at the native return boundary, including the first call.
+    static func overview(_ snapshot: LogbookJSON, revision: Int) {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains("--coc-picker-ui"), arguments.contains("--coc-name-trace") else { return }
+        let modules = (snapshot["modules"] as? [LogbookJSON] ?? []).map { value -> LogbookJSON in
+            ["id": value["id"] ?? "", "pairs": (value["pairs"] as? [LogbookJSON] ?? []).map { ["value": $0["pc"] as? String ?? ""] }]
+        }
+        let characters = (snapshot["characters"] as? [LogbookJSON] ?? []).map { value -> LogbookJSON in
+            ["id": value["id"] ?? "", "name": ["value": (value["basic"] as? LogbookJSON)?["name"] as? String ?? ""]]
+        }
+        append(["kind": "native-overview", "revision": revision, "time": Date().timeIntervalSince1970 * 1000, "saved": ["modules": modules, "characters": characters]])
     }
     static let script = #"""
     (() => {
@@ -215,16 +229,38 @@ private final class PublicNameTrace: NSObject, WKScriptMessageHandler {
       const label = node => node?.labels?.[0]?.textContent || node?.getAttribute?.('aria-label') || '';
       const watched = node => node instanceof HTMLInputElement && /^(姓名|PC\d+)$/.test(label(node));
       const emit = data => window.webkit.messageHandlers.cocPublicNameTrace.postMessage(JSON.parse(JSON.stringify({sequence: ++sequence, time: Date.now(), monotonic: performance.now(), ...data})));
-      const fields = () => Array.from(document.querySelectorAll('input')).filter(watched).map(node => ({label: label(node), ...text(node.value), focused: node === document.activeElement, start: node.selectionStart, end: node.selectionEnd}));
+      const rect = node => { const r=node.getBoundingClientRect(); return {x:r.x,y:r.y,top:r.top,left:r.left,bottom:r.bottom,right:r.right,width:r.width,height:r.height}; };
+      const describe = node => ({tag:node?.tagName ?? null,role:node?.getAttribute?.('role') ?? null,id:node?.id ?? null,classes:typeof node?.className==='string'?node.className:null,label:label(node)});
+      const fields = () => Array.from(document.querySelectorAll('input')).filter(watched).map(node => ({label: label(node), ...text(node.value), focused: node === document.activeElement, start: node.selectionStart, end: node.selectionEnd,expanded:node.getAttribute('aria-expanded'),rect:rect(node)}));
+      const geometry = () => {
+        const v=window.visualViewport;
+        return {scroll:{x:scrollX,y:scrollY},body:rect(document.body),viewport:v?{offsetTop:v.offsetTop,offsetLeft:v.offsetLeft,pageTop:v.pageTop,pageLeft:v.pageLeft,width:v.width,height:v.height,scale:v.scale}:null,options:Array.from(document.querySelectorAll('.inline-name-options [role="option"]')).map(node=>{const r=rect(node);return {name:text(node.textContent),rect:r,centerHit:describe(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2))};})};
+      };
+      const snapshot = (kind,event,phase) => emit({kind,event,phase,fields:fields(),geometry:geometry()});
       function record(event, phase) {
         const option = event.target?.closest?.('.inline-name-options [role="option"]');
-        if (!watched(event.target) && !option && !(event.type === 'submit')) return;
-        emit({kind: 'dom', event: event.type, phase, label: label(event.target), option: option ? text(option.textContent) : null, inputType: event.inputType ?? null, data: event.data ?? null, composing: event.isComposing ?? null, trusted: event.isTrusted, fields: fields()});
+        const pointer=/^(pointer|touch|mouse)|^click$/.test(event.type);
+        if (!watched(event.target) && !option && !(event.type === 'submit') && !(pointer && fields().length)) return;
+        const point=event.changedTouches?.[0] ?? event;
+        emit({kind: 'dom', event: event.type, phase, label: label(event.target),target:describe(event.target),point:{x:point.clientX??null,y:point.clientY??null,pointerType:event.pointerType??null},defaultPrevented:event.defaultPrevented,option: option ? text(option.textContent) : null, inputType: event.inputType ?? null, data: watched(event.target)?event.data??null:null, composing: event.isComposing ?? null, trusted: event.isTrusted, fields: fields(),geometry:geometry()});
         if (phase === 'capture' && ['click','input','compositionend','focusout','submit'].includes(event.type)) {
-          queueMicrotask(() => emit({kind:'settled', event:event.type, phase:'microtask', fields:fields()}));
-          requestAnimationFrame(() => emit({kind:'settled', event:event.type, phase:'frame', fields:fields()}));
+          queueMicrotask(() => snapshot('settled',event.type,'microtask'));
+          requestAnimationFrame(() => snapshot('settled',event.type,'frame'));
+          if(['click','input'].includes(event.type)) for(const delay of [100,350]) setTimeout(()=>snapshot('settled',event.type,delay+'ms'),delay);
         }
       }
+      let lastState='';
+      setInterval(()=>{
+        const current=fields(), state=JSON.stringify(current.map(({rect,...value})=>value));
+        if(state===lastState)return;
+        lastState=state;
+        if(current.length) snapshot('observed-state','value-or-focus','poll');
+      },75);
+      let viewportFrame=0;
+      const changed=()=>{cancelAnimationFrame(viewportFrame);viewportFrame=requestAnimationFrame(()=>{if(fields().length)snapshot('geometry','viewport-or-scroll','frame');});};
+      window.addEventListener('scroll',changed,true);
+      window.visualViewport?.addEventListener('resize',changed);
+      window.visualViewport?.addEventListener('scroll',changed);
       for (const type of ['pointerdown','pointerup','pointercancel','touchstart','touchend','mousedown','mouseup','click','beforeinput','input','change','compositionstart','compositionupdate','compositionend','focusin','focusout','keydown','keyup','submit']) {
         document.addEventListener(type, event => record(event,'capture'), true);
         document.addEventListener(type, event => record(event,'bubble'));

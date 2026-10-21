@@ -176,6 +176,15 @@ final class PickerUITests: XCTestCase {
         add(attachment)
     }
 
+    private func tapPublicCandidate(_ element: XCUIElement, app: XCUIApplication, stage: String) {
+        let frame = element.frame
+        let attachment = XCTAttachment(string: "stage=\(stage)\ntimeMs=\(Date().timeIntervalSince1970 * 1000)\nlabel=\(String(reflecting: element.label))\nframe=\(frame)\ncenter=\(frame.midX),\(frame.midY)\nkeyboard=\(app.keyboards.firstMatch.frame)")
+        attachment.name = "public-candidate-target-" + stage
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        element.tap()
+    }
+
     private func exercisePublicNameCandidates(stress: Bool) throws {
         let app = XCUIApplication(bundleIdentifier: "coc.logbook")
         app.launchArguments = ["--coc-picker-ui", "--coc-picker-ui-fresh", "--coc-name-trace", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -230,7 +239,7 @@ final class PickerUITests: XCTestCase {
         XCTAssertFalse(app.keyboards.firstMatch.exists, app.debugDescription)
         let autoBeta = menu.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Public Beta")).firstMatch
         XCTAssertTrue(autoBeta.waitForExistence(timeout: 10), app.debugDescription)
-        autoBeta.tap()
+        tapPublicCandidate(autoBeta, app: app, stage: "auto-beta")
         attachNameValue(name, app: app, stage: "auto-beta-before-focus")
         name.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), app.debugDescription)
@@ -248,13 +257,13 @@ final class PickerUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(menu.frame.height, 98, app.debugDescription)
         XCTAssertGreaterThanOrEqual(beta.frame.minY, menu.frame.minY)
         XCTAssertLessThanOrEqual(beta.frame.maxY, menu.frame.maxY, app.debugDescription)
-        beta.tap()
+        tapPublicCandidate(beta, app: app, stage: "focused-beta")
         let betaValue = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Public Beta"), object: nameInput)
         XCTAssertEqual(XCTWaiter.wait(for: [betaValue], timeout: 10), .completed, app.debugDescription)
         nameInput.tap()
         let alpha = menu.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Public Alpha")).firstMatch
         XCTAssertTrue(alpha.waitForExistence(timeout: 10), app.debugDescription)
-        alpha.tap()
+        tapPublicCandidate(alpha, app: app, stage: "switch-alpha")
         let alphaValue = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Public Alpha"), object: nameInput)
         XCTAssertEqual(XCTWaiter.wait(for: [alphaValue], timeout: 10), .completed, app.debugDescription)
         if stress {
@@ -266,7 +275,7 @@ final class PickerUITests: XCTestCase {
                     // Match that observed accessibility form; the input value stays exact.
                     let option = menu.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", [expected, expected + ", " + expected])).firstMatch
                     XCTAssertTrue(option.waitForExistence(timeout: 10), app.debugDescription)
-                    option.tap()
+                    tapPublicCandidate(option, app: app, stage: "cycle-\(cycle)-\(expected)")
                     attachNameValue(nameInput, app: app, stage: "cycle-\(cycle)-\(expected)")
                     let exact = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: nameInput)
                     XCTAssertEqual(XCTWaiter.wait(for: [exact], timeout: 10), .completed, app.debugDescription)
