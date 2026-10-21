@@ -234,7 +234,7 @@ final class PublicNameTrace: NSObject, WKScriptMessageHandler {
       const fields = () => Array.from(document.querySelectorAll('input')).filter(watched).map(node => ({label: label(node), ...text(node.value), focused: node === document.activeElement, start: node.selectionStart, end: node.selectionEnd,expanded:node.getAttribute('aria-expanded'),rect:rect(node)}));
       const geometry = () => {
         const v=window.visualViewport;
-        return {scroll:{x:scrollX,y:scrollY},body:rect(document.body),viewport:v?{offsetTop:v.offsetTop,offsetLeft:v.offsetLeft,pageTop:v.pageTop,pageLeft:v.pageLeft,width:v.width,height:v.height,scale:v.scale}:null,options:Array.from(document.querySelectorAll('.inline-name-options [role="option"]')).map(node=>{const r=rect(node);return {name:text(node.textContent),rect:r,centerHit:describe(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2))};})};
+        return {scroll:{x:scrollX,y:scrollY},layout:{width:innerWidth,height:innerHeight},body:rect(document.body),viewport:v?{offsetTop:v.offsetTop,offsetLeft:v.offsetLeft,pageTop:v.pageTop,pageLeft:v.pageLeft,width:v.width,height:v.height,scale:v.scale}:null,options:Array.from(document.querySelectorAll('.inline-name-options [role="option"]')).map(node=>{const r=rect(node);return {name:text(node.textContent),rect:r,centerHit:describe(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2))};})};
       };
       const snapshot = (kind,event,phase) => emit({kind,event,phase,fields:fields(),geometry:geometry()});
       function record(event, phase) {

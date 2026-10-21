@@ -86,10 +86,12 @@ export function NameSuggest(props: {
         aria-controls={id + '-names'}
         aria-activedescendant={open && rows[highlight] ? id + '-name-' + highlight : undefined}
         value={props.value}
-        onPointerDown={() => {
-          // WKWebView在已聚焦输入框内移动插入点时可能不合成click。
-          // 先提供候选，不阻止原生插入点、键盘或滚动行为。
-          if (!open) {
+        onPointerDown={(event) => {
+          // 只补已有焦点的无click路径。尚未获焦或iOS键盘已关闭时，
+          // 先让原生focus/click处理；触摸开始就改布局会吞掉键盘重开。
+          const ios = document.documentElement.dataset.platform === 'ios'
+          const keyboardVisible = !!window.visualViewport && window.visualViewport.height + 1 < innerHeight
+          if (!open && document.activeElement === event.currentTarget && (!ios || keyboardVisible)) {
             setOpen(true)
             setFilter('')
             setHighlight(-1)
