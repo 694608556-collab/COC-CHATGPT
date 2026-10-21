@@ -1,0 +1,148 @@
+{
+  "source": "549487d1c13e8f97b60d04ee8e2175d36a794d50",
+  "run": "https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39568381821",
+  "conclusion": "success",
+  "environment": "CI iOS simulator, generated public metadata after four fetch rounds; no physical phone",
+  "unit": 105,
+  "nativeCore": 68,
+  "coldStarts": 3,
+  "requiredSystemUI": 7,
+  "nativeSystemVersion": "27.0",
+  "appVersion": "1.0.8",
+  "appBuild": "48",
+  "countsScope": "four fetch rounds; profile manual proof readback happens after timed confirmation",
+  "counts": {
+    "commits": 4,
+    "failed": 178,
+    "fetch": 3020,
+    "staged": 3020,
+    "wholeReads": 0
+  },
+  "rounds": [
+    {
+      "commits": 1,
+      "failed": 59,
+      "fetch": 1000,
+      "revision": 2,
+      "round": 1,
+      "scope": "all",
+      "staged": 1000,
+      "wholeReads": 0
+    },
+    {
+      "commits": 2,
+      "failed": 118,
+      "fetch": 2000,
+      "revision": 3,
+      "round": 2,
+      "scope": "all",
+      "staged": 2000,
+      "wholeReads": 0
+    },
+    {
+      "commits": 3,
+      "failed": 177,
+      "fetch": 3000,
+      "revision": 4,
+      "round": 3,
+      "scope": "all",
+      "staged": 3000,
+      "wholeReads": 0
+    },
+    {
+      "commits": 4,
+      "failed": 178,
+      "fetch": 3020,
+      "revision": 5,
+      "round": 4,
+      "scope": "last-module",
+      "staged": 3020,
+      "wholeReads": 0
+    }
+  ],
+  "profileManualReadbacks": 1,
+  "tableCommits": 2,
+  "tableTiming": [
+    {
+      "bridgeRoundTripMs": 958,
+      "clock": "webview-monotonic",
+      "diagnosticByteCountMs": 5,
+      "fixture": "after-3020-generated-public-fetch-results",
+      "inputBytes": 2898428,
+      "modules": 350,
+      "native": {
+        "clock": "native-monotonic",
+        "phasesMs": {
+          "authorization": 0.5563333334066556,
+          "candidateParse": 42.4139166666464,
+          "capacity": 38.580124999953114,
+          "inputSize": 7.220083333322691,
+          "mergedValidation": 219.73337500003254,
+          "metadataRead": 43.4998750001796,
+          "queueAndResources": 0.38850000009915675,
+          "recordCompareAndWrite": 234.52916666656165,
+          "tableRules": 353.57712499990157,
+          "transactionBegin": 0.44133333358331583,
+          "transactionCAS": 0.045958332975715166,
+          "transactionEnd": 8.026833333588002
+        },
+        "totalMs": 949.0590833333954
+      },
+      "prepareRoundTripMs": 131,
+      "records": 7050,
+      "scenario": "append-6000",
+      "totalMs": 1094,
+      "worker": {
+        "clock": "worker-monotonic",
+        "phasesMs": {
+          "decodeParseValidate": 38,
+          "inputJson": 5,
+          "outputJson": 4,
+          "utf8Encode": 6
+        },
+        "totalMs": 53
+      }
+    },
+    {
+      "bridgeRoundTripMs": 1703,
+      "clock": "webview-monotonic",
+      "diagnosticByteCountMs": 4,
+      "fixture": "after-3020-generated-public-fetch-results",
+      "inputBytes": 2898491,
+      "modules": 350,
+      "native": {
+        "clock": "native-monotonic",
+        "phasesMs": {
+          "authorization": 0.710249999883672,
+          "candidateParse": 46.891750000213506,
+          "capacity": 25.98183333338966,
+          "inputSize": 4.43129166660583,
+          "mergedValidation": 228.36254166668368,
+          "metadataRead": 305.5229166666322,
+          "queueAndResources": 0.34812500007319613,
+          "recordCompareAndWrite": 246.72629166661864,
+          "tableRules": 828.1977916667529,
+          "transactionBegin": 0.9275833331230388,
+          "transactionCAS": 0.05499999997482519,
+          "transactionEnd": 0.7150833334890194
+        },
+        "totalMs": 1688.8909166664234
+      },
+      "prepareRoundTripMs": 100,
+      "records": 7050,
+      "scenario": "single-manual-update",
+      "totalMs": 1807,
+      "worker": {
+        "clock": "worker-monotonic",
+        "phasesMs": {
+          "decodeParseValidate": 27,
+          "inputJson": 2,
+          "outputJson": 3,
+          "utf8Encode": 4
+        },
+        "totalMs": 36
+      }
+    }
+  ],
+  "fixtureLimitations": "Constructed metadata, excludes CSV parsing, user interaction and React rendering; fixture body size differs from historical S9. Do not compare device speed."
+}
