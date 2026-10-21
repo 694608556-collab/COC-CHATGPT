@@ -1,5 +1,7 @@
 # Android 完整正文检测性能（2026-10-22）
 
+最新：用户 build50 正式实测 114 场约 60 秒，随后 Worker 完整流程优化及 build51 交付见 [最新复测报告](ANDROID-WORKER-FETCH-PERFORMANCE-20261022.md)。下述 6.322 秒始终仅为原生局部计时，不是正式检测总时间。
+
 ## 范围与对照
 
 用户要求 APK 与 IPA 一并优化。iPhone 14 Pro、Wi-Fi、114 场全部成功、从开始到最终保存的 41 秒仍是用户的 iOS 实机基线；此前 Edge 模拟 HTTP 的 300 场界面测量不能代替它，也不作为 Android 总耗时。
