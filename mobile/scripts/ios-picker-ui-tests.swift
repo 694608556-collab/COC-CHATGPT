@@ -178,7 +178,9 @@ final class PickerUITests: XCTestCase {
 
     private func tapPublicCandidate(_ element: XCUIElement, app: XCUIApplication, stage: String) {
         let frame = element.frame
-        let attachment = XCTAttachment(string: "stage=\(stage)\ntimeMs=\(Date().timeIntervalSince1970 * 1000)\nlabel=\(String(reflecting: element.label))\nframe=\(frame)\ncenter=\(frame.midX),\(frame.midY)\nkeyboard=\(app.keyboards.firstMatch.frame)")
+        let keyboard = app.keyboards.firstMatch
+        let keyboardFrame = keyboard.exists ? String(describing: keyboard.frame) : "absent"
+        let attachment = XCTAttachment(string: "stage=\(stage)\ntimeMs=\(Date().timeIntervalSince1970 * 1000)\nlabel=\(String(reflecting: element.label))\nframe=\(frame)\ncenter=\(frame.midX),\(frame.midY)\nkeyboard=\(keyboardFrame)")
         attachment.name = "public-candidate-target-" + stage
         attachment.lifetime = .keepAlways
         add(attachment)
