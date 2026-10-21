@@ -1,0 +1,20 @@
+{
+  "platform": "iOS",
+  "applicationSource": "bf7146f53c27b08ef489ad69ac1a8750c83597d9",
+  "typecheck": "passed",
+  "unitTests": 109,
+  "browser": {
+    "startTime": "2026-10-21T09:54:56.128Z",
+    "duration": 248718.966,
+    "expected": 118,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "environment": "Windows Edge, real Worker, IndexedDB; not physical device",
+  "native": {
+    "run": 39581113860,
+    "job": 119158667137,
+    "result": "Swift test compile failure: invalid redeclaration of first; native tests/build/UI not executed"
+  }
+}

@@ -6,7 +6,7 @@ const scenario = process.argv[2] || 'single'
 if (!['single', 'append', 'participants', 'characters'].includes(scenario))
   throw new Error('Expected single, append, participants or characters scenario')
 const mode = process.argv[3]
-if (mode && mode !== 'delta-v1') throw new Error('Expected optional delta-v1 assessment mode')
+if (mode && !['delta-v1', 'production'].includes(mode)) throw new Error('Expected delta-v1 or production mode')
 
 // Public, metadata-only host benchmark. This does not measure device or bridge time.
 await mkdir('ios/build', { recursive: true })
@@ -17,6 +17,7 @@ await build({
     loader: 'ts',
     contents: `
 import { importTable } from './src/data/tables'
+import { createTableDelta, applyTableDelta } from './src/data/table-delta'
 import { previewBackup } from './src/data/backup'
 import { performSnapshotJob } from './src/data/snapshot-job'
 import { searchSample } from './src/dev/sample'
@@ -66,6 +67,15 @@ for(let iteration=0;iteration<6;iteration++) {
   rows.push({iteration,cloneMs,inputJsonMs,utf8EncodeMs,fullValidationMs,outputJsonMs,totalMs:cloneMs+inputJsonMs+utf8EncodeMs+fullValidationMs+outputJsonMs})
 }
 const touched=preview.next.records.find(r=>r.id==='public-manual-0')
+if(process.argv[3]==='production') {
+  const before=(await performSnapshotJob({type:'prepare',snapshot:current})).snapshot
+  const after=(await performSnapshotJob({type:'prepare',snapshot:preview.next})).snapshot
+  const delta=createTableDelta(before,after)
+  assert.deepEqual(applyTableDelta(delta,before,after.exportedAt),after)
+  const result={scope:'Production delta encoder on Windows Node public metadata; not native or device timing',scenario,records:after.records.length,fullBytes:encoder.encode(JSON.stringify(after)).length,deltaBytes:encoder.encode(JSON.stringify(delta)).length,counts:Object.fromEntries(['modulesAdded','moduleParticipants','charactersAdded','recordsAdded','manualUpdates'].map(key=>[key,delta[key].length])),completeReconstructionEqual:true}
+  writeFileSync('ios/build/public-table-delta-production-'+scenario+'.json',JSON.stringify(result,null,2))
+  console.log(JSON.stringify(result));return
+}
 const oldModules=new Set(current.modules.map(m=>m.id)), oldRecords=new Set(current.records.map(r=>r.id)), oldCharacters=new Set(current.characters.map(c=>c.id))
 const proposedDelta={addedModules:preview.next.modules.filter(m=>!oldModules.has(m.id)),addedCharacters:preview.next.characters.filter(c=>!oldCharacters.has(c.id)),addedRecords:preview.next.records.filter(r=>!oldRecords.has(r.id)),moduleParticipants:scenario==='participants'?[preview.next.modules[0]]:[],manualUpdates:manualCount ? [{id:touched.id,manualContent:touched.manualContent,updatedAt:touched.updatedAt,playDate:touched.playDate,dateSource:touched.dateSource}] : []}
 let deltaV1
