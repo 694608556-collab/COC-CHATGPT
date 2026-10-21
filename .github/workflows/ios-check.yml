@@ -9,7 +9,9 @@ permissions:
 jobs:
   ios:
     runs-on: xcode-27
-    timeout-minutes: 35
+    # Expanded UI suites retain their own 900s process limits and exact 10s
+    # assertions. Leave room for all required groups plus the scale fixture.
+    timeout-minutes: 50
     defaults:
       run:
         working-directory: mobile
@@ -58,6 +60,7 @@ jobs:
             mobile/ios/build/picker-manifest-*.json
             mobile/ios/build/ios-name-events*.jsonl
             mobile/ios/build/ios-name-trace-missing*.json
+            mobile/ios/build/ios-name-trace-disabled*.json
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: always()

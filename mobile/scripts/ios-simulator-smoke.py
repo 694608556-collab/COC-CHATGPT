@@ -1,5 +1,6 @@
 import json
 import pathlib
+import re
 import subprocess
 import time
 import uuid
@@ -86,37 +87,49 @@ def main():
         # help probe previously re-enabled the 600s failure diagnostic delay,
         # leaving the xcresult incomplete at the unchanged 900s process limit.
         diagnostic_args = ['-collect-test-diagnostics', 'never']
-        # Keep each invocation's original 900s process limit. Expanded repeated
-        # stress checks run separately; every one of the seven tests is required.
-        stress_case = 'PickerUITests/PickerUITests/testPublicNameCandidateRepeatedSwitchFocusAndKeyboard'
-        groups = [('core', '-skip-testing:' + stress_case, 'picker-ui.xcresult'),
-                  ('stress', '-only-testing:' + stress_case, 'picker-ui-stress.xcresult')]
+        # Keep each invocation's original 900s process limit. Three independent
+        # suites avoid combining all original checks and added launch repeats
+        # into a single nearly-900s process. Every declared UI test is required.
+        groups = [
+            ('core', ['testCoc7ImportPickerCancelSaveAndRestart', 'testExplicitLocalFolderReturnsAndSurvivesRestart', 'testFolderOpenReturnsAndSurvivesRestart'], 'picker-ui.xcresult', False),
+            ('names', ['testPublicNameCandidatesSecondLaunchWithNativeKeyboard', 'testPublicNameCandidatesThirdLaunchWithNativeKeyboard', 'testPublicNameCandidatesWithNativeKeyboard'], 'picker-ui-names.xcresult', False),
+            ('stress', ['testPublicNameCandidateRepeatedSwitchFocusAndKeyboard'], 'picker-ui-stress.xcresult', True),
+        ]
+        declared = re.findall(r'\bfunc (test\w+)\(', pathlib.Path('scripts/ios-picker-ui-tests.swift').read_text())
+        planned = [case for _, cases, _, _ in groups for case in cases]
+        if len(planned) != len(set(planned)) or sorted(planned) != sorted(declared):
+            raise RuntimeError('Every declared public UI test must run exactly once: ' + str(declared))
         ui_failures = []
+        trace_failures = []
         trace_lines = dict()
         with (OUTPUT / 'picker-ui.log').open('w') as log:
-            for group, test_filter, bundle in groups:
+            for group, cases, bundle, trace_expected in groups:
+                print('Required public UI group: ' + group + ', tests=' + str(len(cases)), flush=True)
                 log.write('\nRequired public UI group: ' + group + '\n')
                 log.flush()
+                test_filters = ['-only-testing:PickerUITests/PickerUITests/' + case for case in cases]
                 try:
-                    command('xcodebuild', '-project', 'ios/App/App.xcodeproj', '-scheme', 'PickerUITests', '-configuration', 'Debug', '-destination', 'platform=iOS Simulator,id=' + udid, '-derivedDataPath', 'ios/build/simulator', '-resultBundlePath', str(OUTPUT / bundle), 'test', test_filter, *diagnostic_args, 'CODE_SIGN_IDENTITY=-', 'CODE_SIGNING_ALLOWED=YES', timeout=900, log=log)
+                    command('xcodebuild', '-project', 'ios/App/App.xcodeproj', '-scheme', 'PickerUITests', '-configuration', 'Debug', '-destination', 'platform=iOS Simulator,id=' + udid, '-derivedDataPath', 'ios/build/simulator', '-resultBundlePath', str(OUTPUT / bundle), 'test', *test_filters, *diagnostic_args, 'CODE_SIGN_IDENTITY=-', 'CODE_SIGNING_ALLOWED=YES', timeout=900, log=log)
                 except subprocess.CalledProcessError as error:
                     # Still collect the independent required stress group, but
                     # any failing group keeps the entire acceptance run failed.
                     ui_failures.append(group + ': ' + str(error))
                 finally:
                     try:
-                        trace_container = pathlib.Path(command('xcrun', 'simctl', 'get_app_container', udid, 'coc.logbook', 'data'))
-                        trace = trace_container / 'tmp/ios-name-events.jsonl'
-                        if trace.exists():
+                        if not trace_expected:
+                            (OUTPUT / ('ios-name-trace-disabled-' + group + '.json')).write_text(json.dumps({'enabled': False, 'reason': 'Required public UI group deliberately has no event trace'}))
+                        else:
+                            trace_container = pathlib.Path(command('xcrun', 'simctl', 'get_app_container', udid, 'coc.logbook', 'data'))
+                            trace = trace_container / 'tmp/ios-name-events.jsonl'
+                            if not trace.exists():
+                                raise RuntimeError('Required public stress event trace missing')
                             data = trace.read_bytes()
                             (OUTPUT / ('ios-name-events-' + group + '.jsonl')).write_bytes(data)
-                            # Preserve earlier groups if Xcode rotates a container;
-                            # discard only byte-identical copies of the same event.
+                            # Discard only byte-identical copies of the same event.
                             trace_lines.update(dict.fromkeys(data.splitlines()))
                             (OUTPUT / 'ios-name-events.jsonl').write_bytes(b'\n'.join(trace_lines) + b'\n')
-                        else:
-                            raise RuntimeError('Public name event trace missing')
                     except Exception as error:
+                        trace_failures.append(group + ': ' + str(error))
                         (OUTPUT / ('ios-name-trace-missing-' + group + '.json')).write_text(json.dumps({'passed': False, 'error': str(error)}))
                     try:
                         attachments = OUTPUT / 'picker-attachments' / group
@@ -126,8 +139,8 @@ def main():
                             (OUTPUT / ('picker-manifest-' + group + '.json')).write_bytes(manifest.read_bytes())
                     except Exception as error:
                         print('Public UI attachment export failed: ' + str(error), flush=True)
-        if ui_failures:
-            raise RuntimeError('Required public UI group failed: ' + '; '.join(ui_failures))
+        if ui_failures or trace_failures:
+            raise RuntimeError('Required public UI group or trace failed: ' + '; '.join(ui_failures + trace_failures))
         phase = 'public-scale-fixture'
         # Xcode UI testing may reinstall the app and rotate its data container.
         # Re-query this job's isolated simulator before touching public fixtures.
