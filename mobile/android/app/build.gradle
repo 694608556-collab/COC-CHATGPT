@@ -7,7 +7,7 @@ android {
         applicationId "coc.logbook"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 49
+        versionCode 50
         versionName "1.0.8"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
@@ -18,7 +18,7 @@ android {
     }
     buildTypes {
         debug {
-            applicationIdSuffix ".debug49"
+            applicationIdSuffix ".debug50"
             versionNameSuffix "-dev"
             resValue "string", "app_name", "COC 跑团记录簿（开发版）"
             resValue "string", "title_activity_main", "COC 跑团记录簿（开发版）"
