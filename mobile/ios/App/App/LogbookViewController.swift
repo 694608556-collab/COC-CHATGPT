@@ -3,6 +3,9 @@ import UIKit
 import WebKit
 
 final class LogbookViewController: CAPBridgeViewController {
+    #if DEBUG && targetEnvironment(simulator)
+    private var nameTrace: PublicNameTrace?
+    #endif
     #if DEBUG
     private var smokeStarted = false
     private var scaleMode: Bool {
@@ -135,6 +138,15 @@ final class LogbookViewController: CAPBridgeViewController {
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(LogbookPlugin())
         #if DEBUG && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--coc-picker-ui"),
+           ProcessInfo.processInfo.arguments.contains("--coc-name-trace"), let webView = webView {
+            let trace = PublicNameTrace()
+            nameTrace = trace
+            webView.configuration.userContentController.add(trace, name: "cocPublicNameTrace")
+            webView.configuration.userContentController.addUserScript(WKUserScript(source: PublicNameTrace.script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            // capacitorDidLoad may follow the initial document-start callback.
+            webView.evaluateJavaScript(PublicNameTrace.script, completionHandler: nil)
+        }
         if ProcessInfo.processInfo.arguments.contains("--coc-ios-scale") {
             do {
                 let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("COCLogbook")
@@ -165,3 +177,78 @@ final class LogbookViewController: CAPBridgeViewController {
         }
     }
 }
+
+#if DEBUG && targetEnvironment(simulator)
+/// Public CI fixtures only: unavailable in Release and on physical devices.
+private final class PublicNameTrace: NSObject, WKScriptMessageHandler {
+    private let file = FileManager.default.temporaryDirectory.appendingPathComponent("ios-name-events.jsonl")
+    private var observers: [NSObjectProtocol] = []
+    override init() {
+        super.init()
+        append(["kind": "launch", "time": Date().timeIntervalSince1970])
+        for name in [UIResponder.keyboardWillShowNotification, UIResponder.keyboardDidShowNotification, UIResponder.keyboardWillHideNotification, UIResponder.keyboardDidHideNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.append(["kind": "keyboard", "event": name.rawValue, "time": Date().timeIntervalSince1970])
+            })
+        }
+    }
+    deinit { for observer in observers { NotificationCenter.default.removeObserver(observer) } }
+    private func append(_ value: [String: Any]) {
+        do {
+            var bytes = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
+            bytes.append(10)
+            if !FileManager.default.fileExists(atPath: file.path) { FileManager.default.createFile(atPath: file.path, contents: nil) }
+            let handle = try FileHandle(forWritingTo: file)
+            defer { try? handle.close() }
+            try handle.seekToEnd(); try handle.write(contentsOf: bytes)
+        } catch { NSLog("Public name trace write failed: %@", error.localizedDescription) }
+    }
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        if let value = message.body as? [String: Any] { append(value) }
+    }
+    static let script = #"""
+    (() => {
+      if (window.__cocPublicNameTrace) return;
+      window.__cocPublicNameTrace = true;
+      let sequence = 0;
+      const text = value => ({value, codePoints: Array.from(value, c => c.codePointAt(0).toString(16))});
+      const label = node => node?.labels?.[0]?.textContent || node?.getAttribute?.('aria-label') || '';
+      const watched = node => node instanceof HTMLInputElement && /^(姓名|PC\d+)$/.test(label(node));
+      const emit = data => window.webkit.messageHandlers.cocPublicNameTrace.postMessage(JSON.parse(JSON.stringify({sequence: ++sequence, time: Date.now(), monotonic: performance.now(), ...data})));
+      const fields = () => Array.from(document.querySelectorAll('input')).filter(watched).map(node => ({label: label(node), ...text(node.value), focused: node === document.activeElement, start: node.selectionStart, end: node.selectionEnd}));
+      function record(event, phase) {
+        const option = event.target?.closest?.('.inline-name-options [role="option"]');
+        if (!watched(event.target) && !option && !(event.type === 'submit')) return;
+        emit({kind: 'dom', event: event.type, phase, label: label(event.target), option: option ? text(option.textContent) : null, inputType: event.inputType ?? null, data: event.data ?? null, composing: event.isComposing ?? null, trusted: event.isTrusted, fields: fields()});
+        if (phase === 'capture' && ['click','input','compositionend','focusout','submit'].includes(event.type)) {
+          queueMicrotask(() => emit({kind:'settled', event:event.type, phase:'microtask', fields:fields()}));
+          requestAnimationFrame(() => emit({kind:'settled', event:event.type, phase:'frame', fields:fields()}));
+        }
+      }
+      for (const type of ['pointerdown','pointerup','pointercancel','touchstart','touchend','mousedown','mouseup','click','beforeinput','input','change','compositionstart','compositionupdate','compositionend','focusin','focusout','keydown','keyup','submit']) {
+        document.addEventListener(type, event => record(event,'capture'), true);
+        document.addEventListener(type, event => record(event,'bubble'));
+      }
+      // Observe the original promise without replacing its result or scheduling.
+      const timer = setInterval(() => {
+        if (!window.Capacitor?.nativePromise) return;
+        clearInterval(timer);
+        const original = window.Capacitor.nativePromise;
+        window.Capacitor.nativePromise = function(plugin, method, options, ...rest) {
+          const interesting = plugin === 'Logbook' && ['commitModule','commitEntity','getOverview'].includes(method);
+          const names = value => ({modules:(value.modules || []).map(m=>({id:m.id,pairs:(m.pairs||[]).map(p=>text(p.pc))})),characters:(value.characters||[]).map(c=>({id:c.id,name:text(c.basic?.name||'')}))});
+          if (interesting) emit({kind:'bridge-request',method,revision:options?.expectedRevision, names:method === 'commitModule' ? names({modules:[options.value]}) : method === 'commitEntity' ? names({characters:options.edit?.kind === 'character' ? [options.edit.value] : []}) : null,fields:fields()});
+          const result = original.call(this,plugin,method,options,...rest);
+          if (interesting) result.then(value => {
+            let saved=null;
+            if(method==='getOverview' && value.json) { try { saved=names(JSON.parse(value.json)); } catch {} }
+            emit({kind:'bridge-result',method,revision:value.revision,saved,fields:fields()});
+          },error=>emit({kind:'bridge-error',method,error:String(error)}));
+          return result;
+        };
+        emit({kind:'trace-ready'});
+      },25);
+    })();
+    """#
+}
+#endif

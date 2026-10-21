@@ -24,6 +24,58 @@ async function ready(page: Page, sample = searchSample()) {
   await expect(page.getByRole('status')).toContainText('导入完成')
 }
 
+test('公开英文姓名候选连续点击和焦点切换保留精确值及重启保存值，并保留事件证据', async ({ page }, info) => {
+  const swift = await readFile(new URL('../ios/App/App/LogbookViewController.swift', import.meta.url), 'utf8')
+  const script = swift.match(/static let script = #"""([\s\S]*?)"""#/)![1]!
+  await page.addInitScript(
+    `window.__nameEvents=[];window.webkit={messageHandlers:{cocPublicNameTrace:{postMessage(value){window.__nameEvents.push(value)}}}};${script}`
+  )
+  const sample = searchSample()
+  sample.modules[0]!.pairs = [
+    { pc: 'Public Alpha', pl: 'Fixture A' },
+    { pc: 'Public Beta', pl: 'Fixture B' }
+  ]
+  await ready(page, sample)
+  await page.getByRole('button', { name: '角色卡', exact: true }).click()
+  await page.getByRole('button', { name: '新建七版角色' }).click()
+  await page.getByRole('checkbox', { name: sample.modules[0]!.name, exact: true }).check()
+  const input = page.getByLabel('姓名', { exact: true })
+  const menu = page.getByRole('listbox', { name: '模组PC姓名候选' })
+  await menu.getByRole('option', { name: 'Public Beta', exact: true }).click()
+  await expect(input).toHaveValue('Public Beta')
+  for (let cycle = 0; cycle < 6; cycle++) {
+    for (const name of ['Public Alpha', 'Public Beta', 'Public Beta', 'Public Alpha']) {
+      await input.click()
+      await menu.getByRole('option', { name, exact: true }).click()
+      await expect(input).toHaveValue(name)
+    }
+    await page.getByLabel('职业', { exact: true }).click()
+    await input.click()
+    await expect(input).toHaveValue('Public Alpha')
+  }
+  const events = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          __nameEvents: Array<{ kind: string; event?: string; option?: { value: string } }>
+        }
+      ).__nameEvents
+  )
+  expect(events.some((e) => e.event === 'click' && e.option?.value === 'Public Beta')).toBe(true)
+  expect(events.some((e) => e.event === 'focusout')).toBe(true)
+  await info.attach('public-name-dom-events.json', {
+    body: JSON.stringify(events, null, 2),
+    contentType: 'application/json'
+  })
+  await page.getByRole('button', { name: '保存修改', exact: true }).click()
+  await expect(page.locator('.editor')).toHaveCount(0)
+  await page.reload()
+  await page.getByRole('button', { name: '角色卡', exact: true }).click()
+  await page.getByRole('button', { name: /^Public Alpha/ }).click()
+  await page.getByRole('button', { name: '编辑角色卡', exact: true }).click()
+  await expect(page.getByLabel('姓名', { exact: true })).toHaveValue('Public Alpha')
+})
+
 test('模组正文搜索替代名称搜索，跨场次结果跳转与清空，其他模组不串结果', async ({ page }, info) => {
   const sample = searchSample()
   sample.records[0]!.rawContent!.messages[204]!.text += ' 跨页唯一路标'

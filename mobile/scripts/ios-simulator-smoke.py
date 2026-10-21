@@ -95,6 +95,17 @@ def main():
             try:
                 command('xcodebuild', '-project', 'ios/App/App.xcodeproj', '-scheme', 'PickerUITests', '-configuration', 'Debug', '-destination', 'platform=iOS Simulator,id=' + udid, '-derivedDataPath', 'ios/build/simulator', '-resultBundlePath', 'ios/build/picker-ui.xcresult', 'test', *diagnostic_args, 'CODE_SIGN_IDENTITY=-', 'CODE_SIGNING_ALLOWED=YES', timeout=900, log=log)
             finally:
+                # Query the current container even after assertion failure/reinstall.
+                # Only this newly created public-fixture simulator is inspected.
+                try:
+                    trace_container = pathlib.Path(command('xcrun', 'simctl', 'get_app_container', udid, 'coc.logbook', 'data'))
+                    trace = trace_container / 'tmp/ios-name-events.jsonl'
+                    if trace.exists():
+                        (OUTPUT / 'ios-name-events.jsonl').write_bytes(trace.read_bytes())
+                    else:
+                        (OUTPUT / 'ios-name-trace-missing.json').write_text(json.dumps({'passed': False, 'error': 'Public name event trace missing'}))
+                except Exception as error:
+                    (OUTPUT / 'ios-name-trace-missing.json').write_text(json.dumps({'passed': False, 'error': str(error)}))
                 # Export public simulator screenshots for inspection on Windows;
                 # an export error must not replace the original test result.
                 try:

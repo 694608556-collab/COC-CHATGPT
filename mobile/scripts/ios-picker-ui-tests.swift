@@ -152,8 +152,33 @@ final class PickerUITests: XCTestCase {
         XCTAssertTrue(app.webViews.buttons["新增模组"].firstMatch.waitForExistence(timeout: 30), app.debugDescription)
     }
     func testPublicNameCandidatesWithNativeKeyboard() throws {
+        try exercisePublicNameCandidates(stress: false)
+    }
+
+    func testPublicNameCandidateRepeatedSwitchFocusAndKeyboard() throws {
+        try exercisePublicNameCandidates(stress: true)
+    }
+
+    func testPublicNameCandidatesSecondLaunchWithNativeKeyboard() throws {
+        try exercisePublicNameCandidates(stress: false)
+    }
+
+    func testPublicNameCandidatesThirdLaunchWithNativeKeyboard() throws {
+        try exercisePublicNameCandidates(stress: false)
+    }
+
+    private func attachNameValue(_ element: XCUIElement, app: XCUIApplication, stage: String) {
+        let value = element.value as? String ?? "<nil>"
+        let points = value.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: " ")
+        let attachment = XCTAttachment(string: "stage=\(stage)\nvalue=\(String(reflecting: value))\ncodePoints=\(points)\nkeyboard=\(app.keyboards.firstMatch.exists)")
+        attachment.name = "public-name-" + stage
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    private func exercisePublicNameCandidates(stress: Bool) throws {
         let app = XCUIApplication(bundleIdentifier: "coc.logbook")
-        app.launchArguments = ["--coc-picker-ui", "--coc-picker-ui-fresh", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments = ["--coc-picker-ui", "--coc-picker-ui-fresh", "--coc-name-trace", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
         let web = app.webViews
         let local = web.buttons["使用本机归档文件夹"].firstMatch
@@ -171,12 +196,20 @@ final class PickerUITests: XCTestCase {
         let pc1 = editable(web, "PC1")
         XCTAssertTrue(pc1.waitForExistence(timeout: 10), app.debugDescription)
         pc1.tap(); app.typeText("Public Alpha")
+        attachNameValue(pc1, app: app, stage: "pc1-typed")
+        XCTAssertEqual(pc1.value as? String, "Public Alpha", app.debugDescription)
         dismissFixtureKeyboard(app)
+        attachNameValue(pc1, app: app, stage: "pc1-blurred")
+        XCTAssertEqual(pc1.value as? String, "Public Alpha", app.debugDescription)
         web.buttons["＋ 添加参与者"].firstMatch.tap()
         let pc2 = editable(web, "PC2")
         XCTAssertTrue(pc2.waitForExistence(timeout: 10), app.debugDescription)
         pc2.tap(); app.typeText("Public Beta")
+        attachNameValue(pc2, app: app, stage: "pc2-typed")
+        XCTAssertEqual(pc2.value as? String, "Public Beta", app.debugDescription)
         dismissFixtureKeyboard(app)
+        attachNameValue(pc2, app: app, stage: "pc2-blurred")
+        XCTAssertEqual(pc2.value as? String, "Public Beta", app.debugDescription)
         web.buttons["保存修改"].firstMatch.tap()
         XCTAssertTrue(add.waitForExistence(timeout: 15), app.debugDescription)
         web.buttons["角色卡"].firstMatch.tap()
@@ -194,11 +227,13 @@ final class PickerUITests: XCTestCase {
         let autoBeta = menu.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Public Beta")).firstMatch
         XCTAssertTrue(autoBeta.waitForExistence(timeout: 10), app.debugDescription)
         autoBeta.tap()
+        attachNameValue(name, app: app, stage: "auto-beta-before-focus")
         name.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), app.debugDescription)
         let nameInput = web.textFields["姓名"].firstMatch
         XCTAssertTrue(nameInput.waitForExistence(timeout: 10), app.debugDescription)
         let autoValue = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Public Beta"), object: nameInput)
+        attachNameValue(nameInput, app: app, stage: "auto-beta-after-focus")
         XCTAssertEqual(XCTWaiter.wait(for: [autoValue], timeout: 10), .completed, app.debugDescription)
         let beta = menu.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Public Beta")).firstMatch
         XCTAssertTrue(beta.waitForExistence(timeout: 10), app.debugDescription)
@@ -218,6 +253,28 @@ final class PickerUITests: XCTestCase {
         alpha.tap()
         let alphaValue = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Public Alpha"), object: nameInput)
         XCTAssertEqual(XCTWaiter.wait(for: [alphaValue], timeout: 10), .completed, app.debugDescription)
+        if stress {
+            for cycle in 0..<6 {
+                for expected in ["Public Alpha", "Public Beta", "Public Beta", "Public Alpha"] {
+                    nameInput.tap()
+                    XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), app.debugDescription)
+                    let option = menu.descendants(matching: .any).matching(NSPredicate(format: "label == %@", expected)).firstMatch
+                    XCTAssertTrue(option.waitForExistence(timeout: 10), app.debugDescription)
+                    option.tap()
+                    attachNameValue(nameInput, app: app, stage: "cycle-\(cycle)-\(expected)")
+                    let exact = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: nameInput)
+                    XCTAssertEqual(XCTWaiter.wait(for: [exact], timeout: 10), .completed, app.debugDescription)
+                }
+                let occupation = web.textFields["职业"].firstMatch
+                occupation.tap()
+                dismissFixtureKeyboard(app)
+                XCTAssertFalse(app.keyboards.firstMatch.exists, app.debugDescription)
+                nameInput.tap()
+                XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), app.debugDescription)
+                attachNameValue(nameInput, app: app, stage: "cycle-\(cycle)-focus-return")
+                XCTAssertEqual(nameInput.value as? String, "Public Alpha", app.debugDescription)
+            }
+        }
         web.buttons["保存修改"].firstMatch.tap()
         XCTAssertTrue(web.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Public Alpha'")).firstMatch.waitForExistence(timeout: 15), app.debugDescription)
         app.terminate()
@@ -233,6 +290,7 @@ final class PickerUITests: XCTestCase {
         XCTAssertTrue(reopened.waitForExistence(timeout: 10), app.debugDescription)
         reopened.tap()
         let storedValue = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Public Alpha"), object: web.textFields["姓名"].firstMatch)
+        attachNameValue(web.textFields["姓名"].firstMatch, app: app, stage: "saved-after-restart")
         XCTAssertEqual(XCTWaiter.wait(for: [storedValue], timeout: 10), .completed, app.debugDescription)
         web.buttons["取消编辑"].firstMatch.tap()
     }
