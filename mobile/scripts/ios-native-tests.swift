@@ -185,9 +185,11 @@ import Foundation
         oversized["manualUpdates"] = [largeManual]
         try rejects("delta whole library capacity rollback") { _ = try deltaStore.importTableDelta(oversized, expected: 2) }
         try require(try deltaStore.revision() == 2 && logbookData(deltaStore.fullSnapshot()!) == stableDelta, "capacity rejection retains all data")
+        var nulManual = manualRows[manualIndex]; nulManual["manualContent"] = "public manual\n\n中文😀\0tail"
+        delta["manualUpdates"] = [nulManual]
         _ = try deltaStore.importTableDelta(delta, expected: 2)
         let reopenedDelta = try LogbookStore(url: root.appendingPathComponent("table-delta.sqlite"))
-        try require(try reopenedDelta.revision() == 3 && (reopenedDelta.fullSnapshot(selected: [manualRows[manualIndex]["id"] as! String])!["records"] as! [LogbookJSON])[0]["manualContent"] as? String == "public manual\n\n中文😀", "delta manual Unicode and blank lines survive reopening")
+        try require(try reopenedDelta.revision() == 3 && (reopenedDelta.fullSnapshot(selected: [manualRows[manualIndex]["id"] as! String])!["records"] as! [LogbookJSON])[0]["manualContent"] as? String == "public manual\n\n中文😀\0tail", "delta manual NUL, Unicode and blank lines survive reopening")
         let freshDelta = try LogbookStore(url: root.appendingPathComponent("table-delta-fresh.sqlite"))
         var first = delta; first["manualUpdates"] = [LogbookJSON](); first["modulesAdded"] = deltaBefore["modules"]; first["charactersAdded"] = deltaBefore["characters"]; first["recordsAdded"] = deltaBefore["records"]
         _ = try freshDelta.importTableDelta(first, expected: 0)

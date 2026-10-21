@@ -205,7 +205,7 @@ final class LogbookStore {
                     var metadata = value
                     let manual = metadata.removeValue(forKey: "manualContent") as! String
                     // Only replace the explicit manual field; all other native body members remain in SQLite.
-                    try execute("UPDATE records SET metadata=?,body=json_set(body,'$.manualContent',?) WHERE id=?", [try logbookText(metadata), manual, value["id"] as! String])
+                    try execute("UPDATE records SET metadata=?,body=json_patch(body,?) WHERE id=?", [try logbookText(metadata), try logbookText(["manualContent": manual]), value["id"] as! String])
                 }
             }
             try saveRoot(data, revision: expected + 1)
