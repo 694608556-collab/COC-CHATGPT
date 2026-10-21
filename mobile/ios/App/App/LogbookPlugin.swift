@@ -12,6 +12,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
     public let pluginMethods: [CAPPluginMethod] = ["beginFetchBatch", "stageFetchResult", "finishFetchBatch", "cancelFetchBatch", "beginSnapshotEdit", "appendSnapshotEdit", "cancelSnapshotEdit", "claimFirstLaunchIntro", "getOverview", "getState", "getStatus", "getRecordContent", "commitSettings", "commitModule", "commitEntity", "commitAction", "commitTable", "commitTableDelta", "commitEdit", "commitRestore", "selectArchive", "openBackup", "writeArchive", "readDocument", "listDocuments", "openDocument", "shareDocument", "fetchLog", "automaticBackup"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise)! }
     private let work = DispatchQueue(label: "coc.logbook.storage", qos: .userInitiated)
     private let backupWriter = DispatchQueue(label: "coc.logbook.automatic-backup", qos: .utility)
+    private let logFetch = LogbookFetch()
     private let monitor = NWPathMonitor()
     private var connected = true
     private var store: LogbookStore?
@@ -25,7 +26,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         monitor.pathUpdateHandler = { [weak self] path in self?.work.async { self?.connected = path.status == .satisfied } }
         monitor.start(queue: DispatchQueue(label: "coc.logbook.network"))
     }
-    deinit { monitor.cancel() }
+    deinit { monitor.cancel(); logFetch.close() }
     private func resources() throws -> (LogbookStore, LogbookArchive) {
         let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("COCLogbook", isDirectory: true)
         if store == nil { store = try LogbookStore(url: directory.appendingPathComponent("logbook.sqlite")) }
@@ -371,7 +372,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
     public func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem { previewURL! as NSURL }
     @objc func fetchLog(_ call: CAPPluginCall) {
         guard let raw = call.getString("url"), let url = URL(string: raw) else { call.reject("日志网址无效。"); return }
-        LogbookFetch().start(url) { result in
+        logFetch.start(url) { result in
             switch result { case .success(let value): call.resolve(value); case .failure(let error): call.reject(error.localizedDescription) }
         }
     }

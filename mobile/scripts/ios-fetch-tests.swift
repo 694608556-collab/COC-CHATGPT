@@ -29,6 +29,7 @@ final class PublicFetchProtocol: URLProtocol {
             configuration.protocolClasses = [PublicFetchProtocol.self]
             return URLSession(configuration: configuration, delegate: delegate, delegateQueue: queue)
         }
+        defer { fetch.close() }
         for index in 0..<114 {
             let ready = DispatchSemaphore(value: 0)
             var received: Result<LogbookJSON, Error>?
