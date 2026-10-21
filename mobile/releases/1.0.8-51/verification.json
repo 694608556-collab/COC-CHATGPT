@@ -1,0 +1,25 @@
+{
+  "platform": "android",
+  "file": "coc-logbook-1.0.8-51-workerperf-8192628.apk",
+  "version": "1.0.8",
+  "build": 51,
+  "bytes": 32313676,
+  "sha256": "f4849cced4a239518c7efc772327f7a18a51fc96599a6ff2c8eeb036b2ac2abb",
+  "source": "819262859e92794484fd39e1cf48dd8ddbfbff4a",
+  "ciRun": 39646097214,
+  "ciConclusion": "success",
+  "originalFonts": 8,
+  "webAssets": {
+    "export-worker.js": "3283b7210e6d69c263f0820df8be678b6284ceb0a0d260ddbd185686528a3b70",
+    "index.html": "d231ccc1ffe23aae0d62440adcad273f62adcd73bc894e6705b6c102ac69d175",
+    "snapshot-worker.js": "133a3bc0d82deac88efd2eaff84aa6de3445fa3eef705842cb547d9633c7bf20",
+    "app.js": "44a5aed35064790d80418b5ae9ab62d0ba8e5975e03d5fa57d2d9febc4792e8e",
+    "app.css": "aecde49564ba87f64e980c73f789acf9afe1fe73fef8ae9cdfe47942d10d46e0"
+  },
+  "privateDiagnosticDataIncluded": false,
+  "package": "coc.logbook",
+  "signingCertificateSha256": "cc3020afe7446589b5dff92eb9fe69b7593af18f614445b1d8e5805e853143e7",
+  "debuggable": false,
+  "installedOnS9": true,
+  "launchedDuringInstall": false
+}
