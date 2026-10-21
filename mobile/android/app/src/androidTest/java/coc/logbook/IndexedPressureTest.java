@@ -75,21 +75,26 @@ public class IndexedPressureTest {
             for(int i=1000;i<7000;i++)records.put(new org.json.JSONObject("{\"id\":\"r"+i+"\",\"moduleId\":\"m0\",\"sourceType\":\"online\",\"link\":\"https://log.weizaima.com/?key=public-new-"+i+"\",\"status\":\"pending\",\"order\":"+i+"}"));
             // Any attempt to touch pre-existing bodies fails this transaction, even a redundant rewrite.
             db.execSQL("CREATE TRIGGER guard_old_body BEFORE DELETE ON indexed_bodies BEGIN SELECT RAISE(ABORT,'old body touched'); END");
-            assertEquals(2,database.edit(1,store->store.importTable(candidate)));
+            TableTiming timing=new TableTiming();
+            assertEquals(2,database.edit(1,store->store.importTable(candidate,timing),timing));
+            org.json.JSONObject measured=timing.result(),phases=measured.getJSONObject("phasesMs");
+            assertEquals(3,measured.length());assertEquals("native-monotonic",measured.getString("clock"));
+            assertEquals(new HashSet<>(Arrays.asList("transactionBegin","transactionCAS","metadataRead","tableRules","recordIndex","recordCompareAndWrite","capacity","revisionWrite","transactionEnd")),new HashSet<>(JsonFields.split(phases.toString()).keySet()));
+            double sum=0;java.util.Iterator<String> keys=phases.keys();while(keys.hasNext()){double ms=phases.getDouble(keys.next());assertTrue(Double.isFinite(ms)&&ms>=0);sum+=ms;}assertTrue(measured.getDouble("totalMs")>=sum);
             assertEquals(7000,scalar(db,"SELECT COUNT(*) FROM indexed_records"));assertEquals(untouched,hash(database,ids(0,1000)));
-            try{database.edit(1,store->store.importTable(candidate));fail("stale revision accepted");}catch(IllegalStateException expected){}
+            try{TableTiming stale=new TableTiming();database.edit(1,store->store.importTable(candidate,stale),stale);fail("stale revision accepted");}catch(IllegalStateException expected){}
             org.json.JSONObject deleted=new org.json.JSONObject(candidate.toString());deleted.getJSONArray("records").remove(0);
             try{database.edit(2,store->store.importTable(deleted));fail("deletion accepted");}catch(IllegalArgumentException expected){}
             org.json.JSONObject source=new org.json.JSONObject(candidate.toString());source.getJSONArray("records").getJSONObject(0).put("link","changed");
             try{database.edit(2,store->store.importTable(source));fail("source change accepted");}catch(IllegalArgumentException expected){}
             db.execSQL("CREATE TRIGGER fail_table_root BEFORE UPDATE ON app_state BEGIN SELECT RAISE(ABORT,'injected'); END");
             org.json.JSONObject added=new org.json.JSONObject(candidate.toString());added.getJSONArray("records").put(new org.json.JSONObject("{\"id\":\"rollback\",\"moduleId\":\"m0\",\"sourceType\":\"manual\",\"manualContent\":\"public\"}"));
-            try{database.edit(2,store->store.importTable(added));fail("injected failure accepted");}catch(android.database.sqlite.SQLiteException expected){}
+            try{TableTiming failed=new TableTiming();database.edit(2,store->store.importTable(added,failed),failed);fail("injected failure accepted");}catch(android.database.sqlite.SQLiteException expected){}
             db.execSQL("DROP TRIGGER fail_table_root");
             assertEquals(2,database.revision());assertEquals(7000,scalar(db,"SELECT COUNT(*) FROM indexed_records"));assertEquals(untouched,hash(database,ids(0,1000)));
             org.json.JSONObject oversized=new org.json.JSONObject(candidate.toString());char[] large=new char[14*1024*1024];Arrays.fill(large,'x');
             oversized.getJSONArray("records").put(new org.json.JSONObject().put("id","oversized").put("moduleId","m0").put("sourceType","manual").put("manualContent",new String(large)));
-            try{database.edit(2,store->store.importTable(oversized));fail("capacity accepted");}catch(IllegalArgumentException expected){}
+            try{TableTiming over=new TableTiming();database.edit(2,store->store.importTable(oversized,over),over);fail("capacity accepted");}catch(IllegalArgumentException expected){}
             assertEquals(2,database.revision());assertEquals(7000,scalar(db,"SELECT COUNT(*) FROM indexed_records"));
             db.execSQL("DROP TRIGGER guard_old_body");
         }finally{input.delete();context().deleteDatabase(name);}

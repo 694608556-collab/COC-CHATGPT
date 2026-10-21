@@ -117,14 +117,20 @@ final class IndexedSnapshot {
     }
     /** One caller-owned SQLite transaction; unchanged body chunks are never selected or encoded. */
     void importTable(JSONObject candidate)throws Exception {
+        importTable(candidate,null);
+    }
+    void importTable(JSONObject candidate,TableTiming timing)throws Exception {
         Map<String,String> previous=fields();
+        TableTiming.mark(timing,"metadataRead");
         TableImport.validate(candidate,previous);
+        TableTiming.mark(timing,"tableRules");
         Map<String,String> originals=new HashMap<>();
         if(previous.containsKey("records"))JsonFields.eachElement(previous.get("records"),raw->{try{originals.put(new JSONObject(raw).getString("id"),raw);}catch(Exception e){throw new IllegalArgumentException(e);}});
         JSONArray records=candidate.getJSONArray("records");
         // The caller holds the SQLite write transaction: reserve the append range once, with no concurrent writer.
         long nextOrdinal;
         try(Cursor end=db.rawQuery("SELECT COALESCE(MAX(ordinal),-1)+1 FROM indexed_records",null)){end.moveToFirst();nextOrdinal=end.getLong(0);}
+        TableTiming.mark(timing,"recordIndex");
         for(int i=0;i<records.length();i++){
             JSONObject value=records.getJSONObject(i);String id=value.getString("id"),old=originals.get(id);
             if(old==null){record(new RawJson(new StringReader(value.toString())),id,false,nextOrdinal++);continue;}
@@ -140,6 +146,7 @@ final class IndexedSnapshot {
         for(String name:new String[]{"schemaVersion","modules","characters","settings"})field(name,candidate.get(name).toString());
         // Strings need JSON quoting, while arrays/objects retain their JSON representation.
         field("exportedAt",JSONObject.quote(candidate.getString("exportedAt")));
+        TableTiming.mark(timing,"recordCompareAndWrite");
     }
     long bytes(){Map<String,String> root=rootFields();root.put("records","[]");try(Cursor rows=db.rawQuery("SELECT COUNT(*),COALESCE(SUM(bytes),0) FROM indexed_records",null)){rows.moveToFirst();return JsonFields.objectBytes(root)+rows.getLong(1)+Math.max(0,rows.getLong(0)-1);}}
     void checkSize(){if(bytes()>PdfSpool.MAX_BYTES)throw new IllegalArgumentException("数据超过 64 MiB；原数据未改变。");}

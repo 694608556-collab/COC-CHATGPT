@@ -38,13 +38,20 @@ final class LogbookDatabase extends SQLiteOpenHelper {
  long revision(){try(Cursor row=getReadableDatabase().rawQuery("SELECT revision FROM app_state WHERE id=1",null)){row.moveToFirst();return row.getLong(0);}}
  interface Edit{void apply(IndexedSnapshot store)throws Exception;}
  synchronized long edit(long expected,Edit edit)throws Exception{
+  return edit(expected,edit,null);
+ }
+ synchronized long edit(long expected,Edit edit,TableTiming timing)throws Exception{
   SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
+  TableTiming.mark(timing,"transactionBegin");
   try{
    if(revision()!=expected)throw new IllegalStateException("数据已变化，请重新读取。");
+   TableTiming.mark(timing,"transactionCAS");
    IndexedSnapshot store=new IndexedSnapshot(db);edit.apply(store);store.checkSize();
+   TableTiming.mark(timing,"capacity");
    db.execSQL("UPDATE app_state SET json='indexed-v4',revision=? WHERE id=1",new Object[]{expected+1});
+   TableTiming.mark(timing,"revisionWrite");
    db.setTransactionSuccessful();return expected+1;
-  }finally{db.endTransaction();}
+  }finally{db.endTransaction();TableTiming.mark(timing,"transactionEnd");}
  }
  synchronized long replaceFields(Map<String,String> fields,long expected)throws Exception{
   if(!exists())throw new IllegalStateException("尚无已保存数据。");

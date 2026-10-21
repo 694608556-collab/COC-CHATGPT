@@ -7,6 +7,7 @@ import { Native, decodeBase64, encodeBase64 } from '../data/native'
 import type { LogbookPort, NativeState } from '../data/native'
 import { restoreBackup } from '../data/restore'
 import type { ImportPreview, MobileSnapshot } from '../data/types'
+import type { TableConfirmTiming } from '../data/table-timing'
 import { Records } from './components/Records'
 import { useNavigationGestures } from './useNavigationGestures'
 import { CharacterCards } from './components/CharacterCards'
@@ -79,11 +80,14 @@ function emptySnapshot(): MobileSnapshot {
 export function MobileApp({
   port = Native,
   testBackup,
-  initialOverview
+  initialOverview,
+  onTableTiming
 }: {
   port?: LogbookPort
   testBackup?: () => Uint8Array
   initialOverview?: ReturnType<LogbookPort['getOverview']>
+  /** Optional diagnostics sink, supplied by public fixtures only; no snapshot or body values. */
+  onTableTiming?: (timing: TableConfirmTiming) => void
 }) {
   const [native, setNative] = useState<NativeState>()
   const nativeRef = useRef(native)
@@ -585,17 +589,46 @@ export function MobileApp({
     if (nativeRef.current?.revision !== tablePreview.revision) throw new Error('数据已变化，请重新选择表格。')
     if (port.commitTable) {
       setNotice('正在后台校验表格数据…')
-      const prepared = await prepareInBackground(tablePreview.data.next)
+      const started = onTableTiming ? performance.now() : undefined
+      const prepared = await prepareInBackground(tablePreview.data.next, !!onTableTiming)
+      const preparedAt = started === undefined ? undefined : performance.now()
       if (nativeRef.current?.revision !== tablePreview.revision)
         throw new Error('数据已变化，请重新选择表格。')
       setNotice('正在保存新增场次和明确更新的手动正文…')
-      const result = await port.commitTable({ json: prepared.json, expectedRevision: tablePreview.revision })
+      const bridgeAt = started === undefined ? undefined : performance.now()
+      const result = await port.commitTable({
+        json: prepared.json,
+        expectedRevision: tablePreview.revision,
+        ...(onTableTiming ? { measure: true } : {})
+      })
+      const receivedAt = started === undefined ? undefined : performance.now()
       // 仅恢复界面已经缓存的正文；延迟正文仍留在原生库，绝不为确认导入读取整库。
       setSnapshot({
         ...restoreTableBodies(prepared.snapshot, snapshot),
         exportedAt: result.exportedAt ?? prepared.snapshot.exportedAt
       })
       setNative((current) => current && { ...current, json: null, revision: result.revision })
+      if (
+        onTableTiming &&
+        started !== undefined &&
+        preparedAt !== undefined &&
+        bridgeAt !== undefined &&
+        receivedAt !== undefined
+      ) {
+        // Diagnostics must never turn an already committed save into a reported failure.
+        try {
+          onTableTiming({
+            clock: 'webview-monotonic',
+            totalMs: receivedAt - started,
+            prepareRoundTripMs: preparedAt - started,
+            bridgeRoundTripMs: receivedAt - bridgeAt,
+            ...(prepared.timing ? { worker: prepared.timing } : {}),
+            ...(result.timing ? { native: result.timing } : {})
+          })
+        } catch {
+          /* The successful commit and normal UI completion remain authoritative. */
+        }
+      }
     } else {
       const complete = await loadContent(snapshot.records.map((r) => r.id))
       if (nativeRef.current?.revision !== tablePreview.revision)

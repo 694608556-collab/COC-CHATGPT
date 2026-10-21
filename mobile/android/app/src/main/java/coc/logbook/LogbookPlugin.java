@@ -768,20 +768,26 @@ public final class LogbookPlugin extends Plugin {
     }
     /** Table confirmation transmits no old bodies and uses the existing CAS/size transaction. */
     @PluginMethod public void commitTable(PluginCall call) {
+        final TableTiming timing=Boolean.TRUE.equals(call.getBoolean("measure",false))?new TableTiming():null;
         execute(() -> {try {
+            TableTiming.mark(timing,"queueAndResources");
             Long expected=call.getData().has("expectedRevision")?call.getData().getLong("expectedRevision"):null;
             if(expected==null||expected!=database.revision())throw new IllegalStateException("数据已变化，请重新选择表格。");
             String tree=prefs().getString("tree","");requireArchivePermission(tree);
+            TableTiming.mark(timing,"authorization");
             String json=call.getString("json");
             if(json==null||JsonFields.bytes(json)>PdfSpool.MAX_BYTES)throw new IllegalArgumentException("表格数据缺失或超过 64 MiB。");
+            TableTiming.mark(timing,"inputSize");
             SnapshotStream.validate(new java.io.StringReader(json));
+            TableTiming.mark(timing,"candidateValidation");
             JSONObject candidate=new JSONObject(json);
+            TableTiming.mark(timing,"candidateParse");
             String now=java.time.Instant.now().toString();candidate.put("exportedAt",now);
             long revision=database.edit(expected,store->{
                 if(!tree.equals(prefs().getString("tree","")))throw new IllegalStateException("保存位置已变化，未保存。");
-                requireArchivePermission(tree);store.importTable(candidate);
-            });
-            JSObject result=new JSObject();result.put("revision",revision);result.put("exportedAt",now);call.resolve(result);
+                requireArchivePermission(tree);store.importTable(candidate,timing);
+            },timing);
+            JSObject result=new JSObject();result.put("revision",revision);result.put("exportedAt",now);if(timing!=null)result.put("timing",timing.result());call.resolve(result);
         } catch(Exception error){call.reject("表格未保存："+error.getMessage(),error);} });
     }
     @PluginMethod public void commitEdit(PluginCall call) {

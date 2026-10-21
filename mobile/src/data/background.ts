@@ -8,6 +8,7 @@ import type { ExportJob } from './export-job'
 import { isExportSourceJob } from './export-source'
 import type { ExportSourceJob, ExportSource, ExportArchiveReference } from './export-source'
 import { combinedExportName } from '../../../src/shared/export-filenames'
+import type { TablePhaseTiming } from './table-timing'
 
 /** 任务成功/失败回调，按 number 序号配对，不存放文件权限。 */
 interface PendingJob {
@@ -117,9 +118,10 @@ export function checkJsonInBackground(json: string): Promise<string> {
 }
 /** @param snapshot - 待提交数据。 @returns 校验后的快照及对应 JSON，不执行写入。 */
 export function prepareInBackground(
-  snapshot: MobileSnapshot
-): Promise<{ snapshot: MobileSnapshot; json: string }> {
-  return runJob({ type: 'prepare', snapshot })
+  snapshot: MobileSnapshot,
+  measure = false
+): Promise<{ snapshot: MobileSnapshot; json: string; timing?: TablePhaseTiming }> {
+  return runJob({ type: 'prepare', snapshot, ...(measure ? { measure: true } : {}) })
 }
 /** @param snapshot - 已通过预览校验的数据。 @returns 供原生安全提交的完整 JSON。 */
 export function serializeInBackground(snapshot: MobileSnapshot): Promise<string> {
