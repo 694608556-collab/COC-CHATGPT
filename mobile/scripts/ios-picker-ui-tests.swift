@@ -47,15 +47,18 @@ final class PickerUITests: XCTestCase {
     private func enterPublicPickerFolder(_ app: XCUIApplication) throws {
         let folder = app.cells.matching(identifier: "COC-Picker-Public-Test, Folder")
         let container = app.cells.matching(identifier: "COC 跑团记录簿, Container")
+        let location = app.buttons.matching(NSPredicate(format: "label == %@", "COC-Picker-Public-Test, Actions Menu"))
         waitForPickerCondition(in: app, timeout: 20) {
-            self.visiblePickerItem(folder) != nil || self.visiblePickerItem(container) != nil
+            self.visiblePickerItem(location) != nil || self.visiblePickerItem(folder) != nil || self.visiblePickerItem(container) != nil
         }
+        // Files can retain the public folder selected by the preceding import.
+        // Its visible navigation location already proves the expected directory.
+        if visiblePickerItem(location) != nil { return }
         if visiblePickerItem(folder) == nil {
             try waitForPickerItem(container, in: app).tap()
         }
         try waitForPickerItem(folder, in: app).tap()
         // Verify navigation, not just the existence of a label on a retained page.
-        let location = app.buttons.matching(NSPredicate(format: "label == %@", "COC-Picker-Public-Test, Actions Menu"))
         _ = try waitForPickerItem(location, in: app)
     }
 
