@@ -1,6 +1,6 @@
 ## 2026-10-21 最新交付：修复包已落地，按用户要求清理本机旧包
 
-最新高亮/批量检测修复的IPA和原证书APK已保存到E:\COClogbook\local-delivery-latest-20261021，仍1.0.8/build48，以returnfix-2e6df4f（iOS）和returnfix-0d75dea（Android）识别。五个网页资源/八字体与独立源码构建逐项一致；Android云端成功，iOS核心与IPA生成成功，模拟器余下检查交付时仍运行。没有安装到手机，没有新实机结论。来源、SHA及限制见[交付记录](LOCAL-PACKAGE-DELIVERY-20261021.md)。
+最新高亮/批量检测修复的IPA和原证书APK已保存到E:\COClogbook\local-delivery-latest-20261021，仍1.0.8/build48，以returnfix-2e6df4f（iOS）和returnfix-0d75dea（Android）识别。五个网页资源/八字体与独立源码构建逐项一致；Android云端39612147207、iOS云端39612164611现均完整成功，含iOS模拟器检查。没有安装到手机，没有新实机结论。来源、SHA及限制见[交付记录](LOCAL-PACKAGE-DELIVERY-20261021.md)。
 
 用户本次明确要求删除本机此前安装包，已将275个旧IPA/APK及测试副本、184个对应旁文件移入回收站并逐个复核原路径清空。此要求覆盖此前“保留旧包”；本地Git中历史releases的删除是有意清理，不作为业务源码更改提交，也不擅自restore旧包。源码、数据、签名及家中保护引用保留。以下“本轮未交付新包”为此前阶段，交付状态以本节为准。
 
