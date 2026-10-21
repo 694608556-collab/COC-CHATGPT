@@ -1,0 +1,28 @@
+{
+  "source": "8f01cf485da33555e3240967d22e0c8e9ad3c8c2",
+  "run": 39546964634,
+  "artifact": 12321509683,
+  "file": "coc-logbook-1.0.8-48.apk",
+  "bytes": 32285004,
+  "sha256": "dd2083fd2a730df1fbc07b5a4fed280294198d350f45565ea233007b4227edf0",
+  "version": "1.0.8",
+  "versionCode": 48,
+  "bundle": "coc.logbook",
+  "debuggable": false,
+  "minSdk": 28,
+  "targetSdk": 36,
+  "signatureScheme": "v3",
+  "certificateMatchesOriginal": true,
+  "certificateSHA256": "cc3020afe7446589b5dff92eb9fe69b7593af18f614445b1d8e5805e853143e7",
+  "zipIntegrity": true,
+  "webAssetsMatch": {
+    "app.js": "680daed08366779eac821d41c993374d3e55e4548012abe0b95e208944e4e4eb",
+    "app.css": "aecde49564ba87f64e980c73f789acf9afe1fe73fef8ae9cdfe47942d10d46e0",
+    "snapshot-worker.js": "584627728567577d8e2b9c6731d3109be61f48e591170ccecbf9c846e2cf97d1",
+    "export-worker.js": "348acf76bcc71d33ac00da0ea3ae0d06527c74a08bcf00d0305356cda999c8ab",
+    "index.html": "d231ccc1ffe23aae0d62440adcad273f62adcd73bc894e6705b6c102ac69d175"
+  },
+  "originalFontsMatch": 8,
+  "alignedStoredEntries": 226,
+  "deviceValidation": "Not installed; physical keyboard and production upgrade acceptance pending"
+}

@@ -1,3 +1,7 @@
+## 2026-10-21 最新交付：Android 1.0.8 / build48
+
+共享姓名候选修正已交付：仅已有姓名焦点时补pointerdown无click路径，首次获焦保留原生focus/click；pageTop/pageLeft换算修正保留。类型/101单元/112完整Edge通过，0跳过/失败/flaky；云端39546964634成功。应用源码8f01cf4，原证书正式APK、SHA256和资源校验在[releases/1.0.8-48](releases/1.0.8-48/README.md)。APK32,285,004字节，SHA256 dd2083fd2a730df1fbc07b5a4fed280294198d350f45565ea233007b4227edf0；5网页/8字体与独立源码一致。旧47/46及更早包保留。Android实体机未复现iOS尾空格，iOS专用文本菜单/视口动画修正不机械移植。正式签名生产覆盖升级和实体键盘/目录验收仍待保护真实数据后执行；本轮未操作生产应用，S9原生10项仍为46基线。v4/PDF/SAF、64MiB、授权、CAS、事务及备份规则不变。以下历史阶段的“待验”以本节为准。
+
 ## 2026-10-21 姓名触摸获焦顺序：Android build48验证中
 
 从iOS后续取证收窄共享onPointerDown条件：仅已有姓名焦点时补无click路径，iOS另要求原生键盘仍可见，未获焦/键盘关闭时先保留原生focus/click；不强制focus或preventDefault。两项新焦点顺序回归在相同旧组件先失败，iOS15专项通过；Android本轮类型/101单元及112完整Edge待验。原证书build47仍保留在下方交付目录，build48使用独立.debug48，不操作用户生产应用，不将iOS尾空格或键盘问题冒充Android实体复现。

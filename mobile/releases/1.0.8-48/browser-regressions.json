@@ -1,0 +1,14 @@
+{
+  "scope": "Public isolated browser fixtures; Android native trailing space has not been reproduced on a physical device",
+  "source": "8f01cf485da33555e3240967d22e0c8e9ad3c8c2",
+  "checks": {
+    "focus48-full": {
+      "startTime": "2026-10-21T05:02:49.472Z",
+      "duration": 232973.36299999998,
+      "expected": 112,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    }
+  }
+}
