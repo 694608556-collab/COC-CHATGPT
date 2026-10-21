@@ -1,3 +1,7 @@
+## 2026-10-21 姓名触摸获焦顺序：Android build48验证中
+
+从iOS后续取证收窄共享onPointerDown条件：仅已有姓名焦点时补无click路径，iOS另要求原生键盘仍可见，未获焦/键盘关闭时先保留原生focus/click；不强制focus或preventDefault。两项新焦点顺序回归在相同旧组件先失败，iOS15专项通过；Android本轮类型/101单元及112完整Edge待验。原证书build47仍保留在下方交付目录，build48使用独立.debug48，不操作用户生产应用，不将iOS尾空格或键盘问题冒充Android实体复现。
+
 ## 2026-10-21 姓名候选共享界面修正：Android build47
 
 两项共享网页回归均已先失败后通过：已聚焦姓名只收到pointerdown也重开候选；原生键盘pageTop已含平移时，按pageTop换算避免把姓名211px错误移到319px。仅移植NameSuggest与useVisibleViewport，Android实体机没有复现原生尾空格证据。类型/101单元/110完整Edge通过，0跳过/失败/flaky；云端39542584559成功。应用源码18fe5b4，原证书正式APK、SHA256、5网页/8字体逐字节/16KiB对齐校验及公开回归记录在[releases/1.0.8-47](releases/1.0.8-47/README.md)。APK32,285,004字节，SHA256 dacbe701373d824811ce0f4d844d39e01009bf6521cba0b609f37c51e3a462ce；debug独立.debug47，本轮未操作用户生产应用或重跑S9原生10项。iOS另有系统文本编辑菜单覆盖候选问题仍在处理，详见[本轮范围和限制](NAME-CANDIDATE-FIX-20261021.md)。原build46及旧包继续保留；v4/PDF/SAF/CAS/64MiB/备份不变，正式签名覆盖升级仍待保护真实数据后验收。

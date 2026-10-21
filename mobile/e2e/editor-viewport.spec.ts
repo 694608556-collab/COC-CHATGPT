@@ -394,3 +394,59 @@ test('原生键盘pageTop已含平移时不反向滚动，两个姓名候选均�
   await menu.getByRole('option', { name: '公开姓名1', exact: true }).click()
   await expect(input).toHaveValue('公开姓名1')
 })
+
+for (const returningFromOtherField of [true, false]) {
+  test(`iOS${returningFromOtherField ? '从其他字段回到姓名' : '保持姓名焦点但键盘关闭'}时先保留原生获焦，再展开候选`, async ({
+    page
+  }) => {
+    await page.addInitScript(() => {
+      const probe = Object.assign(new EventTarget(), {
+        offsetTop: 0,
+        offsetLeft: 0,
+        width: innerWidth,
+        height: innerHeight
+      })
+      Object.defineProperty(window, 'visualViewport', { configurable: true, value: probe })
+    })
+    const sample = await ready(page, 2)
+    await page.evaluate(() => {
+      document.documentElement.dataset.platform = 'ios'
+    })
+    await page.getByRole('button', { name: '角色卡', exact: true }).click()
+    await page.getByRole('button', { name: '新建七版角色' }).click()
+    await page.getByRole('checkbox', { name: sample.modules[0]!.name, exact: true }).check()
+    const input = page.getByLabel('姓名', { exact: true })
+    const menu = page.getByRole('listbox', { name: '模组PC姓名候选', exact: true })
+    await input.click()
+    await menu.getByRole('option', { name: '公开姓名2', exact: true }).click()
+    if (returningFromOtherField) {
+      await page.getByLabel('职业', { exact: true }).focus()
+      await page.evaluate(() => {
+        Object.assign(window.visualViewport!, { height: 456 })
+      })
+    }
+    await input.dispatchEvent('pointerdown', { pointerId: 31, pointerType: 'touch', bubbles: true })
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    )
+    await expect(menu).toHaveCount(0)
+    if (returningFromOtherField) {
+      await expect(input).not.toBeFocused()
+      await input.focus()
+    } else {
+      await expect(input).toBeFocused()
+      await input.dispatchEvent('click')
+    }
+    await expect(menu).toBeVisible()
+    await expect(input).toHaveValue('公开姓名2')
+    await input.press('Escape')
+    await page.evaluate(() => {
+      Object.assign(window.visualViewport!, { height: 456 })
+    })
+    // 已有焦点且键盘可见的无click路径，仍须能用pointerdown提供候选。
+    await input.dispatchEvent('pointerdown', { pointerId: 32, pointerType: 'touch', bubbles: true })
+    await expect(menu).toBeVisible()
+    await expect(input).toHaveValue('公开姓名2')
+  })
+}
