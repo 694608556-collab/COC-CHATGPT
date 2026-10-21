@@ -148,6 +148,28 @@ final class IndexedSnapshot {
         field("exportedAt",JSONObject.quote(candidate.getString("exportedAt")));
         TableTiming.mark(timing,"recordCompareAndWrite");
     }
+    /** Complete native graph validation, but only explicit changed records are encoded and written. */
+    void importTableDelta(JSONObject delta,String now,TableTiming timing)throws Exception {
+        Map<String,String> previous=fields();
+        TableTiming.mark(timing,"metadataRead");
+        JSONObject candidate=TableImport.delta(delta,previous,now);
+        TableTiming.mark(timing,"tableRules");
+        SnapshotStream.validate(new StringReader(candidate.toString()));
+        TableTiming.mark(timing,"mergedValidation");
+        long nextOrdinal;try(Cursor end=db.rawQuery("SELECT COALESCE(MAX(ordinal),-1)+1 FROM indexed_records",null)){end.moveToFirst();nextOrdinal=end.getLong(0);}
+        TableTiming.mark(timing,"recordIndex");
+        JSONArray added=delta.getJSONArray("recordsAdded"),changed=delta.getJSONArray("manualUpdates");
+        for(int i=0;i<added.length();i++){JSONObject row=added.getJSONObject(i);record(new RawJson(new StringReader(row.toString())),row.getString("id"),false,nextOrdinal++);}
+        for(int i=0;i<changed.length();i++){
+            JSONObject row=changed.getJSONObject(i);long rowKey=key(row.getString("id"));
+            db.execSQL("DELETE FROM indexed_bodies WHERE record_key=? AND kind='manualContent'",new Object[]{rowKey});
+            try(Writer writer=new BodyWriter(rowKey,"manualContent")){writer.write(JSONObject.quote(row.getString("manualContent")));}
+            JSONObject metadata=new JSONObject(row.toString());metadata.remove("manualContent");refreshSize(rowKey,metadata.toString());
+        }
+        for(String name:new String[]{"schemaVersion","modules","characters","settings"})field(name,candidate.get(name).toString());
+        field("exportedAt",JSONObject.quote(now));
+        TableTiming.mark(timing,"recordCompareAndWrite");
+    }
     long bytes(){Map<String,String> root=rootFields();root.put("records","[]");try(Cursor rows=db.rawQuery("SELECT COUNT(*),COALESCE(SUM(bytes),0) FROM indexed_records",null)){rows.moveToFirst();return JsonFields.objectBytes(root)+rows.getLong(1)+Math.max(0,rows.getLong(0)-1);}}
     void checkSize(){if(bytes()>PdfSpool.MAX_BYTES)throw new IllegalArgumentException("数据超过 64 MiB；原数据未改变。");}
     void write(Writer out,Set<String> selected)throws Exception{

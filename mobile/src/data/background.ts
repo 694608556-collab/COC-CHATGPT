@@ -246,7 +246,20 @@ export function importTableInBackground(
   snapshot: MobileSnapshot,
   base64: string,
   name: string,
-  kind: 'records' | 'characters'
+  kind: 'records' | 'characters',
+  revision?: number
 ): Promise<TablePreview> {
-  return runJob({ type: 'table-import', snapshot, base64, name, kind })
+  return runJob({ type: 'table-import', snapshot, base64, name, kind, revision })
+}
+
+/** A lost Worker lease must be previewed again; never replay against a newer revision. */
+export function confirmTableInBackground(
+  id: string,
+  revision: number,
+  measure = false
+): Promise<{ snapshot: MobileSnapshot; json: string; timing?: TablePhaseTiming }> {
+  return runJob({ type: 'table-confirm', id, revision, measure })
+}
+export function releaseTableInBackground(id: string): Promise<void> {
+  return runJob({ type: 'table-release', id })
 }

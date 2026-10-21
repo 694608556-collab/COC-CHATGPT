@@ -99,6 +99,45 @@ public class IndexedPressureTest {
             db.execSQL("DROP TRIGGER guard_old_body");
         }finally{input.delete();context().deleteDatabase(name);}
     }
+    private static org.json.JSONObject publicDelta(org.json.JSONObject candidate,int oldCount)throws Exception {
+        org.json.JSONArray added=new org.json.JSONArray(),records=candidate.getJSONArray("records");for(int i=oldCount;i<records.length();i++)added.put(records.get(i));
+        return new org.json.JSONObject().put("protocolVersion",1).put("initialSettings",candidate.get("settings")).put("modulesAdded",new org.json.JSONArray()).put("moduleParticipants",new org.json.JSONArray()).put("charactersAdded",new org.json.JSONArray()).put("recordsAdded",added).put("manualUpdates",new org.json.JSONArray());
+    }
+    @Test public void tableDeltaPreservesNativeBodiesAndRollsBackEveryFailure()throws Exception {
+        String name="public-table-delta-"+UUID.randomUUID()+".sqlite";
+        File input=fixture(1000,52000,0,"valid");
+        try(LogbookDatabase database=new LogbookDatabase(context(),name)){
+            try(Reader reader=new InputStreamReader(new FileInputStream(input),StandardCharsets.UTF_8)){database.replace(reader,0);}
+            SQLiteDatabase db=database.getWritableDatabase();String untouched=hash(database,ids(0,1000));
+            org.json.JSONObject candidate=new org.json.JSONObject(JsonFields.join(database.fields()));
+            org.json.JSONArray records=candidate.getJSONArray("records");
+            for(int i=1000;i<7000;i++)records.put(new org.json.JSONObject("{\"id\":\"r"+i+"\",\"moduleId\":\"m0\",\"sourceType\":\"online\",\"link\":\"https://log.weizaima.com/?key=public-new-"+i+"\",\"status\":\"pending\",\"order\":"+i+"}"));
+            // Any attempt to touch pre-existing bodies fails this transaction, even a redundant rewrite.
+            db.execSQL("CREATE TRIGGER guard_old_body BEFORE DELETE ON indexed_bodies BEGIN SELECT RAISE(ABORT,'old body touched'); END");
+            TableTiming timing=new TableTiming();
+            assertEquals(2,database.edit(1,store->store.importTableDelta(publicDelta(candidate,1000),"confirmed",timing),timing));
+            org.json.JSONObject measured=timing.result(),phases=measured.getJSONObject("phasesMs");
+            assertEquals(3,measured.length());assertEquals("native-monotonic",measured.getString("clock"));
+            assertEquals(new HashSet<>(Arrays.asList("transactionBegin","transactionCAS","metadataRead","tableRules","mergedValidation","recordIndex","recordCompareAndWrite","capacity","revisionWrite","transactionEnd")),new HashSet<>(JsonFields.split(phases.toString()).keySet()));
+            double sum=0;java.util.Iterator<String> keys=phases.keys();while(keys.hasNext()){double ms=phases.getDouble(keys.next());assertTrue(Double.isFinite(ms)&&ms>=0);sum+=ms;}assertTrue(measured.getDouble("totalMs")>=sum);
+            assertEquals(7000,scalar(db,"SELECT COUNT(*) FROM indexed_records"));assertEquals(untouched,hash(database,ids(0,1000)));
+            try{TableTiming stale=new TableTiming();database.edit(1,store->store.importTableDelta(publicDelta(candidate,1000),"confirmed",stale),stale);fail("stale revision accepted");}catch(IllegalStateException expected){}
+            org.json.JSONObject deleted=new org.json.JSONObject(candidate.toString());deleted.getJSONArray("records").remove(0);
+            try{database.edit(2,store->store.importTableDelta(new org.json.JSONObject(publicDelta(deleted,1000).toString()).put("delete",true),"confirmed",null));fail("deletion accepted");}catch(IllegalArgumentException expected){}
+            org.json.JSONObject source=new org.json.JSONObject(candidate.toString());source.getJSONArray("records").getJSONObject(0).put("link","changed");
+            try{database.edit(2,store->store.importTableDelta(new org.json.JSONObject(publicDelta(source,1000).toString()).put("manualUpdates",new org.json.JSONArray().put(source.getJSONArray("records").getJSONObject(0))),"confirmed",null));fail("source change accepted");}catch(IllegalArgumentException expected){}
+            db.execSQL("CREATE TRIGGER fail_table_root BEFORE UPDATE ON app_state BEGIN SELECT RAISE(ABORT,'injected'); END");
+            org.json.JSONObject added=new org.json.JSONObject(candidate.toString());added.getJSONArray("records").put(new org.json.JSONObject("{\"id\":\"rollback\",\"moduleId\":\"m0\",\"sourceType\":\"manual\",\"manualContent\":\"public\"}"));
+            try{TableTiming failed=new TableTiming();database.edit(2,store->store.importTableDelta(publicDelta(added,7000),"confirmed",failed),failed);fail("injected failure accepted");}catch(android.database.sqlite.SQLiteException expected){}
+            db.execSQL("DROP TRIGGER fail_table_root");
+            assertEquals(2,database.revision());assertEquals(7000,scalar(db,"SELECT COUNT(*) FROM indexed_records"));assertEquals(untouched,hash(database,ids(0,1000)));
+            org.json.JSONObject oversized=new org.json.JSONObject(candidate.toString());char[] large=new char[14*1024*1024];Arrays.fill(large,'x');
+            oversized.getJSONArray("records").put(new org.json.JSONObject().put("id","oversized").put("moduleId","m0").put("sourceType","manual").put("manualContent",new String(large)));
+            try{TableTiming over=new TableTiming();database.edit(2,store->store.importTableDelta(publicDelta(oversized,7000),"confirmed",over),over);fail("capacity accepted");}catch(IllegalArgumentException expected){}
+            assertEquals(2,database.revision());assertEquals(7000,scalar(db,"SELECT COUNT(*) FROM indexed_records"));
+            db.execSQL("DROP TRIGGER guard_old_body");
+        }finally{input.delete();context().deleteDatabase(name);}
+    }
     @Test public void migratesFiftyCampaignsThousandBodiesAndWritesOnlySelected()throws Exception{
         String name="public-migration-"+UUID.randomUUID()+".sqlite";File fixture=fixture(1000,52000,0,"valid");
         assertTrue(fixture.length()>49L*1024*1024);assertTrue(fixture.length()<64L*1024*1024);

@@ -49,6 +49,8 @@ import type { Coc7ImportSummary } from '../data/coc7-import'
 import {
   importTableInBackground,
   prepareInBackground,
+  confirmTableInBackground,
+  releaseTableInBackground,
   prepareUploadInBackground,
   uploadChunkInBackground,
   closeUploadInBackground,
@@ -205,6 +207,12 @@ export function MobileApp({
   }>()
   const [tablePreviewLimit, setTablePreviewLimit] = useState({ names: 100, warnings: 100 })
   const [tablePreview, setTablePreview] = useState<{ data: TablePreview; revision: number }>()
+  useEffect(() => {
+    const id = tablePreview?.data.lease
+    return () => {
+      if (id) void releaseTableInBackground(id).catch(() => {})
+    }
+  }, [tablePreview?.data.lease])
   async function commit(next: MobileSnapshot) {
     if (!native) throw new Error('本机数据尚未读取。')
     if (snapshot.records.some((r) => deferredRef.current.has(r.id)))
@@ -548,7 +556,8 @@ export function MobileApp({
       tablePreviewBaseline(snapshot),
       selected.base64,
       selected.name,
-      kind
+      kind,
+      native.revision
     )
     setTablePreviewLimit({ names: 100, warnings: 100 })
     setTablePreview({
@@ -590,13 +599,16 @@ export function MobileApp({
     if (port.commitTable) {
       setNotice('正在后台校验表格数据…')
       const started = onTableTiming ? performance.now() : undefined
-      const prepared = await prepareInBackground(tablePreview.data.next, !!onTableTiming)
+      const useDelta = native.tableDeltaVersion === 1 && !!port.commitTableDelta && !!tablePreview.data.lease
+      const prepared = useDelta
+        ? await confirmTableInBackground(tablePreview.data.lease!, tablePreview.revision, !!onTableTiming)
+        : await prepareInBackground(tablePreview.data.next, !!onTableTiming)
       const preparedAt = started === undefined ? undefined : performance.now()
       if (nativeRef.current?.revision !== tablePreview.revision)
         throw new Error('数据已变化，请重新选择表格。')
       setNotice('正在保存新增场次和明确更新的手动正文…')
       const bridgeAt = started === undefined ? undefined : performance.now()
-      const result = await port.commitTable({
+      const result = await (useDelta ? port.commitTableDelta! : port.commitTable).call(port, {
         json: prepared.json,
         expectedRevision: tablePreview.revision,
         ...(onTableTiming ? { measure: true } : {})

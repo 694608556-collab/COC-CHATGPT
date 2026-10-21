@@ -1,3 +1,4 @@
+import { createTableDelta } from '../data/table-delta'
 import { tablePreviewBaseline } from '../data/table-preview'
 import 'fake-indexeddb/auto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -22,6 +23,49 @@ async function setup() {
 }
 
 describe('浏览器测试存储事务：自动备份与数据保存独立', () => {
+  it('差量只提交明确更新，拒绝非法关联和旧revision，并保留空行与重开数据', async () => {
+    const { browser, snapshot, json, name } = await setup()
+    await browser.port.commitRestore({ json, expectedRevision: 0, confirmed: true })
+    const baseline = tablePreviewBaseline(snapshot),
+      next = structuredClone(baseline)
+    next.records.push({
+      ...baseline.records[0]!,
+      rawContent: undefined,
+      link: undefined,
+      status: 'manual',
+      id: 'public-delta-manual',
+      moduleId: next.modules[0]!.id,
+      sourceType: 'manual',
+      manualContent: 'first\n\n中文😀',
+      order: 500
+    })
+    const delta = createTableDelta(baseline, next)
+    expect((await browser.port.getOverview()).tableDeltaVersion).toBe(1)
+    await browser.port.commitTableDelta!({ json: JSON.stringify(delta), expectedRevision: 1 })
+    const saved = await browser.port.getState()
+    expect(JSON.parse(saved.json!).records[0].rawContent).toEqual(snapshot.records[0]!.rawContent)
+    await expect(
+      browser.port.commitTableDelta!({ json: JSON.stringify(delta), expectedRevision: 1 })
+    ).rejects.toThrow()
+    const changed = structuredClone(tablePreviewBaseline(JSON.parse(saved.json!)))
+    changed.records.at(-1)!.manualContent = 'second\n\n完整😀'
+    const update = createTableDelta(tablePreviewBaseline(JSON.parse(saved.json!)), changed)
+    const invalid = structuredClone(update)
+    invalid.recordsAdded.push({ ...changed.records[0]!, id: 'invalid-relation', moduleId: 'missing' })
+    await expect(
+      browser.port.commitTableDelta!({ json: JSON.stringify(invalid), expectedRevision: 2 })
+    ).rejects.toThrow()
+    expect(await browser.port.getState()).toEqual(saved)
+    await browser.port.commitTableDelta!({ json: JSON.stringify(update), expectedRevision: 2 })
+    const reopened = createBrowserPort(name)
+    expect(JSON.parse((await reopened.port.getState()).json!).records.at(-1).manualContent).toBe(
+      'second\n\n完整😀'
+    )
+    expect(await reopened.documents()).toHaveLength(0)
+    await reopened.close()
+    await browser.close()
+  })
+
   it('表格在确认时记录修改时间，预览停留不会提前首次自动备份', async () => {
     const { browser, snapshot, json } = await setup()
     await browser.port.commitRestore({ json, expectedRevision: 0, confirmed: true })

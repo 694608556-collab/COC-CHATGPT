@@ -1,3 +1,4 @@
+import { applyTableDelta } from '../data/table-delta'
 import { mergeTableImport } from '../data/table-preview'
 import type { LogbookPort, NativeState, SavedDocument } from '../data/native'
 import { decodeBase64 } from '../data/native'
@@ -40,7 +41,7 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
     return new Promise((resolve, reject) => {
       const tx = db.transaction('state')
       const request = tx.objectStore('state').get('current')
-      request.onsuccess = () => resolve(request.result ?? initial)
+      request.onsuccess = () => resolve({ ...(request.result ?? initial), tableDeltaVersion: 1 })
       request.onerror = () => reject(request.error)
     })
   }
@@ -608,6 +609,18 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
         tx.onerror = () => reject(tx.error)
       })
       return { revision: expectedRevision + 1, exportedAt }
+    },
+    async commitTableDelta({ json, expectedRevision }) {
+      const before = await readState()
+      if (before.revision !== expectedRevision || !before.archive.valid) throw new Error('数据或目录已变化。')
+      if (new TextEncoder().encode(json).length > 64 * 1024 * 1024) throw new Error('差量超过 64 MiB。')
+      const current = before.json ? JSON.parse(await checkJsonInBackground(before.json)) : undefined
+      const exportedAt = new Date().toISOString()
+      const next = applyTableDelta(JSON.parse(json), current, exportedAt)
+      return {
+        ...(await commit(await checkJsonInBackground(JSON.stringify(next)), expectedRevision)),
+        exportedAt
+      }
     },
     async commitTable({ json, expectedRevision }) {
       const before = await readState()
