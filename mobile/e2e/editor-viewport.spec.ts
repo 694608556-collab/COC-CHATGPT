@@ -290,6 +290,64 @@ test('真实浏览器触摸：姓名列表原生滑动后可点选且键盘焦�
   }
 })
 
+for (const selected of [false, true]) {
+  test(`iOS姓名${selected ? '文字选区' : '插入点'}的系统菜单预留空间，候选可选且原选区不被清除`, async ({
+    page
+  }) => {
+    const sample = await ready(page, 2)
+    await page.evaluate(() => {
+      document.documentElement.dataset.platform = 'ios'
+    })
+    await page.getByRole('button', { name: '角色卡', exact: true }).click()
+    await page.getByRole('button', { name: '新建七版角色' }).click()
+    await page.getByRole('checkbox', { name: sample.modules[0]!.name, exact: true }).check()
+    const input = page.getByLabel('姓名', { exact: true })
+    const menu = page.getByRole('listbox', { name: '模组PC姓名候选', exact: true })
+    await input.click()
+    await menu.getByRole('option', { name: '公开姓名2', exact: true }).click()
+    await input.click()
+    await input.press('Home')
+    if (selected) await input.press('Shift+ArrowRight')
+    await page.evaluate(() => {
+      // 原生失败AX：系统Cut/Copy/Paste菜单在输入框底部9px后，高44px。
+      const field = document.querySelector('input[role="combobox"]')!
+      const overlay = document.createElement('div')
+      overlay.dataset.publicNativeEditMenu = 'true'
+      Object.assign(overlay.style, {
+        position: 'fixed',
+        left: '20px',
+        width: '300px',
+        height: '44px',
+        zIndex: '99999',
+        background: '#ddd'
+      })
+      const position = () => {
+        overlay.style.top = `${field.getBoundingClientRect().bottom + 9}px`
+      }
+      position()
+      window.addEventListener('scroll', position)
+      document.body.append(overlay)
+    })
+    await expect
+      .poll(() => input.evaluate((node) => [node.selectionStart, node.selectionEnd]))
+      .toEqual([0, selected ? 1 : 0])
+    await expect
+      .poll(() =>
+        menu
+          .getByRole('option')
+          .first()
+          .evaluate((node) => {
+            const box = node.getBoundingClientRect()
+            return document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === node
+          })
+      )
+      .toBe(true)
+    await menu.getByRole('option', { name: '公开姓名1', exact: true }).click()
+    await expect(input).toHaveValue('公开姓名1')
+    await expect(input).toBeFocused()
+  })
+}
+
 test('原生键盘pageTop已含平移时不反向滚动，两个姓名候选均能实际命中', async ({ page }) => {
   await page.addInitScript(() => {
     const probe = Object.assign(new EventTarget(), {

@@ -466,6 +466,10 @@ main {
   overscroll-behavior-y: contain;
   margin: 4px 0 0;
 }
+html[data-platform='ios'] .combo-field:focus-within > .inline-name-options {
+  /* 插入点/选区的系统编辑工具栏高44px，框下偏移9px，保留完整选区。 */
+  margin-top: 64px;
+}
 .bottom-nav button {
   flex: 1;
   min-width: 0;

@@ -163,11 +163,11 @@ final class PickerUITests: XCTestCase {
     }
 
     func testPublicNameCandidatesSecondLaunchWithNativeKeyboard() throws {
-        try exercisePublicNameCandidates(stress: false, trace: false)
+        try exercisePublicNameCandidates(stress: false)
     }
 
     func testPublicNameCandidatesThirdLaunchWithNativeKeyboard() throws {
-        try exercisePublicNameCandidates(stress: false, trace: false)
+        try exercisePublicNameCandidates(stress: false)
     }
 
     private func attachNameValue(_ element: XCUIElement, app: XCUIApplication, stage: String) {

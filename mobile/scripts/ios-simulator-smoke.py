@@ -82,15 +82,10 @@ def main():
         phase = 'picker-ui-test'
         # Retain xcresult, screenshots and complete assertion logs. Avoid Xcode's
         # extra 600-second simulator diagnostic probe after a reported failure.
-        diagnostic_args = []
-        try:
-            help_result = subprocess.run(['xcodebuild', '-help'], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30, check=False)
-            if help_result.returncode == 0 and '-collect-test-diagnostics' in help_result.stdout:
-                diagnostic_args = ['-collect-test-diagnostics', 'never']
-        except subprocess.TimeoutExpired:
-            # Capability discovery only controls extra failure diagnostics.
-            # A slow help command must not skip any required system UI test.
-            print('xcodebuild help timed out; running all required UI checks with default diagnostics.', flush=True)
+        # This workflow pins Xcode 27, whose flag is supported. A timed-out
+        # help probe previously re-enabled the 600s failure diagnostic delay,
+        # leaving the xcresult incomplete at the unchanged 900s process limit.
+        diagnostic_args = ['-collect-test-diagnostics', 'never']
         with (OUTPUT / 'picker-ui.log').open('w') as log:
             try:
                 command('xcodebuild', '-project', 'ios/App/App.xcodeproj', '-scheme', 'PickerUITests', '-configuration', 'Debug', '-destination', 'platform=iOS Simulator,id=' + udid, '-derivedDataPath', 'ios/build/simulator', '-resultBundlePath', 'ios/build/picker-ui.xcresult', 'test', *diagnostic_args, 'CODE_SIGN_IDENTITY=-', 'CODE_SIGNING_ALLOWED=YES', timeout=900, log=log)
