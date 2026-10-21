@@ -250,6 +250,36 @@ test('公开姓名候选触摸失焦不卸载，视口平移不反向滚动，�
 test('真实浏览器触摸：姓名列表原生滑动后可点选且键盘焦点不丢失', async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 393, height: 852 }, hasTouch: true })
   const page = await context.newPage()
+  await page.addInitScript(() => {
+    const events: unknown[] = []
+    Object.assign(window, { __publicListTouchTrace: events })
+    for (const type of [
+      'pointerdown',
+      'pointerup',
+      'pointercancel',
+      'touchstart',
+      'touchend',
+      'click',
+      'scroll'
+    ])
+      document.addEventListener(
+        type,
+        (event) => {
+          const menu = document.querySelector('.inline-name-options')
+          if (!menu) return
+          const target = event.target as HTMLElement
+          events.push({
+            time: performance.now(),
+            type,
+            tag: target.tagName,
+            role: target.getAttribute?.('role'),
+            name: target.closest?.('[role="option"]')?.textContent,
+            scrollTop: menu.scrollTop
+          })
+        },
+        true
+      )
+  })
   try {
     const sample = await ready(page)
     await page.getByRole('button', { name: '角色卡', exact: true }).click()
@@ -274,6 +304,20 @@ test('真实浏览器触摸：姓名列表原生滑动后可点选且键盘焦�
     await expect.poll(() => menu.evaluate((node) => node.scrollTop)).toBeGreaterThan(30)
     await expect(input).toHaveValue('')
     await expect(input).toBeFocused()
+    // 已捕获touchend后仍持续惯性滚动；先等滚动完成，再选择可见行。
+    // 原生滚动中的首击可以仅停止惯性，不能把它当作已完成的候选点选。
+    await menu.evaluate(async (node) => {
+      let previous = node.scrollTop,
+        stable = 0
+      const deadline = performance.now() + 5000
+      while (stable < 3 && performance.now() < deadline) {
+        await new Promise(requestAnimationFrame)
+        const next = node.scrollTop
+        stable = next === previous ? stable + 1 : 0
+        previous = next
+      }
+      if (stable < 3) throw new Error('公开姓名列表原生滚动未结束')
+    })
     const name = await menu.getByRole('option').evaluateAll((nodes) => {
       const menu = nodes[0]!.parentElement!.getBoundingClientRect()
       return nodes.find((node) => {
@@ -286,6 +330,14 @@ test('真实浏览器触摸：姓名列表原生滑动后可点选且键盘焦�
     await expect(input).toBeFocused()
     await expect(menu).toHaveCount(0)
   } finally {
+    await test.info().attach('public-list-touch-events', {
+      body: JSON.stringify(
+        await page.evaluate(
+          () => (window as unknown as { __publicListTouchTrace: unknown }).__publicListTouchTrace
+        )
+      ),
+      contentType: 'application/json'
+    })
     await context.close()
   }
 })

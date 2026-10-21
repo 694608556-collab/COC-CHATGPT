@@ -86,27 +86,48 @@ def main():
         # help probe previously re-enabled the 600s failure diagnostic delay,
         # leaving the xcresult incomplete at the unchanged 900s process limit.
         diagnostic_args = ['-collect-test-diagnostics', 'never']
+        # Keep each invocation's original 900s process limit. Expanded repeated
+        # stress checks run separately; every one of the seven tests is required.
+        stress_case = 'PickerUITests/PickerUITests/testPublicNameCandidateRepeatedSwitchFocusAndKeyboard'
+        groups = [('core', '-skip-testing:' + stress_case, 'picker-ui.xcresult'),
+                  ('stress', '-only-testing:' + stress_case, 'picker-ui-stress.xcresult')]
+        ui_failures = []
+        trace_lines = dict()
         with (OUTPUT / 'picker-ui.log').open('w') as log:
-            try:
-                command('xcodebuild', '-project', 'ios/App/App.xcodeproj', '-scheme', 'PickerUITests', '-configuration', 'Debug', '-destination', 'platform=iOS Simulator,id=' + udid, '-derivedDataPath', 'ios/build/simulator', '-resultBundlePath', 'ios/build/picker-ui.xcresult', 'test', *diagnostic_args, 'CODE_SIGN_IDENTITY=-', 'CODE_SIGNING_ALLOWED=YES', timeout=900, log=log)
-            finally:
-                # Query the current container even after assertion failure/reinstall.
-                # Only this newly created public-fixture simulator is inspected.
+            for group, test_filter, bundle in groups:
+                log.write('\nRequired public UI group: ' + group + '\n')
+                log.flush()
                 try:
-                    trace_container = pathlib.Path(command('xcrun', 'simctl', 'get_app_container', udid, 'coc.logbook', 'data'))
-                    trace = trace_container / 'tmp/ios-name-events.jsonl'
-                    if trace.exists():
-                        (OUTPUT / 'ios-name-events.jsonl').write_bytes(trace.read_bytes())
-                    else:
-                        (OUTPUT / 'ios-name-trace-missing.json').write_text(json.dumps({'passed': False, 'error': 'Public name event trace missing'}))
-                except Exception as error:
-                    (OUTPUT / 'ios-name-trace-missing.json').write_text(json.dumps({'passed': False, 'error': str(error)}))
-                # Export public simulator screenshots for inspection on Windows;
-                # an export error must not replace the original test result.
-                try:
-                    command('xcrun', 'xcresulttool', 'export', 'attachments', '--path', 'ios/build/picker-ui.xcresult', '--output-path', 'ios/build/picker-attachments', timeout=60)
-                except Exception as error:
-                    print('Public UI attachment export failed: ' + str(error), flush=True)
+                    command('xcodebuild', '-project', 'ios/App/App.xcodeproj', '-scheme', 'PickerUITests', '-configuration', 'Debug', '-destination', 'platform=iOS Simulator,id=' + udid, '-derivedDataPath', 'ios/build/simulator', '-resultBundlePath', str(OUTPUT / bundle), 'test', test_filter, *diagnostic_args, 'CODE_SIGN_IDENTITY=-', 'CODE_SIGNING_ALLOWED=YES', timeout=900, log=log)
+                except subprocess.CalledProcessError as error:
+                    # Still collect the independent required stress group, but
+                    # any failing group keeps the entire acceptance run failed.
+                    ui_failures.append(group + ': ' + str(error))
+                finally:
+                    try:
+                        trace_container = pathlib.Path(command('xcrun', 'simctl', 'get_app_container', udid, 'coc.logbook', 'data'))
+                        trace = trace_container / 'tmp/ios-name-events.jsonl'
+                        if trace.exists():
+                            data = trace.read_bytes()
+                            (OUTPUT / ('ios-name-events-' + group + '.jsonl')).write_bytes(data)
+                            # Preserve earlier groups if Xcode rotates a container;
+                            # discard only byte-identical copies of the same event.
+                            trace_lines.update(dict.fromkeys(data.splitlines()))
+                            (OUTPUT / 'ios-name-events.jsonl').write_bytes(b'\n'.join(trace_lines) + b'\n')
+                        else:
+                            raise RuntimeError('Public name event trace missing')
+                    except Exception as error:
+                        (OUTPUT / ('ios-name-trace-missing-' + group + '.json')).write_text(json.dumps({'passed': False, 'error': str(error)}))
+                    try:
+                        attachments = OUTPUT / 'picker-attachments' / group
+                        command('xcrun', 'xcresulttool', 'export', 'attachments', '--path', str(OUTPUT / bundle), '--output-path', str(attachments), timeout=60)
+                        manifest = attachments / 'manifest.json'
+                        if manifest.exists():
+                            (OUTPUT / ('picker-manifest-' + group + '.json')).write_bytes(manifest.read_bytes())
+                    except Exception as error:
+                        print('Public UI attachment export failed: ' + str(error), flush=True)
+        if ui_failures:
+            raise RuntimeError('Required public UI group failed: ' + '; '.join(ui_failures))
         phase = 'public-scale-fixture'
         # Xcode UI testing may reinstall the app and rotate its data container.
         # Re-query this job's isolated simulator before touching public fixtures.

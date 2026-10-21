@@ -216,6 +216,10 @@ final class PickerUITests: XCTestCase {
         attachNameValue(pc1Input, app: app, stage: "pc1-typed")
         XCTAssertEqual(pc1Input.value as? String, "Public Alpha", app.debugDescription)
         dismissFixtureKeyboard(app)
+        // A preceding repetition saved Public Alpha. Its character suggestion
+        // now overlays Add Participant; dismiss it through the visible heading
+        // before tapping the underlying button, without selecting a binding.
+        web.staticTexts["PC / PL 成对名单"].firstMatch.tap()
         attachNameValue(pc1Input, app: app, stage: "pc1-blurred")
         XCTAssertEqual(pc1Input.value as? String, "Public Alpha", app.debugDescription)
         web.buttons["＋ 添加参与者"].firstMatch.tap()
@@ -227,6 +231,7 @@ final class PickerUITests: XCTestCase {
         attachNameValue(pc2Input, app: app, stage: "pc2-typed")
         XCTAssertEqual(pc2Input.value as? String, "Public Beta", app.debugDescription)
         dismissFixtureKeyboard(app)
+        web.staticTexts["PC / PL 成对名单"].firstMatch.tap()
         attachNameValue(pc2Input, app: app, stage: "pc2-blurred")
         XCTAssertEqual(pc2Input.value as? String, "Public Beta", app.debugDescription)
         web.buttons["保存修改"].firstMatch.tap()

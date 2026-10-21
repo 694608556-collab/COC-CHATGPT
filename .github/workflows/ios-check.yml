@@ -53,10 +53,11 @@ jobs:
           name: ios-picker-ui-evidence
           path: |
             mobile/ios/build/picker-ui.log
-            mobile/ios/build/picker-ui.xcresult
+            mobile/ios/build/picker-ui*.xcresult
             mobile/ios/build/picker-attachments
-            mobile/ios/build/ios-name-events.jsonl
-            mobile/ios/build/ios-name-trace-missing.json
+            mobile/ios/build/picker-manifest-*.json
+            mobile/ios/build/ios-name-events*.jsonl
+            mobile/ios/build/ios-name-trace-missing*.json
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: always()
