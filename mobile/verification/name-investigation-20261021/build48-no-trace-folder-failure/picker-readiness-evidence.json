@@ -1,0 +1,31 @@
+{
+  "scope": "Public Files-picker fixture readiness; unrelated to name exact assertions",
+  "run": 39550718620,
+  "artifact": 12323954091,
+  "recording": "718AC567-F766-45E6-A344-02EEE5A2C7CD.mp4",
+  "recordingSHA256": "719e4b9997ebaf0f055404388c562544335fc34fd09b0d009d2638c7b41ed4c7",
+  "frames": [
+    {
+      "timeSeconds": 24,
+      "file": "folder-24s.png",
+      "sha256": "8688dd1251ce5492b1cb973a0a0d07c23111c194ba5f290d46f4ea867758b1f9"
+    },
+    {
+      "timeSeconds": 34,
+      "file": "folder-34s.png",
+      "sha256": "5a6b4c3b8f2f870109bc17026be4b6a57fafd49753bad908fc1504ed26528cf7"
+    },
+    {
+      "timeSeconds": 40,
+      "file": "folder-40s.png",
+      "sha256": "b5a5f2c2da7994e80dc24c6b5ae290a31f5b0001d35aa4c2d375b2718ca49027"
+    }
+  ],
+  "observations": [
+    "At24s system picker is a blank sheet",
+    "At34s picker is still rendering previous import location, with no Open confirmation button",
+    "At40s current folder-picker navigation and public folder grid appear",
+    "Directory queries began at17.5s without the presentation gate already used by the import test; failed before a fresh ready-state directory query"
+  ],
+  "correction": "Add existing20s native navigation presentation gate before unchanged20s folder-navigation budget; keep all target hit tests, navigation/Open/authorization/restart assertions and original name exact values/10s waits."
+}
