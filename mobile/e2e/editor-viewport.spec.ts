@@ -307,3 +307,90 @@ test('WebKit 键盘平移后的矩形坐标不重复叠加 offset，两候选完
   await menu.getByRole('option', { name: '公开姓名2', exact: true }).click()
   await expect(input).toHaveValue('公开姓名2')
 })
+
+test('姓名已聚焦且候选关闭时，原生仅送达pointerdown也重新提供候选，不依赖合成click', async ({ page }) => {
+  const sample = await ready(page, 2)
+  await page.getByRole('button', { name: '角色卡', exact: true }).click()
+  await page.getByRole('button', { name: '新建七版角色' }).click()
+  await page.getByRole('checkbox', { name: sample.modules[0]!.name, exact: true }).check()
+  const input = page.getByLabel('姓名', { exact: true })
+  const menu = page.getByRole('listbox', { name: '模组PC姓名候选', exact: true })
+  await input.click()
+  await menu.getByRole('option', { name: '公开姓名2', exact: true }).click()
+  await expect(input).toBeFocused()
+  await expect(menu).toHaveCount(0)
+  // 云端实际收到这一事件后没有合成click，焦点仍在原姓名框。
+  await input.dispatchEvent('pointerdown', { pointerId: 21, pointerType: 'touch', bubbles: true })
+  await expect(menu).toBeVisible()
+  await expect(input).toBeFocused()
+  await expect(input).toHaveValue('公开姓名2')
+  await input.dispatchEvent('pointerup', { pointerId: 21, pointerType: 'touch', bubbles: true })
+  await menu.getByRole('option', { name: '公开姓名1', exact: true }).click()
+  await expect(input).toHaveValue('公开姓名1')
+  await expect(input).toBeFocused()
+})
+
+test('原生键盘pageTop已含平移时不反向滚动，两个姓名候选均能实际命中', async ({ page }) => {
+  await page.addInitScript(() => {
+    const probe = Object.assign(new EventTarget(), {
+      offsetTop: 0,
+      offsetLeft: 0,
+      width: innerWidth,
+      height: innerHeight
+    })
+    // 原生记录：pageTop=scrollY，offsetTop也已含同一次键盘平移。
+    Object.defineProperties(probe, {
+      pageTop: { get: () => scrollY },
+      pageLeft: { get: () => scrollX }
+    })
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: probe })
+  })
+  const sample = await ready(page, 2)
+  await page.getByRole('button', { name: '角色卡', exact: true }).click()
+  await page.getByRole('button', { name: '新建七版角色' }).click()
+  await page.getByRole('checkbox', { name: sample.modules[0]!.name, exact: true }).check()
+  const input = page.getByLabel('姓名', { exact: true })
+  await input.click()
+  await page.evaluate(() => {
+    const field = document.querySelector('input[role="combobox"]')!
+    const editor = document.querySelector('.editor') as HTMLElement
+    editor.style.position = 'relative'
+    editor.style.top = `${463 - (scrollY + field.getBoundingClientRect().top)}px`
+    window.scrollTo(0, scrollY + field.getBoundingClientRect().top - 211)
+    Object.assign(window.visualViewport!, { offsetTop: scrollY, height: 456 })
+    document.documentElement.style.setProperty('--app-safe-top', '59px')
+    // WKWebView也平移fixed合成层；与原生记录同样让操作栏占据屏幕底部。
+    const dock = document.querySelector('.navigation-dock') as HTMLElement
+    dock.style.marginTop = `${-scrollY}px`
+    window.visualViewport!.dispatchEvent(new Event('resize'))
+  })
+  const menu = page.getByRole('listbox', { name: '模组PC姓名候选', exact: true })
+  await expect
+    .poll(async () => {
+      const box = (await page.locator('.editor-actions').boundingBox())!
+      return Math.round(box.y + box.height)
+    })
+    .toBe(456)
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      })
+  )
+  await expect.poll(async () => Math.round((await input.boundingBox())!.y)).toBe(211)
+  await expect
+    .poll(() =>
+      menu.getByRole('option').evaluateAll((nodes) =>
+        nodes.every((node) => {
+          const box = node.getBoundingClientRect()
+          return document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === node
+        })
+      )
+    )
+    .toBe(true)
+  await menu.getByRole('option', { name: '公开姓名2', exact: true }).click()
+  await expect(input).toHaveValue('公开姓名2')
+  await input.click()
+  await menu.getByRole('option', { name: '公开姓名1', exact: true }).click()
+  await expect(input).toHaveValue('公开姓名1')
+})

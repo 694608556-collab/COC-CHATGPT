@@ -6,14 +6,17 @@ export function visibleViewport() {
   return {
     top: view?.offsetTop ?? 0,
     left: view?.offsetLeft ?? 0,
+    pageTop: view?.pageTop ?? scrollY + (view?.offsetTop ?? 0),
+    pageLeft: view?.pageLeft ?? scrollX + (view?.offsetLeft ?? 0),
     width: view?.width ?? innerWidth,
     height: view?.height ?? innerHeight
   }
 }
 
-/** Convert layout bounds to the same measured rectangle space as the anchor.
- * WKWebView may already pan getBoundingClientRect with the keyboard; CSS fixed
- * positioning still consumes layout coordinates, so keep visibleViewport raw.
+/** Convert the visible document origin to the anchor's measured rectangle space.
+ * WKWebView can include keyboard panning in both scrollY and offsetTop. pageTop
+ * is the document origin; adding those two again moves already visible fields
+ * behind the action bar. CSS fixed positioning still uses raw top/left above.
  */
 export function viewportRect(
   view = visibleViewport(),
@@ -21,8 +24,8 @@ export function viewportRect(
 ) {
   return {
     ...view,
-    top: view.top + scrollY + origin.top,
-    left: view.left + scrollX + origin.left,
+    top: view.pageTop + origin.top,
+    left: view.pageLeft + origin.left,
     safeTop: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-safe-top')) || 0
   }
 }
