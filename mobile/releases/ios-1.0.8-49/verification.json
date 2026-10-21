@@ -1,0 +1,24 @@
+{
+  "platform": "ios",
+  "file": "coc-logbook-1.0.8-49-fetchreuse-d83e6a1-ios-arm64-unsigned.ipa",
+  "version": "1.0.8",
+  "build": 49,
+  "bytes": 25654742,
+  "sha256": "7f5e6ed474db897efe1c1843b41d6467ef2a164c3ea9858c7fa1817287210531",
+  "source": "d83e6a1e0315d1966ae64f544e5726b0756a20c1",
+  "ciRun": 39630579313,
+  "ciConclusion": "success",
+  "originalFonts": 8,
+  "webAssets": {
+    "app.js": "49f4472d6553d5feedcb8605cfe545e2c233176142e207b6d9de261dd5fcbde4",
+    "app.css": "2078d93a95c8364fc833d4f2c155d9f61056ff2d2ce9ff1319836843ba8d3167",
+    "snapshot-worker.js": "49fe0eb182dad553f9609ff188093f09d7398c834e00a6b5a233ccb8eb54045d",
+    "export-worker.js": "b2f357a841859b04ba9bb097adbeb04c2fe4a07b81968516c13477b5969a2ccd",
+    "index.html": "9014e503177333b218f7965bf04dbed84a16c20a150bac53c53b3726d1b23f9d"
+  },
+  "privateDiagnosticDataIncluded": false,
+  "bundle": "coc.logbook",
+  "architecture": "arm64",
+  "signing": "unsigned; ESign configuration unchanged",
+  "userReported114RecordsSecondsApprox": 30
+}
