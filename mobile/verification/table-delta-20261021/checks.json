@@ -1,0 +1,20 @@
+{
+  "platform": "Android",
+  "applicationSource": "9ce20a923b219e4919aa197d13822dff55dd1743",
+  "typecheck": "passed",
+  "unitTests": 107,
+  "browser": {
+    "startTime": "2026-10-21T10:03:19.179Z",
+    "duration": 242570.983,
+    "expected": 112,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "environment": "Windows Edge, real Worker, IndexedDB; not physical device",
+  "native": {
+    "run": 39580675751,
+    "job": 119157197025,
+    "result": "Debug/Release/DebugAndroidTest compilation passed; instrumentation not executed"
+  }
+}
