@@ -191,8 +191,8 @@ import Foundation
         let reopenedDelta = try LogbookStore(url: root.appendingPathComponent("table-delta.sqlite"))
         try require(try reopenedDelta.revision() == 3 && (reopenedDelta.fullSnapshot(selected: [manualRows[manualIndex]["id"] as! String])!["records"] as! [LogbookJSON])[0]["manualContent"] as? String == "public manual\n\n中文😀\0tail", "delta manual NUL, Unicode and blank lines survive reopening")
         let freshDelta = try LogbookStore(url: root.appendingPathComponent("table-delta-fresh.sqlite"))
-        var first = delta; first["manualUpdates"] = [LogbookJSON](); first["modulesAdded"] = deltaBefore["modules"]; first["charactersAdded"] = deltaBefore["characters"]; first["recordsAdded"] = deltaBefore["records"]
-        _ = try freshDelta.importTableDelta(first, expected: 0)
+        var initialDelta = delta; initialDelta["manualUpdates"] = [LogbookJSON](); initialDelta["modulesAdded"] = deltaBefore["modules"]; initialDelta["charactersAdded"] = deltaBefore["characters"]; initialDelta["recordsAdded"] = deltaBefore["records"]
+        _ = try freshDelta.importTableDelta(initialDelta, expected: 0)
         try require(try logbookData(freshDelta.metadata()!["settings"]!) == logbookData(deltaBefore["settings"]!), "fresh native store accepts validated initial settings")
         try IOSScaleChecks.run(root: root, fixture: fixture)
         print("iOS native core: \(checks) checks passed; macOS test folders only, no phone or system picker tested.")
