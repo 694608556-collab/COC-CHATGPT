@@ -33,12 +33,15 @@ export async function fetchRecords(
     onResult?: (record: SessionRecord) => void
     /** Android disk staging; await before releasing this slot's body. */
     stageResult?: (record: SessionRecord) => Promise<void>
-    /** Keep metadata only after successful staging. Requires stageResult. */
+    /** 自带完整获取/暂存的流水线；resolve 前不得释放槽位或发布进度。 */
+    fetchAndStage?: (record: SessionRecord) => Promise<SessionRecord>
+    /** 成功暂存后只保留元数据；必须提供 stageResult 或 fetchAndStage。 */
     releaseBodies?: boolean
   } = {}
 ): Promise<SessionRecord[]> {
   const concurrency = options.concurrency ?? 3
-  if (options.releaseBodies && !options.stageResult) throw new Error('缺少正文暂存接口。')
+  if (options.releaseBodies && !options.stageResult && !options.fetchAndStage)
+    throw new Error('缺少正文暂存接口。')
   if (![2, 3, 4].includes(concurrency)) throw new Error('正文并发数量必须为 2–4。')
   if (
     new Set(records.map((record) => record.id)).size !== records.length ||
@@ -56,7 +59,9 @@ export async function fetchRecords(
     while (!rejected && cursor < records.length) {
       const index = cursor++
       try {
-        const next = await fetchRecord(port, records[index]!)
+        const next = await (options.fetchAndStage
+          ? options.fetchAndStage(records[index]!)
+          : fetchRecord(port, records[index]!))
         await options.stageResult?.(next)
         const visible = options.releaseBodies
           ? (({ rawContent, manualContent, ...metadata }) => metadata)(next)

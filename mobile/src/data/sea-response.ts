@@ -1,5 +1,5 @@
 import { Unzlib } from 'fflate'
-import { decodeBase64 } from './bytes'
+import { decodeBase64, encodeUtf8 } from './bytes'
 import { normalizeSeaResponse } from './sea-parser'
 import type { NormalizedLog } from '../../../src/shared/types'
 
@@ -35,9 +35,7 @@ export async function decodeSeaResponse(text: string, sourceUrl?: string): Promi
     payload = { ...payload, ...JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) }
   }
   const log = normalizeSeaResponse(payload, sourceUrl)
-  const hash = new Uint8Array(
-    await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(payload)))
-  )
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', encodeUtf8(JSON.stringify(payload))))
   log.responseHash = Array.from(hash, (b) => b.toString(16).padStart(2, '0')).join('')
   return log
 }

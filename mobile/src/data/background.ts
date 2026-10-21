@@ -1,5 +1,6 @@
 import { performSnapshotJob } from './snapshot-job'
 import type { SnapshotJob } from './snapshot-job'
+import type { FetchUpload } from './snapshot-job'
 import type { TablePreview } from './tables'
 import type { ImportPreview, MobileSnapshot } from './types'
 import type { NormalizedLog, ModuleRecord, SessionRecord, FilterPreset } from '../../../src/shared/types'
@@ -224,6 +225,22 @@ export function prepareUploadInBackground(snapshot: MobileSnapshot): Promise<{
   count: number
 }> {
   return runJob({ type: 'prepare-upload', snapshot })
+}
+
+/**
+ * 在同一 Worker 内解析、校验并保留上传字节，正文不经过主线程。
+ * @param snapshot - 含完整关联元数据的候选基线。
+ * @param record - 去除旧正文的当前在线场次。
+ * @param text - 受信任响应，缺失代表已分类的网络失败。
+ * @returns 无正文的场次元数据及同一完整上传租约；不写原生数据。
+ */
+export function prepareFetchUploadInBackground(
+  snapshot: MobileSnapshot,
+  record: SessionRecord,
+  text?: string
+): Promise<FetchUpload> {
+  // 当前只上传一场；即使界面已加载其他正文，也不能把它们复制进 Worker。
+  return runJob({ type: 'prepare-fetch-upload', snapshot: { ...snapshot, records: [] }, record, text })
 }
 
 /** @param id - 后台上传租约。 @param index - 零起顺序分段序号。 @returns 最多 256 KiB 原始字节的 Base64。 */
