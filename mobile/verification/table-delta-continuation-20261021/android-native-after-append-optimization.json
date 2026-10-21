@@ -1,0 +1,99 @@
+{
+  "environment": "S9 Android 9, isolated package coc.logbook.delta20261021, generated public fixtures",
+  "scope": "Native transaction only; no WebView, CSV, production Worker lease or bridge timing",
+  "baseCommit": "4897fe2",
+  "implementation": "Reuse one prepared insert for fully validated metadata-only added records; manual bodies retain existing bounded writer",
+  "sourceFileSHA256": "f67eb143bd654fbffe24b57324ead76e362364438dd3580ffce9e72787980d84",
+  "debugApkSHA256": "e8354e4aa3fd8f22914ccd766c2ff100881e2a3de325a171ca31d82a2bb6dcaa",
+  "fixture": "Same 1000 online records with 52000-character bodies, 50 modules, append 6000 metadata-only records",
+  "instrumentationTests": 16,
+  "instrumentationSeconds": 142.538,
+  "additionalDeltaAcceptanceRuns": 2,
+  "medianDeltaTotalMs": 878.631354,
+  "medianDeltaRecordWriteMs": 425.07651,
+  "timings": [
+    {
+      "protocol": "commitTableDelta",
+      "recordsBefore": 1000,
+      "recordsAfter": 7000,
+      "timing": {
+        "clock": "native-monotonic",
+        "totalMs": 878.631354,
+        "phasesMs": {
+          "transactionBegin": 0.520104,
+          "transactionCAS": 0.831928,
+          "metadataRead": 29.82776,
+          "tableRules": 83.156875,
+          "mergedValidation": 286.225416,
+          "recordIndex": 3.991823,
+          "recordCompareAndWrite": 446.380573,
+          "capacity": 5.714011,
+          "revisionWrite": 0.336822,
+          "transactionEnd": 21.510938
+        }
+      }
+    },
+    {
+      "protocol": "commitTable",
+      "recordsBefore": 1000,
+      "recordsAfter": 7000,
+      "timing": {
+        "clock": "native-monotonic",
+        "totalMs": 4893.96531,
+        "phasesMs": {
+          "transactionBegin": 0.546927,
+          "transactionCAS": 0.875625,
+          "metadataRead": 10.388385,
+          "tableRules": 149.464844,
+          "recordIndex": 30.593646,
+          "recordCompareAndWrite": 4668.189165,
+          "capacity": 5.738854,
+          "revisionWrite": 0.440885,
+          "transactionEnd": 27.490729
+        }
+      }
+    },
+    {
+      "protocol": "commitTableDelta",
+      "recordsBefore": 1000,
+      "recordsAfter": 7000,
+      "timing": {
+        "clock": "native-monotonic",
+        "totalMs": 820.745729,
+        "phasesMs": {
+          "transactionBegin": 0.45,
+          "transactionCAS": 0.695573,
+          "metadataRead": 25.91375,
+          "tableRules": 75.161146,
+          "mergedValidation": 259.356667,
+          "recordIndex": 4.238958,
+          "recordCompareAndWrite": 424.889583,
+          "capacity": 6.609115,
+          "revisionWrite": 0.205781,
+          "transactionEnd": 23.065313
+        }
+      }
+    },
+    {
+      "protocol": "commitTableDelta",
+      "recordsBefore": 1000,
+      "recordsAfter": 7000,
+      "timing": {
+        "clock": "native-monotonic",
+        "totalMs": 891.874426,
+        "phasesMs": {
+          "transactionBegin": 0.597708,
+          "transactionCAS": 1.056614,
+          "metadataRead": 21.837032,
+          "tableRules": 81.47375,
+          "mergedValidation": 324.722552,
+          "recordIndex": 1.583437,
+          "recordCompareAndWrite": 425.07651,
+          "capacity": 7.932813,
+          "revisionWrite": 0.576771,
+          "transactionEnd": 26.762187
+        }
+      }
+    }
+  ]
+}

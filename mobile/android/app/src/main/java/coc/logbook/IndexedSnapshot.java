@@ -159,7 +159,19 @@ final class IndexedSnapshot {
         long nextOrdinal;try(Cursor end=db.rawQuery("SELECT COALESCE(MAX(ordinal),-1)+1 FROM indexed_records",null)){end.moveToFirst();nextOrdinal=end.getLong(0);}
         TableTiming.mark(timing,"recordIndex");
         JSONArray added=delta.getJSONArray("recordsAdded"),changed=delta.getJSONArray("manualUpdates");
-        for(int i=0;i<added.length();i++){JSONObject row=added.getJSONObject(i);record(new RawJson(new StringReader(row.toString())),row.getString("id"),false,nextOrdinal++);}
+        // The complete delta/graph validation above proves these IDs are new and
+        // have no raw body. Reuse one statement for metadata-only appends; a
+        // manual body still takes the existing bounded body writer.
+        try(SQLiteStatement insert=db.compileStatement("INSERT INTO indexed_records(id,ordinal,metadata,bytes,body_count) VALUES(?,?,?,?,0)")){
+            for(int i=0;i<added.length();i++){
+                JSONObject row=added.getJSONObject(i);String metadata=row.toString();
+                if(row.has("manualContent"))record(new RawJson(new StringReader(metadata)),row.getString("id"),false,nextOrdinal++);
+                else{
+                    insert.bindString(1,row.getString("id"));insert.bindLong(2,nextOrdinal++);
+                    insert.bindString(3,metadata);insert.bindLong(4,JsonFields.bytes(metadata));insert.executeInsert();
+                }
+            }
+        }
         for(int i=0;i<changed.length();i++){
             JSONObject row=changed.getJSONObject(i);long rowKey=key(row.getString("id"));
             db.execSQL("DELETE FROM indexed_bodies WHERE record_key=? AND kind='manualContent'",new Object[]{rowKey});

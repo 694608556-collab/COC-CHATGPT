@@ -1,0 +1,52 @@
+{
+  "environment": "S9 Android 9, isolated package coc.logbook.delta20261021, generated public fixtures",
+  "source": "4897fe2",
+  "scope": "Native transaction only; no WebView, CSV, production Worker lease or bridge timing",
+  "fixture": "1000 online records with 52000-character bodies, 50 modules, append 6000 metadata-only records",
+  "samplesPerProtocol": 1,
+  "instrumentationTests": 16,
+  "instrumentationSeconds": 147.328,
+  "timings": [
+    {
+      "protocol": "commitTableDelta",
+      "recordsBefore": 1000,
+      "recordsAfter": 7000,
+      "timing": {
+        "clock": "native-monotonic",
+        "totalMs": 5123.902446,
+        "phasesMs": {
+          "transactionBegin": 0.780313,
+          "transactionCAS": 0.810312,
+          "metadataRead": 21.092188,
+          "tableRules": 78.919427,
+          "mergedValidation": 282.875625,
+          "recordIndex": 2.343333,
+          "recordCompareAndWrite": 4710.204998,
+          "capacity": 4.539115,
+          "revisionWrite": 0.323854,
+          "transactionEnd": 21.873177
+        }
+      }
+    },
+    {
+      "protocol": "commitTable",
+      "recordsBefore": 1000,
+      "recordsAfter": 7000,
+      "timing": {
+        "clock": "native-monotonic",
+        "totalMs": 4861.427707,
+        "phasesMs": {
+          "transactionBegin": 0.511198,
+          "transactionCAS": 0.927084,
+          "metadataRead": 9.944375,
+          "tableRules": 146.495104,
+          "recordIndex": 30.927552,
+          "recordCompareAndWrite": 4645.112238,
+          "capacity": 5.708333,
+          "revisionWrite": 0.539531,
+          "transactionEnd": 21.160417
+        }
+      }
+    }
+  ]
+}
