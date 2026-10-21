@@ -23,7 +23,7 @@
   ],
   "observations": [
     "At24s system picker is a blank sheet",
-    "At34s picker is still rendering previous import location, with no Open confirmation button",
+    "At34s navigation and the greyed public-coc7 file are visible, but no Open confirmation button is rendered; this alone does not establish the internal File Provider mode",
     "At40s current folder-picker navigation and public folder grid appear",
     "Directory queries began at17.5s without the presentation gate already used by the import test; failed before a fresh ready-state directory query"
   ],
