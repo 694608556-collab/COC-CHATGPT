@@ -22,4 +22,12 @@ node scripts/profile-table-confirm.mjs characters production
 node scripts/profile-table-confirm.mjs append production
 ```
 
-四份 `production-*.json` 均为公开生成夹具的完整脚本结果。iOS 原生测试变量重名另在 `ca05adb` 修正，云端完整验证运行 `39586805588`；本文件不将仍在运行的检查记为通过。旧安装包仍为 1.0.8/build48，未替换或发布版本。
+四份 `production-*.json` 均为公开生成夹具的完整脚本结果。iOS原生测试变量重名另在ca05adb修正。
+
+## 最终iOS完整原生验证
+
+[云端39586805588](https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39586805588)完整成功：86原生核心、设备Release、3冷启动、7系统UI，原精确断言与等待预算不变。UI为core 3项/304.945秒、names 3项/381.523秒、stress 1项/408.597秒，均0失败；逐项名称和耗时在ios-native-summary.json。原生公开规模部分36.687秒；WKWebView 3020次公开结果、4次批量CAS、0旧正文整库读取通过，178次503为夹具故意注入。
+
+ios-scale-result.json保留完整公开报告。追加6000场诊断1026ms（原生729.350ms），单手动1068ms（原生939.094ms），另有2次表格CAS及1次明确手动正文回读。脚本使用完整Worker prepare与诊断差量抽取，已标记不代表生产预览租约全路径，不是实体iPhone或CSV/UI总耗时。
+
+本地类型、109单元和118完整Edge通过。UI证据12342242583、启动/规模证据12342697290。旧安装包仍为1.0.8/build48，未替换或发布；CI未签名候选IPA不是新交付。跨平台说明见[本轮验收报告](../../TABLE-DELTA-VALIDATION-20261021.md)，实现顺序见[容量方案](../../CAPACITY-EXPANSION-PLAN-20261021.md)。

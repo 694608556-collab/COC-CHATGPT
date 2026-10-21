@@ -1,0 +1,149 @@
+{
+  "appBuild": "48",
+  "appVersion": "1.0.8",
+  "campaigns": 50,
+  "counts": {
+    "commits": 4,
+    "failed": 178,
+    "fetch": 3020,
+    "staged": 3020,
+    "wholeReads": 0
+  },
+  "countsScope": "four fetch rounds; profile manual proof readback happens after timed confirmation",
+  "manual": 50,
+  "nativeSystemVersion": "27.0",
+  "network": "generated public responses only",
+  "online": 1000,
+  "passed": true,
+  "profileManualReadbacks": 1,
+  "rounds": [
+    {
+      "commits": 1,
+      "failed": 59,
+      "fetch": 1000,
+      "revision": 2,
+      "round": 1,
+      "scope": "all",
+      "staged": 1000,
+      "wholeReads": 0
+    },
+    {
+      "commits": 2,
+      "failed": 118,
+      "fetch": 2000,
+      "revision": 3,
+      "round": 2,
+      "scope": "all",
+      "staged": 2000,
+      "wholeReads": 0
+    },
+    {
+      "commits": 3,
+      "failed": 177,
+      "fetch": 3000,
+      "revision": 4,
+      "round": 3,
+      "scope": "all",
+      "staged": 3000,
+      "wholeReads": 0
+    },
+    {
+      "commits": 4,
+      "failed": 178,
+      "fetch": 3020,
+      "revision": 5,
+      "round": 4,
+      "scope": "last-module",
+      "staged": 3020,
+      "wholeReads": 0
+    }
+  ],
+  "scrollEdgeEffectsHidden": true,
+  "stage": "complete",
+  "tableTiming": [
+    {
+      "bridgeRoundTripMs": 735,
+      "clock": "webview-monotonic",
+      "diagnosticByteCountMs": 6,
+      "fixture": "after-3020-generated-public-fetch-results",
+      "inputBytes": 2459949,
+      "modules": 350,
+      "native": {
+        "clock": "native-monotonic",
+        "phasesMs": {
+          "authorization": 0.8577083335694624,
+          "candidateParse": 38.74054166681162,
+          "capacity": 18.866166666612116,
+          "inputSize": 4.341291666605684,
+          "mergedValidation": 290.01241666674105,
+          "metadataRead": 70.57941666653278,
+          "queueAndResources": 0.40704166667637764,
+          "recordCompareAndWrite": 257.0939583333711,
+          "tableRules": 34.09641666667085,
+          "transactionBegin": 0.48791666677061585,
+          "transactionCAS": 0.04279166660126066,
+          "transactionEnd": 13.788208333153307
+        },
+        "totalMs": 729.35012500011
+      },
+      "preparation": "full Worker prepare plus diagnostic delta encoding; production uses preview lease",
+      "prepareRoundTripMs": 285,
+      "protocol": "table-delta-v1",
+      "records": 7050,
+      "scenario": "append-6000",
+      "totalMs": 1026,
+      "worker": {
+        "clock": "worker-monotonic",
+        "phasesMs": {
+          "decodeParseValidate": 84,
+          "inputJson": 6,
+          "outputJson": 16,
+          "utf8Encode": 12
+        },
+        "totalMs": 118
+      }
+    },
+    {
+      "bridgeRoundTripMs": 941,
+      "clock": "webview-monotonic",
+      "diagnosticByteCountMs": 0,
+      "fixture": "after-3020-generated-public-fetch-results",
+      "inputBytes": 679,
+      "modules": 350,
+      "native": {
+        "clock": "native-monotonic",
+        "phasesMs": {
+          "authorization": 0.7388333333437913,
+          "candidateParse": 0.12504166670623817,
+          "capacity": 40.37091666668857,
+          "inputSize": 0.024291666704812087,
+          "mergedValidation": 366.87366666683374,
+          "metadataRead": 505.0768750002135,
+          "queueAndResources": 0.5318333332979819,
+          "recordCompareAndWrite": 14.639375000115251,
+          "tableRules": 9.469124999668566,
+          "transactionBegin": 0.7994583329491434,
+          "transactionCAS": 0.09308333346780273,
+          "transactionEnd": 0.33929166647794773
+        },
+        "totalMs": 939.0942499999255
+      },
+      "preparation": "full Worker prepare plus diagnostic delta encoding; production uses preview lease",
+      "prepareRoundTripMs": 127,
+      "protocol": "table-delta-v1",
+      "records": 7050,
+      "scenario": "single-manual-update",
+      "totalMs": 1068,
+      "worker": {
+        "clock": "worker-monotonic",
+        "phasesMs": {
+          "decodeParseValidate": 57,
+          "inputJson": 8,
+          "outputJson": 1,
+          "utf8Encode": 5
+        },
+        "totalMs": 71
+      }
+    }
+  ]
+}

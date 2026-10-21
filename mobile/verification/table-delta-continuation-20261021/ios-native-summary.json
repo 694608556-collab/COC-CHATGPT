@@ -1,0 +1,50 @@
+{
+  "runId": 39586805588,
+  "source": "ca05adb863db63c598bbc069b2b8033dc5e84d72",
+  "conclusion": "success",
+  "scope": "Fresh cloud iPhone 14 Pro / iOS 27 simulator and macOS native fixture folders; no physical phone",
+  "nativeCoreChecks": 86,
+  "nativeScaleSeconds": 36.687440037727356,
+  "coldStartsPassed": 3,
+  "uiTestsPassed": 7,
+  "uiFailures": 0,
+  "uiArtifactId": 12342242583,
+  "scaleArtifactId": 12342697290,
+  "uiCases": [
+    {
+      "name": "testCoc7ImportPickerCancelSaveAndRestart",
+      "seconds": 156.102,
+      "passed": true
+    },
+    {
+      "name": "testExplicitLocalFolderReturnsAndSurvivesRestart",
+      "seconds": 50.112,
+      "passed": true
+    },
+    {
+      "name": "testFolderOpenReturnsAndSurvivesRestart",
+      "seconds": 98.731,
+      "passed": true
+    },
+    {
+      "name": "testPublicNameCandidatesSecondLaunchWithNativeKeyboard",
+      "seconds": 138.574,
+      "passed": true
+    },
+    {
+      "name": "testPublicNameCandidatesThirdLaunchWithNativeKeyboard",
+      "seconds": 120.319,
+      "passed": true
+    },
+    {
+      "name": "testPublicNameCandidatesWithNativeKeyboard",
+      "seconds": 122.63,
+      "passed": true
+    },
+    {
+      "name": "testPublicNameCandidateRepeatedSwitchFocusAndKeyboard",
+      "seconds": 408.597,
+      "passed": true
+    }
+  ]
+}
