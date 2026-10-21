@@ -1,4 +1,16 @@
-# iOS 姓名候选与原生键盘：取证阶段
+# iOS 姓名候选与原生键盘：修复及验证
+
+## 2026-10-21 最新：按原生几何建立回归后修复（原生验证中）
+
+修改前运行39534775657（ed5757b）7项UI为3通过/4失败：两个原始姓名重复在Alpha精确断言失败，压力在第0轮最终Alpha失败；另有系统目录夹具定位失败，原日志/附件保留，后续单独检查，不归因环境。本轮2471事件、10次DOM候选点击、零尾空格；唯一提交角色按ID由原生首次getOverview回读Public Alpha逐字一致。原build46尾空格本轮仍未直接复现。
+
+触摸证据明确显示失败Alpha的AX坐标与候选DOM矩形一致，但pointerdown实际命中覆盖候选的保存操作栏。例如第二次启动Alpha中心约(108,417)，DOM矩形394.3–438.3，实际目标editor-actions。原生键盘记录pageTop=scrollY，同时offsetTop也含同次平移；旧viewportRect再累加offsetTop和scrollY，导致focus/resize避让把已可见姓名框从211错误下移319。完整公开原始JSONL与XCTest附件保留在上述运行。
+
+新增浏览器回归使用原生documentTop463、scrollY252、offsetTop252、pageTop252、键盘可见高度456及fixed层平移，原公式稳定失败（姓名319px而非211px）；改按pageTop/pageLeft加文档原点换算后通过，两个候选必须实际elementFromPoint命中且切换精确值。标准浏览器pageTop通常等于scrollY+offsetTop，缺少pageTop的测试/旧环境保留原回退。CSS fixed操作栏仍使用原始offset，不新增纯视口平移时抢滚动。
+
+另据39529890721已聚焦姓名框pointerdown后没有click的事件，建立仅pointerdown重开候选回归，旧组件失败后在输入onPointerDown重开候选；不preventDefault，不修改键盘、插入点或姓名。该修复eba40dd的112完整Edge、103单元与类型通过，原生运行39537419175仍需检查。两项修复的最终候选为1.0.8/build47，旧build46不替换。下一轮三次原始姓名独立测试不安装跟踪，六轮重复/切换/键盘/焦点压力保留跟踪，所有原精确断言与10秒等待不变。
+
+以下为此前完整取证历史；“尚未修改生产组件”仅描述此前阶段。
 
 基线为交付 `9afde10`（IPA 应用源码 `801bc8a`，开发适配器 `648ae17`）。build46 云端运行 39448999303 attempt1 的 Public Beta 精确值断言观察到尾部空格；同源码 attempt2 通过。原因仍未确定，复跑通过不能作为修复证明。
 

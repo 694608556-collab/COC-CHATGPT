@@ -152,7 +152,7 @@ final class PickerUITests: XCTestCase {
         XCTAssertTrue(app.webViews.buttons["新增模组"].firstMatch.waitForExistence(timeout: 30), app.debugDescription)
     }
     func testPublicNameCandidatesWithNativeKeyboard() throws {
-        try exercisePublicNameCandidates(stress: false)
+        try exercisePublicNameCandidates(stress: false, trace: false)
     }
 
     func testPublicNameCandidateRepeatedSwitchFocusAndKeyboard() throws {
@@ -160,11 +160,11 @@ final class PickerUITests: XCTestCase {
     }
 
     func testPublicNameCandidatesSecondLaunchWithNativeKeyboard() throws {
-        try exercisePublicNameCandidates(stress: false)
+        try exercisePublicNameCandidates(stress: false, trace: false)
     }
 
     func testPublicNameCandidatesThirdLaunchWithNativeKeyboard() throws {
-        try exercisePublicNameCandidates(stress: false)
+        try exercisePublicNameCandidates(stress: false, trace: false)
     }
 
     private func attachNameValue(_ element: XCUIElement, app: XCUIApplication, stage: String) {
@@ -187,9 +187,10 @@ final class PickerUITests: XCTestCase {
         element.tap()
     }
 
-    private func exercisePublicNameCandidates(stress: Bool) throws {
+    private func exercisePublicNameCandidates(stress: Bool, trace: Bool = true) throws {
         let app = XCUIApplication(bundleIdentifier: "coc.logbook")
-        app.launchArguments = ["--coc-picker-ui", "--coc-picker-ui-fresh", "--coc-name-trace", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments = ["--coc-picker-ui", "--coc-picker-ui-fresh", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        if trace { app.launchArguments.append("--coc-name-trace") }
         app.launch()
         let web = app.webViews
         let local = web.buttons["使用本机归档文件夹"].firstMatch
