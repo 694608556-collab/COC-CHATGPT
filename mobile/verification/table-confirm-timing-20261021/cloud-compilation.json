@@ -1,0 +1,19 @@
+{
+  "source": "4ad7485609a9e75fe201471a844b79109f4fcda4",
+  "run": "https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39568403266",
+  "conclusion": "success",
+  "typecheck": true,
+  "unit": 103,
+  "debugReleaseAndInstrumentationCompiled": true,
+  "nativeInstrumentationExecuted": false,
+  "deviceTimingAvailable": false,
+  "selectedPublicLog": [
+    "2026-10-21T08:20:05.5733599Z  Test Files  27 passed (27)",
+    "2026-10-21T08:20:05.5734840Z       Tests  103 passed (103)",
+    "2026-10-21T08:20:06.3681903Z ##[group]Run chmod +x android/gradlew && cd android && ./gradlew :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest --no-daemon --console=plain",
+    "2026-10-21T08:20:06.3683117Z chmod +x android/gradlew && cd android && ./gradlew :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest --no-daemon --console=plain",
+    "2026-10-21T08:22:11.9526182Z > Task :app:compileDebugAndroidTestJavaWithJavac",
+    "2026-10-21T08:22:28.8487274Z > Task :app:assembleRelease",
+    "2026-10-21T08:22:28.9485691Z BUILD SUCCESSFUL in 2m 20s"
+  ]
+}
