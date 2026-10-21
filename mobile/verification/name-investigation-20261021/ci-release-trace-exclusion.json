@@ -1,0 +1,22 @@
+{
+  "scope": "CI test-only Release artifact 12314443320 from source 66221a4; not a new delivery and does not replace the existing build46 IPA",
+  "bundle": "coc.logbook",
+  "version": "1.0.8",
+  "build": "46",
+  "zipIntegrity": true,
+  "debugTraceMarkersAbsent": [
+    "cocPublicNameTrace",
+    "ios-name-events.jsonl",
+    "__cocPublicNameTrace",
+    "--coc-name-trace"
+  ],
+  "webAssetsMatch": {
+    "app.js": "d1de22f6cbce842fb1461a5e3f428ac1add24dae19b36bfa71ae2322cad6c3cb",
+    "app.css": "9e306f09dd65ad62d3a3afbd1197e4cbaa28a3ecd2d8a397dc5f11200be8b80d",
+    "snapshot-worker.js": "90f2ca0ec08302b808b6c09ae85018b3450872824ebac5d3057cd32fb4111c78",
+    "export-worker.js": "18efc4b8e160e4fca6c4a604a74d91a2a2012b3dae80b12f7a6eddab50593eb1",
+    "index.html": "9014e503177333b218f7965bf04dbed84a16c20a150bac53c53b3726d1b23f9d"
+  },
+  "originalFontsMatch": 8,
+  "appleProvisioningPresent": false
+}

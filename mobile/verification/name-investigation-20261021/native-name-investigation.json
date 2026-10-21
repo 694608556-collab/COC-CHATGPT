@@ -1,0 +1,77 @@
+{
+  "scope": "public isolated cloud simulator, diagnostic tests only; production component unchanged",
+  "source": "66221a4e8d6924902f71db5895d4810c7d50d0e6",
+  "workflowRun": 39529890721,
+  "workflowConclusion": "failure",
+  "nativeCorePassed": 67,
+  "coldStartsPassed": 3,
+  "systemUi": {
+    "passed": 4,
+    "failed": 3,
+    "tests": [
+      "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidateRepeatedSwitchFocusAndKeyboard]' failed (82.621 seconds).",
+      "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesSecondLaunchWithNativeKeyboard]' failed (65.102 seconds).",
+      "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesThirdLaunchWithNativeKeyboard]' failed (63.506 seconds).",
+      "Test Case '-[PickerUITests.PickerUITests testPublicNameCandidatesWithNativeKeyboard]' passed (68.392 seconds)."
+    ]
+  },
+  "scaleStage": "not run after UI failure",
+  "events": 1437,
+  "launches": 5,
+  "candidateClicks": 8,
+  "trailingWhitespaceObservations": 0,
+  "savedRoundTrips": [
+    {
+      "id": "8db3d2ea-8639-4756-870d-dd3ba8e26f82",
+      "requested": {
+        "codePoints": [
+          "50",
+          "75",
+          "62",
+          "6c",
+          "69",
+          "63",
+          "20",
+          "41",
+          "6c",
+          "70",
+          "68",
+          "61"
+        ],
+        "value": "Public Alpha"
+      },
+      "stored": null,
+      "exact": null,
+      "evidence": "startup overview not captured; not evidence of data loss"
+    }
+  ],
+  "observations": [
+    "Two independent original-case repeats failed exact Alpha assertion while AX/DOM name remained Public Beta; no Alpha DOM candidate click captured in those sessions",
+    "Stress stopped during round zero after name pointerdown without click and without menu reopening; six native rounds did not complete",
+    "Original name case passed including save/restart exact Public Alpha; startup overview id correlation was not captured by the late JS bridge observer"
+  ],
+  "rootCause": "undetermined; no fix or environment attribution",
+  "priorHarnessFailures": [
+    {
+      "run": 39527701960,
+      "events": 554,
+      "candidateClicks": 0
+    },
+    {
+      "run": 39528697134,
+      "events": 552,
+      "candidateClicks": 0
+    }
+  ],
+  "artifacts": {
+    "ui": 12315841331,
+    "diagnostics": 12315841335,
+    "startup": 12315946294
+  },
+  "nextEvidence": [
+    "all pointer targets/client coordinates",
+    "input/menu rectangles and VisualViewport geometry",
+    "delayed DOM value observation",
+    "native-side saved name readback before early JS calls"
+  ]
+}

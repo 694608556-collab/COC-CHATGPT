@@ -1,0 +1,1274 @@
+{
+  "scope": "public exact name fields only; no bodies, phone identifiers, paths or signing data",
+  "source": "66221a4",
+  "coordinatesCaptured": false,
+  "timeline": [
+    {
+      "session": 1,
+      "sequence": 280,
+      "timeMs": 1792548528928,
+      "event": "click",
+      "label": "",
+      "option": {
+        "codePoints": [
+          "50",
+          "75",
+          "62",
+          "6c",
+          "69",
+          "63",
+          "20",
+          "42",
+          "65",
+          "74",
+          "61"
+        ],
+        "value": "Public Beta"
+      },
+      "fields": [
+        {
+          "codePoints": [],
+          "end": 0,
+          "focused": false,
+          "label": "姓名",
+          "start": 0,
+          "value": ""
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 1,
+      "sequence": 284,
+      "timeMs": 1792548529714,
+      "event": "click",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 11,
+          "focused": false,
+          "label": "姓名",
+          "start": 11,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 1,
+      "sequence": 287,
+      "timeMs": 1792548529718,
+      "event": "focusin",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 0,
+          "focused": true,
+          "label": "姓名",
+          "start": 0,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 1,
+      "sequence": 290,
+      "timeMs": 1792548543228,
+      "event": "focusout",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 11,
+          "focused": false,
+          "label": "姓名",
+          "start": 11,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 1,
+      "sequence": 294,
+      "timeMs": 1792548545745,
+      "event": "pointerdown",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 11,
+          "focused": false,
+          "label": "姓名",
+          "start": 11,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 1,
+      "sequence": 304,
+      "timeMs": 1792548545859,
+      "event": "focusin",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 0,
+          "focused": true,
+          "label": "姓名",
+          "start": 0,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 1,
+      "sequence": 308,
+      "timeMs": 1792548545869,
+      "event": "click",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 0,
+          "focused": true,
+          "label": "姓名",
+          "start": 0,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 1,
+      "sequence": 324,
+      "timeMs": 1792548549118,
+      "event": "click",
+      "label": "",
+      "option": {
+        "codePoints": [
+          "50",
+          "75",
+          "62",
+          "6c",
+          "69",
+          "63",
+          "20",
+          "41",
+          "6c",
+          "70",
+          "68",
+          "61"
+        ],
+        "value": "Public Alpha"
+      },
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 0,
+          "focused": true,
+          "label": "姓名",
+          "start": 0,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 1,
+      "sequence": 328,
+      "timeMs": 1792548550808,
+      "event": "pointerdown",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "end": 12,
+          "focused": true,
+          "label": "姓名",
+          "start": 12,
+          "value": "Public Alpha"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 1,
+      "sequence": 340,
+      "timeMs": 1792548550926,
+      "event": "click",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "end": 0,
+          "focused": true,
+          "label": "姓名",
+          "start": 0,
+          "value": "Public Alpha"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 1,
+      "sequence": 356,
+      "timeMs": 1792548553851,
+      "event": "click",
+      "label": "",
+      "option": {
+        "codePoints": [
+          "50",
+          "75",
+          "62",
+          "6c",
+          "69",
+          "63",
+          "20",
+          "41",
+          "6c",
+          "70",
+          "68",
+          "61"
+        ],
+        "value": "Public Alpha"
+      },
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "end": 0,
+          "focused": true,
+          "label": "姓名",
+          "start": 0,
+          "value": "Public Alpha"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 1,
+      "sequence": 360,
+      "timeMs": 1792548555913,
+      "event": "pointerdown",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "end": 0,
+          "focused": true,
+          "label": "姓名",
+          "start": 0,
+          "value": "Public Alpha"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 2,
+      "sequence": 282,
+      "timeMs": 1792548609906,
+      "event": "click",
+      "label": "",
+      "option": {
+        "codePoints": [
+          "50",
+          "75",
+          "62",
+          "6c",
+          "69",
+          "63",
+          "20",
+          "42",
+          "65",
+          "74",
+          "61"
+        ],
+        "value": "Public Beta"
+      },
+      "fields": [
+        {
+          "codePoints": [],
+          "end": 0,
+          "focused": false,
+          "label": "姓名",
+          "start": 0,
+          "value": ""
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 2,
+      "sequence": 286,
+      "timeMs": 1792548610611,
+      "event": "click",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 11,
+          "focused": false,
+          "label": "姓名",
+          "start": 11,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 2,
+      "sequence": 289,
+      "timeMs": 1792548610613,
+      "event": "focusin",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 0,
+          "focused": true,
+          "label": "姓名",
+          "start": 0,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 2,
+      "sequence": 292,
+      "timeMs": 1792548621779,
+      "event": "pointerdown",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 11,
+          "focused": true,
+          "label": "姓名",
+          "start": 11,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 2,
+      "sequence": 304,
+      "timeMs": 1792548622022,
+      "event": "click",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 0,
+          "focused": true,
+          "label": "姓名",
+          "start": 0,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 2,
+      "sequence": 308,
+      "timeMs": 1792548623727,
+      "event": "focusout",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 0,
+          "focused": false,
+          "label": "姓名",
+          "start": 0,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 3,
+      "sequence": 280,
+      "timeMs": 1792548671479,
+      "event": "click",
+      "label": "",
+      "option": {
+        "codePoints": [
+          "50",
+          "75",
+          "62",
+          "6c",
+          "69",
+          "63",
+          "20",
+          "42",
+          "65",
+          "74",
+          "61"
+        ],
+        "value": "Public Beta"
+      },
+      "fields": [
+        {
+          "codePoints": [],
+          "end": 0,
+          "focused": false,
+          "label": "姓名",
+          "start": 0,
+          "value": ""
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 3,
+      "sequence": 284,
+      "timeMs": 1792548672181,
+      "event": "click",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 11,
+          "focused": false,
+          "label": "姓名",
+          "start": 11,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 3,
+      "sequence": 287,
+      "timeMs": 1792548672183,
+      "event": "focusin",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 0,
+          "focused": true,
+          "label": "姓名",
+          "start": 0,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 3,
+      "sequence": 290,
+      "timeMs": 1792548682707,
+      "event": "focusout",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 11,
+          "focused": false,
+          "label": "姓名",
+          "start": 11,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 3,
+      "sequence": 294,
+      "timeMs": 1792548685161,
+      "event": "pointerdown",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 11,
+          "focused": false,
+          "label": "姓名",
+          "start": 11,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 3,
+      "sequence": 304,
+      "timeMs": 1792548685244,
+      "event": "focusin",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 0,
+          "focused": true,
+          "label": "姓名",
+          "start": 0,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 3,
+      "sequence": 308,
+      "timeMs": 1792548685246,
+      "event": "click",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 0,
+          "focused": true,
+          "label": "姓名",
+          "start": 0,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 3,
+      "sequence": 312,
+      "timeMs": 1792548687496,
+      "event": "focusout",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 0,
+          "focused": false,
+          "label": "姓名",
+          "start": 0,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 4,
+      "sequence": 282,
+      "timeMs": 1792548735544,
+      "event": "click",
+      "label": "",
+      "option": {
+        "codePoints": [
+          "50",
+          "75",
+          "62",
+          "6c",
+          "69",
+          "63",
+          "20",
+          "42",
+          "65",
+          "74",
+          "61"
+        ],
+        "value": "Public Beta"
+      },
+      "fields": [
+        {
+          "codePoints": [],
+          "end": 0,
+          "focused": false,
+          "label": "姓名",
+          "start": 0,
+          "value": ""
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 4,
+      "sequence": 286,
+      "timeMs": 1792548736238,
+      "event": "click",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 11,
+          "focused": false,
+          "label": "姓名",
+          "start": 11,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 4,
+      "sequence": 289,
+      "timeMs": 1792548736239,
+      "event": "focusin",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 0,
+          "focused": true,
+          "label": "姓名",
+          "start": 0,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 4,
+      "sequence": 304,
+      "timeMs": 1792548745613,
+      "event": "click",
+      "label": "",
+      "option": {
+        "codePoints": [
+          "50",
+          "75",
+          "62",
+          "6c",
+          "69",
+          "63",
+          "20",
+          "42",
+          "65",
+          "74",
+          "61"
+        ],
+        "value": "Public Beta"
+      },
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 11,
+          "focused": true,
+          "label": "姓名",
+          "start": 11,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 4,
+      "sequence": 308,
+      "timeMs": 1792548747261,
+      "event": "pointerdown",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 11,
+          "focused": true,
+          "label": "姓名",
+          "start": 11,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 4,
+      "sequence": 320,
+      "timeMs": 1792548747424,
+      "event": "click",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 0,
+          "focused": true,
+          "label": "姓名",
+          "start": 0,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 4,
+      "sequence": 336,
+      "timeMs": 1792548749248,
+      "event": "click",
+      "label": "",
+      "option": {
+        "codePoints": [
+          "50",
+          "75",
+          "62",
+          "6c",
+          "69",
+          "63",
+          "20",
+          "41",
+          "6c",
+          "70",
+          "68",
+          "61"
+        ],
+        "value": "Public Alpha"
+      },
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "42",
+            "65",
+            "74",
+            "61"
+          ],
+          "end": 0,
+          "focused": true,
+          "label": "姓名",
+          "start": 0,
+          "value": "Public Beta"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 4,
+      "sequence": 340,
+      "timeMs": 1792548750993,
+      "event": "focusout",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "end": 12,
+          "focused": false,
+          "label": "姓名",
+          "start": 12,
+          "value": "Public Alpha"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 5,
+      "sequence": 2,
+      "timeMs": 1792548765356,
+      "event": "click",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "end": 12,
+          "focused": false,
+          "label": "姓名",
+          "start": 12,
+          "value": "Public Alpha"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 5,
+      "sequence": 5,
+      "timeMs": 1792548765358,
+      "event": "focusin",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "end": 0,
+          "focused": true,
+          "label": "姓名",
+          "start": 0,
+          "value": "Public Alpha"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    },
+    {
+      "session": 5,
+      "sequence": 8,
+      "timeMs": 1792548768231,
+      "event": "focusout",
+      "label": "姓名",
+      "option": null,
+      "fields": [
+        {
+          "codePoints": [
+            "50",
+            "75",
+            "62",
+            "6c",
+            "69",
+            "63",
+            "20",
+            "41",
+            "6c",
+            "70",
+            "68",
+            "61"
+          ],
+          "end": 12,
+          "focused": false,
+          "label": "姓名",
+          "start": 12,
+          "value": "Public Alpha"
+        }
+      ],
+      "inputType": null,
+      "data": null
+    }
+  ]
+}

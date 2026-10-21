@@ -1,0 +1,22 @@
+{
+  "scope": "Edge isolated Playwright contexts, source 66221a4, original assertions and timeouts",
+  "typecheck": true,
+  "unitsPassed": 103,
+  "final": {
+    "startTime": "2026-10-21T02:10:56.008Z",
+    "duration": 229362.81399999998,
+    "expected": 111,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "previousCompleteRun": {
+    "passed": 110,
+    "failed": 1,
+    "failure": "Page snapshot: 内置字体加载失败，请检查开发构建的字体资源并刷新。",
+    "functionalCase": "ui-feedback compact title, failed before ready",
+    "originalTimeoutMs": 30000,
+    "singleCaseRepeatsPassed": 3,
+    "rootCause": "undetermined; original error context retained outside repository; rerun pass is not a fix claim"
+  }
+}
