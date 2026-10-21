@@ -2,6 +2,12 @@ import Foundation
 
 /// Each request has its own redirect budget and bounded response buffer; no storage queue is held.
 final class LogbookFetch: NSObject, URLSessionDataDelegate {
+    typealias SessionFactory = (URLSessionConfiguration, URLSessionDelegate, OperationQueue?) -> URLSession
+    private let makeSession: SessionFactory
+    init(makeSession: @escaping SessionFactory = { URLSession(configuration: $0, delegate: $1, delegateQueue: $2) }) {
+        self.makeSession = makeSession
+        super.init()
+    }
     private var session: URLSession?
     private var completion: ((Result<LogbookJSON, Error>) -> Void)?
     private var bytes = Data()
@@ -16,7 +22,7 @@ final class LogbookFetch: NSObject, URLSessionDataDelegate {
         self.completion = completion
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 15; configuration.timeoutIntervalForResource = 60
-        session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        session = makeSession(configuration, self, nil)
         var request = URLRequest(url: url); request.setValue("application/json", forHTTPHeaderField: "Accept")
         session!.dataTask(with: request).resume()
     }
