@@ -521,6 +521,73 @@ test('原生键盘pageTop已含平移时不反向滚动，两个姓名候选均�
   await expect(input).toHaveValue('公开姓名1')
 })
 
+test('iOS键盘动画的pageTop迟到时不反向改布局，稳定后才避让且候选真实可选', async ({ page }) => {
+  await page.addInitScript(() => {
+    const probe = Object.assign(new EventTarget(), {
+      offsetTop: 0,
+      offsetLeft: 0,
+      width: innerWidth,
+      height: innerHeight
+    })
+    Object.defineProperty(probe, 'pageTop', {
+      get: () => (window as unknown as { __publicDelayedPageTop?: number }).__publicDelayedPageTop ?? scrollY
+    })
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: probe })
+  })
+  const sample = await ready(page, 2)
+  await page.evaluate(() => {
+    document.documentElement.dataset.platform = 'ios'
+  })
+  await page.getByRole('button', { name: '角色卡', exact: true }).click()
+  await page.getByRole('button', { name: '新建七版角色' }).click()
+  await page.getByRole('checkbox', { name: sample.modules[0]!.name, exact: true }).check()
+  const input = page.getByLabel('姓名', { exact: true })
+  const menu = page.getByRole('listbox', { name: '模组PC姓名候选', exact: true })
+  await input.click()
+  await page.evaluate(() => {
+    const field = document.querySelector('input[role="combobox"]')!
+    const editor = document.querySelector('.editor') as HTMLElement
+    editor.style.position = 'relative'
+    editor.style.top = `${565 - (scrollY + field.getBoundingClientRect().top)}px`
+    window.scrollTo(0, 310)
+    Object.assign(window, { __publicDelayedPageTop: 6 })
+    Object.assign(window.visualViewport!, { offsetTop: 6, height: 456 })
+    const dock = document.querySelector('.navigation-dock') as HTMLElement
+    dock.style.marginTop = '-6px'
+    window.visualViewport!.dispatchEvent(new Event('resize'))
+  })
+  await page.evaluate(async () => {
+    for (let i = 0; i < 12; i++) await new Promise(requestAnimationFrame)
+  })
+  await expect.poll(async () => Math.round((await input.boundingBox())!.y)).toBe(255)
+  await page.evaluate(() => {
+    delete (window as unknown as { __publicDelayedPageTop?: number }).__publicDelayedPageTop
+    Object.assign(window.visualViewport!, { offsetTop: scrollY })
+    ;(document.querySelector('.navigation-dock') as HTMLElement).style.marginTop = `${-scrollY}px`
+    window.visualViewport!.dispatchEvent(new Event('scroll'))
+  })
+  await expect
+    .poll(async () => {
+      const menuBox = (await menu.boundingBox())!,
+        dock = (await page.locator('.navigation-dock').boundingBox())!
+      return menuBox.y + menuBox.height <= dock.y - 7
+    })
+    .toBe(true)
+  await expect
+    .poll(() =>
+      menu.getByRole('option').evaluateAll((nodes) =>
+        nodes.every((node) => {
+          const box = node.getBoundingClientRect()
+          return document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === node
+        })
+      )
+    )
+    .toBe(true)
+  await menu.getByRole('option', { name: '公开姓名2', exact: true }).click()
+  await expect(input).toHaveValue('公开姓名2')
+  await expect(input).toBeFocused()
+})
+
 test('WebKit 键盘平移后的矩形坐标不重复叠加 offset，两候选完整可见且可选', async ({ page }) => {
   await page.addInitScript(() => {
     const probe = Object.assign(new EventTarget(), {

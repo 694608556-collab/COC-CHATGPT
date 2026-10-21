@@ -76,46 +76,100 @@ export function Editor(props: {
   }, [error])
   useEffect(() => {
     let frame = 0
-    const reveal = (event?: Event) => {
+    const cancelReveal = () => {
       cancelAnimationFrame(frame)
+      frame = 0
+    }
+    const reveal = (event?: Event) => {
+      cancelReveal()
       const requested = event instanceof CustomEvent ? event.detail : undefined
-      frame = requestAnimationFrame(() => {
-        const active = requested instanceof HTMLInputElement ? requested : document.activeElement
-        if (
-          !(active instanceof HTMLElement) ||
-          !active.matches('input, textarea, select') ||
-          !editor.current?.contains(active)
-        )
-          return
+      const active = requested instanceof HTMLInputElement ? requested : document.activeElement
+      if (
+        !(active instanceof HTMLElement) ||
+        !active.matches('input, textarea, select') ||
+        !editor.current?.contains(active)
+      )
+        return
+      const ios = document.documentElement.dataset.platform === 'ios' && active === document.activeElement
+      const started = performance.now()
+      const notBefore =
+        ios && (window.visualViewport?.height ?? innerHeight) + 1 >= innerHeight ? started + 250 : started
+      const deadline = started + 1200
+      let signature = '',
+        stableSince = started
+      const measure = () => {
+        if (!editor.current?.contains(active) || (!requested && document.activeElement !== active)) return
         const view = viewportRect()
         const header = document.querySelector('.app-header')?.getBoundingClientRect()
         const dock = document.querySelector('.navigation-dock')?.getBoundingClientRect()
         const top = Math.max(view.top + view.safeTop + 8, (header?.bottom ?? 0) + 8)
         const bottom = Math.min(view.top + view.height - 8, (dock?.top ?? view.top + view.height) - 8)
-        if (bottom <= top) return
         const box = active.getBoundingClientRect()
         const menu = document.getElementById(active.getAttribute('aria-controls') ?? '')
+        if (ios) {
+          // UIKit滚动与VisualViewport不是原子更新：不能用负的可见原点
+          // 改列表高度或滚动。只在这一轮获焦/尺寸变化中等待稳定；用户
+          // 触摸/滚轮立即终止，不监听纯视口平移去抢回用户的滚动。
+          const next = [
+            view.top,
+            view.height,
+            scrollY,
+            window.visualViewport?.offsetTop,
+            header?.bottom,
+            dock?.top,
+            box.top,
+            box.bottom,
+            menu?.getBoundingClientRect().bottom
+          ].join(':')
+          const now = performance.now()
+          if (next !== signature) {
+            signature = next
+            stableSince = now
+          }
+          if (view.top < -1 || bottom <= top || now < notBefore || now - stableSince < 100) {
+            if (now < deadline) frame = requestAnimationFrame(measure)
+            return
+          }
+        }
+        if (bottom <= top) return
         if (menu?.classList.contains('inline-name-options'))
-          menu.style.maxHeight = `${Math.max(44, Math.min(220, bottom - top - box.height - 4))}px`
+          menu.style.maxHeight = `${Math.max(44, Math.min(220, bottom - top - box.height - (parseFloat(getComputedStyle(menu).marginTop) || 4)))}px`
         const menuBottom = menu?.classList.contains('inline-name-options')
           ? menu.getBoundingClientRect().bottom
           : box.bottom
-        if (box.top < top) window.scrollBy(0, box.top - top)
-        else if (menuBottom > bottom) window.scrollBy(0, Math.min(menuBottom - bottom, box.top - top))
-      })
+        const delta =
+          box.top < top
+            ? box.top - top
+            : menuBottom > bottom
+              ? Math.min(menuBottom - bottom, box.top - top)
+              : 0
+        if (Math.abs(delta) > 1) {
+          window.scrollBy(0, delta)
+          if (ios && performance.now() < deadline) {
+            signature = ''
+            stableSince = performance.now()
+            frame = requestAnimationFrame(measure)
+          }
+        }
+      }
+      frame = requestAnimationFrame(measure)
     }
     editor.current?.addEventListener('focusin', reveal)
     window.addEventListener('resize', reveal)
     window.visualViewport?.addEventListener('resize', reveal)
     window.addEventListener('logbook-name-options-open', reveal)
+    document.addEventListener('pointerdown', cancelReveal, true)
+    document.addEventListener('wheel', cancelReveal, true)
     reveal()
     const root = editor.current
     return () => {
-      cancelAnimationFrame(frame)
+      cancelReveal()
       root?.removeEventListener('focusin', reveal)
       window.removeEventListener('resize', reveal)
       window.visualViewport?.removeEventListener('resize', reveal)
       window.removeEventListener('logbook-name-options-open', reveal)
+      document.removeEventListener('pointerdown', cancelReveal, true)
+      document.removeEventListener('wheel', cancelReveal, true)
     }
     // 键盘尺寸变化后等待操作栏提交；纯视口平移不再次抢回滚动。
   }, [viewport.height, viewport.width])

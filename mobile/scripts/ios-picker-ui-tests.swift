@@ -23,7 +23,17 @@ final class PickerUITests: XCTestCase {
         // Folder-mode Files cells may have accessible children without being
         // accessibility-bound elements themselves. Resolve query matches by
         // index while retaining the hit-test filter for hidden browsing pages.
-        query.allElementsBoundByIndex.first { $0.isHittable }
+        for element in query.allElementsBoundByIndex {
+            if element.isHittable { return element }
+            // Files grid-mode folder Cells can be non-hittable containers even
+            // while their exact visible title is an actionable descendant.
+            // Retained/offscreen pages still fail the descendant hit test.
+            if element.elementType == .cell {
+                let titles = element.staticTexts.matching(NSPredicate(format: "label IN %@", ["COC-Picker-Public-Test", "COC 跑团记录簿"]))
+                if let title = titles.allElementsBoundByIndex.first(where: { $0.isHittable }) { return title }
+            }
+        }
+        return nil
     }
 
     // Do not evaluate remote File Provider queries inside an XCTest waiter:
