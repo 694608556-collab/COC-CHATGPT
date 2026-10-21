@@ -1,0 +1,22 @@
+{
+  "scope": "Public isolated browser fixtures, not Android native-keyboard reproduction",
+  "source": "18fe5b470d6a822c6f8c36e85b698ef550a28a18",
+  "checks": {
+    "before": {
+      "startTime": "2026-10-21T03:49:49.882Z",
+      "duration": 13794.598,
+      "expected": 0,
+      "skipped": 0,
+      "unexpected": 2,
+      "flaky": 0
+    },
+    "after-full": {
+      "startTime": "2026-10-21T03:50:46.719Z",
+      "duration": 233361.362,
+      "expected": 110,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    }
+  }
+}
