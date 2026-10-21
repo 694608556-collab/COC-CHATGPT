@@ -135,6 +135,10 @@ final class PickerUITests: XCTestCase {
         let choose = app.webViews.buttons["选择并确认保存位置"].firstMatch
         XCTAssertTrue(choose.waitForExistence(timeout: 30), app.debugDescription)
         choose.tap()
+        // Match the import picker's existing presentation gate. File Provider
+        // can show a blank sheet before exposing its navigation/content tree;
+        // do not spend the folder-navigation budget on picker presentation.
+        XCTAssertTrue(app.navigationBars["FullDocumentManagerViewControllerNavigationBar"].firstMatch.waitForExistence(timeout: 20), app.debugDescription)
         try enterPublicPickerFolder(app)
         let open = app.buttons.matching(NSPredicate(format: "label IN %@", ["Open", "打开"]))
         try waitForPickerItem(open, in: app, timeout: 10).tap()

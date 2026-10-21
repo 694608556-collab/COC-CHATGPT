@@ -1,0 +1,849 @@
+{
+  "scope": "Public isolated iPhone14Pro/iOS27.0 simulator, exact assertions retained; physical device and enterprise signing acceptance separate",
+  "run": 39549311163,
+  "url": "https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39549311163",
+  "testSource": "4bf1b26541466996acefe1b5bf6d401de0626cc4",
+  "appSource": "4bf1b26541466996acefe1b5bf6d401de0626cc4",
+  "uiResults": [
+    {
+      "test": "testCoc7ImportPickerCancelSaveAndRestart",
+      "result": "passed",
+      "seconds": 114.271
+    },
+    {
+      "test": "testExplicitLocalFolderReturnsAndSurvivesRestart",
+      "result": "passed",
+      "seconds": 41.636
+    },
+    {
+      "test": "testFolderOpenReturnsAndSurvivesRestart",
+      "result": "passed",
+      "seconds": 65.275
+    },
+    {
+      "test": "testPublicNameCandidatesSecondLaunchWithNativeKeyboard",
+      "result": "passed",
+      "seconds": 101.179
+    },
+    {
+      "test": "testPublicNameCandidatesThirdLaunchWithNativeKeyboard",
+      "result": "passed",
+      "seconds": 105.32
+    },
+    {
+      "test": "testPublicNameCandidatesWithNativeKeyboard",
+      "result": "passed",
+      "seconds": 104.488
+    },
+    {
+      "test": "testPublicNameCandidateRepeatedSwitchFocusAndKeyboard",
+      "result": "passed",
+      "seconds": 274.055
+    }
+  ],
+  "swiftCoreChecks": 67,
+  "coldStarts": 3,
+  "stressCycles": 6,
+  "candidateClicks": 33,
+  "exactAfter350ms": 33,
+  "trailingWhitespaceObservations": 0,
+  "events": 3093,
+  "savedRoundTrips": [
+    {
+      "id": "f820eb38-e96d-49e8-a05c-4a8e14b50b51",
+      "requested": {
+        "codePoints": [
+          "50",
+          "75",
+          "62",
+          "6c",
+          "69",
+          "63",
+          "20",
+          "41",
+          "6c",
+          "70",
+          "68",
+          "61"
+        ],
+        "value": "Public Alpha"
+      },
+      "stored": {
+        "value": "Public Alpha"
+      },
+      "exact": true,
+      "evidence": "native startup overview captured"
+    },
+    {
+      "id": "ca3fd08c-c459-4c53-ae24-c90ac24c9f1c",
+      "requested": {
+        "codePoints": [
+          "50",
+          "75",
+          "62",
+          "6c",
+          "69",
+          "63",
+          "20",
+          "41",
+          "6c",
+          "70",
+          "68",
+          "61"
+        ],
+        "value": "Public Alpha"
+      },
+      "stored": {
+        "value": "Public Alpha"
+      },
+      "exact": true,
+      "evidence": "native startup overview captured"
+    },
+    {
+      "id": "50676d6d-a4bc-427e-a147-ed574311d8f8",
+      "requested": {
+        "codePoints": [
+          "50",
+          "75",
+          "62",
+          "6c",
+          "69",
+          "63",
+          "20",
+          "41",
+          "6c",
+          "70",
+          "68",
+          "61"
+        ],
+        "value": "Public Alpha"
+      },
+      "stored": {
+        "value": "Public Alpha"
+      },
+      "exact": true,
+      "evidence": "native startup overview captured"
+    }
+  ],
+  "candidateTimeline": [
+    {
+      "timeMs": 1792561252041,
+      "candidate": "Public Beta",
+      "actualAfter350ms": "Public Beta",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "42",
+        "65",
+        "74",
+        "61"
+      ],
+      "focused": false
+    },
+    {
+      "timeMs": 1792561265984,
+      "candidate": "Public Beta",
+      "actualAfter350ms": "Public Beta",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "42",
+        "65",
+        "74",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561272271,
+      "candidate": "Public Alpha",
+      "actualAfter350ms": "Public Alpha",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "41",
+        "6c",
+        "70",
+        "68",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561351608,
+      "candidate": "Public Beta",
+      "actualAfter350ms": "Public Beta",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "42",
+        "65",
+        "74",
+        "61"
+      ],
+      "focused": false
+    },
+    {
+      "timeMs": 1792561367938,
+      "candidate": "Public Beta",
+      "actualAfter350ms": "Public Beta",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "42",
+        "65",
+        "74",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561373375,
+      "candidate": "Public Alpha",
+      "actualAfter350ms": "Public Alpha",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "41",
+        "6c",
+        "70",
+        "68",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561594416,
+      "candidate": "Public Beta",
+      "actualAfter350ms": "Public Beta",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "42",
+        "65",
+        "74",
+        "61"
+      ],
+      "focused": false
+    },
+    {
+      "timeMs": 1792561608905,
+      "candidate": "Public Beta",
+      "actualAfter350ms": "Public Beta",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "42",
+        "65",
+        "74",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561613617,
+      "candidate": "Public Alpha",
+      "actualAfter350ms": "Public Alpha",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "41",
+        "6c",
+        "70",
+        "68",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561619478,
+      "candidate": "Public Alpha",
+      "actualAfter350ms": "Public Alpha",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "41",
+        "6c",
+        "70",
+        "68",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561626149,
+      "candidate": "Public Beta",
+      "actualAfter350ms": "Public Beta",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "42",
+        "65",
+        "74",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561632517,
+      "candidate": "Public Beta",
+      "actualAfter350ms": "Public Beta",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "42",
+        "65",
+        "74",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561639586,
+      "candidate": "Public Alpha",
+      "actualAfter350ms": "Public Alpha",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "41",
+        "6c",
+        "70",
+        "68",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561652434,
+      "candidate": "Public Alpha",
+      "actualAfter350ms": "Public Alpha",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "41",
+        "6c",
+        "70",
+        "68",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561660204,
+      "candidate": "Public Beta",
+      "actualAfter350ms": "Public Beta",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "42",
+        "65",
+        "74",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561666576,
+      "candidate": "Public Beta",
+      "actualAfter350ms": "Public Beta",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "42",
+        "65",
+        "74",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561672498,
+      "candidate": "Public Alpha",
+      "actualAfter350ms": "Public Alpha",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "41",
+        "6c",
+        "70",
+        "68",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561683467,
+      "candidate": "Public Alpha",
+      "actualAfter350ms": "Public Alpha",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "41",
+        "6c",
+        "70",
+        "68",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561690044,
+      "candidate": "Public Beta",
+      "actualAfter350ms": "Public Beta",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "42",
+        "65",
+        "74",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561695760,
+      "candidate": "Public Beta",
+      "actualAfter350ms": "Public Beta",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "42",
+        "65",
+        "74",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561702019,
+      "candidate": "Public Alpha",
+      "actualAfter350ms": "Public Alpha",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "41",
+        "6c",
+        "70",
+        "68",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561712261,
+      "candidate": "Public Alpha",
+      "actualAfter350ms": "Public Alpha",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "41",
+        "6c",
+        "70",
+        "68",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561718411,
+      "candidate": "Public Beta",
+      "actualAfter350ms": "Public Beta",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "42",
+        "65",
+        "74",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561724098,
+      "candidate": "Public Beta",
+      "actualAfter350ms": "Public Beta",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "42",
+        "65",
+        "74",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561730379,
+      "candidate": "Public Alpha",
+      "actualAfter350ms": "Public Alpha",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "41",
+        "6c",
+        "70",
+        "68",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561740901,
+      "candidate": "Public Alpha",
+      "actualAfter350ms": "Public Alpha",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "41",
+        "6c",
+        "70",
+        "68",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561747154,
+      "candidate": "Public Beta",
+      "actualAfter350ms": "Public Beta",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "42",
+        "65",
+        "74",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561753080,
+      "candidate": "Public Beta",
+      "actualAfter350ms": "Public Beta",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "42",
+        "65",
+        "74",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561759888,
+      "candidate": "Public Alpha",
+      "actualAfter350ms": "Public Alpha",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "41",
+        "6c",
+        "70",
+        "68",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561772854,
+      "candidate": "Public Alpha",
+      "actualAfter350ms": "Public Alpha",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "41",
+        "6c",
+        "70",
+        "68",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561779028,
+      "candidate": "Public Beta",
+      "actualAfter350ms": "Public Beta",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "42",
+        "65",
+        "74",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561784478,
+      "candidate": "Public Beta",
+      "actualAfter350ms": "Public Beta",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "42",
+        "65",
+        "74",
+        "61"
+      ],
+      "focused": true
+    },
+    {
+      "timeMs": 1792561790728,
+      "candidate": "Public Alpha",
+      "actualAfter350ms": "Public Alpha",
+      "codePoints": [
+        "50",
+        "75",
+        "62",
+        "6c",
+        "69",
+        "63",
+        "20",
+        "41",
+        "6c",
+        "70",
+        "68",
+        "61"
+      ],
+      "focused": true
+    }
+  ],
+  "scale": {
+    "appBuild": "48",
+    "appVersion": "1.0.8",
+    "campaigns": 50,
+    "counts": {
+      "commits": 4,
+      "failed": 178,
+      "fetch": 3020,
+      "staged": 3020,
+      "wholeReads": 0
+    },
+    "manual": 50,
+    "nativeSystemVersion": "27.0",
+    "network": "generated public responses only",
+    "online": 1000,
+    "passed": true,
+    "rounds": [
+      {
+        "commits": 1,
+        "failed": 59,
+        "fetch": 1000,
+        "revision": 2,
+        "round": 1,
+        "scope": "all",
+        "staged": 1000,
+        "wholeReads": 0
+      },
+      {
+        "commits": 2,
+        "failed": 118,
+        "fetch": 2000,
+        "revision": 3,
+        "round": 2,
+        "scope": "all",
+        "staged": 2000,
+        "wholeReads": 0
+      },
+      {
+        "commits": 3,
+        "failed": 177,
+        "fetch": 3000,
+        "revision": 4,
+        "round": 3,
+        "scope": "all",
+        "staged": 3000,
+        "wholeReads": 0
+      },
+      {
+        "commits": 4,
+        "failed": 178,
+        "fetch": 3020,
+        "revision": 5,
+        "round": 4,
+        "scope": "last-module",
+        "staged": 3020,
+        "wholeReads": 0
+      }
+    ],
+    "scrollEdgeEffectsHidden": true,
+    "stage": "complete"
+  },
+  "rawEvidence": [
+    {
+      "file": "ios-name-events.jsonl.gz",
+      "originalBytes": 3953057,
+      "originalSHA256": "901dae9a0b48557793fcc1347177a31a98c34f413a6f6619e870d4affde1a7ad",
+      "gzipBytes": 82071,
+      "gzipSHA256": "dab962a4a2cf1e0a27a2472a0e05f17e35b54b970b6c30ae06dab1cb04b9d855"
+    },
+    {
+      "file": "picker-ui.log.gz",
+      "originalBytes": 263284,
+      "originalSHA256": "05d93a24c5e97801794011d16245e0ba440d86ab9aa7cac0a78bf3f430ea0454",
+      "gzipBytes": 25419,
+      "gzipSHA256": "d97a8841d857aca235fd529834bdd610eb0dbedaf6470fc27c74292ee7049ddb"
+    }
+  ]
+}
