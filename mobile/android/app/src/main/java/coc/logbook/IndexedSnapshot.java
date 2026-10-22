@@ -202,7 +202,7 @@ final class IndexedSnapshot {
         TableTiming.mark(timing,"recordCompareAndWrite");
     }
     /** Only called for a sealed table session inside its single CAS transaction. */
-    void tableRecord(JSONObject value,long ordinal,boolean added,Reader manual)throws Exception {
+    void tableRecord(JSONObject value,long ordinal,boolean added,RawJson manual)throws Exception {
         if(value.has("rawContent")||value.has("manualContent"))throw new IOException("表格元数据不能携带正文。");
         BackupValidation.record(value);String id=value.getString("id");Long previous=key(id);
         if(added){if(previous!=null)throw new IOException("新增场次标识已存在。");record(new RawJson(new StringReader(value.toString())),id,false,ordinal);previous=key(id);}
@@ -216,9 +216,7 @@ final class IndexedSnapshot {
         }
         if(manual!=null){
             db.execSQL("DELETE FROM indexed_bodies WHERE record_key=? AND kind='manualContent'",new Object[]{previous});
-            try(Reader input=manual;Writer output=new BodyWriter(previous,"manualContent")){
-                RawJson encoded=new RawJson(input);encoded.copy(output);encoded.end();
-            }
+            try(Writer output=new BodyWriter(previous,"manualContent")){manual.copy(output);}
         }
         refreshSize(previous,value.toString());
     }

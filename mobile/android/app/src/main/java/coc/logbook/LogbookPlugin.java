@@ -1129,8 +1129,8 @@ public final class LogbookPlugin extends Plugin {
                 Long expected = call.getData().has("expectedRevision") ? call.getData().getLong("expectedRevision") : null;
                 if (expected == null || expected != database.revision()) throw new IllegalStateException("数据已变化，请重新读取。");
                 JSONObject settings = call.getObject("settings");
-                if (settings == null || settings.toString().getBytes(StandardCharsets.UTF_8).length > 16384)
-                    throw new IllegalArgumentException("设置缺失或超过大小限制。");
+                if (settings == null)
+                    throw new IllegalArgumentException("设置缺失。");
                 validateSettings(settings);
                 requireArchivePermission(prefs().getString("tree", ""));
                 String exportedAt = java.time.Instant.now().toString();

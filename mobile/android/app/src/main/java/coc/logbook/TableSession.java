@@ -6,6 +6,7 @@ import android.database.sqlite.SQLiteStatement;
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.charset.*;
+import java.security.*;
 import java.util.*;
 import org.json.*;
 
@@ -22,11 +23,14 @@ final class TableSession implements AutoCloseable {
     private final Map<String,Spool> spools=new LinkedHashMap<>();
     private final Lines stringLines=new Lines();
     private BackupSession.Proof sourceProof,candidateProof,previewDatabaseProof;
+    private BackupSession.Proof commitProof;
+    private FileInputStream commitInput;
+    private long commitRecords;
     private long written,stringCount,added,updated,skipped,namesCount,warningsCount;
     private boolean ready,detached,closed,ownershipEstablished;
     private JSONObject initialSettings;
     private final String now=java.time.Instant.now().toString();
-    private static final Set<String> FILES=new HashSet<>(Arrays.asList("owner","source.part","candidate.part","strings.part","stage.sqlite","stage.sqlite-journal","stage.sqlite-wal","stage.sqlite-shm"));
+    private static final Set<String> FILES=new HashSet<>(Arrays.asList("owner","source.part","candidate.part","strings.part","apply.part","stage.sqlite","stage.sqlite-journal","stage.sqlite-wal","stage.sqlite-shm"));
     private static final class Spool {
         final File file;FileOutputStream output;long bytes,index;
         Spool(File file)throws Exception{this.file=file;if(!file.createNewFile())throw new IOException("表格暂存已存在。");output=new FileOutputStream(file);}
@@ -228,19 +232,72 @@ final class TableSession implements AutoCloseable {
         StorageBudget.require(available,StorageBudget.estimate(candidateProof.bytes,4));File file=new File(directory,"stage.sqlite");
         if(previewDatabaseProof==null)throw new IOException("表格预览摘要缺失。");BackupSession.fileProof(file,previewDatabaseProof.bytes).matches(previewDatabaseProof.bytes,previewDatabaseProof.sha256);
         try(Cursor check=stage.rawQuery("PRAGMA quick_check",null)){if(!check.moveToFirst()||!"ok".equals(check.getString(0))||check.moveToNext())throw new IOException("表格暂存读取失败。");}
+        File transfer=new File(directory,"apply.part");if(!transfer.createNewFile())throw new IOException("表格提交暂存已存在。");
+        writeCommit(transfer);commitProof=BackupSession.fileProof(transfer,transfer.length());commitInput=new FileInputStream(transfer);
+        BackupSession.streamProof(commitInput,commitProof.bytes).matches(commitProof.bytes,commitProof.sha256);commitInput.getChannel().position(0);
+        stage.close();stage=null;
+        BackupSession.fileProof(file,previewDatabaseProof.bytes).matches(previewDatabaseProof.bytes,previewDatabaseProof.sha256);
         deleteOwned(directory,id);detached=true;
     }
+    private void copyContent(long ref,Writer output)throws Exception{
+        try(Reader input=new InputStreamReader(content(ref),StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT))){char[] buffer=new char[32768];int count;while((count=input.read(buffer))!=-1)output.write(buffer,0,count);}
+    }
+    /** Close SQLite before unlinking its pathname. Commit only reads an ordinary
+     * already-open file descriptor, like the existing native fetch/restore paths. */
+    private void writeCommit(File file)throws Exception{
+        commitRecords=scalar("SELECT COUNT(*) FROM records WHERE changed=1");
+        try(FileOutputStream raw=new FileOutputStream(file)){
+            OutputStream bounded=new FilterOutputStream(raw){
+                public void write(byte[] bytes,int offset,int count)throws IOException{try{StorageBudget.require(available,count);}catch(Exception error){throw new IOException("表格提交暂存空间不足。",error);}out.write(bytes,offset,count);}
+                public void write(int value)throws IOException{write(new byte[]{(byte)value},0,1);}
+            };
+            Writer output=new BufferedWriter(new OutputStreamWriter(bounded,StandardCharsets.UTF_8),32768);
+            output.write('{');
+            if(initialSettings!=null)output.write("\"schemaVersion\":2,\"settings\":"+initialSettings+",");
+            output.write("\"records\":[");boolean comma=false;
+            try(Cursor rows=stage.rawQuery("SELECT ordinal,original,value,manual FROM records WHERE changed=1 ORDER BY ordinal",null)){
+                while(rows.moveToNext()){
+                    if(comma)output.write(',');comma=true;
+                    output.write("{\"ordinal\":"+rows.getLong(0)+",\"added\":"+(rows.getInt(1)==0)+",\"value\":");copyContent(rows.getLong(2),output);
+                    if(!rows.isNull(3)){output.write(",\"manual\":");copyContent(rows.getLong(3),output);}output.write('}');
+                }
+            }
+            output.write(']');
+            for(String table:new String[]{"modules","characters"}){
+                output.write(",\""+table+"\":[");comma=false;
+                try(Cursor rows=stage.rawQuery("SELECT value FROM "+table+" ORDER BY ordinal",null)){while(rows.moveToNext()){if(comma)output.write(',');comma=true;copyContent(rows.getLong(0),output);}}
+                output.write(']');
+            }
+            output.write(",\"exportedAt\":"+JSONObject.quote(now)+"}");output.flush();raw.getFD().sync();
+        }
+    }
     void apply(IndexedSnapshot destination)throws Exception{
-        if(!ready||!detached||closed)throw new IOException("表格候选未封存。");
-        if(initialSettings!=null){destination.tableField("schemaVersion","2");destination.tableField("settings",initialSettings.toString());}
-        try(Cursor rows=stage.rawQuery("SELECT id,ordinal,original FROM records WHERE changed=1 ORDER BY ordinal",null)){
-            while(rows.moveToNext()){String id=rows.getString(0);JSONObject metadata=value("records",id);Long body=reference("records","manual","id=?",new String[]{id});
-                try(Reader reader=body==null?null:new InputStreamReader(content(body),StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT))){destination.tableRecord(metadata,rows.getLong(1),rows.getInt(2)==0,reader);}}
-        }
-        for(String table:new String[]{"modules","characters"}){
-            JSONArray values=new JSONArray();try(Cursor rows=stage.rawQuery("SELECT id FROM "+table+" ORDER BY ordinal",null)){while(rows.moveToNext())values.put(value(table,rows.getString(0)));}destination.tableField(table,values.toString());
-        }
-        destination.tableField("exportedAt",JSONObject.quote(now));
+        if(!ready||!detached||closed||stage!=null||commitInput==null||commitProof==null)throw new IOException("表格候选未封存。");
+        commitInput.getChannel().position(0);MessageDigest digest=MessageDigest.getInstance("SHA-256");long[] bytes={0},count={0};
+        InputStream checked=new FilterInputStream(commitInput){
+            public int read(byte[] buffer,int offset,int length)throws IOException{int n=in.read(buffer,offset,length);if(n>0){bytes[0]=Math.addExact(bytes[0],n);if(bytes[0]>commitProof.bytes)throw new IOException("表格提交暂存长度已变化。");digest.update(buffer,offset,n);}return n;}
+            public int read()throws IOException{byte[] one=new byte[1];return read(one,0,1)<0?-1:one[0]&255;}
+        };
+        RawJson input=new RawJson(new InputStreamReader(checked,StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)));Set<String> seen=new HashSet<>();
+        Set<String> expected=new HashSet<>(Arrays.asList("records","modules","characters","exportedAt"));if(initialSettings!=null){expected.add("schemaVersion");expected.add("settings");}
+        input.object((name,value)->{
+            if(!expected.contains(name)||!seen.add(name))throw new IOException("表格提交字段重复或无效。");
+            if(!name.equals("records")){destination.tableField(name,value.take());return;}
+            value.array(record->{
+                Long[] ordinal={null};Boolean[] added={null};JSONObject[] metadata={null};boolean[] applied={false};Set<String> fields=new HashSet<>();
+                record.object((field,part)->{
+                    if(!fields.add(field))throw new IOException("表格提交场次字段重复。");
+                    if(field.equals("ordinal"))ordinal[0]=integer(new JSONArray("["+part.take()+"]").get(0));
+                    else if(field.equals("added")){Object flag=new JSONArray("["+part.take()+"]").get(0);if(!(flag instanceof Boolean))throw new IOException("表格提交场次类型无效。");added[0]=(Boolean)flag;}
+                    else if(field.equals("value"))metadata[0]=new JSONObject(part.take());
+                    else if(field.equals("manual")){if(ordinal[0]==null||added[0]==null||metadata[0]==null)throw new IOException("表格提交正文顺序无效。");destination.tableRecord(metadata[0],ordinal[0],added[0],part);applied[0]=true;}
+                    else throw new IOException("表格提交场次字段无效。");
+                });
+                if(ordinal[0]==null||added[0]==null||metadata[0]==null)throw new IOException("表格提交场次不完整。");
+                if(!applied[0])destination.tableRecord(metadata[0],ordinal[0],added[0],null);count[0]++;
+            });
+        });input.end();StringBuilder hash=new StringBuilder();for(byte b:digest.digest())hash.append(String.format("%02x",b&255));
+        commitProof.matches(bytes[0],hash.toString());if(!seen.equals(expected)||count[0]!=commitRecords)throw new IOException("表格提交场次未取齐。");
     }
     private static void cleanupStale(File root)throws Exception{File[] children=root.listFiles();if(children==null)throw new IOException("无法检查表格私有暂存。");for(File child:children)if(child.getName().matches("coc-table-[a-f0-9-]{36}")){String id=child.getName().substring(10);File marker=new File(child,"owner");if(marker.isFile()&&marker.length()==36){String value=new String(java.nio.file.Files.readAllBytes(marker.toPath()),StandardCharsets.UTF_8);if(value.equals(id))deleteOwned(child,id);}}}
     private static void deleteOwned(File directory,String id)throws Exception{deleteOwned(directory,id,false);}
@@ -250,5 +307,5 @@ final class TableSession implements AutoCloseable {
         File[] files=directory.listFiles();if(files==null)throw new IOException("无法读取表格暂存目录。");for(File file:files)if(!FILES.contains(file.getName())||file.isDirectory()||!file.getCanonicalFile().getParentFile().equals(directory.getCanonicalFile()))throw new IOException("表格暂存存在未知文件，已保留。");
         for(File file:files)if(!file.getName().equals("owner")&&!file.delete())throw new IOException("表格暂存清理失败；未提交。");if(marker.exists()&&!marker.delete())throw new IOException("表格所有权标记清理失败；未提交。");if(!directory.delete())throw new IOException("表格暂存目录清理失败；未提交。");
     }
-    public void close()throws Exception{if(closed)return;Exception failure=null;for(Spool spool:spools.values())try{spool.seal();}catch(Exception error){failure=error;}if(stage!=null){try{stage.close();stage=null;}catch(Exception error){failure=error;}}try{if(!detached)deleteOwned(directory,id,!ownershipEstablished);}catch(Exception error){failure=error;}if(failure!=null)throw failure;closed=true;}
+    public void close()throws Exception{if(closed)return;Exception failure=null;for(Spool spool:spools.values())try{spool.seal();}catch(Exception error){failure=error;}if(commitInput!=null)try{commitInput.close();commitInput=null;}catch(Exception error){failure=error;}if(stage!=null){try{stage.close();stage=null;}catch(Exception error){failure=error;}}try{if(!detached)deleteOwned(directory,id,!ownershipEstablished);}catch(Exception error){failure=error;}if(failure!=null)throw failure;closed=true;}
 }
