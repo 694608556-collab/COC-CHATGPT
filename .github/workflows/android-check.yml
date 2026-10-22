@@ -43,6 +43,10 @@ jobs:
       - run: pnpm typecheck && pnpm test && pnpm build
       - name: Check bounded-memory complete JSON and ZIP backups above 64MiB
         run: node scripts/check-backup-stream.mjs
+      - name: Check native staging, strict restore and low-space failures
+        run: |
+          curl -fsSL --retry 3 https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar -o "$RUNNER_TEMP/coc-org-json.jar"
+          JSON_JAR="$RUNNER_TEMP/coc-org-json.jar" node scripts/check-native.mjs
       - run: pnpm exec cap sync android
       - run: chmod +x android/gradlew && cd android && ./gradlew :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest --no-daemon --console=plain
       - name: Prepare unsigned release for local signing

@@ -147,3 +147,44 @@ if (uploadCompiled.status) throw new Error(uploadCompiled.stderr)
 const uploadResult = spawnSync(java, ['-cp', work, 'coc.logbook.SnapshotUploadCheck'], { encoding: 'utf8' })
 process.stdout.write(uploadResult.stdout)
 if (uploadResult.status) throw new Error(uploadResult.stderr)
+
+const backupSources = [
+  'StorageBudget',
+  'BackupValidation',
+  'StrictBackupJson',
+  'RestoreCandidate',
+  'BackupSession',
+  'LogbookLimits',
+  'JsonFields'
+]
+const backupCompiled = spawnSync(
+  javac,
+  [
+    '-encoding',
+    'UTF-8',
+    '-cp',
+    process.env.JSON_JAR,
+    '-d',
+    work,
+    ...backupSources.map((name) => join(source, name + '.java')),
+    resolve('tests/native/StorageBudgetCheck.java'),
+    resolve('tests/native/BackupStreamCheck.java')
+  ],
+  { encoding: 'utf8' }
+)
+if (backupCompiled.status) throw new Error(backupCompiled.stderr)
+for (const name of ['StorageBudgetCheck', 'BackupStreamCheck']) {
+  const checked = spawnSync(
+    java,
+    [
+      '-Xmx96m',
+      '-cp',
+      work + separator + process.env.JSON_JAR,
+      'coc.logbook.' + name,
+      join(work, 'sample.json')
+    ],
+    { encoding: 'utf8' }
+  )
+  process.stdout.write(checked.stdout)
+  if (checked.status) throw new Error(checked.stderr)
+}
