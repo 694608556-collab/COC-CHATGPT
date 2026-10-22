@@ -177,12 +177,95 @@ export class StreamJson {
       throw new Error('JSON 值无效。')
     out.add(text)
   }
+  /** Scans one container per input chunk, retaining strict duplicate-key and depth checks.
+   * @param out Complete raw JSON value with its existing operation byte budget.
+   * @returns No value; leaves the cursor immediately after this object's/array's closing token.
+   */
+  private async container(out: TextValue): Promise<void> {
+    const frames: Array<{ keys?: Set<string>; expectingKey: boolean; weight: number }> = []
+    let quoted = false,
+      escaped = false,
+      key: TextValue | undefined,
+      depth = 0
+    for (;;) {
+      if (!(await this.fill())) throw new Error('JSON 文件不完整。')
+      const start = this.offset
+      let keyStart = key ? start : -1
+      while (this.offset < this.buffer.length) {
+        const at = this.offset++,
+          code = this.buffer.charCodeAt(at)
+        if (quoted) {
+          if (escaped) {
+            escaped = false
+            continue
+          }
+          if (code === 92) {
+            escaped = true
+            continue
+          }
+          if (code !== 34) continue
+          quoted = false
+          if (key) {
+            key.add(this.buffer.slice(keyStart, this.offset))
+            const name = JSON.parse(key.text()) as string,
+              frame = frames[frames.length - 1]!
+            if (frame.keys!.has(name)) throw new Error('JSON 字段重复。')
+            frame.keys!.add(name)
+            frame.expectingKey = false
+            key = undefined
+            keyStart = -1
+          }
+          continue
+        }
+        if (code === 125 || code === 93) {
+          const frame = frames.pop()
+          if (!frame || (code === 125) !== !!frame.keys) throw new Error('JSON 结构无效。')
+          depth -= frame.weight
+          if (!frames.length) {
+            out.add(this.buffer.slice(start, this.offset))
+            return
+          }
+          continue
+        }
+        if (code === 44) {
+          const frame = frames[frames.length - 1]
+          if (frame?.keys) frame.expectingKey = true
+          continue
+        }
+        if (code === 58 || code === 32 || code === 9 || code === 10 || code === 13) continue
+        const frame = frames[frames.length - 1]
+        if (code === 34 && frame?.keys && frame.expectingKey) {
+          quoted = true
+          key = new TextValue(this.valueBytes)
+          keyStart = at
+          continue
+        }
+        // Match the original cursor's two depth steps for an object member,
+        // and one for an array element. JSON.parse still checks full grammar.
+        if (depth > 256 || (code === 123 && depth + 1 > 256)) throw new Error('JSON 嵌套超过处理上限。')
+        if (code === 123 || code === 91) {
+          const weight = code === 123 ? 2 : 1
+          frames.push({
+            ...(code === 123 ? { keys: new Set<string>() } : {}),
+            expectingKey: code === 123,
+            weight
+          })
+          depth += weight
+        } else if (code === 34) quoted = true
+      }
+      out.add(this.buffer.slice(start, this.offset))
+      if (key) key.add(this.buffer.slice(keyStart, this.offset))
+    }
+  }
   async readValue(): Promise<unknown> {
     return (await this.readRawValue()).value
   }
   async readRawValue(): Promise<{ value: unknown; json: string }> {
     const out = new TextValue(this.valueBytes)
-    await this.value(out, 0)
+    await this.whitespace()
+    const first = await this.peek()
+    if (first === '{' || first === '[') await this.container(out)
+    else await this.value(out, 0)
     const json = out.text()
     return { value: JSON.parse(json), json }
   }
