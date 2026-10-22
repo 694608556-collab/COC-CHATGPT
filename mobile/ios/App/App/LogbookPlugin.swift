@@ -512,7 +512,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         guard let url = urls.first else { call.resolve(["cancelled": true]); return }
         run(call) { store, archive in
             if folder { return ["cancelled": false, "archive": try archive.choose(url)] }
-            if call.getBool("stream") == true, call.getString("kind") == "backup" { return try self.openRestoreStream(call, url, store, archive) }
+            if call.getBool("stream") == true, (call.getString("kind") ?? "backup") == "backup" { return try self.openRestoreStream(call, url, store, archive) }
             return ["cancelled": false, "name": url.lastPathComponent, "base64": try archive.readPicked(url).base64EncodedString()]
         }
     }

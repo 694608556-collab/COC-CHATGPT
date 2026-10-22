@@ -4,47 +4,98 @@ import CryptoKit
 /// Strict decoded duplicate-key checks before Foundation parses one bounded
 /// candidate line. JSONSerialization supplies the complete grammar/UTF-8 check.
 enum LogbookBackupJSON {
-    private struct Frame { var object: Bool; var key: Bool; var keys = Set<String>() }
+    /// Foundation accepts some non-standard JSON (including trailing commas).
+    /// Validate complete strict grammar before constructing one bounded object.
     static func object(_ data: Data) throws -> LogbookJSON {
         try data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) throws -> Void in
             let bytes = raw.bindMemory(to: UInt8.self)
-            var frames: [Frame] = [], index = 0
-            while index < bytes.count {
-                let char = bytes[index]
-                if char == 34 {
-                    let start = index; index += 1
-                    var escaped = false, complete = false
-                    while index < bytes.count {
-                        let next = bytes[index]; index += 1
-                        if next == 92 { escaped = true; index += 1 }
-                        else if next == 34 { complete = true; break }
+            var index = 0
+            func invalid() -> LogbookFailure { LogbookFailure("恢复JSON语法、UTF-8或重复字段无效。") }
+            func whitespace() { while index < bytes.count && (bytes[index] == 32 || bytes[index] == 9 || bytes[index] == 10 || bytes[index] == 13) { index += 1 } }
+            func take(_ byte: UInt8) throws { guard index < bytes.count, bytes[index] == byte else { throw invalid() }; index += 1 }
+            func digit(_ byte: UInt8) -> Bool { byte >= 48 && byte <= 57 }
+            func hex(_ byte: UInt8) -> Bool { digit(byte) || (byte >= 65 && byte <= 70) || (byte >= 97 && byte <= 102) }
+            func string() throws -> Range<Int> {
+                let start = index; try take(34)
+                while index < bytes.count {
+                    let byte = bytes[index]; index += 1
+                    if byte == 34 { return start..<index }
+                    guard byte >= 32 else { throw invalid() }
+                    if byte == 92 {
+                        guard index < bytes.count else { throw invalid() }
+                        let escaped = bytes[index]; index += 1
+                        if escaped == 117 {
+                            for _ in 0..<4 { guard index < bytes.count, hex(bytes[index]) else { throw invalid() }; index += 1 }
+                        } else if ![34, 92, 47, 98, 102, 110, 114, 116].contains(escaped) { throw invalid() }
+                    } else if byte >= 128 {
+                        let count: Int
+                        if byte >= 194 && byte <= 223 { count = 1 }
+                        else if byte >= 224 && byte <= 239 { count = 2 }
+                        else if byte >= 240 && byte <= 244 { count = 3 }
+                        else { throw invalid() }
+                        guard index + count <= bytes.count else { throw invalid() }
+                        let first = bytes[index]
+                        if (byte == 224 && first < 160) || (byte == 237 && first >= 160) || (byte == 240 && first < 144) || (byte == 244 && first >= 144) { throw invalid() }
+                        for _ in 0..<count { guard bytes[index] >= 128 && bytes[index] <= 191 else { throw invalid() }; index += 1 }
                     }
-                    guard complete, index <= bytes.count else { throw LogbookFailure("恢复JSON字符串不完整。") }
-                    if let last = frames.indices.last, frames[last].object, frames[last].key {
-                        let key: String
-                        if escaped {
-                            guard let decoded = try JSONSerialization.jsonObject(with: Data(bytes[start..<index]), options: [.fragmentsAllowed]) as? String else { throw LogbookFailure("恢复JSON字段名无效。") }
-                            key = decoded
-                        } else { key = String(decoding: bytes[(start + 1)..<(index - 1)], as: UTF8.self) }
-                        guard frames[last].keys.count < 100000, frames[last].keys.insert(key).inserted else { throw LogbookFailure("恢复JSON字段重复或数量过多。") }
-                        frames[last].key = false
-                    }
-                    continue
                 }
-                if char == 123 || char == 91 {
-                    guard frames.count < 256 else { throw LogbookFailure("恢复JSON嵌套超过处理上限。") }
-                    frames.append(Frame(object: char == 123, key: char == 123))
-                } else if char == 125 || char == 93 {
-                    guard let last = frames.last, last.object == (char == 125) else { throw LogbookFailure("恢复JSON结构无效。") }
-                    frames.removeLast()
-                } else if char == 44, let last = frames.indices.last, frames[last].object { frames[last].key = true }
-                index += 1
+                throw invalid()
             }
-            guard frames.isEmpty else { throw LogbookFailure("恢复JSON结构不完整。") }
+            func number() throws {
+                if bytes[index] == 45 { index += 1 }
+                guard index < bytes.count else { throw invalid() }
+                if bytes[index] == 48 { index += 1 }
+                else {
+                    guard bytes[index] >= 49 && bytes[index] <= 57 else { throw invalid() }
+                    while index < bytes.count && digit(bytes[index]) { index += 1 }
+                }
+                if index < bytes.count && bytes[index] == 46 {
+                    index += 1; guard index < bytes.count, digit(bytes[index]) else { throw invalid() }
+                    while index < bytes.count && digit(bytes[index]) { index += 1 }
+                }
+                if index < bytes.count && (bytes[index] == 69 || bytes[index] == 101) {
+                    index += 1
+                    if index < bytes.count && (bytes[index] == 43 || bytes[index] == 45) { index += 1 }
+                    guard index < bytes.count, digit(bytes[index]) else { throw invalid() }
+                    while index < bytes.count && digit(bytes[index]) { index += 1 }
+                }
+            }
+            func value(_ depth: Int) throws {
+                whitespace(); guard index < bytes.count else { throw invalid() }
+                let byte = bytes[index]
+                if byte == 123 {
+                    guard depth < 256 else { throw invalid() }; index += 1; whitespace()
+                    if index < bytes.count && bytes[index] == 125 { index += 1; return }
+                    var keys = Set<String>()
+                    while true {
+                        whitespace(); let span = try string()
+                        guard let key = try JSONSerialization.jsonObject(with: Data(bytes[span]), options: [.fragmentsAllowed]) as? String,
+                              keys.count < 100000, keys.insert(key).inserted else { throw invalid() }
+                        whitespace(); try take(58); try value(depth + 1); whitespace()
+                        if index < bytes.count && bytes[index] == 125 { index += 1; return }
+                        try take(44)
+                    }
+                } else if byte == 91 {
+                    guard depth < 256 else { throw invalid() }; index += 1; whitespace()
+                    if index < bytes.count && bytes[index] == 93 { index += 1; return }
+                    while true {
+                        try value(depth + 1); whitespace()
+                        if index < bytes.count && bytes[index] == 93 { index += 1; return }
+                        try take(44)
+                    }
+                } else if byte == 34 { _ = try string() }
+                else if byte == 45 || digit(byte) { try number() }
+                else if byte == 116 { for expected in [UInt8(116), 114, 117, 101] { try take(expected) } }
+                else if byte == 102 { for expected in [UInt8(102), 97, 108, 115, 101] { try take(expected) } }
+                else if byte == 110 { for expected in [UInt8(110), 117, 108, 108] { try take(expected) } }
+                else { throw invalid() }
+            }
+            try value(0); whitespace(); guard index == bytes.count else { throw invalid() }
         }
         guard let object = try JSONSerialization.jsonObject(with: data) as? LogbookJSON else { throw LogbookFailure("恢复JSON必须为对象。") }
         return object
     }
+
     /// Extract only the two already-validated top-level body values. Their raw
     /// numeric/escape spelling must survive restoration into the v1 body column.
     static func body(_ data: Data) throws -> String {

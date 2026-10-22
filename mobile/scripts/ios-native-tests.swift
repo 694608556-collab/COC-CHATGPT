@@ -18,6 +18,9 @@ import Foundation
         for json in [#"{"x":1,}"#, #"{"x":[1,]}"#, #"{"x":01}"#, #"{"x":+1}"#, #"{"x":true}tail"#, #"{"x":NaN}"#, #"{"x":1,"\u0078":2}"#] {
             try rejects("strict native candidate JSON grammar") { _ = try LogbookBackupJSON.object(Data(json.utf8)) }
         }
+        try rejects("strict native candidate UTF-8") { _ = try LogbookBackupJSON.object(Data([123,34,120,34,58,34,192,175,34,125])) }
+        let strictValid = try LogbookBackupJSON.object(Data(#"{"escaped":"\uD83D\uDE00","number":-1.25e+2,"nested":[true,false,null,{}]}"#.utf8))
+        try require(strictValid["escaped"] as? String == "😀" && (strictValid["number"] as? NSNumber)?.doubleValue == -125, "strict native grammar retains valid Unicode and numeric forms")
         try require(try LogbookCapacity.remaining(64 * MiB) == 0, "minimum free-space reserve")
         try require(try LogbookCapacity.remaining(128 * MiB) == 64 * MiB, "available bytes after reserve")
         try require(try LogbookCapacity.remaining(20 * 1024 * MiB) == 19 * 1024 * MiB, "proportional reserve")
