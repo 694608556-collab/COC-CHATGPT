@@ -52,6 +52,7 @@ jobs:
           node scripts/native-capacity-fixture.mjs
           mkdir -p android/app/src/androidTest/assets
           cp android/app/build/public-capacity/native-sample.json android/app/src/androidTest/assets/public-capacity.json
+          node scripts/native-capacity-webview.mjs
       - run: pnpm exec cap sync android
       - run: chmod +x android/gradlew && cd android && ./gradlew :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest --no-daemon --console=plain
       - name: Prepare unsigned release for local signing
@@ -110,7 +111,7 @@ jobs:
             adb install tests/app-debug-androidTest.apk
             adb shell df -k /data > native-capacity-environment.txt
             adb shell getprop dalvik.vm.heapsize >> native-capacity-environment.txt
-            adb shell am instrument -w -e class coc.logbook.CapacityDatabaseTest,coc.logbook.IndexedPressureTest coc.logbook.debug52.test/androidx.test.runner.AndroidJUnitRunner | tee native-capacity.txt
+            adb shell am instrument -w -e class coc.logbook.CapacityDatabaseTest,coc.logbook.IndexedPressureTest,coc.logbook.CapacityWebViewTest coc.logbook.debug52.test/androidx.test.runner.AndroidJUnitRunner | tee native-capacity.txt
             adb logcat -d -s System.out:I > native-capacity-public.log
             ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|Process crashed|shortMsg=' native-capacity.txt
             grep -E 'OK \([0-9]+ tests?\)' native-capacity.txt

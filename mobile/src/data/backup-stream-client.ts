@@ -1,4 +1,9 @@
 import { Capacitor } from '@capacitor/core'
+import type { LogbookPort } from './native'
+import type { FilterPreset } from '../../../src/shared/types'
+import type { BodySearchResult } from './body-search-stream'
+import { BodySearchCleanupError } from './body-search-stream'
+import { checkStreamCancelled } from './stream-json'
 import { performBackupStreamJob } from './backup-stream-job'
 import { encodeBase64 } from './bytes'
 import type { BackupStreamJob } from './backup-stream-job'
@@ -46,20 +51,32 @@ function mime(name: string) {
     )[extension] ?? 'application/octet-stream'
   )
 }
-async function run<T>(job: BackupStreamJob, port: Port, id: string): Promise<T> {
+async function run<T>(job: BackupStreamJob, port: Port, id: string, signal?: AbortSignal): Promise<T> {
+  checkStreamCancelled(signal)
   if (typeof document === 'undefined') {
     const indexes = new Map<string, number>()
-    return (await performBackupStreamJob(job, async (key, chunk) => {
-      const index = indexes.get(key) ?? 0
-      await port.appendBackupStage({ id, key, index, base64: encodeBase64(chunk) })
-      indexes.set(key, index + 1)
-    })) as T
+    return (await performBackupStreamJob(
+      job,
+      async (key, chunk) => {
+        const index = indexes.get(key) ?? 0
+        await port.appendBackupStage({ id, key, index, base64: encodeBase64(chunk) })
+        indexes.set(key, index + 1)
+      },
+      signal
+    )) as T
   }
   if (typeof Worker === 'undefined') throw new Error('此环境缺少后台大文件处理能力，未尝试整库载入。')
   const worker = new Worker('backup-stream-worker.js')
   let active = true
+  let abort: (() => void) | undefined
   try {
     return await new Promise<T>((resolve, reject) => {
+      abort = () => reject(new Error('搜索已取消。'))
+      signal?.addEventListener('abort', abort, { once: true })
+      if (signal?.aborted) {
+        abort()
+        return
+      }
       worker.onmessage = async ({ data }) => {
         if (data.type === 'chunk') {
           try {
@@ -81,6 +98,7 @@ async function run<T>(job: BackupStreamJob, port: Port, id: string): Promise<T> 
     })
   } finally {
     active = false
+    if (abort) signal?.removeEventListener('abort', abort)
     worker.terminate()
   }
 }
@@ -168,6 +186,50 @@ export async function exportNativeBackup(
     } catch (error) {
       if (saved) saved.warning = '备份已完整保存，但私有暂存清理失败，请重开后重试。'
       else throw error
+    }
+  }
+}
+
+/** Read-only search lease: no output staging, confirmation or publication. */
+export async function searchNativeBodies(
+  port: LogbookPort,
+  ids: string[],
+  revision: number,
+  query: string,
+  preset: FilterPreset,
+  signal: AbortSignal
+): Promise<BodySearchResult> {
+  const trimmed = query.trim(),
+    presetKey = JSON.stringify(preset)
+  checkStreamCancelled(signal)
+  if (!trimmed || trimmed.length > 4096) throw new Error('正文搜索查询无效或过长。')
+  if (!ids.length) return { query: trimmed, hits: [], revision, presetKey }
+  if (!port.createSearchSource) throw new Error('本机缺少逐场正文搜索能力。')
+  const lease = await port.createSearchSource({ ids, expectedRevision: revision })
+  try {
+    checkStreamCancelled(signal)
+    if (lease.revision !== revision) throw new Error('搜索数据版本已变化。')
+    const result = await run<Awaited<ReturnType<typeof import('./body-search-stream').searchBodyStream>>>(
+      { type: 'search', source: local(lease.source), ids, query: trimmed, preset },
+      required(port),
+      lease.id,
+      signal
+    )
+    if (
+      result.records !== ids.length ||
+      result.source.bytes !== lease.source.bytes ||
+      result.source.sha256 !== lease.source.sha256
+    )
+      throw new Error('完整搜索证明不一致。')
+    const status = await port.getStatus()
+    checkStreamCancelled(signal)
+    if (status.revision !== revision) throw new Error('数据已变化，请重新搜索。')
+    return { query: trimmed, hits: result.hits, revision, presetKey }
+  } finally {
+    try {
+      await port.cancelBackupStage!({ id: lease.id })
+    } catch {
+      throw new BodySearchCleanupError('搜索读取暂存清理失败，请重开应用后重试；未发布搜索结果。')
     }
   }
 }

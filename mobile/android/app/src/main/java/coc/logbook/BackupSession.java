@@ -27,7 +27,7 @@ final class BackupSession implements AutoCloseable {
     }
     final String id=UUID.randomUUID().toString(),tree;
     final long revision;
-    final boolean restoring,includeArchives;
+    final boolean restoring,includeArchives,searching;
     final StorageBudget.Available available;
     private final File directory;
     private final Map<String,Entry> entries=new LinkedHashMap<>();
@@ -44,13 +44,16 @@ final class BackupSession implements AutoCloseable {
         this(directory,tree,revision,restoring,includeArchives,null);
     }
     BackupSession(File directory,String tree,long revision,boolean restoring,boolean includeArchives,StorageBudget.Available available)throws Exception{
-        this.directory=directory;this.tree=tree;this.revision=revision;this.restoring=restoring;this.includeArchives=includeArchives;
+        this(directory,tree,revision,restoring,includeArchives,false,available);
+    }
+    BackupSession(File directory,String tree,long revision,boolean restoring,boolean includeArchives,boolean searching,StorageBudget.Available available)throws Exception{
+        this.directory=directory;this.tree=tree;this.revision=revision;this.restoring=restoring;this.includeArchives=includeArchives;this.searching=searching;
         if(!directory.isDirectory()&&!directory.mkdirs())throw new IOException("无法创建私有备份暂存目录。");
         this.available=available==null?StorageBudget.volume(directory):available;
         File[] stale=directory.listFiles((dir,name)->name.matches("coc-backup-[a-f0-9-]+-[0-9]+\\.part"));
         if(stale==null)throw new IOException("无法读取私有备份暂存目录。");
         for(File file:stale)delete(file);
-        maximumInputBytes=StorageBudget.maximum(this.available,restoring?6:3);
+        maximumInputBytes=StorageBudget.maximum(this.available,restoring?6:searching?2:3);
     }
     void require(String token)throws IOException{if(closed||!id.equals(token))throw new IOException("备份暂存租约已失效。");}
     private Entry create(String key)throws Exception{
@@ -85,6 +88,7 @@ final class BackupSession implements AutoCloseable {
         producer.write(writer);writer.flush();entry.seal();return entry.proof;
     }
     long beginOutput()throws Exception{
+        if(searching)throw new IOException("正文搜索来源只读，不能暂存输出或发布文件。");
         if(closed||ready||!entries.containsKey("source")||entries.get("source").proof==null)throw new IOException("备份来源未封存。");
         if(maximumOutputBytes==0)maximumOutputBytes=StorageBudget.maximum(available,restoring?4:3);
         return maximumOutputBytes;

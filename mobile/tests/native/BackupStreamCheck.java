@@ -30,6 +30,11 @@ public final class BackupStreamCheck {
         File directory=Files.createTempDirectory("coc-native-backup-check-").toFile();
         try{
             JSONObject fixture=new JSONObject(Files.readString(new File(args[0]).toPath(),StandardCharsets.UTF_8));
+            try(BackupSession readOnly=new BackupSession(new File(directory,"read-only"),"",7,false,false,true,()->2L*1024*1024*1024)){
+                readOnly.captureJson(writer->writer.write(fixture.toString()));
+                rejects("search source cannot enable output staging",()->readOnly.beginOutput());
+                rejects("search source cannot append output",()->readOnly.append("output",0,new byte[]{1}));
+            }
             JSONObject header=root(fixture);BackupValidation.metadata(header);checks++;
             for(String json:new String[]{"{\"a\":1,\"\\u0061\":2}","{\"raw\":{\"x\":1,\"x\":2}}","{a:1}","{'a':1}","[1,]","{\"x\":01}","{\"a\":true,}","null false"})
                 rejects("strict JSON "+json,()->StrictBackupJson.validate(json));

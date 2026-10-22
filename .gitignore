@@ -10,3 +10,5 @@ work/
 .env.*
 .DS_Store
 Thumbs.db
+mobile/android/app/src/androidTest/assets/public-capacity.json
+mobile/android/app/src/androidTest/assets/public-capacity-webview.js

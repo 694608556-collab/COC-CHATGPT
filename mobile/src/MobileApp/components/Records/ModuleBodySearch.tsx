@@ -4,6 +4,9 @@ import { countMatches, recordMessages, searchExcerpt } from '../../../data/searc
 
 /** 只搜索此模组的已保存正文，不更改列表选择、排序或业务数据。 */
 export function ModuleBodySearch(props: {
+  streaming?: boolean
+  result?: import('../../../data/body-search-stream').BodySearchResult
+  searching?: boolean
   ready: boolean
   busy: boolean
   moduleId: string
@@ -17,7 +20,10 @@ export function ModuleBodySearch(props: {
   const input = useRef<HTMLInputElement>(null)
   const [page, setPage] = useState(0)
   const needle = props.query.trim()
-  const active = !!needle && props.ready
+  const streamed = props.result?.query === needle ? props.result : undefined
+  const ready = props.streaming ? !!streamed : props.ready
+  const busy = props.streaming ? !!props.searching : props.busy
+  const active = !!needle && ready
   const rows = useMemo(
     () =>
       props.records
@@ -26,24 +32,35 @@ export function ModuleBodySearch(props: {
         .sort((a, b) => a.order - b.order),
     [props.records, props.moduleId]
   )
+  const byID = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows])
   const bodies = useMemo(
-    () => (active ? rows.map((record) => ({ record, messages: recordMessages(record, props.preset) })) : []),
-    [rows, props.preset, active]
+    () =>
+      active && !props.streaming
+        ? rows.map((record) => ({ record, messages: recordMessages(record, props.preset) }))
+        : [],
+    [rows, props.preset, active, props.streaming]
   )
   const hits = useMemo(
     () =>
-      bodies.flatMap(({ record, messages }) => {
-        let matches = 0,
-          excerpt = ''
-        for (const message of messages) {
-          const text = message.header + '\n' + message.text
-          const count = countMatches(text, needle)
-          if (count && !matches) excerpt = searchExcerpt(text, needle)
-          matches += count
-        }
-        return matches ? [{ record, matches, excerpt }] : []
-      }),
-    [bodies, needle]
+      props.streaming
+        ? (streamed?.hits ?? [])
+            .flatMap((hit) => {
+              const record = byID.get(hit.id)
+              return record ? [{ record, matches: hit.matches, excerpt: hit.excerpt }] : []
+            })
+            .sort((a, b) => a.record.order - b.record.order)
+        : bodies.flatMap(({ record, messages }) => {
+            let matches = 0,
+              excerpt = ''
+            for (const message of messages) {
+              const text = message.header + '\n' + message.text
+              const count = countMatches(text, needle)
+              if (count && !matches) excerpt = searchExcerpt(text, needle)
+              matches += count
+            }
+            return matches ? [{ record, matches, excerpt }] : []
+          }),
+    [bodies, needle, streamed, rows, byID, props.streaming]
   )
   const pages = Math.max(1, Math.ceil(hits.length / 20)),
     current = Math.min(page, pages - 1)
@@ -53,7 +70,7 @@ export function ModuleBodySearch(props: {
         className="reader-search"
         onSubmit={(event) => {
           event.preventDefault()
-          if (!props.ready && !props.busy && needle) props.onQuery(props.query)
+          if (!ready && !busy && needle) props.onQuery(props.query)
           if (hits[0]) props.onRead(hits[0].record, needle)
         }}
       >
@@ -97,10 +114,10 @@ export function ModuleBodySearch(props: {
           </span>
         </label>
       </form>
-      {!!needle && !props.ready && (
+      {!!needle && !ready && (
         <section className="search-results" aria-label="模组正文搜索结果">
-          <p role="status">{props.busy ? '正在读取已保存正文…' : '正文尚未读取，重试后显示完整搜索结果。'}</p>
-          {!props.busy && (
+          <p role="status">{busy ? '正在逐场搜索已保存正文…' : '正文尚未读取，重试后显示完整搜索结果。'}</p>
+          {!busy && (
             <button type="button" onClick={() => props.onQuery(props.query)}>
               重试正文搜索
             </button>

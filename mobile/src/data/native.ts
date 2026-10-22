@@ -22,6 +22,7 @@ export interface StorageUsage {
 export interface NativeState {
   storageUsage?: StorageUsage
   backupStreamVersion?: 1
+  bodySearchStreamVersion?: 1
   tableDeltaVersion?: 1
   lastAutoBackupAt?: number
   lastAutoBackupRevision?: number
@@ -48,6 +49,10 @@ export interface SavedDocument {
 }
 /** 所有请求/响应与本工程 LogbookPlugin.java 一一对应，不访问推测的 HTTP 接口。 */
 export interface LogbookPort extends BackupStreamPort {
+  createSearchSource?(options: {
+    ids: string[]
+    expectedRevision: number
+  }): Promise<import('./body-search-stream').NativeSearchSource>
   /** Android: private staged results, one revision/CAS transaction for the entire batch. */
   beginFetchBatch?(options: { ids: string[]; expectedRevision: number }): Promise<{ id: string }>
   stageFetchResult?(options: { batchId: string; id: string }): Promise<void>
