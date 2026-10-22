@@ -80,6 +80,7 @@ jobs:
             mobile/ios/build/screenshot-error.json
             mobile/ios/build/simulator-failure.json
             mobile/ios/build/ios-scale-result.json
+            mobile/ios/build/ios-public-io-result.json
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: failure()

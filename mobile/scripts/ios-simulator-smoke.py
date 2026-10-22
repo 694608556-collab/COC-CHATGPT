@@ -26,6 +26,7 @@ def command(*args, timeout=60, log=None):
 def main():
     OUTPUT.mkdir(parents=True, exist_ok=True)
     udid = None
+    io_udid = None
     metadata = {'device': 'iPhone 14 Pro', 'requestedRuntime': '27.0', 'scope': 'fresh cloud simulator, no user phone data'}
     phase = 'environment'
     try:
@@ -191,6 +192,33 @@ def main():
         print(json.dumps(capacity), flush=True)
         if not capacity.get('passed'):
             raise RuntimeError('Public native capacity WKWebView failed: ' + str(capacity))
+        phase = 'public-complete-io-fixtures'
+        command('xcrun', 'simctl', 'shutdown', udid, timeout=60)
+        command('node', 'scripts/public-io-fixtures.mjs', '--ios', timeout=120)
+        io_udid = command('xcrun', 'simctl', 'create', 'COC isolated public I/O timing', device['identifier'], runtime['identifier'])
+        uuid.UUID(io_udid)
+        command('xcrun', 'simctl', 'boot', io_udid, timeout=300)
+        command('xcrun', 'simctl', 'bootstatus', io_udid, '-b', timeout=300)
+        command('xcrun', 'simctl', 'install', io_udid, 'ios/build/simulator/Build/Products/Debug-iphonesimulator/App.app', timeout=120)
+        io_container = pathlib.Path(command('xcrun', 'simctl', 'get_app_container', io_udid, 'coc.logbook', 'data'))
+        command('python3', 'scripts/ios-public-io-fixture.py', str(io_container / 'Library/Application Support/COCLogbook/logbook.sqlite'), timeout=120)
+        (io_container / 'tmp').mkdir(parents=True, exist_ok=True)
+        (io_container / 'tmp/ios-scale-webview.js').write_text(pathlib.Path('ios/build/public-io/public-io-webview.js').read_text())
+        io_report = io_container / 'tmp/ios-scale-result.json'
+        phase = 'public-complete-io-wkwebview'
+        command('xcrun', 'simctl', 'launch', io_udid, 'coc.logbook', '--coc-ios-scale', '--coc-public-io', timeout=120)
+        deadline = time.monotonic() + 950
+        while not io_report.exists() and time.monotonic() < deadline:
+            time.sleep(1)
+        if not io_report.exists():
+            raise TimeoutError('Public complete I/O timing report not produced')
+        io_output = OUTPUT / 'ios-public-io-result.json'
+        io_output.write_bytes(io_report.read_bytes())
+        io_result = json.loads(io_output.read_text())
+        if not io_result.get('passed'):
+            raise RuntimeError('Complete public I/O failed: ' + str(io_result))
+        command('xcrun', 'simctl', 'terminate', io_udid, 'coc.logbook', timeout=60)
+        command('python3', 'scripts/check-public-io.py', str(io_container), str(io_output), timeout=120)
         if capture_errors:
             raise RuntimeError('Required screenshot capture failed after startup/UI checks: ' + '; '.join(capture_errors))
     except Exception as error:
@@ -200,6 +228,11 @@ def main():
             output.write_text(json.dumps({**metadata, 'passed': False, 'phase': phase, 'error': str(error)}))
         raise
     finally:
+        if io_udid:
+            try:
+                command('xcrun', 'simctl', 'shutdown', io_udid, timeout=45)
+            except Exception as error:
+                print('isolated I/O simulator cleanup: ' + str(error), flush=True)
         if udid:
             try:
                 command('xcrun', 'simctl', 'shutdown', udid, timeout=45)

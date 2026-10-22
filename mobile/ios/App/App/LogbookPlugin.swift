@@ -594,6 +594,20 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         if ProcessInfo.processInfo.arguments.contains("--coc-ios-scale"), let uri = call.getString("publicRestoreDocument") {
             run(call) { store, archive in
                 try archive.withDocument(uri) { url, document, _ in
+                    // Additional UI timing fixtures require their own explicit simulator launch flag.
+                    // Release/device builds cannot enter this branch; normal picker authorization stays intact.
+                    if ProcessInfo.processInfo.arguments.contains("--coc-public-io") {
+                        let name = document["name"] as? String ?? ""
+                        guard call.getBool("stream") == true else { throw LogbookFailure("公开计时仅接受完整流。") }
+                        if document["purpose"] as? String == "export", name.hasPrefix("public-io-"),
+                           ["record-table", "character-table"].contains(call.getString("kind") ?? ""),
+                           ["csv", "xlsx", "xls"].contains(url.pathExtension.lowercased()) {
+                            return try self.openTableStream(call, url, store, archive)
+                        }
+                        guard call.getString("kind") == "backup", document["purpose"] as? String == "backup",
+                              name.range(of: "^[0-9]{8}COC跑团记录簿[0-9]*\\.(json|zip)$", options: .regularExpression) != nil, ["json", "zip"].contains(url.pathExtension.lowercased()) else { throw LogbookFailure("仅限隔离模拟器登记的公开计时夹具。") }
+                        return try self.openRestoreStream(call, url, store, archive)
+                    }
                     if call.getBool("stream") == true, call.getString("kind") == "record-table", document["purpose"] as? String == "export",
                        (document["name"] as? String ?? "").hasPrefix("public-table-stream"), url.pathExtension.lowercased() == "csv" {
                         return try self.openTableStream(call, url, store, archive)
