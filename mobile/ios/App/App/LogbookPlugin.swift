@@ -713,7 +713,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
                 self.backupWriter.async {
                     defer { self.work.async { self.backupRunning = false } }
                     do {
-                        let document = try archive.writeFile(name: "auto-backup-\(Int(Date().timeIntervalSince1970 * 1000)).json", mime: "application/json", source: source, purpose: "auto", bookmark: bookmark)
+                        let document = try archive.writeFile(name: LogbookArchive.backupName(), mime: "application/json", source: source, purpose: "auto", bookmark: bookmark)
                         let savedAt = try self.work.sync { () throws -> Int in
                             guard try archive.bookmark() == bookmark else { throw LogbookFailure("保存位置已变化；文件保留，未标记新位置已备份。") }
                             let savedAt = Int(Date().timeIntervalSince1970 * 1000)

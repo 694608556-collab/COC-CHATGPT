@@ -1,3 +1,4 @@
+import { backupExportName } from '../../../src/shared/export-filenames'
 import { retainBodySelection } from '../data/body-cache'
 import { BodySearchCleanupError } from '../data/body-search-stream'
 import { searchNativeBodies } from '../data/backup-stream-client'
@@ -1257,7 +1258,7 @@ export function MobileApp({
   async function exportBackup(includeArchives = false) {
     if (native?.backupStreamVersion === 1) {
       setNotice('正在逐场生成完整备份，并核对保存空间…')
-      const name = 'coc-android-backup-' + Date.now() + (includeArchives ? '.zip' : '.json')
+      const name = backupExportName(includeArchives ? 'zip' : 'json')
       const file = await exportNativeBackup(port, native.revision, includeArchives, name)
       setSavedDocument(file)
       setNotice(`备份已保存并回读校验：${file.name}${file.warning ? '；' + file.warning : ''}`)
@@ -1273,10 +1274,7 @@ export function MobileApp({
           (!file.purpose && !/^(before-|auto-backup-|coc-android-backup-)/.test(file.name))
       )
     }
-    const name =
-      (Capacitor.getPlatform() === 'ios' ? 'coc-ios-backup-' : 'coc-android-backup-') +
-      Date.now() +
-      (includeArchives ? '.zip' : '.json')
+    const name = backupExportName(includeArchives ? 'zip' : 'json')
     let source: NativeExportSession | undefined
     try {
       let prepared: { name: string; mime: string; bytes: Uint8Array }

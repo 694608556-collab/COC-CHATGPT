@@ -33,9 +33,30 @@ export function combinedExportName(module: string, format: NamedExportFormat, no
 export function tableExportName(format: 'csv' | 'xlsx', count: number, now = new Date()): string {
   return `COC跑团记录${exportDate(now)}.${format === 'csv' && count > 1 ? 'zip' : format}`
 }
+/** @param format 整库备份格式。 @param now 设备本地日期。 @returns 当天首份备份名；保存端统一为同日后续 JSON/ZIP 递增编号。 */
+export function backupExportName(format: 'json' | 'zip', now = new Date()): string {
+  const date =
+    String(now.getFullYear()).padStart(4, '0') +
+    String(now.getMonth() + 1).padStart(2, '0') +
+    String(now.getDate()).padStart(2, '0')
+  return `${date}COC跑团记录簿.${format}`
+}
 /** Export requests always include a normal extension; keep the desktop (2), (3) collision convention. */
 export function nextExportName(existing: Iterable<string>, requested: string): string {
   const used = new Set(Array.from(existing, (name) => name.toLocaleLowerCase()))
+  const backup = /^(\d{8}COC跑团记录簿)\.(json|zip)$/i.exec(requested)
+  if (backup) {
+    let maximum = -1
+    for (const name of used) {
+      const match = /^(\d{8}COC跑团记录簿)(\d*)\.(?:json|zip)$/i.exec(name)
+      if (match?.[1]?.toLocaleLowerCase() !== backup[1]!.toLocaleLowerCase()) continue
+      const number = Number(match[2] || 0)
+      if (!Number.isSafeInteger(number) || number >= Number.MAX_SAFE_INTEGER)
+        throw new Error('备份文件序号无效，请更换保存目录。')
+      maximum = Math.max(maximum, number)
+    }
+    return backup[1]! + (maximum < 0 ? '' : maximum + 1) + '.' + backup[2]!
+  }
   if (!used.has(requested.toLocaleLowerCase())) return requested
   const dot = requested.lastIndexOf('.')
   const stem = dot > 0 ? requested.slice(0, dot) : requested

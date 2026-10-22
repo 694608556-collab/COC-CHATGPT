@@ -19,6 +19,26 @@ final class LogbookArchive {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
     static func digest(_ bytes: Data) -> String { SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined() }
+    static func backupName(_ date: Date = Date(), extension ext: String = "json") -> String {
+        let formatter = DateFormatter(); formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = .current; formatter.dateFormat = "yyyyMMdd"
+        return formatter.string(from: date) + "COC跑团记录簿." + ext
+    }
+    static func backupAvailable(_ existing: Set<String>, _ requested: String) throws -> String? {
+        guard let pattern = try? NSRegularExpression(pattern: "^(\\d{8}COC跑团记录簿)\\.(json|zip)$", options: .caseInsensitive),
+              let match = pattern.firstMatch(in: requested, range: NSRange(requested.startIndex..., in: requested)),
+              let stemRange = Range(match.range(at: 1), in: requested), let extensionRange = Range(match.range(at: 2), in: requested) else { return nil }
+        let stem = String(requested[stemRange]), ext = String(requested[extensionRange])
+        let names = try NSRegularExpression(pattern: "^" + NSRegularExpression.escapedPattern(for: stem) + "(\\d*)\\.(json|zip)$", options: .caseInsensitive)
+        var maximum = -1
+        for name in existing {
+            guard let found = names.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)), let range = Range(found.range(at: 1), in: name) else { continue }
+            let digits = String(name[range])
+            guard let number = Int(digits.isEmpty ? "0" : digits), number < Int.max else { throw LogbookFailure("备份文件序号无效，请更换保存目录。") }
+            maximum = max(maximum, number)
+        }
+        return stem + (maximum < 0 ? "" : String(maximum + 1)) + "." + ext
+    }
     func bookmark() throws -> Data {
         guard let bookmark = preferences.data(forKey: "coc.archive.bookmark") else { throw LogbookFailure("请先选择本机保存文件夹。") }
         return bookmark
@@ -140,18 +160,19 @@ final class LogbookArchive {
     }
     private func reserve(_ directory: URL, _ requested: String) throws -> (URL, Int32) {
         nameLock.lock(); defer { nameLock.unlock() }
-        let existing = Set(try FileManager.default.contentsOfDirectory(atPath: directory.path).map { $0.precomposedStringWithCanonicalMapping.lowercased() })
+        var existing = Set(try FileManager.default.contentsOfDirectory(atPath: directory.path).map { $0.precomposedStringWithCanonicalMapping.lowercased() })
         let name = requested as NSString, ext = name.pathExtension
         let stem = ext.isEmpty ? requested : name.deletingPathExtension
         var index = 0
         while index < Int.max {
             index += 1
-            let candidate = index == 1 ? requested : stem + " (\(index))" + (ext.isEmpty ? "" : "." + ext)
+            let candidate = try Self.backupAvailable(existing, requested) ?? (index == 1 ? requested : stem + " (\(index))" + (ext.isEmpty ? "" : "." + ext))
             if existing.contains(candidate.precomposedStringWithCanonicalMapping.lowercased()) { continue }
             let file = directory.appendingPathComponent(candidate, isDirectory: false)
             let descriptor = Darwin.open(file.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, S_IRUSR | S_IWUSR)
             if descriptor >= 0 { return (file, descriptor) }
             if errno != EEXIST { throw LogbookFailure("无法创建新文件；未覆盖已有文件。") }
+            existing.insert(candidate.precomposedStringWithCanonicalMapping.lowercased())
         }
         throw LogbookFailure("同名文件过多，请更换文件名。")
     }
