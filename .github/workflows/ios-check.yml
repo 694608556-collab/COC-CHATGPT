@@ -27,6 +27,8 @@ jobs:
           cache-dependency-path: mobile/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck && pnpm test
+      - name: Check bounded-memory complete JSON and ZIP backups above 64MiB
+        run: node scripts/check-backup-stream.mjs
       - name: Check iOS native transactions, bodies and local archive protection
         run: |
           node scripts/ios-native-fixture.mjs
