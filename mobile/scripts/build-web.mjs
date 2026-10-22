@@ -8,7 +8,8 @@ await build({
   entryPoints: {
     app: 'src/main.tsx',
     'snapshot-worker': 'src/data/snapshot-worker.ts',
-    'export-worker': 'src/data/export-worker.ts'
+    'export-worker': 'src/data/export-worker.ts',
+    'backup-stream-worker': 'src/data/backup-stream-worker.ts'
   },
   outdir: 'www',
   banner: { js: 'var globalThis = typeof window !== "undefined" ? window : self;' },

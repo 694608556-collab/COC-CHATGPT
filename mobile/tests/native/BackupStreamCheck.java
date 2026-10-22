@@ -65,14 +65,20 @@ public final class BackupStreamCheck {
             // one public 1MiB body at a time. No SQLite/device claim here.
             int count=args.length>1?Integer.parseInt(args[1]):96;
             JSONObject seed=rows.getJSONObject(0);String text="公开😀\n\0"+"x".repeat(1024*1024);JSONArray metadataRows=new JSONArray();
-            File candidate=new File(directory,"public-scale.part");long start=System.nanoTime();
-            try(Writer output=new BufferedWriter(new OutputStreamWriter(new FileOutputStream(candidate),StandardCharsets.UTF_8),65536)){
+            File candidate=new File(directory,"public-scale.part"),backup=new File(directory,"public-scale.json");long start=System.nanoTime();
+            try(Writer output=new BufferedWriter(new OutputStreamWriter(new FileOutputStream(candidate),StandardCharsets.UTF_8),65536);
+                Writer source=new BufferedWriter(new OutputStreamWriter(new FileOutputStream(backup),StandardCharsets.UTF_8),65536)){
+                JSONObject business=new JSONObject(header.toString());business.remove("records");String prefix=business.toString();
+                source.write("{\"format\":\"coc.logbook.android\",\"formatVersion\":1,\"snapshot\":"+prefix.substring(0,prefix.length()-1)+",\"records\":[");
                 for(int i=0;i<count;i++){
                     JSONObject record=new JSONObject(seed.toString());record.put("id","scale-"+i);record.put("order",i);record.put("manualContent",i+":"+text+":END-"+i);
-                    metadataRows.put(BackupValidation.metadataOf(record));output.write("R"+record+"\n");
+                    String json=record.toString();metadataRows.put(BackupValidation.metadataOf(record));output.write("R"+json+"\n");
+                    if(i>0)source.write(',');source.write(json);
                 }
                 JSONObject metadata=new JSONObject(header.toString());metadata.put("records",metadataRows);output.write("M"+metadata+"\n");
+                source.write("]}}");
             }
+            require(SnapshotBackupStream.validate(backup)==count,"native canonical backup visits every complete body");
             BackupSession.Proof proof=BackupSession.fileProof(candidate,candidate.length());int[] seen={0};
             try(InputStream input=new FileInputStream(candidate)){
                 RestoreCandidate.Preview large=RestoreCandidate.inspect(input,proof.bytes,proof.sha256,(json,value,index)->{
@@ -81,7 +87,7 @@ public final class BackupStreamCheck {
                 require(large.metadata.getJSONArray("records").length()==count&&seen[0]==count&&proof.bytes>64L*1024*1024,"complete native scale proof");
             }
             System.out.println("BackupStream: "+checks+" checks passed; publicRecords="+count+" bytes="+proof.bytes+" sha256="+proof.sha256+" seconds="+(System.nanoTime()-start)/1e9+" JVMHeapMiB="+(Runtime.getRuntime().maxMemory()/1048576)+" nativeDevice=false");
-            require(candidate.delete(),"synthetic candidate cleanup");require(keep.delete(),"fixture cleanup");
+            require(candidate.delete(),"synthetic candidate cleanup");require(backup.delete(),"synthetic backup cleanup");require(keep.delete(),"fixture cleanup");
         }finally{File[] files=directory.listFiles();if(files!=null)for(File file:files)if(!file.delete())throw new IOException("fixture cleanup");if(!directory.delete())throw new IOException("fixture directory cleanup");}
     }
 }

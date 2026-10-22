@@ -88,6 +88,7 @@ const pdfCompiled = spawnSync(
     join(source, 'PdfSpool.java'),
     join(source, 'TextPdfJobs.java'),
     join(source, 'ReadLease.java'),
+    join(source, 'StorageBudget.java'),
     resolve('tests/native/ReadLeaseCheck.java'),
     resolve('tests/native/TextPdfJobsCheck.java'),
     resolve('tests/native/PdfSpoolCheck.java')
@@ -116,6 +117,7 @@ const publicationCompiled = spawnSync(
     join(source, 'LogbookLimits.java'),
     join(source, 'PdfSpool.java'),
     join(source, 'ArchivePublication.java'),
+    join(source, 'StorageBudget.java'),
     resolve('tests/native/ArchivePublicationCheck.java')
   ],
   { encoding: 'utf8' }
@@ -154,6 +156,8 @@ const backupSources = [
   'StrictBackupJson',
   'RestoreCandidate',
   'BackupSession',
+  'SnapshotBackupStream',
+  'RawJson',
   'LogbookLimits',
   'JsonFields'
 ]
@@ -181,7 +185,8 @@ for (const name of ['StorageBudgetCheck', 'BackupStreamCheck']) {
       '-cp',
       work + separator + process.env.JSON_JAR,
       'coc.logbook.' + name,
-      join(work, 'sample.json')
+      join(work, 'sample.json'),
+      process.env.COC_NATIVE_BACKUP_SCALE ?? '96'
     ],
     { encoding: 'utf8' }
   )

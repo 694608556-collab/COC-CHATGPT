@@ -16,8 +16,19 @@ final class ReadLease implements AutoCloseable {
         }
     }
     private final File directory;
+    private final long maximumBytes;
+    private final StorageBudget.Available available;
     private Value active;
     ReadLease(File directory) throws Exception {
+        this(directory,LogbookLimits.READ_LEASE_BYTES,null);
+    }
+    ReadLease(File directory,long maximumBytes) throws Exception {
+        this(directory,maximumBytes,StorageBudget.volume(directory));
+    }
+    private ReadLease(File directory,long maximumBytes,StorageBudget.Available available) throws Exception {
+        if(maximumBytes<1||maximumBytes>StorageBudget.JS_SAFE_INTEGER)throw new IOException("只读来源空间预算无效。");
+        this.maximumBytes=maximumBytes;
+        this.available=available;
         this.directory = directory;
         if (!directory.isDirectory() && !directory.mkdirs()) throw new IOException("无法创建只读正文目录。");
         File[] stale = directory.listFiles((dir,name) -> name.matches("coc-read-[a-f0-9-]+\\.json"));
@@ -43,11 +54,13 @@ final class ReadLease implements AutoCloseable {
                  Writer writer = new BufferedWriter(new OutputStreamWriter(new DigestOutputStream(new FilterOutputStream(output) {
                      long count;
                      @Override public void write(byte[] bytes, int offset, int length) throws IOException {
-                         if (count + length > LogbookLimits.READ_LEASE_BYTES) throw new IOException("正文超过 64 MB，未创建导出文件。");
+                         if (count + length > maximumBytes) throw new IOException("正文超过本次可用空间预算，未创建导出文件。");
+                         if(available!=null)try{StorageBudget.require(available,length);}catch(Exception error){throw new IOException("正文暂存可用空间不足。",error);}
                          out.write(bytes, offset, length); count += length;
                      }
                      @Override public void write(int value) throws IOException {
-                         if (++count > LogbookLimits.READ_LEASE_BYTES) throw new IOException("正文超过 64 MB，未创建导出文件。");
+                         if (++count > maximumBytes) throw new IOException("正文超过本次可用空间预算，未创建导出文件。");
+                         if(available!=null)try{StorageBudget.require(available,1);}catch(Exception error){throw new IOException("正文暂存可用空间不足。",error);}
                          out.write(value);
                      }
                  },digest), StandardCharsets.UTF_8))) {

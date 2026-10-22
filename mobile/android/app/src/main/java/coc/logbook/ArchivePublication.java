@@ -34,9 +34,15 @@ final class ArchivePublication {
     }
     /** Pin the sealed source before any destination bytes are written, then durably record its exact URI. */
     JSONObject begin(File source, String uri, String location, long bytes, String hash) throws Exception {
+        return begin(source,uri,location,bytes,hash,"export");
+    }
+    /** Large backup ownership is persisted explicitly for restart recovery;
+     * regular exports retain their independent per-file budget. */
+    JSONObject begin(File source, String uri, String location, long bytes, String hash,String purpose) throws Exception {
         synchronized (active) {
             if (store.pending().length() >= 4) throw new IOException("请先处理未完成的归档发布，再重新导出。");
-            if (bytes < 0 || bytes > LogbookLimits.ARCHIVE_FILE_BYTES || source.length() != bytes || !hash.matches("[a-f0-9]{64}"))
+            boolean largeBackup=purpose.equals("backup")||purpose.equals("auto");
+            if (bytes < 0 || bytes > (largeBackup?StorageBudget.JS_SAFE_INTEGER:LogbookLimits.ARCHIVE_FILE_BYTES) || source.length() != bytes || !hash.matches("[a-f0-9]{64}"))
                 throw new IOException("发布文件证明不完整。");
             if (documents.registered(uri)) throw new IOException("文件已登记，拒绝覆盖。");
             String id = UUID.randomUUID().toString(); File proof = proof(id);
@@ -47,6 +53,7 @@ final class ArchivePublication {
                 try (FileOutputStream sync = new FileOutputStream(proof, true)) { sync.getFD().sync(); }
                 JSONObject value = new JSONObject().put("id", id).put("uri", uri).put("location", location)
                     .put("bytes", bytes).put("sha256", hash);
+                if(largeBackup)value.put("version",2).put("purpose",purpose);
                 store.put(value); return value;
             } catch (Exception error) { active.remove(id); if (proof.exists() && !proof.delete() && proof.exists()) error.addSuppressed(new IOException("发布证明清理失败。")); throw error; }
         }
@@ -90,7 +97,8 @@ final class ArchivePublication {
         if (documents.registered(uri)) { forget(value); return; }
         if (!documents.exists(value)) { forget(value); return; }
         File proof = proof(value.getString("id")); long bytes = value.getLong("bytes");
-        if (bytes < 0 || bytes > LogbookLimits.ARCHIVE_FILE_BYTES || !proof.isFile() || proof.length() != bytes || !hash(proof).equals(value.getString("sha256")))
+        boolean largeBackup=value.optInt("version",1)==2&&(value.optString("purpose").equals("backup")||value.optString("purpose").equals("auto"));
+        if (bytes < 0 || bytes > (largeBackup?StorageBudget.JS_SAFE_INTEGER:LogbookLimits.ARCHIVE_FILE_BYTES) || !proof.isFile() || proof.length() != bytes || !hash(proof).equals(value.getString("sha256")))
             throw new IOException("上次未完成的文件暂时无法核对，已保留；请检查归档目录后重试。");
         try (InputStream expected = new FileInputStream(proof); InputStream actual = documents.open(uri)) {
             if (actual == null) throw new IOException("无法核对上次未完成文件。");

@@ -10,7 +10,10 @@ import org.json.*;
 /** SQLite v4: metadata and raw body values are independent, bounded rows. */
 final class IndexedSnapshot {
     private final SQLiteDatabase db;
-    IndexedSnapshot(SQLiteDatabase db){this.db=db;}
+    private final boolean deviceSpace;
+    private final StorageBudget.Available available;
+    IndexedSnapshot(SQLiteDatabase db){this(db,LogbookLimits.DEVICE_SPACE_LIBRARY,StorageBudget.volume(new File(db.getPath()).getAbsoluteFile().getParentFile()));}
+    IndexedSnapshot(SQLiteDatabase db,boolean deviceSpace,StorageBudget.Available available){this.db=db;this.deviceSpace=deviceSpace;this.available=available;}
     static void create(SQLiteDatabase db){
         db.execSQL("CREATE TABLE IF NOT EXISTS indexed_fields(field TEXT NOT NULL,position INTEGER NOT NULL,data TEXT NOT NULL,PRIMARY KEY(field,position))");
         db.execSQL("CREATE TABLE IF NOT EXISTS indexed_records(row_key INTEGER PRIMARY KEY,id TEXT UNIQUE,ordinal INTEGER NOT NULL,metadata TEXT NOT NULL,bytes INTEGER NOT NULL DEFAULT 0,body_count INTEGER NOT NULL DEFAULT 0)");
@@ -36,6 +39,7 @@ final class IndexedSnapshot {
         private void flushPart(boolean end){
             if(length==0)return;int count=!end&&Character.isHighSurrogate(buffer[length-1])?length-1:length;
             String text=new String(buffer,0,count);
+            if(deviceSpace)try{StorageBudget.require(available,StorageBudget.estimate(JsonFields.bytes(text),4));}catch(Exception error){throw new IllegalStateException("正文写入所需空间不足；原数据保留。",error);}
             db.execSQL("INSERT INTO indexed_bodies VALUES(?,?,?,?,?)",new Object[]{key,kind,position++,text,JsonFields.bytes(text)});
             if(count<length)buffer[0]=buffer[count];length-=count;
         }
@@ -47,7 +51,10 @@ final class IndexedSnapshot {
     interface Chunk{void put(int position,String data)throws Exception;}
     private void field(String name,String value)throws Exception{
         db.execSQL("DELETE FROM indexed_fields WHERE field=?",new Object[]{name});
-        chunks(value,(position,data)->db.execSQL("INSERT INTO indexed_fields VALUES(?,?,?)",new Object[]{name,position,data}));
+        chunks(value,(position,data)->{
+            if(deviceSpace)StorageBudget.require(available,StorageBudget.estimate(JsonFields.bytes(data),4));
+            db.execSQL("INSERT INTO indexed_fields VALUES(?,?,?)",new Object[]{name,position,data});
+        });
     }
     Map<String,String> rootFields(){
         Map<String,String> fields=new LinkedHashMap<>();String previous=null;StringBuilder value=new StringBuilder();
@@ -69,7 +76,8 @@ final class IndexedSnapshot {
         long bytes=JsonFields.bytes(metadata);int count=0;
         try(Cursor bodies=db.rawQuery("SELECT kind,SUM(bytes) FROM indexed_bodies WHERE record_key=? GROUP BY kind",new String[]{Long.toString(key)})){
             while(bodies.moveToNext()){bytes+=1+JsonFields.bytes(JSONObject.quote(bodies.getString(0)))+1+bodies.getLong(1);count++;}
-        }db.execSQL("UPDATE indexed_records SET metadata=?,bytes=?,body_count=? WHERE row_key=?",new Object[]{metadata,bytes,count,key});
+        }if(bytes>LogbookLimits.ENTITY_REQUEST_BYTES)throw new IllegalArgumentException("单场完整raw/manual合计超过64MiB；原数据保留。");
+        db.execSQL("UPDATE indexed_records SET metadata=?,bytes=?,body_count=? WHERE row_key=?",new Object[]{metadata,bytes,count,key});
     }
     void record(RawJson cursor,String expectedId,boolean keepBody)throws Exception{record(cursor,expectedId,keepBody,null);}
     private void record(RawJson cursor,String expectedId,boolean keepBody,Long appendOrdinal)throws Exception{
@@ -96,6 +104,17 @@ final class IndexedSnapshot {
         db.execSQL("DELETE FROM indexed_fields");db.execSQL("DELETE FROM indexed_bodies");db.execSQL("DELETE FROM indexed_records");
         RawJson reader=new RawJson(source);Set<String> seen=new HashSet<>();
         reader.object((name,value)->{if(!seen.add(name))throw new IllegalArgumentException("快照字段重复。");if(name.equals("records"))value.array(row->record(row,null,false));else field(name,value.take());});reader.end();checkSize();
+    }
+    /** Complete already-inspected private candidate, still checked again inside
+     * the transaction so a late body/hash/graph failure rolls everything back. */
+    void replaceCandidate(Map<String,String> root,InputStream input,RestoreCandidate.Preview preview)throws Exception{
+        db.execSQL("DELETE FROM indexed_fields");db.execSQL("DELETE FROM indexed_bodies");db.execSQL("DELETE FROM indexed_records");
+        for(Map.Entry<String,String> value:root.entrySet())if(!value.getKey().equals("records"))field(value.getKey(),value.getValue());
+        RestoreCandidate.Preview actual=RestoreCandidate.inspect(input,preview.bytes,preview.sha256,(json,value,index)->{
+            RawJson raw=new RawJson(new StringReader(json));record(raw,null,false,(long)index);raw.end();
+        });
+        if(!BackupValidation.same(actual.metadata,preview.metadata))throw new IOException("恢复候选元数据已变化。");
+        checkSize();
     }
     void patch(Map<String,String> changes)throws Exception{
         if(changes.containsKey("records")){
@@ -183,7 +202,26 @@ final class IndexedSnapshot {
         TableTiming.mark(timing,"recordCompareAndWrite");
     }
     long bytes(){Map<String,String> root=rootFields();root.put("records","[]");try(Cursor rows=db.rawQuery("SELECT COUNT(*),COALESCE(SUM(bytes),0) FROM indexed_records",null)){rows.moveToFirst();return JsonFields.objectBytes(root)+rows.getLong(1)+Math.max(0,rows.getLong(0)-1);}}
-    void checkSize(){if(bytes()>LogbookLimits.LIBRARY_BYTES)throw new IllegalArgumentException("数据超过 64 MiB；原数据未改变。");}
+    long projectedBytes(Set<String> selected)throws Exception{
+        Map<String,String> root=rootFields();root.put("records","[]");long bytes=JsonFields.objectBytes(root),count=0;
+        if(selected==null)return bytes();
+        List<String> ids=new ArrayList<>(selected);
+        for(int start=0;start<ids.size();start+=400){
+            List<String> group=ids.subList(start,Math.min(start+400,ids.size()));
+            String placeholders=String.join(",",Collections.nCopies(group.size(),"?"));
+            try(Cursor row=db.rawQuery("SELECT COUNT(*),COALESCE(SUM(bytes),0) FROM indexed_records WHERE id IN ("+placeholders+")",group.toArray(new String[0]))){if(!row.moveToFirst())throw new IOException("场次计量读取失败。");count+=row.getLong(0);bytes+=row.getLong(1);}
+        }
+        if(count!=selected.size())throw new IOException("场次已变化，请重新读取。");return bytes+Math.max(0,count-1);
+    }
+    long metadataBytes(){Map<String,String> root=rootFields();root.put("records","[]");try(Cursor rows=db.rawQuery("SELECT COUNT(*),COALESCE(SUM(length(CAST(metadata AS BLOB))),0) FROM indexed_records",null)){rows.moveToFirst();return JsonFields.objectBytes(root)+rows.getLong(1)+Math.max(0,rows.getLong(0)-1);}}
+    void checkSize(){
+        if(!deviceSpace){if(bytes()>LogbookLimits.LIBRARY_BYTES)throw new IllegalArgumentException("数据超过 64 MiB；原数据未改变。");return;}
+        try{
+            if(metadataBytes()>LogbookLimits.SNAPSHOT_REQUEST_BYTES)throw new IllegalArgumentException("整库元数据超过独立处理上限；原数据未改变。");
+            try(Cursor row=db.rawQuery("SELECT COALESCE(MAX(bytes),0) FROM indexed_records",null)){row.moveToFirst();if(row.getLong(0)>LogbookLimits.ENTITY_REQUEST_BYTES)throw new IllegalArgumentException("单场完整raw/manual合计超过64MiB；原数据未改变。");}
+            StorageBudget.require(available,0);
+        }catch(RuntimeException error){throw error;}catch(Exception error){throw new IllegalStateException("保存空间不足或无法核对；原数据未改变。",error);}
+    }
     void write(Writer out,Set<String> selected)throws Exception{
         Map<String,String> root=rootFields();out.write('{');boolean comma=false;
         for(Map.Entry<String,String> field:root.entrySet()){if(comma)out.write(',');comma=true;out.write(JSONObject.quote(field.getKey()));out.write(':');JsonFields.writeText(out,field.getValue());}

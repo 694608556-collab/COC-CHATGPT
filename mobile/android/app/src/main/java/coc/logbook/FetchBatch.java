@@ -11,6 +11,8 @@ final class FetchBatch implements AutoCloseable {
     final String id=UUID.randomUUID().toString(),tree;
     final long revision;
     private final File file;
+    private final StorageBudget.Available available;
+    private final long maximumBytes;
     private final Map<String,Map<String,String>> targets=new LinkedHashMap<>();
     private final Map<String,Part> parts=new LinkedHashMap<>();
     private static final class Part {long start,length;byte[] hash;boolean keepBody;}
@@ -22,6 +24,8 @@ final class FetchBatch implements AutoCloseable {
         if(!directory.isDirectory()&&!directory.mkdirs())throw new IOException("无法创建检测暂存。");
         // This directory is exclusive to batch staging; stale files never contain committed data.
         File[] stale=directory.listFiles();if(stale!=null)for(File old:stale)if(!old.delete())throw new IOException("旧检测暂存清理失败。");
+        available=StorageBudget.volume(directory);
+        maximumBytes=LogbookLimits.DEVICE_SPACE_LIBRARY?StorageBudget.maximum(available,4):LogbookLimits.BATCH_STAGING_BYTES;
         file=File.createTempFile("batch-",".json",directory);
     }
     void require(String token){if(!id.equals(token))throw new IllegalArgumentException("检测批次已失效。");}
@@ -53,7 +57,8 @@ final class FetchBatch implements AutoCloseable {
             String status=stringValue(metadata.get("status"));boolean success="valid".equals(status);
             if(!Arrays.asList("valid","invalid","fetch_failed").contains(status)||metadata.containsKey("manualContent"))throw new IllegalArgumentException("检测结果无效。");
             if(success&&(!body[0]||!sameString(before.get("link"),metadata.get("cacheSourceUrl"))))throw new IllegalArgumentException("检测正文或来源不完整。");
-            if(file.length()>LogbookLimits.BATCH_STAGING_BYTES)throw new IllegalArgumentException("检测正文超过 64 MiB；整批未保存。");
+            if(file.length()>maximumBytes)throw new IllegalArgumentException("检测正文超过本次可用空间预算；整批未保存。");
+            if(LogbookLimits.DEVICE_SPACE_LIBRARY)StorageBudget.require(available,StorageBudget.estimate(file.length()-start,4));
             Part part=new Part();part.start=start;part.length=file.length()-start;part.hash=digest.digest();part.keepBody=!success;parts.put(key,part);
         }catch(Exception error){try(RandomAccessFile output=new RandomAccessFile(file,"rw")){output.setLength(start);}throw error;}
     }
@@ -70,6 +75,7 @@ final class FetchBatch implements AutoCloseable {
     /** All hashes and complete target coverage are checked before deleting the candidate and opening CAS. */
     long finish(LogbookDatabase database,String exportedAt)throws Exception{
         if(!parts.keySet().equals(targets.keySet()))throw new IllegalStateException("检测尚未全部结束，整批未保存。");
+        if(LogbookLimits.DEVICE_SPACE_LIBRARY)StorageBudget.require(available,Math.addExact(StorageBudget.estimate(file.length(),4),StorageBudget.estimate(database.projectedBytes(targets.keySet()),2)));
         try(RandomAccessFile input=new RandomAccessFile(file,"r")){
             byte[] buffer=new byte[65536];
             for(Part part:parts.values()){

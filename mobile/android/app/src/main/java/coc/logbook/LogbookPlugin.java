@@ -42,6 +42,7 @@ public final class LogbookPlugin extends Plugin {
     private FetchBatch fetchBatch;
     private volatile TextPdfJobs textPdfJobs;
     private ReadLease readLease;
+    private BackupSession backupSession;
     private ArchivePublication publication;
     private java.io.File directInputDirectory;
     // Burst-local naming snapshot only; document creation, never an existing URI, remains the publication primitive.
@@ -55,7 +56,7 @@ public final class LogbookPlugin extends Plugin {
     @Override public void load() { database = new LogbookDatabase(getContext()); archives = new ArchiveRegistry(getContext()); }
     @Override protected void handleOnDestroy() {
         networkQueue.close(); backupWriter.shutdown();
-        execute(() -> { try { if (fetchBatch != null) fetchBatch.close(); if (snapshotUpload != null) snapshotUpload.close(); if (readLease != null) readLease.close(); if (textPdfJobs != null) textPdfJobs.close(); if (pdfSpool != null) pdfSpool.close(); } catch (Exception ignored) { } finally { if (archives != null) archives.close(); } });
+        execute(() -> { try { if (backupSession != null) backupSession.close(); if (fetchBatch != null) fetchBatch.close(); if (snapshotUpload != null) snapshotUpload.close(); if (readLease != null) readLease.close(); if (textPdfJobs != null) textPdfJobs.close(); if (pdfSpool != null) pdfSpool.close(); } catch (Exception ignored) { } finally { if (archives != null) archives.close(); } });
         if (database != null) database.close();
     }
     private SharedPreferences prefs() { return getContext().getSharedPreferences("archive-location", 0); }
@@ -183,6 +184,7 @@ public final class LogbookPlugin extends Plugin {
     @PluginMethod public void getState(PluginCall call) {
         execute(() -> {
             try {
+                if(database.logicalBytes()>LogbookLimits.SNAPSHOT_REQUEST_BYTES)throw new IllegalStateException("整库超过单次内存读取预算，请使用概览或完整分块备份。");
                 JSObject out = new JSObject(); String json = database.snapshot();
                 out.put("json", json == null ? JSONObject.NULL : json); out.put("revision", database.revision());
                 ConnectivityManager connectivity = (ConnectivityManager)getContext().getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
@@ -240,6 +242,7 @@ public final class LogbookPlugin extends Plugin {
                 for (int i=0;i<ids.length();i++) if (!selected.add(ids.getString(i))) throw new IllegalArgumentException("场次选择重复。");
                 java.util.Map<String,String> fields = database.fields();
                 if (fields == null) throw new IllegalStateException("尚无已保存数据。");
+                if(database.projectedBytes(selected)>LogbookLimits.SNAPSHOT_REQUEST_BYTES)throw new IllegalStateException("所选完整正文超过单次读取预算，请减少场次或使用完整备份。");
                 java.io.StringWriter writer=new java.io.StringWriter();database.writeSnapshot(writer,selected);
                 JSONObject view = new JSONObject().put("json",writer.toString());
                 if (database.revision() != expected) throw new IllegalStateException("数据已变化，请重新读取。");
@@ -329,11 +332,155 @@ public final class LogbookPlugin extends Plugin {
         }
         execute(() -> {
             try {
-                Uri document = result.getData().getData(); byte[] bytes = read(document);
+                Uri document = result.getData().getData();
+                if(Boolean.TRUE.equals(call.getBoolean("stream",false))&&"backup".equals(call.getString("kind","backup"))){
+                    openRestoreStream(call,document);return;
+                }
+                byte[] bytes = read(document);
                 JSObject out = new JSObject(); out.put("cancelled", false); out.put("name", displayName(document));
                 out.put("base64", Base64.encodeToString(bytes, Base64.NO_WRAP)); call.resolve(out);
             } catch (Exception error) { call.reject("备份读取失败；未写入数据。", error); }
         });
+    }
+    private long backupExpected(PluginCall call)throws Exception{
+        Object raw=call.getData().opt("expectedRevision");
+        if(!(raw instanceof Number))throw new IllegalArgumentException("备份版本参数无效。");
+        double value=((Number)raw).doubleValue();
+        if(!Double.isFinite(value)||value<0||value>=StorageBudget.JS_SAFE_INTEGER||value!=Math.floor(value))throw new IllegalArgumentException("备份版本参数无效。");
+        return (long)value;
+    }
+    private BackupSession backupOwner(PluginCall call)throws Exception{
+        BackupSession owner=backupSession;if(owner==null)throw new IllegalStateException("备份租约已失效，请重新选择。");owner.require(call.getString("id",""));return owner;
+    }
+    private void checkBackupLocation(BackupSession owner,boolean revision)throws Exception{
+        if(!owner.tree.equals(prefs().getString("tree","")))throw new IllegalStateException("保存位置已变化，请重新选择备份。");
+        requireArchivePermission(owner.tree);
+        if(revision&&owner.revision!=database.revision())throw new IllegalStateException("数据已变化，请重新预览；原数据保留。");
+    }
+    private void rejectBackup(PluginCall call,BackupSession owner,Exception error){
+        String cleanup="";
+        if(owner!=null&&backupSession==owner)try{owner.close();backupSession=null;}catch(Exception failure){error.addSuppressed(failure);cleanup=" 私有暂存清理失败，请重开后重试。";}
+        call.reject("备份操作未完成："+error.getMessage()+cleanup,error);
+    }
+    private JSObject backupFileReply(BackupSession owner,String key)throws Exception{
+        BackupSession.Proof proof=owner.proof(key);JSObject result=new JSObject();
+        result.put("fileUri",Uri.fromFile(owner.file(key)).toString());result.put("bytes",proof.bytes);result.put("sha256",proof.sha256);return result;
+    }
+    private void openRestoreStream(PluginCall call,Uri document)throws Exception{
+        BackupSession owner=null;
+        try{
+            if(backupSession!=null)throw new IllegalStateException("已有备份任务，请先关闭预览。");
+            long revision=backupExpected(call);if(revision!=database.revision())throw new IllegalStateException("数据已变化，请重新选择。");
+            String tree=prefs().getString("tree","");requireArchivePermission(tree);
+            owner=new BackupSession(new java.io.File(getContext().getCacheDir(),"backup-stream-staging"),tree,revision,true,false);
+            backupSession=owner;
+            try(InputStream input=getContext().getContentResolver().openInputStream(document)){
+                if(input==null)throw new IllegalStateException("无法读取所选备份。");owner.capture("source",input,-1,null);
+            }
+            checkBackupLocation(owner,true);
+            JSObject source=backupFileReply(owner,"source");source.put("id",owner.id);source.put("revision",revision);source.put("maximumStageBytes",owner.beginOutput());
+            try(InputStream input=new java.io.FileInputStream(owner.file("source"))){source.put("format",input.read()==0x50&&input.read()==0x4b?"zip":"json");}
+            JSObject out=new JSObject();out.put("cancelled",false);out.put("name",displayName(document));out.put("source",source);call.resolve(out);
+        }catch(Exception error){rejectBackup(call,owner,error);}
+    }
+    @PluginMethod public void appendBackupStage(PluginCall call){
+        execute(()->{BackupSession owner=null;try{
+            owner=backupOwner(call);checkBackupLocation(owner,owner.restoring);
+            String encoded=call.getString("base64","");Integer index=call.getInt("index");
+            if(index==null||encoded.length()>349528)throw new IllegalArgumentException("备份分段参数无效。");
+            owner.append(call.getString("key",""),index,Base64.decode(encoded,Base64.DEFAULT));call.resolve();
+        }catch(Exception error){rejectBackup(call,owner,error);}});
+    }
+    @PluginMethod public void finishBackupPreview(PluginCall call){
+        execute(()->{BackupSession owner=null;try{
+            owner=backupOwner(call);checkBackupLocation(owner,true);
+            JSObject candidate=call.getObject("candidate");JSONArray selected=call.getArray("attachments");
+            if(candidate==null||selected==null)throw new IllegalArgumentException("恢复候选证明缺失。");
+            BackupSession.Proof source=owner.proof("source");owner.verify("source",source.bytes,source.sha256);
+            owner.previewRestore(BackupSession.requestProof(candidate),selected);
+            JSObject out=new JSObject();out.put("id",owner.id);out.put("revision",owner.revision);out.put("offlineRecords",owner.restorePreview.offlineRecords);call.resolve(out);
+        }catch(Exception error){rejectBackup(call,owner,error);}});
+    }
+    @PluginMethod public void cancelBackupStage(PluginCall call){
+        execute(()->{try{
+            if(backupSession!=null&&backupSession.id.equals(call.getString("id",""))){backupSession.close();backupSession=null;}
+            call.resolve();
+        }catch(Exception error){call.reject("私有备份暂存清理失败；原数据未改变。",error);}});
+    }
+    private void removeNewImport(JSObject saved)throws Exception{
+        String uri=saved.getString("uri"),hash=saved.getString("sha256");long bytes=saved.getLong("bytes");
+        JSONObject registered=archives.find(uri,prefs().getString("created-documents","[]"));
+        if(registered==null||!"import".equals(registered.optString("purpose"))||!hash.equals(registered.optString("sha256")))throw new IllegalStateException("本次新附件登记已变化，已保留。");
+        try(InputStream input=getContext().getContentResolver().openInputStream(Uri.parse(uri))){BackupSession.streamProof(input,bytes).matches(bytes,hash);}
+        if(!DocumentsContract.deleteDocument(getContext().getContentResolver(),Uri.parse(uri)))throw new IllegalStateException("本次新附件无法清理，已保留。");
+        archives.forgetImported(uri,hash,prefs().getString("created-documents","[]"));
+    }
+    @PluginMethod public void commitBackupRestore(PluginCall call){
+        execute(()->{BackupSession owner=null;java.util.List<JSObject> imported=new java.util.ArrayList<>();boolean committed=false;try{
+            owner=backupOwner(call);owner.requireReady();
+            if(!owner.restoring||owner.restorePreview==null||!Boolean.TRUE.equals(call.getBoolean("confirmed",false)))throw new IllegalStateException("需要明确确认完整覆盖。");
+            checkBackupLocation(owner,true);
+            long required=Math.addExact(StorageBudget.estimate(owner.restorePreview.bytes,6),StorageBudget.estimate(database.logicalBytes(),2));
+            StorageBudget.require(owner.available,required);
+            BackupSession.Proof source=owner.proof("source");owner.verify("source",source.bytes,source.sha256);
+            for(BackupSession.Attachment file:owner.attachments){
+                owner.verify(file.key,file.proof.bytes,file.proof.sha256);
+                imported.add(publishArchive(owner.file(file.key),owner.tree,file.name,file.mime,"import",file.proof.bytes,file.proof.sha256));
+            }
+            checkBackupLocation(owner,true);
+            RestoreCandidate.Preview preview=owner.restorePreview;
+            try(java.io.FileInputStream input=new java.io.FileInputStream(owner.file("candidate"))){
+                RestoreCandidate.inspect(input,preview.bytes,preview.sha256,null);input.getChannel().position(0);
+                owner.close();backupSession=null;
+                long revision=database.restoreCandidate(input,preview,owner.revision,Boolean.TRUE.equals(call.getBoolean("restoreSettings",false)),emptySnapshot().getJSONObject("settings").toString());
+                committed=true;JSObject out=new JSObject();out.put("revision",revision);call.resolve(out);
+            }
+        }catch(Exception error){
+            String cleanup="";
+            if(!committed)for(JSObject file:imported)try{removeNewImport(file);}catch(Exception failure){error.addSuppressed(failure);cleanup=" 部分本次新附件无法清理或已变化，已保留；原业务库未覆盖。";}
+            if(!cleanup.isEmpty())error=new IllegalStateException(error.getMessage()+cleanup,error);
+            rejectBackup(call,owner,error);
+        }});
+    }
+    @PluginMethod public void createBackupStream(PluginCall call){
+        execute(()->{BackupSession owner=null;try{
+            if(backupSession!=null)throw new IllegalStateException("已有备份任务，请先关闭预览。");
+            long revision=backupExpected(call);if(revision!=database.revision())throw new IllegalStateException("数据已变化，请重新读取。");
+            String tree=prefs().getString("tree","");requireArchivePermission(tree);
+            boolean include=Boolean.TRUE.equals(call.getBoolean("includeArchives",false));
+            owner=new BackupSession(new java.io.File(getContext().getCacheDir(),"backup-stream-staging"),tree,revision,false,include);backupSession=owner;
+            owner.captureJson(writer->{
+                writer.write("{\"format\":\"coc.logbook.android\",\"formatVersion\":1,\"exportedAt\":"+JSONObject.quote(java.time.Instant.now().toString())+",\"restoreScope\":[\"modules\",\"records\",\"characters\"],\"snapshot\":");
+                if(database.fields()==null)writer.write(emptySnapshot().toString());else database.writeSnapshot(writer,null);writer.write('}');
+            });
+            if(SnapshotBackupStream.validate(owner.file("source"))!=database.recordCount())throw new IllegalStateException("完整备份场次未取齐。");
+            JSONArray files=new JSONArray();long total=0;
+            if(include){JSONArray all=archives.list(true,prefs().getString("created-documents","[]"));
+                for(int i=all.length()-1;i>=0;i--){JSONObject file=all.getJSONObject(i);String purpose=file.optString("purpose"),name=file.getString("name");
+                    if(!purpose.equals("export")&&!purpose.equals("import")&&(!purpose.isEmpty()||name.matches("^(before-|auto-backup-|coc-android-backup-).*")))continue;
+                    BackupSession.Proof proof=BackupSession.requestProof(file);total+=proof.bytes;
+                    if(proof.bytes>LogbookLimits.ARCHIVE_FILE_BYTES||total>128L*1024*1024||files.length()>=1999)throw new IllegalStateException("完整归档附件超过独立处理上限；原文件保留。");
+                    String key="archive:"+files.length();
+                    try(InputStream input=getContext().getContentResolver().openInputStream(Uri.parse(file.getString("uri")))){
+                        if(input==null)throw new IllegalStateException("已登记归档附件缺失，不能省略。");owner.capture(key,input,proof.bytes,proof.sha256);
+                    }
+                    JSObject reference=backupFileReply(owner,key);reference.put("name",name);files.put(reference);
+                }
+            }
+            checkBackupLocation(owner,true);JSObject source=backupFileReply(owner,"source");source.put("canonicalVersion",1);JSObject out=new JSObject();out.put("id",owner.id);out.put("revision",revision);out.put("source",source);out.put("files",files);out.put("maximumBytes",owner.beginOutput());call.resolve(out);
+        }catch(Exception error){rejectBackup(call,owner,error);}});
+    }
+    @PluginMethod public void finishBackupExport(PluginCall call){
+        execute(()->{BackupSession owner=null;try{
+            owner=backupOwner(call);if(owner.restoring)throw new IllegalStateException("备份任务用途不符。");checkBackupLocation(owner,false);
+            String key=owner.includeArchives?"output":"source";
+            if(owner.includeArchives){JSObject value=call.getObject("proof");if(value==null)throw new IllegalArgumentException("完整ZIP证明缺失。");BackupSession.Proof proof=BackupSession.requestProof(value);owner.verify(key,proof.bytes,proof.sha256);}
+            BackupSession.Proof proof=owner.proof(key);owner.verify(key,proof.bytes,proof.sha256);
+            owner.verifySources();
+            JSObject saved=publishArchive(owner.file(key),owner.tree,call.getString("name",""),owner.includeArchives?"application/zip":"application/json","backup",proof.bytes,proof.sha256);
+            try{owner.close();backupSession=null;}catch(Exception cleanup){saved.put("warning","备份已完整保存，但私有暂存清理失败，请重开应用后重试。");}
+            call.resolve(saved);
+        }catch(Exception error){rejectBackup(call,owner,error);}});
     }
     private JSObject write(String name, String mime, byte[] bytes) throws Exception {
         return write(name, mime, bytes, "export");
@@ -352,34 +499,64 @@ public final class LogbookPlugin extends Plugin {
         } finally { if (source.exists() && !source.delete()) throw new IllegalStateException("归档输入暂存清理失败。"); }
     }
     /** Shared publication boundary for direct writes, text/PDF streams and automatic backups. */
+    private java.io.File archiveVolume(Uri tree)throws Exception{
+        String authority=tree.getAuthority();
+        if("com.android.providers.downloads.documents".equals(authority))return android.os.Environment.getExternalStorageDirectory();
+        if(!"com.android.externalstorage.documents".equals(authority))throw new IllegalStateException("无法确认所选保存卷空间。");
+        String document=DocumentsContract.getTreeDocumentId(tree);int colon=document.indexOf(':');
+        String volume=colon<0?"":document.substring(0,colon);
+        if("primary".equalsIgnoreCase(volume))return android.os.Environment.getExternalStorageDirectory();
+        android.os.storage.StorageManager manager=(android.os.storage.StorageManager)getContext().getSystemService(android.content.Context.STORAGE_SERVICE);
+        for(java.io.File directory:getContext().getExternalFilesDirs(null))if(directory!=null){
+            android.os.storage.StorageVolume mounted=manager.getStorageVolume(directory);
+            if(mounted!=null&&mounted.getUuid()!=null&&mounted.getUuid().equalsIgnoreCase(volume))return directory;
+        }
+        throw new IllegalStateException("所选存储卷不可用或无法核对空间，请重新选择本机位置。");
+    }
     private JSObject publishArchive(java.io.File source, String location, String name, String mime, String purpose, long size, String hash) throws Exception {
+        boolean backup=purpose.equals("backup")||purpose.equals("auto");
+        if(name==null||name.isEmpty()||name.equals(".")||name.equals("..")||name.length()>255||name.matches(".*[/\\\\\u0000-\u001f].*")||size<0||size>(backup?StorageBudget.JS_SAFE_INTEGER:LogbookLimits.ARCHIVE_FILE_BYTES))throw new IllegalArgumentException("归档名称或独立文件预算无效。");
         if (!location.equals(prefs().getString("tree", ""))) throw new IllegalStateException("归档位置已变化，请重新导出。");
         requireArchivePermission(location); Uri tree = Uri.parse(location); validateTree(tree);
+        java.io.File targetVolume=archiveVolume(tree),privateVolume=getContext().getFilesDir();
+        android.os.storage.StorageManager manager=(android.os.storage.StorageManager)getContext().getSystemService(android.content.Context.STORAGE_SERVICE);
+        boolean sameVolume=manager.getUuidForPath(targetVolume).equals(manager.getUuidForPath(privateVolume));
+        StorageBudget.require(StorageBudget.volume(targetVolume),StorageBudget.estimate(size,1));
+        StorageBudget.require(StorageBudget.volume(privateVolume),StorageBudget.estimate(size,sameVolume?2:1));
         ArchivePublication recovery = publications(); recovery.recoverFor(location);
         Uri destination = createNamedDocument(tree,mime,name);
         if (destination == null) throw new IllegalStateException("无法创建归档文件。");
         JSONObject ticket = null; boolean success = false;
         try {
-            ticket = recovery.begin(source,destination.toString(),location,size,hash);
+            ticket = recovery.begin(source,destination.toString(),location,size,hash,purpose);
             String savedName = displayName(destination);
             if (savedName.isEmpty() || savedName.equals("已选择的文件夹")) throw new IllegalStateException("无法确认新文件名称。");
             try (InputStream input = new java.io.FileInputStream(source); OutputStream output = getContext().getContentResolver().openOutputStream(destination,"w")) {
                 if (output == null) throw new IllegalStateException("文件夹不可写。");
-                byte[] chunk = new byte[32768]; int n; while ((n = input.read(chunk)) != -1) output.write(chunk,0,n);
+                byte[] chunk = new byte[32768]; int n;long written=0,checkedAt=0;
+                while ((n = input.read(chunk)) != -1){
+                    if(written+n>size)throw new IllegalStateException("归档来源长度已变化。");
+                    if(written-checkedAt>=4L*1024*1024){StorageBudget.require(StorageBudget.volume(targetVolume),Math.min(4L*1024*1024,size-written));checkedAt=written;}
+                    output.write(chunk,0,n);written+=n;
+                }
+                if(written!=size)throw new IllegalStateException("归档来源不完整。");
             }
             MessageDigest digest = MessageDigest.getInstance("SHA-256"); long readSize = 0;
             try (InputStream input = getContext().getContentResolver().openInputStream(destination)) {
                 if (input == null) throw new IllegalStateException("无法回读归档。");
                 byte[] chunk = new byte[32768]; int n;
-                while ((n = input.read(chunk)) != -1) { readSize += n; if (readSize > LogbookLimits.ARCHIVE_FILE_BYTES) throw new IllegalStateException("归档回读大小超限。"); digest.update(chunk,0,n); }
+                while ((n = input.read(chunk)) != -1) { readSize += n; if (readSize > size) throw new IllegalStateException("归档回读长度已变化。"); digest.update(chunk,0,n); }
             }
             StringBuilder backHash = new StringBuilder(); for (byte b : digest.digest()) backHash.append(String.format("%02x",b&255));
             if (readSize != size || !hash.equals(backHash.toString())) throw new IllegalStateException("归档保存回读校验失败。");
             if (!location.equals(prefs().getString("tree", ""))) throw new IllegalStateException("归档位置已变化，未登记当前文件。");
             requireArchivePermission(location);
+            StorageBudget.require(StorageBudget.volume(targetVolume),0);StorageBudget.require(StorageBudget.volume(privateVolume),0);
             JSObject result = new JSObject(); result.put("uri",destination.toString()); result.put("name",savedName);
             result.put("bytes",readSize); result.put("sha256",hash); result.put("purpose",purpose);
-            rememberDocument(result,mime,ticket.getString("id")); success = true; recovery.committed(ticket); return result;
+            rememberDocument(result,mime,ticket.getString("id")); success = true;
+            try{recovery.committed(ticket);}catch(Exception cleanup){result.put("warning","文件已完整保存，但发布暂存清理未完成；下次打开将重试清理。");}
+            return result;
         } finally {
             if (!success) {
                 if (ticket != null) recovery.abort(ticket);
@@ -518,8 +695,8 @@ public final class LogbookPlugin extends Plugin {
     private JSONObject knownDocument(String uri) throws Exception {
         JSONObject item = archives.find(uri, prefs().getString("created-documents", "[]"));
         if (item != null) {
-            if (!digest(read(Uri.parse(uri))).equals(item.getString("sha256")))
-                throw new IllegalStateException("文件已改变或无法读取，请重新导出。");
+            long bytes=item.getLong("bytes");
+            try(InputStream input=getContext().getContentResolver().openInputStream(Uri.parse(uri))){BackupSession.streamProof(input,bytes).matches(bytes,item.getString("sha256"));}
             return item;
         }
         throw new IllegalArgumentException("仅打开或分享本应用创建并校验的文件。");
@@ -618,12 +795,17 @@ public final class LogbookPlugin extends Plugin {
                 Long expected = call.getData().has("expectedRevision") ? call.getData().getLong("expectedRevision") : null;
                 if (expected == null || expected != database.revision()) throw new IllegalStateException("数据已变化，请稍后备份。");
                 String tree = prefs().getString("tree", ""); requireArchivePermission(tree);
-                ReadLease lease=new ReadLease(new java.io.File(getContext().getCacheDir(),"automatic-read-sources"));
+                java.io.File automaticDirectory=new java.io.File(getContext().getCacheDir(),"automatic-read-sources");
+                if(!automaticDirectory.isDirectory()&&!automaticDirectory.mkdirs())throw new IllegalStateException("无法创建自动备份私有目录。");
+                long maximum=LogbookLimits.DEVICE_SPACE_LIBRARY?StorageBudget.maximum(StorageBudget.volume(automaticDirectory),3):LogbookLimits.READ_LEASE_BYTES;
+                ReadLease lease=new ReadLease(automaticDirectory,maximum);
                 ReadLease.Value current;
                 try {current=lease.create(writer->{
                     writer.write("{\"format\":\"coc.logbook.android\",\"formatVersion\":1,\"exportedAt\":"+JSONObject.quote(java.time.Instant.now().toString())+",\"restoreScope\":[\"modules\",\"records\",\"characters\"],\"snapshot\":");
                     database.writeSnapshot(writer,null);writer.write('}');
-                },expected);}catch(Exception|OutOfMemoryError error){lease.close();throw error;}
+                },expected);
+                if(SnapshotBackupStream.validate(current.file)!=database.recordCount()||expected!=database.revision())throw new IllegalStateException("自动备份版本或场次未取齐。");
+                }catch(Exception|OutOfMemoryError error){lease.close();throw error;}
                 // Capture the exact immutable version, then release the storage queue before card I/O.
                 try {backupWriter.execute(() -> finishAutomaticBackup(call,lease,current,expected,tree));}
                 catch(Exception error){lease.close();throw error;}
@@ -647,7 +829,10 @@ public final class LogbookPlugin extends Plugin {
                 if (i >= registry.length() - 10 || !item.getString("tree").equals(tree)) { retained.put(item); continue; }
                 try {
                     Uri uri = Uri.parse(item.getString("uri"));
-                    if (!digest(read(uri)).equals(item.getString("sha256"))) { warning = "部分旧备份被修改，已保留。"; continue; }
+                    long maximumOld=item.has("bytes")?item.getLong("bytes"):LogbookLimits.ARCHIVE_FILE_BYTES;
+                    BackupSession.Proof proof;
+                    try(InputStream input=getContext().getContentResolver().openInputStream(uri)){proof=BackupSession.streamProof(input,maximumOld);}
+                    if ((item.has("bytes")&&proof.bytes!=maximumOld)||!proof.sha256.equals(item.getString("sha256"))) { warning = "部分旧备份被修改，已保留。"; continue; }
                     if (!DocumentsContract.deleteDocument(getContext().getContentResolver(), uri)) { retained.put(item); warning = "部分旧备份无法删除，已保留。"; }
                 } catch (Exception error) { retained.put(item); warning = "部分旧备份不可访问，已保留。"; }
             }

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ImportPreview } from '../../../data/types'
+import type { LeasedBackupPreview } from '../../../data/backup-stream-native'
 import { SystemMessage } from '../SystemMessage'
 
 /**
@@ -8,7 +9,7 @@ import { SystemMessage } from '../SystemMessage'
  * @returns 可滚动的恢复确认对话框。
  */
 export function RestoreDialog(props: {
-  preview: ImportPreview
+  preview: ImportPreview | LeasedBackupPreview
   currentRecords: number
   busy: boolean
   /** 当前真实导入阶段，类型为 string。 */

@@ -79,6 +79,13 @@ final class ArchiveRegistry extends SQLiteOpenHelper {
             return row.moveToFirst() ? new JSONObject(row.getString(0)) : null;
         }
     }
+    /** Only a newly created, independently verified import may be compensated.
+     * Existing/changed documents never lose their registration. */
+    synchronized void forgetImported(String uri,String expectedHash,String legacy)throws Exception{
+        JSONObject value=find(uri,legacy);
+        if(value==null||!"import".equals(value.optString("purpose"))||!expectedHash.equals(value.optString("sha256")))throw new IllegalStateException("新附件登记已变化，已保留。");
+        getWritableDatabase().delete("documents","uri=?",new String[]{uri});
+    }
     /** Private recovery records share the durable index without changing any archive proofs or database version. */
     synchronized JSONArray pendingPublications() throws Exception {
         JSONArray result = new JSONArray();

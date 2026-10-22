@@ -14,7 +14,7 @@ export interface LocalStreamSource extends StreamProof {
  */
 export async function* readLocalSourceStream(
   source: LocalStreamSource,
-  options: { maximumBytes: number; attachment?: boolean; signal?: AbortSignal }
+  options: { maximumBytes: number; attachment?: boolean; allowEmpty?: boolean; signal?: AbortSignal }
 ): AsyncGenerator<Uint8Array> {
   checkStreamBudget(options.maximumBytes)
   checkStreamCancelled(options.signal)
@@ -26,7 +26,7 @@ export async function* readLocalSourceStream(
     throw new Error('只允许读取本应用的本地文件。')
   if (
     !Number.isSafeInteger(source.bytes) ||
-    source.bytes < (options.attachment ? 0 : 1) ||
+    source.bytes < (options.attachment || options.allowEmpty ? 0 : 1) ||
     source.bytes > options.maximumBytes ||
     !/^[0-9a-f]{64}$/.test(source.sha256)
   )

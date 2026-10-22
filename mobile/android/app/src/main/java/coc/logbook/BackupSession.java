@@ -3,6 +3,7 @@ package coc.logbook;
 import java.io.*;
 import java.security.*;
 import java.util.*;
+import org.json.*;
 
 /** One native-owned version/tree-bound large backup operation. Inputs and
  * generated entries are private, uniquely named and never caller paths.
@@ -33,6 +34,12 @@ final class BackupSession implements AutoCloseable {
     private final long maximumInputBytes;
     private long inputBytes,outputBytes,maximumOutputBytes;
     private boolean ready,closed;
+    RestoreCandidate.Preview restorePreview;
+    final List<Attachment> attachments=new ArrayList<>();
+    static final class Attachment {
+        final String key,name,mime;final Proof proof;
+        Attachment(String key,String name,String mime,Proof proof){this.key=key;this.name=name;this.mime=mime;this.proof=proof;}
+    }
     BackupSession(File directory,String tree,long revision,boolean restoring,boolean includeArchives)throws Exception{
         this(directory,tree,revision,restoring,includeArchives,null);
     }
@@ -79,7 +86,7 @@ final class BackupSession implements AutoCloseable {
     }
     long beginOutput()throws Exception{
         if(closed||ready||!entries.containsKey("source")||entries.get("source").proof==null)throw new IOException("备份来源未封存。");
-        if(maximumOutputBytes==0)maximumOutputBytes=StorageBudget.maximum(available,restoring?4:2);
+        if(maximumOutputBytes==0)maximumOutputBytes=StorageBudget.maximum(available,restoring?4:3);
         return maximumOutputBytes;
     }
     void append(String key,int index,byte[] chunk)throws Exception{
@@ -109,9 +116,41 @@ final class BackupSession implements AutoCloseable {
         entries.keySet().retainAll(kept);ready=true;
     }
     void requireReady()throws IOException{if(closed||!ready)throw new IOException("备份预览尚未完成。");}
+    void verifySources()throws Exception{
+        for(Map.Entry<String,Entry> value:entries.entrySet())if(value.getKey().equals("source")||value.getKey().startsWith("archive:")){
+            Proof expected=value.getValue().proof;if(expected==null)throw new IOException("备份来源尚未封存。");verify(value.getKey(),expected.bytes,expected.sha256);
+        }
+    }
+    static Proof requestProof(JSONObject value)throws Exception{
+        Object raw=value.get("bytes"),hash=value.get("sha256");
+        if(!(raw instanceof Number)||!(hash instanceof String))throw new IOException("备份证明类型无效。");
+        double bytes=((Number)raw).doubleValue();
+        if(!Double.isFinite(bytes)||bytes<0||bytes>StorageBudget.JS_SAFE_INTEGER||bytes!=Math.floor(bytes)||!((String)hash).matches("[a-f0-9]{64}"))throw new IOException("备份证明长度或摘要无效。");
+        return new Proof((long)bytes,(String)hash);
+    }
+    void previewRestore(Proof candidate,JSONArray selected)throws Exception{
+        if(!restoring||ready||closed||selected.length()>1999)throw new IOException("恢复预览状态或附件数无效。");
+        verify("candidate",candidate.bytes,candidate.sha256);
+        RestoreCandidate.Preview preview;
+        try(InputStream input=new FileInputStream(file("candidate"))){preview=RestoreCandidate.inspect(input,candidate.bytes,candidate.sha256,null);}
+        Set<String> keep=new HashSet<>(Arrays.asList("source","candidate"));List<Attachment> checked=new ArrayList<>();long total=0;
+        for(int i=0;i<selected.length();i++){
+            JSONObject value=selected.getJSONObject(i);BackupValidation.shape(value,"zipPath,name,mime,bytes,sha256","");
+            if(!(value.get("zipPath") instanceof String)||!(value.get("name") instanceof String)||!(value.get("mime") instanceof String))throw new IOException("恢复附件类型无效。");
+            String key="zip:"+value.getString("zipPath"),name=value.getString("name"),mime=value.getString("mime");Proof proof=requestProof(value);
+            if(key.length()>4096||name.isEmpty()||name.length()>255||name.equals(".")||name.equals("..")||name.matches(".*[/\\\\\u0000-\u001f].*")||mime.isEmpty()||mime.length()>128||proof.bytes>LogbookLimits.ARCHIVE_FILE_BYTES||!keep.add(key))throw new IOException("恢复附件名称、大小或重复引用无效。");
+            total+=proof.bytes;if(total>128L*1024*1024)throw new IOException("恢复附件合计超过128MiB。");
+            verify(key,proof.bytes,proof.sha256);checked.add(new Attachment(key,name,mime,proof));
+        }
+        finish(keep);restorePreview=preview;attachments.addAll(checked);
+    }
     static Proof fileProof(File file,long maximumBytes)throws Exception{
+        try(InputStream input=new FileInputStream(file)){return streamProof(input,maximumBytes);}
+    }
+    static Proof streamProof(InputStream input,long maximumBytes)throws Exception{
+        if(input==null||maximumBytes<0||maximumBytes>StorageBudget.JS_SAFE_INTEGER)throw new IOException("备份读取证明无效。");
         long total=0;MessageDigest hash=MessageDigest.getInstance("SHA-256");byte[] buffer=new byte[65536];
-        try(InputStream input=new FileInputStream(file)){int count;while((count=input.read(buffer))!=-1){total+=count;if(total>maximumBytes)throw new IOException("备份文件长度已变化。");hash.update(buffer,0,count);}}
+        int count;while((count=input.read(buffer))!=-1){total+=count;if(total>maximumBytes)throw new IOException("备份文件长度已变化。");hash.update(buffer,0,count);}
         StringBuilder digest=new StringBuilder();for(byte b:hash.digest())digest.append(String.format("%02x",b&255));return new Proof(total,digest.toString());
     }
     private static void delete(File file)throws IOException{
