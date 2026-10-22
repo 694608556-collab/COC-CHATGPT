@@ -16,3 +16,5 @@ evidence/
 www-dev/
 test-results/
 playwright-report/
+android/app/src/androidTest/assets/public-io-*
+scripts/__pycache__/
