@@ -1,6 +1,21 @@
 import Foundation
+import Darwin
 
 extension IOSNativeChecks {
+    static func crashRestoreForPublicTest(database: URL, candidate: URL) throws {
+        guard database.deletingLastPathComponent().lastPathComponent == "capacity-96", candidate.lastPathComponent == "candidate" else { throw LogbookFailure("Refuse non-public crash fixture") }
+        let store = try LogbookStore(url: database, deviceSpace: true, available: {32 * 1024 * 1024 * 1024})
+        let proof = try LogbookBackupSession.fileProof(candidate, maximumBytes: 128 * 1024 * 1024)
+        let input = try FileHandle(forReadingFrom: candidate)
+        let preview = try LogbookRestoreCandidate.inspect(input, proof: proof); try input.seek(toOffset: 0)
+        var authorizations = 0
+        _ = try store.restoreCandidate(input, preview: preview, expected: 2, restoreSettings: true) {
+            authorizations += 1
+            // Exit after all record/root/revision writes and before SQLite COMMIT.
+            if authorizations == 2 { _exit(99) }
+        }
+        throw LogbookFailure("Crash injection did not execute")
+    }
     static func capacityDatabaseChecks(root: URL, fixture: LogbookJSON) throws {
         let MiB = 1024 * 1024
         // Public generated data only. Explicit test mode exercises the actual
@@ -65,6 +80,14 @@ extension IOSNativeChecks {
                 let backup = try store.backupFile(expected: 2, directory: directory)
                 let fullProof = try LogbookArchive.fileProof(backup, maximumBytes: proof.bytes + MiB)
                 try require(fullProof.0 > count * MiB, "native complete automatic/manual JSON \(count)MiB")
+                if count == 96 {
+                    let process = Process(); process.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+                    process.arguments = ["--public-capacity-crash", database.path, candidate.path]
+                    try process.run(); process.waitUntilExit()
+                    try require(process.terminationStatus == 99, "native process terminated before SQLite COMMIT")
+                    let recovered = try LogbookStore(url: database, deviceSpace: true, available: { free })
+                    try require(try recovered.revision() == 2 && recovered.deferredIDs().count == count && LogbookArchive.digest(Data(recovered.rows("SELECT body FROM records WHERE id='capacity-0'")[0][0].utf8)) == hash, "process interruption retains complete old library")
+                }
                 if count == 96 && LogbookLimits.deviceSpaceLibrary {
                     let suite = "coc-capacity-archive-" + UUID().uuidString
                     let preferences = UserDefaults(suiteName: suite)!

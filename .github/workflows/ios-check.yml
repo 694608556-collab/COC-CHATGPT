@@ -11,7 +11,7 @@ jobs:
     runs-on: xcode-27
     # Expanded UI suites retain their own 900s process limits and exact 10s
     # assertions. Leave room for all required groups plus the scale fixture.
-    timeout-minutes: 50
+    timeout-minutes: 65
     defaults:
       run:
         working-directory: mobile

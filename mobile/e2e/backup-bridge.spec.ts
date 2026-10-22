@@ -8,9 +8,14 @@ test('实际打包Worker逐段等待原生确认，预览不自动覆盖，暂�
   const backup = exampleBackup()
   backup.records[0]!.rawContent!.messages[0]!.text = '公开😀\r\n\0' + 'A'.repeat(2 * 1024 * 1024)
   const bytes = Buffer.from(JSON.stringify(backup)), hash = createHash('sha256').update(bytes).digest('hex')
-  await page.route('**/_capacitor_file_/public-backup.json', (route) => route.fulfill({
-    status: 200, contentType: 'application/json', headers: { 'content-length': String(bytes.length) }, body: bytes
-  }))
+  let ranges = 0
+  await page.route('**/_capacitor_file_/public-backup.json', (route) => {
+    const range = route.request().headers()['range']
+    if (!range) return route.fulfill({status:200,contentType:'application/json',headers:{'content-length':String(bytes.length)},body:bytes})
+    const [,start,end] = /^bytes=(\d+)-(\d+)$/.exec(range)!.map(Number)
+    expect(end! - start! + 1).toBeLessThanOrEqual(262144); ranges++
+    return route.fulfill({status:206,contentType:'application/json',headers:{'content-length':String(end!-start!+1),'content-range':`bytes ${start}-${end}/${bytes.length}`},body:bytes.subarray(start!,end!+1)})
+  })
   const code = await build({
     stdin: { resolveDir: resolve('.'), loader: 'ts', contents: `
       import {previewNativeBackup} from './src/data/backup-stream-client';
@@ -19,6 +24,7 @@ test('实际打包Worker逐段等待原生确认，预览不自动覆盖，暂�
   })
   await page.goto('/')
   await page.addScriptTag({ content: code.outputFiles[0]!.text })
+  await page.evaluate(() => { (window as any).Capacitor.getPlatform = () => 'ios' })
   const results = await page.evaluate(async ({bytes, hash}) => {
     const run = async (fail: boolean) => {
       let active = 0, maximum = 0, chunks = 0, confirmed = 0, cancelled = '', validated = false
@@ -53,4 +59,5 @@ test('实际打包Worker逐段等待原生确认，预览不自动覆盖，暂�
   expect(results[0]!.chunks).toBeGreaterThan(8)
   expect(results[1]).toMatchObject({ maximum: 1, confirmed: 0, cancelled: 'public-lease', validated: false })
   expect(results[1]!.error).toContain('public storage failure')
+  expect(ranges).toBeGreaterThan(8)
 })

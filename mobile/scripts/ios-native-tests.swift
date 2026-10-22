@@ -10,6 +10,10 @@ import Foundation
         throw LogbookFailure("Expected rejection: " + message)
     }
     static func main() throws {
+        if CommandLine.arguments.count == 4 && CommandLine.arguments[1] == "--public-capacity-crash" {
+            try crashRestoreForPublicTest(database: URL(fileURLWithPath: CommandLine.arguments[2]), candidate: URL(fileURLWithPath: CommandLine.arguments[3]))
+            return
+        }
         let MiB = 1024 * 1024
         try require(try LogbookCapacity.remaining(64 * MiB) == 0, "minimum free-space reserve")
         try require(try LogbookCapacity.remaining(128 * MiB) == 64 * MiB, "available bytes after reserve")

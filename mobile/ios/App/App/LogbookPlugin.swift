@@ -578,11 +578,18 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
                 let (store, archive) = try self.resources(), expected = try self.expected(call)
                 try store.check(expected); try archive.requirePermission()
                 let bookmark = try archive.bookmark()
-                let backupDirectory = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+                let backupDirectory = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("automatic-backup-staging", isDirectory: true)
+                try FileManager.default.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
+                for entry in try FileManager.default.contentsOfDirectory(at: backupDirectory, includingPropertiesForKeys: [.isSymbolicLinkKey])
+                    where entry.lastPathComponent.range(of: "^[a-fA-F0-9-]+\\.backup$", options: .regularExpression) != nil {
+                    guard entry.resolvingSymlinksInPath().deletingLastPathComponent() == backupDirectory.resolvingSymlinksInPath(),
+                          try entry.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { throw LogbookFailure("私有自动备份暂存引用异常。") }
+                    try FileManager.default.removeItem(at: entry)
+                }
                 let source = try store.backupFile(expected: expected, directory: backupDirectory)
                 self.backupRunning = true
                 self.backupWriter.async {
-                    defer { try? FileManager.default.removeItem(at: source); self.work.async { self.backupRunning = false } }
+                    defer { self.work.async { self.backupRunning = false } }
                     do {
                         let document = try archive.writeFile(name: "auto-backup-\(Int(Date().timeIntervalSince1970 * 1000)).json", mime: "application/json", source: source, purpose: "auto", bookmark: bookmark)
                         let savedAt = try self.work.sync { () throws -> Int in
@@ -592,8 +599,16 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
                             guard archive.preferences.synchronize() else { throw LogbookFailure("备份已写入，但成功状态未保存。") }
                             return savedAt
                         }
-                        call.resolve(["document": document, "savedAt": savedAt, "revision": expected, "warning": archive.rotateAutomatic(bookmark: bookmark)])
-                    } catch { call.reject(error.localizedDescription) }
+                        var warning = archive.rotateAutomatic(bookmark: bookmark)
+                        do { try FileManager.default.removeItem(at: source) }
+                        catch { warning += " 自动备份已完整保存，但私有暂存清理失败，请重开后重试。" }
+                        call.resolve(["document": document, "savedAt": savedAt, "revision": expected, "warning": warning])
+                    } catch {
+                        var message = error.localizedDescription
+                        do { if FileManager.default.fileExists(atPath: source.path) { try FileManager.default.removeItem(at: source) } }
+                        catch { message += " 私有自动备份暂存清理失败，请重开后重试。" }
+                        call.reject(message)
+                    }
                 }
             } catch { call.reject(error.localizedDescription) }
         }
