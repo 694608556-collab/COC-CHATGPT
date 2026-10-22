@@ -1368,6 +1368,8 @@ export function MobileApp({
                 )}
                 {page === 'settings' && (
                   <DataSettings
+                    storageUsage={native.storageUsage}
+                    expandedLibrary={native.backupStreamVersion === 1}
                     savedBodyCount={
                       snapshot.records.filter(
                         (r) => deferredRecords.has(r.id) || r.rawContent || r.manualContent !== undefined

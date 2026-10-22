@@ -49,9 +49,9 @@ jobs:
           JSON_JAR="$RUNNER_TEMP/coc-org-json.jar" node scripts/check-native.mjs
       - name: Generate complete public native capacity fixture
         run: |
-          node scripts/ios-native-fixture.mjs
+          node scripts/native-capacity-fixture.mjs
           mkdir -p android/app/src/androidTest/assets
-          cp ios/build/native-sample.json android/app/src/androidTest/assets/public-capacity.json
+          cp android/app/build/public-capacity/native-sample.json android/app/src/androidTest/assets/public-capacity.json
       - run: pnpm exec cap sync android
       - run: chmod +x android/gradlew && cd android && ./gradlew :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest --no-daemon --console=plain
       - name: Prepare unsigned release for local signing

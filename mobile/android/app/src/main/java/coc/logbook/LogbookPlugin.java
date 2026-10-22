@@ -181,6 +181,13 @@ public final class LogbookPlugin extends Plugin {
         out.put("uri", uri); out.put("label", prefs().getString("label", "尚未选择")); out.put("valid", valid);
         return out;
     }
+    private JSObject storageUsage() {
+        JSObject result=new JSObject();java.io.File db=getContext().getDatabasePath("coc-logbook.sqlite");long physical=0;
+        for(String suffix:new String[]{"","-wal","-shm"})physical+=new java.io.File(db.getPath()+suffix).length();
+        result.put("logicalBytes",database.logicalBytes());result.put("databaseBytes",physical);
+        try{result.put("availableBytes",StorageBudget.volume(db.getParentFile()).bytes());}catch(Exception unavailable){/* Read access remains available. */}
+        return result;
+    }
     @PluginMethod public void getState(PluginCall call) {
         execute(() -> {
             try {
@@ -211,7 +218,7 @@ public final class LogbookPlugin extends Plugin {
                 out.put("revision",revision);
                 ConnectivityManager connectivity = (ConnectivityManager)getContext().getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
                 out.put("networkConnected",connectivity.getActiveNetwork() != null);
-                out.put("tableDeltaVersion",1);
+                out.put("tableDeltaVersion",1);out.put("storageUsage",storageUsage());
                 out.put("lastAutoBackupAt",prefs().getLong("last-auto-backup",0));
                 if (prefs().contains("last-auto-backup-revision")) out.put("lastAutoBackupRevision",prefs().getLong("last-auto-backup-revision",-1));
                 JSObject archive = location(false);
@@ -279,7 +286,7 @@ public final class LogbookPlugin extends Plugin {
     @PluginMethod public void getStatus(PluginCall call) {
         execute(() -> {
             try {
-                JSObject out = new JSObject(); out.put("revision", database.revision());
+                JSObject out = new JSObject(); out.put("revision", database.revision());out.put("storageUsage",storageUsage());
                 JSObject archive = location(false);
                 try { requireArchivePermission(prefs().getString("tree", "")); }
                 catch (Exception error) { archive.put("valid", false); }
@@ -357,10 +364,10 @@ public final class LogbookPlugin extends Plugin {
         requireArchivePermission(owner.tree);
         if(revision&&owner.revision!=database.revision())throw new IllegalStateException("数据已变化，请重新预览；原数据保留。");
     }
-    private void rejectBackup(PluginCall call,BackupSession owner,Exception error){
+    private void rejectBackup(PluginCall call,BackupSession owner,Throwable error){
         String cleanup="";
         if(owner!=null&&backupSession==owner)try{owner.close();backupSession=null;}catch(Exception failure){error.addSuppressed(failure);cleanup=" 私有暂存清理失败，请重开后重试。";}
-        call.reject("备份操作未完成："+error.getMessage()+cleanup,error);
+        call.reject("备份操作未完成："+(error instanceof OutOfMemoryError?"处理本场正文内存不足；原数据未改变。":error.getMessage())+cleanup,error instanceof Exception?(Exception)error:new IllegalStateException("处理本场正文内存不足。",error));
     }
     private JSObject backupFileReply(BackupSession owner,String key)throws Exception{
         BackupSession.Proof proof=owner.proof(key);JSObject result=new JSObject();
@@ -381,7 +388,7 @@ public final class LogbookPlugin extends Plugin {
             JSObject source=backupFileReply(owner,"source");source.put("id",owner.id);source.put("revision",revision);source.put("maximumStageBytes",owner.beginOutput());
             try(InputStream input=new java.io.FileInputStream(owner.file("source"))){source.put("format",input.read()==0x50&&input.read()==0x4b?"zip":"json");}
             JSObject out=new JSObject();out.put("cancelled",false);out.put("name",displayName(document));out.put("source",source);call.resolve(out);
-        }catch(Exception error){rejectBackup(call,owner,error);}
+        }catch(Exception|OutOfMemoryError error){rejectBackup(call,owner,error);}
     }
     @PluginMethod public void appendBackupStage(PluginCall call){
         execute(()->{BackupSession owner=null;try{
@@ -389,7 +396,7 @@ public final class LogbookPlugin extends Plugin {
             String encoded=call.getString("base64","");Integer index=call.getInt("index");
             if(index==null||encoded.length()>349528)throw new IllegalArgumentException("备份分段参数无效。");
             owner.append(call.getString("key",""),index,Base64.decode(encoded,Base64.DEFAULT));call.resolve();
-        }catch(Exception error){rejectBackup(call,owner,error);}});
+        }catch(Exception|OutOfMemoryError error){rejectBackup(call,owner,error);}});
     }
     @PluginMethod public void finishBackupPreview(PluginCall call){
         execute(()->{BackupSession owner=null;try{
@@ -399,13 +406,13 @@ public final class LogbookPlugin extends Plugin {
             BackupSession.Proof source=owner.proof("source");owner.verify("source",source.bytes,source.sha256);
             owner.previewRestore(BackupSession.requestProof(candidate),selected);
             JSObject out=new JSObject();out.put("id",owner.id);out.put("revision",owner.revision);out.put("offlineRecords",owner.restorePreview.offlineRecords);call.resolve(out);
-        }catch(Exception error){rejectBackup(call,owner,error);}});
+        }catch(Exception|OutOfMemoryError error){rejectBackup(call,owner,error);}});
     }
     @PluginMethod public void cancelBackupStage(PluginCall call){
         execute(()->{try{
             if(backupSession!=null&&backupSession.id.equals(call.getString("id",""))){backupSession.close();backupSession=null;}
             call.resolve();
-        }catch(Exception error){call.reject("私有备份暂存清理失败；原数据未改变。",error);}});
+        }catch(Exception|OutOfMemoryError error){call.reject("私有备份暂存清理失败；原数据未改变。",error);}});
     }
     private void removeNewImport(JSObject saved)throws Exception{
         String uri=saved.getString("uri"),hash=saved.getString("sha256");long bytes=saved.getLong("bytes");
@@ -435,7 +442,7 @@ public final class LogbookPlugin extends Plugin {
                 long revision=database.restoreCandidate(input,preview,owner.revision,Boolean.TRUE.equals(call.getBoolean("restoreSettings",false)),emptySnapshot().getJSONObject("settings").toString());
                 committed=true;JSObject out=new JSObject();out.put("revision",revision);call.resolve(out);
             }
-        }catch(Exception error){
+        }catch(Exception|OutOfMemoryError error){
             String cleanup="";
             if(!committed)for(JSObject file:imported)try{removeNewImport(file);}catch(Exception failure){error.addSuppressed(failure);cleanup=" 部分本次新附件无法清理或已变化，已保留；原业务库未覆盖。";}
             if(!cleanup.isEmpty())error=new IllegalStateException(error.getMessage()+cleanup,error);
@@ -468,7 +475,7 @@ public final class LogbookPlugin extends Plugin {
                 }
             }
             checkBackupLocation(owner,true);JSObject source=backupFileReply(owner,"source");source.put("canonicalVersion",1);JSObject out=new JSObject();out.put("id",owner.id);out.put("revision",revision);out.put("source",source);out.put("files",files);out.put("maximumBytes",owner.beginOutput());call.resolve(out);
-        }catch(Exception error){rejectBackup(call,owner,error);}});
+        }catch(Exception|OutOfMemoryError error){rejectBackup(call,owner,error);}});
     }
     @PluginMethod public void finishBackupExport(PluginCall call){
         execute(()->{BackupSession owner=null;try{
@@ -480,7 +487,7 @@ public final class LogbookPlugin extends Plugin {
             JSObject saved=publishArchive(owner.file(key),owner.tree,call.getString("name",""),owner.includeArchives?"application/zip":"application/json","backup",proof.bytes,proof.sha256);
             try{owner.close();backupSession=null;}catch(Exception cleanup){saved.put("warning","备份已完整保存，但私有暂存清理失败，请重开应用后重试。");}
             call.resolve(saved);
-        }catch(Exception error){rejectBackup(call,owner,error);}});
+        }catch(Exception|OutOfMemoryError error){rejectBackup(call,owner,error);}});
     }
     private JSObject write(String name, String mime, byte[] bytes) throws Exception {
         return write(name, mime, bytes, "export");

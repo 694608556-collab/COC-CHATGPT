@@ -42,7 +42,7 @@ final class LogbookDatabase extends SQLiteOpenHelper {
  }
  synchronized String snapshot(){
   if(!exists())return null;
-  try{StringWriter out=new StringWriter();writeSnapshot(out,null);return out.toString();}
+  try{if(projectedBytes(null)>LogbookLimits.SNAPSHOT_REQUEST_BYTES)throw new IllegalStateException("整库超过单次内存读取预算，请使用概览或分块备份。");StringWriter out=new StringWriter();writeSnapshot(out,null);return out.toString();}
   catch(Exception error){throw new IllegalStateException("正文读取失败；原数据未改变。",error);}
  }
  long revision(){try(Cursor row=getReadableDatabase().rawQuery("SELECT revision FROM app_state WHERE id=1",null)){row.moveToFirst();return row.getLong(0);}}

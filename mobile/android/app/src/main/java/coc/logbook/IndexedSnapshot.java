@@ -63,6 +63,7 @@ final class IndexedSnapshot {
         }if(previous!=null)fields.put(previous,value.toString());return fields;
     }
     Map<String,String> fields(){
+        if(metadataBytes()>LogbookLimits.SNAPSHOT_REQUEST_BYTES)throw new IllegalStateException("整库元数据超过独立处理上限；未载入正文。");
         Map<String,String> fields=rootFields();StringBuilder records=new StringBuilder("[");
         try(Cursor rows=db.rawQuery("SELECT metadata FROM indexed_records ORDER BY ordinal,row_key",null)){
             while(rows.moveToNext()){if(records.length()>1)records.append(',');records.append(rows.getString(0));}
