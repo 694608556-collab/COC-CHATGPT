@@ -176,6 +176,13 @@ final class LogbookStore {
     func logicalBytes() throws -> Int {
         try scalar("SELECT COALESCE(SUM(metadata_bytes+body_bytes),0) FROM record_sizes") + scalar("SELECT COALESCE(length(CAST(json AS BLOB)),0) FROM state WHERE id=1")
     }
+    func storageUsage() throws -> LogbookJSON {
+        var physical = 0
+        for suffix in ["", "-wal", "-shm"] { physical += (try? URL(fileURLWithPath: url.path + suffix).resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 }
+        var result: LogbookJSON = ["logicalBytes": try logicalBytes(), "databaseBytes": physical]
+        if let free = try? available() { result["availableBytes"] = free }
+        return result
+    }
     private func metadataBytes() throws -> Int {
         let records = try scalar("SELECT COUNT(*) FROM record_sizes")
         return try scalar("SELECT COALESCE(SUM(metadata_bytes),0) FROM record_sizes") + scalar("SELECT COALESCE(length(CAST(json AS BLOB)),0) FROM state WHERE id=1") + 13 + max(0, records - 1)
@@ -441,8 +448,8 @@ final class LogbookStore {
                     try batch.validate(value)
                     let body = value.removeValue(forKey: "rawContent")
                     try execute("UPDATE records SET metadata=? WHERE id=?", [try logbookText(value), id])
-                    if value["status"] as? String == "valid", let body {
-                        try execute("UPDATE records SET body=? WHERE id=?", [try logbookText(["rawContent": body]), id])
+                    if value["status"] as? String == "valid", body != nil {
+                        try execute("UPDATE records SET body=? WHERE id=?", [try LogbookBackupJSON.body(bytes), id])
                     }
                 }
             }
@@ -463,6 +470,7 @@ final class LogbookSnapshotUpload {
     private var output: FileHandle?
     private var written = 0
     private var index = 0
+    private(set) var recordJSON: Data?
     init(directory: URL, expected: Int, bytes: Int, sha256: String) throws {
         guard bytes > 0, bytes <= LogbookLimits.snapshotUploadBytes, sha256.count == 64,
               sha256.allSatisfy({ "0123456789abcdef".contains($0) }) else { throw LogbookFailure("暂存长度或摘要无效。") }
@@ -488,8 +496,10 @@ final class LogbookSnapshotUpload {
         let data = try Data(contentsOf: url)
         guard data.count == bytes, LogbookArchive.digest(data) == sha256,
               let text = String(data: data, encoding: .utf8) else { throw LogbookFailure("暂存长度、摘要或 UTF-8 校验失败。") }
-        let value = try logbookObject(text)
+        let value = try LogbookBackupJSON.object(data)
         try LogbookValidation.snapshot(value)
+        guard let records = value["records"] as? [LogbookJSON], records.count == 1 else { throw LogbookFailure("每次只能暂存一场检测结果。") }
+        recordJSON = try LogbookBackupJSON.singleRecord(data)
         return value
     }
 }
@@ -549,7 +559,7 @@ final class LogbookFetchBatch {
             try validate(value)
             let id = value["id"] as! String
             guard segments[id] == nil else { throw LogbookFailure("检测结果重复。") }
-            let data = try logbookData(value)
+            guard let data = upload.recordJSON else { throw LogbookFailure("完整正文词元未取齐。") }
             guard written + data.count <= maximumBytes else { throw LogbookFailure("检测结果超过本次可用空间预算；整批未保存。") }
             if deviceSpace { try LogbookCapacity.require(available: available, additional: LogbookCapacity.estimate(data.count, copies: 4)) }
             let output = try FileHandle(forWritingTo: url); defer { try? output.close() }

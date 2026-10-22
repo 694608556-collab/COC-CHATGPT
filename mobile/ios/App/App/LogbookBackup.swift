@@ -48,7 +48,15 @@ enum LogbookBackupJSON {
     /// Extract only the two already-validated top-level body values. Their raw
     /// numeric/escape spelling must survive restoration into the v1 body column.
     static func body(_ data: Data) throws -> String {
-        try data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) throws -> String in
+        let fields = try members(data, selected: ["rawContent", "manualContent"])
+        return "{" + fields.keys.sorted().map { "\"" + $0 + "\":" + String(decoding: fields[$0]!, as: UTF8.self) }.joined(separator: ",") + "}"
+    }
+    static func singleRecord(_ data: Data) throws -> Data {
+        guard let records = try members(data, selected: ["records"])["records"], records.first == 91, records.last == 93 else { throw LogbookFailure("暂存缺少完整场次数组。") }
+        return Data(records.dropFirst().dropLast())
+    }
+    private static func members(_ data: Data, selected: Set<String>) throws -> [String: Data] {
+        try data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) throws -> [String: Data] in
             let bytes = raw.bindMemory(to: UInt8.self)
             func space(_ start: Int) -> Int { var at = start; while at < bytes.count && [9, 10, 13, 32].contains(bytes[at]) { at += 1 }; return at }
             func stringEnd(_ start: Int) throws -> Int {
@@ -75,7 +83,7 @@ enum LogbookBackupJSON {
                 while at < bytes.count && ![9, 10, 13, 32, 44, 93, 125].contains(bytes[at]) { at += 1 }
                 return at
             }
-            var at = space(0), fields: [(String, String)] = []
+            var at = space(0), fields: [String: Data] = [:]
             guard at < bytes.count, bytes[at] == 123 else { throw LogbookFailure("正文词元对象无效。") }; at += 1
             while true {
                 at = space(at); guard at < bytes.count else { throw LogbookFailure("正文词元字段不完整。") }
@@ -84,12 +92,12 @@ enum LogbookBackupJSON {
                 guard let key = try JSONSerialization.jsonObject(with: keyData, options: [.fragmentsAllowed]) as? String else { throw LogbookFailure("正文词元字段名无效。") }
                 at = space(keyEnd); guard at < bytes.count, bytes[at] == 58 else { throw LogbookFailure("正文词元字段分隔无效。") }; at = space(at + 1)
                 let until = try end(at)
-                if key == "rawContent" || key == "manualContent" { fields.append((key, String(decoding: bytes[at..<until], as: UTF8.self))) }
+                if selected.contains(key) { fields[key] = Data(bytes[at..<until]) }
                 at = space(until); guard at < bytes.count else { throw LogbookFailure("正文词元对象不完整。") }
                 if bytes[at] == 125 { break }
                 guard bytes[at] == 44 else { throw LogbookFailure("正文词元字段分隔无效。") }; at += 1
             }
-            return "{" + fields.sorted { $0.0 < $1.0 }.map { "\"" + $0.0 + "\":" + $0.1 }.joined(separator: ",") + "}"
+            return fields
         }
     }
 }

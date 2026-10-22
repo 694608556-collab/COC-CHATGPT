@@ -11,6 +11,8 @@ import { Capacitor } from '@capacitor/core'
  * @returns 手机设置页。
  */
 export function DataSettings(props: {
+  storageUsage?: import('../../../data/native').StorageUsage
+  expandedLibrary?: boolean
   savedBodyCount: number
   archive: ArchiveLocation
   snapshot: MobileSnapshot
@@ -58,6 +60,24 @@ export function DataSettings(props: {
           <small>角色卡</small>
         </strong>
       </section>
+      {props.storageUsage && (
+        <section className="panel settings-panel" aria-label="存储空间">
+          <h2>存储空间</h2>
+          <p>数据与正文约 {(props.storageUsage.logicalBytes / 1_000_000).toFixed(1)} MB</p>
+          <p>数据库及日志占用约 {(props.storageUsage.databaseBytes / 1_000_000).toFixed(1)} MB</p>
+          <p>
+            手机当前可用：
+            {props.storageUsage.availableBytes === undefined
+              ? '暂时无法读取'
+              : (props.storageUsage.availableBytes / 1_000_000_000).toFixed(2) + ' GB'}
+          </p>
+          {props.expandedLibrary && (
+            <p className="muted">
+              整库容量随手机可用空间增长。保存、恢复和备份需要额外空闲空间；单场完整正文仍限 64MiB。
+            </p>
+          )}
+        </section>
+      )}
       <section className="panel settings-panel">
         <div className="settings-section-heading">
           <h2>阅读与导出默认设置</h2>

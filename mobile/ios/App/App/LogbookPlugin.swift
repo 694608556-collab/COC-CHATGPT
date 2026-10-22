@@ -44,7 +44,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         return value.intValue
     }
     private func state(_ store: LogbookStore, _ archive: LogbookArchive) throws -> LogbookJSON {
-        var result: LogbookJSON = ["tableDeltaVersion": 1, "revision": try store.revision(), "archive": archive.location(), "networkConnected": connected, "lastAutoBackupAt": 0]
+        var result: LogbookJSON = ["storageUsage": try store.storageUsage(), "tableDeltaVersion": 1, "revision": try store.revision(), "archive": archive.location(), "networkConnected": connected, "lastAutoBackupAt": 0]
         if let saved = archive.preferences.dictionary(forKey: "coc.automatic-backup") { result["lastAutoBackupAt"] = saved["savedAt"]; result["lastAutoBackupRevision"] = saved["revision"] }
         return result
     }

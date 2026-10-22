@@ -14,7 +14,13 @@ export interface ArchiveLocation {
   valid: boolean
 }
 /** 原生数据库与授权读取结果。 */
+export interface StorageUsage {
+  logicalBytes: number
+  databaseBytes: number
+  availableBytes?: number
+}
 export interface NativeState {
+  storageUsage?: StorageUsage
   backupStreamVersion?: 1
   tableDeltaVersion?: 1
   lastAutoBackupAt?: number
