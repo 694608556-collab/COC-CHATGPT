@@ -376,10 +376,26 @@ void (async () => {
             document.querySelector('[role="progressbar"][aria-label="导入处理进度"]'),
           'real card progress before back'
         )
-        document.querySelector<HTMLButtonElement>('.app-back')!.click()
+        // iOS intentionally has no header back button; use its protected
+        // navigation entry. Gesture-to-entry wiring is covered by browser UI tests.
+        if (Capacitor.getPlatform() === 'ios') {
+          check(!document.querySelector('.app-back'), 'Keep the iOS header without an Android back button')
+          window.dispatchEvent(new Event('logbook-back'))
+        } else {
+          const back = document.querySelector<HTMLButtonElement>('.app-back')
+          check(back && !back.disabled, 'Android header back must be available')
+          back.click()
+        }
         await waitFor(
-          () => button('导入七版角色卡') && !document.querySelector('.editor'),
+          () =>
+            button('导入七版角色卡') &&
+            !document.querySelector('.editor') &&
+            !document.querySelector('[role="progressbar"][aria-label="导入处理进度"]'),
           'back cancellation finished'
+        )
+        check(
+          calls.some((call) => call.method === 'cancelTableStage'),
+          'Cancelled card must release its native stage'
         )
         check(
           (await Native.getOverview()).revision === overview.revision,

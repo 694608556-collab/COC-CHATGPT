@@ -49,34 +49,55 @@ test('选择文件期间不出现应用导入弹窗或进度；快速预览不�
   ).toEqual([])
 })
 
-test('慢速实际Worker导入只显示一处非模态进度，取消仍释放租约且不写入', async ({ page }) => {
-  page.on('dialog', (dialog) => dialog.accept())
-  await page.goto('/?table-stream-fixture')
-  await page.getByRole('button', { name: '选择并确认保存位置' }).click()
-  await page.getByRole('button', { name: '数据与设置', exact: true }).click()
-  const before = await page.evaluate(() => window.__publicTableStreamFixture!.state())
-  let release!: () => void
-  const gate = new Promise<void>((resolve) => {
-    release = resolve
-  })
-  await page.route('**/_capacitor_file_/public-table-stream.csv**', async (route) => {
-    await gate
-    await route.abort().catch(() => {})
-  })
-  try {
-    await page.getByRole('button', { name: '导入场次表格', exact: true }).click()
-    await expect(page.getByRole('progressbar', { name: '导入处理进度' })).toBeVisible()
-    expect(await page.getByRole('button', { name: '取消导入', exact: true }).count()).toBe(0)
-    await expect(page.getByRole('progressbar')).toHaveCount(1)
-    expect(await page.getByRole('dialog', { name: '正在导入表格' }).count()).toBe(0)
-    await page.evaluate(() => window.dispatchEvent(new Event('logbook-back')))
-    await expect
-      .poll(() => page.evaluate(() => window.__publicTableStreamFixture!.stats.cancellations))
-      .toBe(1)
-    expect(await page.evaluate(() => window.__publicTableStreamFixture!.state())).toEqual(before)
-    await expect(page.getByRole('progressbar')).toHaveCount(0)
-    await expect(page.getByRole('dialog', { name: '表格导入预览' })).toHaveCount(0)
-  } finally {
-    release()
-  }
-})
+for (const gesture of [false, true])
+  test(
+    gesture
+      ? 'iOS无页头返回按钮时，边缘手势取消慢速导入仍释放租约且不写库'
+      : '慢速实际Worker导入只显示一处非模态进度，取消仍释放租约且不写入',
+    async ({ page }) => {
+      page.on('dialog', (dialog) => dialog.accept())
+      await page.goto('/?table-stream-fixture')
+      await page.getByRole('button', { name: '选择并确认保存位置' }).click()
+      await page.getByRole('button', { name: '数据与设置', exact: true }).click()
+      if (gesture) await page.locator('.app-back').evaluate((node) => node.remove())
+      const before = await page.evaluate(() => window.__publicTableStreamFixture!.state())
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      await page.route('**/_capacitor_file_/public-table-stream.csv**', async (route) => {
+        await gate
+        await route.abort().catch(() => {})
+      })
+      try {
+        await page.getByRole('button', { name: '导入场次表格', exact: true }).click()
+        await expect(page.getByRole('progressbar', { name: '导入处理进度' })).toBeVisible()
+        expect(await page.getByRole('button', { name: '取消导入', exact: true }).count()).toBe(0)
+        await expect(page.getByRole('progressbar')).toHaveCount(1)
+        expect(await page.getByRole('dialog', { name: '正在导入表格' }).count()).toBe(0)
+        if (gesture) {
+          await expect(page.locator('.app-back')).toHaveCount(0)
+          const client = await page.context().newCDPSession(page)
+          await client.send('Emulation.setTouchEmulationEnabled', { enabled: true })
+          await client.send('Input.dispatchTouchEvent', {
+            type: 'touchStart',
+            touchPoints: [{ x: 3, y: 320, id: 0 }]
+          })
+          for (let step = 1; step <= 8; step++)
+            await client.send('Input.dispatchTouchEvent', {
+              type: 'touchMove',
+              touchPoints: [{ x: 3 + step * 12, y: 320, id: 0 }]
+            })
+          await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+        } else await page.evaluate(() => window.dispatchEvent(new Event('logbook-back')))
+        await expect
+          .poll(() => page.evaluate(() => window.__publicTableStreamFixture!.stats.cancellations))
+          .toBe(1)
+        expect(await page.evaluate(() => window.__publicTableStreamFixture!.state())).toEqual(before)
+        await expect(page.getByRole('progressbar')).toHaveCount(0)
+        await expect(page.getByRole('dialog', { name: '表格导入预览' })).toHaveCount(0)
+      } finally {
+        release()
+      }
+    }
+  )
