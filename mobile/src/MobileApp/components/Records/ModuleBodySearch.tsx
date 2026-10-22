@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { FilterPreset, SessionRecord } from '../../../../../src/shared/types'
-import { countMatches, recordMessages, searchExcerpt } from '../../../data/search'
+import { compileBodyQuery, recordMessages } from '../../../data/search'
 import { SearchInput } from '../SearchInput'
 
 /** 只搜索此模组的已保存正文，不更改列表选择、排序或业务数据。 */
@@ -22,6 +22,7 @@ export function ModuleBodySearch(props: {
 }) {
   const [page, setPage] = useState(0)
   const needle = props.submittedQuery.trim()
+  const matcher = useMemo(() => compileBodyQuery(needle), [needle])
   const streamed = props.result?.query === needle ? props.result : undefined
   const ready = props.streaming ? !!streamed : props.ready
   const busy = props.streaming ? !!props.searching : props.busy
@@ -56,13 +57,13 @@ export function ModuleBodySearch(props: {
               excerpt = ''
             for (const message of messages) {
               const text = message.header + '\n' + message.text
-              const count = countMatches(text, needle)
-              if (count && !matches) excerpt = searchExcerpt(text, needle)
+              const count = matcher.count(text)
+              if (count && !matches) excerpt = matcher.excerpt(text)
               matches += count
             }
             return matches ? [{ record, matches, excerpt }] : []
           }),
-    [bodies, needle, streamed, rows, byID, props.streaming]
+    [bodies, matcher, streamed, rows, byID, props.streaming]
   )
   const pages = Math.max(1, Math.ceil(hits.length / 20)),
     current = Math.min(page, pages - 1)

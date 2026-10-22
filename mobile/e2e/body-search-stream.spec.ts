@@ -22,7 +22,7 @@ test('逐场搜索只返回摘要，取消旧查询不覆盖新结果，连续�
       port.getOverview=async()=>{const state=await overview();return sessionStorage.getItem('public-native-search')?{...state,backupStreamVersion:1,bodySearchStreamVersion:1}:state};
       port.getRecordContent=async input=>{probe.reads.push(input.ids);return content(input)};
       port.createSearchSource=async input=>{
-        probe.searches.push(input.ids);const value=await content(input), bytes=new TextEncoder().encode(value.json);
+        probe.startDelay=performance.now()-window.__publicSearchSubmittedAt;probe.searches.push(input.ids);const value=await content(input), bytes=new TextEncoder().encode(value.json);
         const sha=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
         const id='public-read-'+probe.searches.length;probe.files[id]=value.json;
         if(probe.hold)await new Promise(resolve=>{probe.release=resolve});
@@ -81,8 +81,18 @@ test('逐场搜索只返回摘要，取消旧查询不覆盖新结果，连续�
   await search.fill('needle')
   await page.waitForTimeout(350)
   expect(await page.evaluate(() => (window as any).__bodyStreamProbe.searches)).toEqual([])
+  await page.evaluate(() =>
+    document.addEventListener(
+      'submit',
+      () => {
+        ;(window as any).__publicSearchSubmittedAt = performance.now()
+      },
+      { capture: true }
+    )
+  )
   await search.press('Enter')
   await expect(page.locator('.module-body-search [role="status"]')).toContainText('匹配 3 个场次')
+  expect(await page.evaluate(() => (window as any).__bodyStreamProbe.startDelay)).toBeLessThan(200)
   expect(await page.evaluate(() => (window as any).__bodyStreamProbe.reads)).toEqual([])
   await page.locator('.search-result').first().click()
   await expect(page.locator('.messages')).toContainText('完整结尾0')

@@ -12,6 +12,30 @@ function literalPattern(query: string, global = false): RegExp | undefined {
   return new RegExp(needle.replace(/[.*+?^\x24{}()|[\]\\]/g, '\\$&'), global ? 'gi' : 'i')
 }
 
+/** 为一次已提交查询复用匹配器；每次调用重置扫描位置，避免跨消息遗漏。
+ * @param query 用户提交的字面查询。
+ * @returns 可重复用于不同消息的计数及摘要函数。
+ */
+export function compileBodyQuery(query: string) {
+  const pattern = literalPattern(query, true)
+  return {
+    count(text: string): number {
+      if (!pattern) return 0
+      pattern.lastIndex = 0
+      let count = 0
+      while (pattern.test(text)) count++
+      return count
+    },
+    excerpt(text: string): string {
+      if (pattern) pattern.lastIndex = 0
+      const at = pattern?.exec(text)?.index ?? 0
+      const start = Math.max(0, at - 30)
+      const end = Math.min(text.length, at + Math.max(query.trim().length, 1) + 60)
+      return (start ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '')
+    }
+  }
+}
+
 /** 仅判断首个命中，不为所有命中构造高亮数组。
  * @param text 原始正文或发言者文本。
  * @param query 字面查询，不区分大小写。
