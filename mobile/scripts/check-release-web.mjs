@@ -30,7 +30,7 @@ for (const text of [
 assert(source.includes(version), `Release version missing: ${version}`)
 assert(source.includes('亦如长风万里沙'), 'Creator credit missing')
 const assets = await readdir(webDirectory, { recursive: true })
-for (const file of ['app.js', 'snapshot-worker.js', 'export-worker.js'])
+for (const file of ['app.js', 'snapshot-worker.js', 'export-worker.js', 'backup-stream-worker.js'])
   assert(assets.includes(file), `Missing production computation entry: ${file}`)
 assert(!assets.some((name) => name.endsWith('.map')), 'Production source maps must not be shipped')
 const fonts = assets.filter((name) => /\.(otf|ttf)$/.test(name))

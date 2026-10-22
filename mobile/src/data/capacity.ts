@@ -1,6 +1,5 @@
-/** Trusted operation budgets. Values and byte accounting remain unchanged.
- * Raising library capacity requires streaming backup/restore first; these limits
- * are independent so a file/transport change cannot silently raise another use.
+/** Independent bounded request/file budgets. Whole-library storage and complete
+ * backup/restore use native available-volume budgets; these remain unchanged.
  */
 export const capacity = {
   snapshotRequestBytes: 64 * 1024 * 1024,
