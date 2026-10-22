@@ -25,6 +25,7 @@ it('一次模组正文搜索复用匹配器，不为每条消息重新编译同�
   }))
   const bytes = new TextEncoder().encode(JSON.stringify(data))
   const patterns = vi.spyOn(globalThis, 'RegExp')
+  const decoding = vi.spyOn(JSON, 'parse')
   const result = await searchBodyStream(
     (async function* () {
       for (let offset = 0; offset < bytes.length; offset += 65536)
@@ -42,4 +43,8 @@ it('一次模组正文搜索复用匹配器，不为每条消息重新编译同�
     patterns.mock.calls.length,
     'Query compilation must be per submitted query, not per message'
   ).toBeLessThan(100)
+  expect(
+    decoding.mock.calls.filter(([raw]) => /^"[^"\\]*"$/.test(raw)).length,
+    'Ordinary field names should not require a JSON parser call for every message field'
+  ).toBeLessThan(1000)
 })
