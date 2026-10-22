@@ -19,6 +19,13 @@ function literalPattern(query: string, global = false): RegExp | undefined {
 export function compileBodyQuery(query: string) {
   const pattern = literalPattern(query, true)
   return {
+    /** @param text 待判断消息。 @returns 首次命中即返回，不遍历消息中的其余命中。 */
+    has(text: string): boolean {
+      if (!pattern) return false
+      pattern.lastIndex = 0
+      return pattern.test(text)
+    },
+    /** @param text 待计数消息。 @returns 不重叠命中总数。 */
     count(text: string): number {
       if (!pattern) return 0
       pattern.lastIndex = 0
@@ -26,6 +33,7 @@ export function compileBodyQuery(query: string) {
       while (pattern.test(text)) count++
       return count
     },
+    /** @param text 待摘要消息。 @returns 首次命中附近保留原文的上下文。 */
     excerpt(text: string): string {
       if (pattern) pattern.lastIndex = 0
       const at = pattern?.exec(text)?.index ?? 0

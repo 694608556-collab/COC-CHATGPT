@@ -60,7 +60,7 @@ test('完整大正文备份不中断界面响应，保存后可重新预览全�
   await page.getByRole('button', { name: '刷新测试文件列表' }).click()
   await page.getByText('测试文件（1）', { exact: true }).click()
   const download = page.waitForEvent('download')
-  await page.getByRole('button', { name: /coc-android-backup-.*\.json$/ }).click()
+  await page.getByRole('button', { name: /^[0-9]{8}COC跑团记录簿[0-9]*\.json$/ }).click()
   const saved = JSON.parse(await readFile((await (await download).path())!, 'utf8'))
   expect(saved.snapshot.records[0].rawContent.messages).toEqual(sample.records[0]!.rawContent!.messages)
 })
