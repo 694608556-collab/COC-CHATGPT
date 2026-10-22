@@ -38,6 +38,14 @@ const sources = ['JsonFields', 'RecordOverlay', 'EntityEdits', 'LogbookActions',
 )
 const javac = join(process.env.JAVA_HOME, 'bin', process.platform === 'win32' ? 'javac.exe' : 'javac')
 const java = join(process.env.JAVA_HOME, 'bin', process.platform === 'win32' ? 'java.exe' : 'java')
+const snapshotCompiled = spawnSync(javac, [
+  '-encoding', 'UTF-8', '-d', work, join(source, 'SnapshotJson.java'), join(source, 'SnapshotStream.java'),
+  resolve('tests/native/SnapshotStreamCheck.java')
+], { encoding: 'utf8' })
+if (snapshotCompiled.status !== 0) throw new Error(snapshotCompiled.stderr || String(snapshotCompiled.error))
+const snapshotResult = spawnSync(java, ['-Xmx96m', '-cp', work, 'coc.logbook.SnapshotStreamCheck'], { encoding: 'utf8' })
+process.stdout.write(snapshotResult.stdout)
+if (snapshotResult.status !== 0) throw new Error(snapshotResult.stderr || String(snapshotResult.error))
 const pickerCompiled = spawnSync(
   javac,
   [

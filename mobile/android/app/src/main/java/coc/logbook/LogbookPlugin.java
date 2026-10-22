@@ -1266,12 +1266,9 @@ public final class LogbookPlugin extends Plugin {
     }
     /** Android's JSONObject parser is lenient. Raw text may be persisted only after a strict JSON syntax check. */
     private void validateJsonText(String json) throws Exception {
-        try (android.util.JsonReader reader = new android.util.JsonReader(new java.io.StringReader(json))) {
-            reader.setLenient(false);
-            reader.beginObject();
-            while (reader.hasNext()) { reader.nextName(); reader.skipValue(); }
-            reader.endObject();
-            if (reader.peek() != android.util.JsonToken.END_DOCUMENT) throw new IllegalArgumentException("JSON 包含多余内容。");
+        try (SnapshotJson reader = new SnapshotJson(new java.io.StringReader(json))) {
+            reader.object(name -> reader.skip());
+            reader.end();
         }
     }
     /** All writes must fail after a SAF grant is revoked. */
