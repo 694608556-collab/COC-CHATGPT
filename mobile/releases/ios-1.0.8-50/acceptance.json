@@ -1,0 +1,110 @@
+{
+  "date": "2026-10-22",
+  "scope": "Public synthetic data and cloud/native environments; no new physical-phone install or formal 114-link UI timing.",
+  "android": {
+    "source": "424e2d9e468fa15e0771b64d11e6cc85470f1549",
+    "run": 39736922288,
+    "conclusion": "success",
+    "unitTests": 149,
+    "browserTests": 127,
+    "nativeInstrumentationTests": 21,
+    "publicNativeSizesMiB": [
+      96,
+      192,
+      512
+    ],
+    "largestCandidateBytes": 537170837,
+    "largestBackupBytes": 537035117,
+    "ordinaryEmulatorHeapMiB": 512,
+    "largeHeap": false,
+    "webView": {
+      "passed": true,
+      "records": 96,
+      "hits": 96,
+      "logicalBytes": 100703219,
+      "revision": 1,
+      "worker": true,
+      "nativeWebView": true,
+      "physicalPhone": false
+    },
+    "evidenceArtifact": 12408635626
+  },
+  "ios": {
+    "source": "fe94d1dde4b84e81f5de31e5519f5756bef44737",
+    "run": 39736956142,
+    "conclusion": "success",
+    "unitTests": 143,
+    "browserTests": 132,
+    "nativeCoreChecks": 272,
+    "coldStarts": 3,
+    "publicNativeSizesMiB": [
+      96,
+      192,
+      512
+    ],
+    "largestCandidateBytes": 537170837,
+    "largestBackupBytes": 537035116,
+    "webView": {
+      "appBuild": "50",
+      "appVersion": "1.0.8",
+      "automaticBytes": 100702109,
+      "jsonBytes": 100702109,
+      "largestRange": 262144,
+      "logicalBytes": 100701949,
+      "nativeSQLite": true,
+      "nativeSystemVersion": "27.0",
+      "packagedWorker": true,
+      "passed": true,
+      "physicalPhone": false,
+      "rangedRequests": 385,
+      "rangeProbeBytes": 100702109,
+      "records": 96,
+      "revision": 2,
+      "scrollEdgeEffectsHidden": true,
+      "searchHits": 96,
+      "stage": "complete",
+      "zipBytes": 100702293
+    },
+    "publicFetch": {
+      "staged": 3020,
+      "commits": 4,
+      "wholeReads": 0,
+      "scope": "Generated public responses only; includes intentional failure cases; not live-network speed measurement"
+    },
+    "networkRegressionRun": 39736955984,
+    "networkRegressionConclusion": "success",
+    "evidenceArtifact": 12408659954
+  },
+  "shared": {
+    "streamCases": 9,
+    "sizesMiB": [
+      96,
+      192,
+      512
+    ],
+    "formats": [
+      "JSON",
+      "stored ZIP",
+      "deflate ZIP"
+    ],
+    "allBodiesAndSHA256Match": true,
+    "nodeHeapMiB": 96,
+    "nodeHeapIsNotProcessRSS": true,
+    "protectedLocalFiles": 455,
+    "protectedLocalMismatches": 0
+  },
+  "retainedLimits": {
+    "wholeLibraryFixedByteCap": null,
+    "singleCompleteRecordBytes": 67108864,
+    "minFreeSpaceReserveBytes": 67108864,
+    "freeSpaceReservePercent": 5,
+    "backupBridgeChunkBytes": 262144,
+    "individualAttachmentBytes": 67108864,
+    "totalAttachmentBytes": 134217728,
+    "zip32RequiresUnder4GiB": true
+  },
+  "deviceTesting": {
+    "newPhysicalInstallation": false,
+    "newFormal114LinkUITiming": false
+  }
+}

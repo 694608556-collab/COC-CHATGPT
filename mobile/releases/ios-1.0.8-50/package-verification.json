@@ -1,0 +1,29 @@
+{
+  "platform": "iOS device",
+  "package": "coc-logbook-1.0.8-50-ios-arm64-unsigned.ipa",
+  "source": "fe94d1dde4b84e81f5de31e5519f5756bef44737",
+  "run": 39736956142,
+  "artifact": 12408130610,
+  "build": 50,
+  "bundle": "coc.logbook",
+  "architecture": "arm64",
+  "sdk": 27,
+  "minimumOS": 15,
+  "unsigned": true,
+  "provisioningProfile": false,
+  "version": "1.0.8",
+  "bytes": 25867536,
+  "sha256": "50aa18e6633c05b486aa767aadc5907e739b0ae06c4bb738cb9306ccd36f11d8",
+  "zipIntegrity": true,
+  "webAssetsMatch": {
+    "app.js": "dc99ec4fd33a9e40458af4e43cec1dcad3feb726b589b1956ac52b80418dd94f",
+    "app.css": "2078d93a95c8364fc833d4f2c155d9f61056ff2d2ce9ff1319836843ba8d3167",
+    "index.html": "9014e503177333b218f7965bf04dbed84a16c20a150bac53c53b3726d1b23f9d",
+    "snapshot-worker.js": "71376df62a3461aa700329bf43f3a793ad55e08b44961a21206ae0bce3a48b88",
+    "export-worker.js": "16ab3159d21230a2d3d7b07ab72564db9bdb957857cb1084e11f397b44069c2a",
+    "backup-stream-worker.js": "cdc66168086bbbc41b6865c2b8eddb0c40252cb66a27bfce39bda8c2293318a2"
+  },
+  "originalFontsMatch": 8,
+  "deviceValidation": "No new physical-phone install or formal UI timing; public native/cloud evidence recorded separately",
+  "gitBlobSHA1": "a38a60087426212161952d9c8e5fc09d7d278d85"
+}
