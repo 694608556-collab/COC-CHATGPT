@@ -69,8 +69,12 @@ enum LogbookBackupJSON {
                     var keys = Set<String>()
                     while true {
                         whitespace(); let span = try string()
-                        guard let key = try JSONSerialization.jsonObject(with: Data(bytes[span]), options: [.fragmentsAllowed]) as? String,
-                              keys.count < 100000, keys.insert(key).inserted else { throw invalid() }
+                        let key: String
+                        if bytes[span].contains(92) {
+                            guard let decoded = try JSONSerialization.jsonObject(with: Data(bytes[span]), options: [.fragmentsAllowed]) as? String else { throw invalid() }
+                            key = decoded
+                        } else { key = String(decoding: bytes[(span.lowerBound + 1)..<(span.upperBound - 1)], as: UTF8.self) }
+                        guard keys.count < 100000, keys.insert(key).inserted else { throw invalid() }
                         whitespace(); try take(58); try value(depth + 1); whitespace()
                         if index < bytes.count && bytes[index] == 125 { index += 1; return }
                         try take(44)

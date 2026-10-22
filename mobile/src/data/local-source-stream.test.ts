@@ -27,6 +27,24 @@ function mock(response: Response) {
   vi.stubGlobal('fetch', fetch)
   return fetch
 }
+it('iOS自定义协议按协议/主机/端口校验，不把不同的null origin当作同源', async () => {
+  const fetch = mock(new Response(bytes))
+  vi.stubGlobal('location', new URL('capacitor://localhost/'))
+  expect(
+    await consume(
+      readLocalSourceStream({ ...source(), url: 'capacitor://localhost/_capacitor_file_/public' }, options)
+    )
+  ).toEqual({ bytes: bytes.length, sha256: sha(bytes) })
+  fetch.mockClear()
+  for (const url of [
+    'other://localhost/_capacitor_file_/public',
+    'capacitor://other/_capacitor_file_/public',
+    'capacitor://localhost:123/_capacitor_file_/public',
+    'capacitor://user:password@localhost/_capacitor_file_/public'
+  ])
+    await expect(consume(readLocalSourceStream({ ...source(), url }, options))).rejects.toThrow('本地文件')
+  expect(fetch).not.toHaveBeenCalled()
+})
 it('iOS逐个256KiB Range核对完整证明，拒绝忽略Range及错误区间，不退回整份读取', async () => {
   vi.stubGlobal('location', new URL('https://localhost/'))
   let requests = 0

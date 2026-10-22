@@ -21,8 +21,13 @@ export async function* readLocalSourceStream(
   checkStreamBudget(options.maximumBytes)
   checkStreamCancelled(options.signal)
   const url = new URL(source.url)
+  const current = new URL(location.href)
   if (
-    url.origin !== location.origin ||
+    url.protocol !== current.protocol ||
+    url.hostname !== current.hostname ||
+    url.port !== current.port ||
+    url.username ||
+    url.password ||
     !url.pathname.startsWith(options.attachment ? '/_capacitor_content_/' : '/_capacitor_file_/')
   )
     throw new Error('只允许读取本应用的本地文件。')
