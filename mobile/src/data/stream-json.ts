@@ -207,7 +207,10 @@ export class StreamJson {
           quoted = false
           if (key) {
             key.add(this.buffer.slice(keyStart, this.offset))
-            const name = JSON.parse(key.text()) as string,
+            // Plain keys dominate saved message objects. Decode escaped aliases
+            // strictly; the complete value still receives JSON.parse grammar validation.
+            const rawKey = key.text()
+            const name = rawKey.includes('\\') ? (JSON.parse(rawKey) as string) : rawKey.slice(1, -1),
               frame = frames[frames.length - 1]!
             if (frame.keys!.has(name)) throw new Error('JSON 字段重复。')
             frame.keys!.add(name)
