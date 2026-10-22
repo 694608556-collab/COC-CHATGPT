@@ -443,6 +443,7 @@ public final class LogbookPlugin extends Plugin {
                 committed=true;JSObject out=new JSObject();out.put("revision",revision);call.resolve(out);
             }
         }catch(Exception|OutOfMemoryError error){
+            if(committed){call.reject("完整恢复已提交，但返回确认失败；请重新读取数据，勿重复导入。");return;}
             String cleanup="";
             if(!committed)for(JSObject file:imported)try{removeNewImport(file);}catch(Exception failure){error.addSuppressed(failure);cleanup=" 部分本次新附件无法清理或已变化，已保留；原业务库未覆盖。";}
             Throwable failure=cleanup.isEmpty()?error:new IllegalStateException(error.getMessage()+cleanup,error);

@@ -970,7 +970,7 @@ export function MobileApp({
     setNotice('请选择备份文件；读取后将进行后台校验…')
     const streaming = native?.backupStreamVersion === 1
     const choice = await port.openBackup(
-      streaming ? { stream: true, expectedRevision: native!.revision } : undefined
+      streaming ? { kind: 'backup', stream: true, expectedRevision: native!.revision } : undefined
     )
     if (!choice.cancelled && streaming) {
       if (!choice.source) throw new Error('本机未提供完整备份流，未尝试整库载入。')
