@@ -103,7 +103,13 @@ public final class CapacityDatabaseTest {
                 StringWriter selected=new StringWriter();db.writeSnapshot(selected,Collections.singleton("capacity-0"));
                 assertEquals(body,new JSONObject(selected.toString()).getJSONArray("records").getJSONObject(0).getString("manualContent"));
                 String hash=recordHash(db,"capacity-0");
-                SQLiteAssertions.assertBodyUntouched(db,()->{Map<String,String> patch=new LinkedHashMap<>();patch.put("exportedAt",JSONObject.quote("2026-10-22T00:00:00Z"));db.replaceFields(patch,1);});
+                SQLiteAssertions.assertBodyUntouched(db,()->{
+                    if(count==96){
+                        JSONObject delta=new JSONObject().put("protocolVersion",1).put("initialSettings",root.get("settings"));
+                        for(String key:new String[]{"modulesAdded","moduleParticipants","charactersAdded","recordsAdded","manualUpdates"})delta.put(key,new JSONArray());
+                        db.edit(1,index->index.importTableDelta(delta,"2026-10-22T00:00:00Z",null));
+                    }else{Map<String,String> patch=new LinkedHashMap<>();patch.put("exportedAt",JSONObject.quote("2026-10-22T00:00:00Z"));db.replaceFields(patch,1);}
+                });
                 assertEquals(hash,recordHash(db,"capacity-0"));
                 free[0]=StorageBudget.MINIMUM_RESERVE;
                 try{db.replaceFields(Collections.singletonMap("exportedAt","\"denied\""),2);fail("low space accepted");}catch(IllegalStateException|IOException expected){}

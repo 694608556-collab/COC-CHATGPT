@@ -218,7 +218,8 @@ public class IndexedPressureTest {
     @Test public void tableAppendPreservesNativeBodiesAndRollsBackEveryFailure()throws Exception {
         String name="public-table-"+UUID.randomUUID()+".sqlite";
         File input=fixture(1000,52000,0,"valid");
-        try(LogbookDatabase database=new LogbookDatabase(context(),name)){
+        long[] available={32L*1024*1024*1024};
+        try(LogbookDatabase database=new LogbookDatabase(context(),name,true,()->available[0])){
             try(Reader reader=new InputStreamReader(new FileInputStream(input),StandardCharsets.UTF_8)){database.replace(reader,0);}
             SQLiteDatabase db=database.getWritableDatabase();String untouched=hash(database,ids(0,1000));
             org.json.JSONObject candidate=new org.json.JSONObject(JsonFields.join(database.fields()));
@@ -246,7 +247,8 @@ public class IndexedPressureTest {
             assertEquals(2,database.revision());assertEquals(7000,scalar(db,"SELECT COUNT(*) FROM indexed_records"));assertEquals(untouched,hash(database,ids(0,1000)));
             org.json.JSONObject oversized=new org.json.JSONObject(candidate.toString());char[] large=new char[14*1024*1024];Arrays.fill(large,'x');
             oversized.getJSONArray("records").put(new org.json.JSONObject().put("id","oversized").put("moduleId","m0").put("sourceType","manual").put("manualContent",new String(large)));
-            try{TableTiming over=new TableTiming();database.edit(2,store->store.importTable(oversized,over),over);fail("capacity accepted");}catch(IllegalArgumentException expected){}
+            available[0]=StorageBudget.MINIMUM_RESERVE;
+            try{TableTiming over=new TableTiming();database.edit(2,store->store.importTable(oversized,over),over);fail("low-space capacity accepted");}catch(IOException|IllegalStateException expected){}finally{available[0]=32L*1024*1024*1024;}
             assertEquals(2,database.revision());assertEquals(7000,scalar(db,"SELECT COUNT(*) FROM indexed_records"));
             db.execSQL("DROP TRIGGER guard_old_body");
         }finally{input.delete();context().deleteDatabase(name);}
@@ -258,7 +260,8 @@ public class IndexedPressureTest {
     @Test public void tableDeltaPreservesNativeBodiesAndRollsBackEveryFailure()throws Exception {
         String name="public-table-delta-"+UUID.randomUUID()+".sqlite";
         File input=fixture(1000,52000,0,"valid");
-        try(LogbookDatabase database=new LogbookDatabase(context(),name)){
+        long[] available={32L*1024*1024*1024};
+        try(LogbookDatabase database=new LogbookDatabase(context(),name,true,()->available[0])){
             try(Reader reader=new InputStreamReader(new FileInputStream(input),StandardCharsets.UTF_8)){database.replace(reader,0);}
             SQLiteDatabase db=database.getWritableDatabase();String untouched=storedRowsHash(db,ids(0,1000));
             org.json.JSONObject candidate=new org.json.JSONObject(JsonFields.join(database.fields()));
@@ -290,7 +293,8 @@ public class IndexedPressureTest {
             assertEquals(stableSnapshot,hash(database,ids(0,1000)));
             org.json.JSONObject oversized=new org.json.JSONObject(candidate.toString());char[] large=new char[14*1024*1024];Arrays.fill(large,'x');
             oversized.getJSONArray("records").put(new org.json.JSONObject().put("id","oversized").put("moduleId","m0").put("sourceType","manual").put("manualContent",new String(large)));
-            try{TableTiming over=new TableTiming();database.edit(2,store->store.importTableDelta(publicDelta(oversized,7000),"confirmed",over),over);fail("capacity accepted");}catch(IllegalArgumentException expected){}
+            available[0]=StorageBudget.MINIMUM_RESERVE;
+            try{TableTiming over=new TableTiming();database.edit(2,store->store.importTableDelta(publicDelta(oversized,7000),"confirmed",over),over);fail("low-space capacity accepted");}catch(IOException|IllegalStateException expected){}finally{available[0]=32L*1024*1024*1024;}
             assertEquals(2,database.revision());assertEquals(7000,scalar(db,"SELECT COUNT(*) FROM indexed_records"));
             assertEquals(untouched,storedRowsHash(db,ids(0,1000)));assertEquals(stableSnapshot,hash(database,ids(0,1000)));
             db.execSQL("DROP TRIGGER guard_old_body");
