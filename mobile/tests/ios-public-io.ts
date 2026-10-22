@@ -5,20 +5,16 @@ import inputs from '../ios/build/public-io/inputs.json'
 window.__cocSmokeTask = (async () => {
   // Public fixture diagnostics only: retain PNG header fields, never page pixels.
   const pngHeaders: Array<Record<string, number | string>> = []
-  const toBlob = HTMLCanvasElement.prototype.toBlob
-  HTMLCanvasElement.prototype.toBlob = function (callback, type, quality) {
-    return toBlob.call(
-      this,
-      async (blob) => {
-        try {
-          if (blob && type === 'image/png' && !pngHeaders.length) {
-            const bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
-              const reader = new FileReader()
-              reader.onload = () => resolve(reader.result as ArrayBuffer)
-              reader.onerror = () => reject(Error('Public PNG metadata unavailable'))
-              reader.readAsArrayBuffer(blob.slice(0, 33))
-            })
-            const view = new DataView(bytes)
+  // Observe the existing completed read; do not delay/replace canvas callbacks.
+  const read = FileReader.prototype.readAsArrayBuffer
+  FileReader.prototype.readAsArrayBuffer = function (this: FileReader, blob: Blob) {
+    if (blob.type === 'image/png' && !pngHeaders.length)
+      this.addEventListener(
+        'load',
+        () => {
+          try {
+            if (!(this.result instanceof ArrayBuffer)) throw Error('Public PNG metadata unavailable')
+            const view = new DataView(this.result)
             pngHeaders.push({
               width: view.getUint32(16),
               height: view.getUint32(20),
@@ -28,16 +24,13 @@ window.__cocSmokeTask = (async () => {
               filter: view.getUint8(27),
               interlace: view.getUint8(28)
             })
+          } catch (error) {
+            pngHeaders.push({ error: String(error) })
           }
-        } catch (error) {
-          pngHeaders.push({ error: String(error) })
-        } finally {
-          callback(blob)
-        }
-      },
-      type,
-      quality
-    )
+        },
+        { once: true }
+      )
+    return read.call(this, blob)
   }
   window.__cocSmokeStage = 'public-io-setup'
   const state = await Native.getOverview()

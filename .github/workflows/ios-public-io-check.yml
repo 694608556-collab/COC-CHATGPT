@@ -2,7 +2,7 @@ name: iOS complete public I/O feedback
 on:
   push:
     branches: [codex/ios-ipa-adaptation]
-    paths: ['mobile/tests/public-io-webview.ts', 'mobile/tests/ios-public-io.ts', 'mobile/scripts/ios-public-io-check.py', '.github/workflows/ios-public-io-check.yml']
+    paths: ['mobile/tests/public-io-webview.ts', 'mobile/tests/ios-public-io.ts', 'mobile/scripts/ios-public-io-check.py', 'mobile/src/data/pdf*.ts', 'mobile/src/data/worker-channel.ts', 'mobile/src/data/background.ts', 'mobile/src/data/export-worker.ts', '.github/workflows/ios-public-io-check.yml']
   workflow_dispatch:
 permissions:
   contents: read

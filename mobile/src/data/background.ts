@@ -1,3 +1,4 @@
+import { runWorkerJob } from './worker-channel'
 import { performSnapshotJob } from './snapshot-job'
 import type { SnapshotJob } from './snapshot-job'
 import type { TablePreview } from './tables'
@@ -10,19 +11,6 @@ import type { ExportSourceJob, ExportSource, ExportArchiveReference } from './ex
 import { combinedExportName } from '../../../src/shared/export-filenames'
 import type { TablePhaseTiming } from './table-timing'
 
-/** 任务成功/失败回调，按 number 序号配对，不存放文件权限。 */
-interface PendingJob {
-  /** 任务所属只读工作通道；单个线程失败不拒绝另一个通道的正常任务。 */
-  channel: 'snapshot' | 'export'
-  /** 接收只读计算结果的回调。 */
-  resolve(value: unknown): void
-  /** 接收校验/工作线程错误的回调。 */
-  reject(reason: Error): void
-}
-let worker: Worker | undefined
-let exportWorker: Worker | undefined
-let sequence = 0
-const pending = new Map<number, PendingJob>()
 // 解析一次只向 Worker 投递一份响应，避免并发下载后在 Worker／桥接间堆积多份大对象。
 let seaQueue: Promise<void> = Promise.resolve()
 
@@ -57,43 +45,8 @@ async function runJob<T>(job: SnapshotJob | ExportJob | ExportSourceJob): Promis
           : await performSnapshotJob(job)
     ) as T
   }
-  if (typeof Worker === 'undefined') throw new Error('此 WebView 不支持后台校验，未写入数据。')
   const channel = job.type === 'export' || isExportSourceJob(job) ? 'export' : 'snapshot'
-  let target = channel === 'export' ? exportWorker : worker
-  if (!target) {
-    target = new Worker(channel === 'export' ? 'export-worker.js' : 'snapshot-worker.js')
-    if (channel === 'export') exportWorker = target
-    else worker = target
-    target.onmessage = (event: MessageEvent<{ id: number; result?: unknown; error?: string }>) => {
-      const request = pending.get(event.data.id)
-      if (!request) return
-      pending.delete(event.data.id)
-      if (event.data.error) request.reject(new Error(event.data.error))
-      else request.resolve(event.data.result)
-    }
-    const active = target
-    target.onerror = () => {
-      const error = new Error('后台校验启动或运行失败，未写入数据。')
-      for (const [id, request] of pending)
-        if (request.channel === channel) {
-          request.reject(error)
-          pending.delete(id)
-        }
-      active.terminate()
-      if (channel === 'export') exportWorker = undefined
-      else worker = undefined
-    }
-  }
-  const id = ++sequence
-  return new Promise<T>((resolve, reject) => {
-    pending.set(id, { channel, resolve: (result) => resolve(result as T), reject })
-    try {
-      target!.postMessage({ id, job })
-    } catch (reason) {
-      pending.delete(id)
-      reject(reason)
-    }
-  })
+  return runWorkerJob<T>(channel, job)
 }
 
 /** @param bytes - 完整备份字节。 @returns 保留全部既有校验的导入预览。 */

@@ -1,23 +1,29 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { inflateSync } from 'node:zlib'
 import { searchSample } from '../src/dev/sample'
 import { expandModules } from './helpers'
 
 /** @param page - 全新隔离上下文。 @returns 导入 151 页公开正文并打开 PDF 确认框；不访问用户数据。 */
-async function openLongPdf(page: Page, mode: 'single' | 'combined' | 'batch' = 'single') {
+async function openLongPdf(
+  page: Page,
+  mode: 'single' | 'combined' | 'batch' = 'single',
+  bodyLineCount = 6299
+) {
   const sample = searchSample()
   sample.modules = [{ ...sample.modules[0]!, name: '完整 PDF 公开回归', collapsed: false }]
   sample.characters = []
   sample.records = [
     {
       ...sample.records[0]!,
-      name: '151 页完整中文',
+      name: `${Math.ceil((bodyLineCount + 2) / 42)} 页完整中文`,
       sourceType: 'manual',
       rawContent: undefined,
       manualContent: [
         '首行：探索开始 FIRST',
-        ...Array.from({ length: 6299 }, (_, i) => `公开正文 ${i + 1}：调查员记录每一次探索。`),
+        ...Array.from({ length: bodyLineCount }, (_, i) => `公开正文 ${i + 1}：调查员记录每一次探索。`),
         '末行：探索结束 LAST'
       ].join('\n')
     }
@@ -54,7 +60,7 @@ async function openLongPdf(page: Page, mode: 'single' | 'combined' | 'batch' = '
   await page.getByRole('button', { name: '跑团记录', exact: true }).click()
   await expandModules(page)
   if (mode === 'single') {
-    await page.getByRole('button', { name: /完整 PDF 公开回归.*151 页完整中文/ }).click()
+    await page.getByRole('button', { name: /完整 PDF 公开回归.*\d+ 页完整中文/ }).click()
     await page.getByRole('button', { name: '更多导出格式' }).click()
   } else {
     await page.getByRole('button', { name: '全选此模组', exact: true }).click()
@@ -181,4 +187,73 @@ test('逐页导出中取消及时响应，不发布半成品、不生成副本�
   await page.getByRole('button', { name: '更多导出格式' }).click()
   await page.getByRole('button', { name: '保存导出文件' }).click()
   await expect(page.getByRole('status')).toContainText('1 个文件')
+})
+
+test('RGBA原生画布通过实际Worker生成完整PDF，每页RGB像素与原画布逐字节一致', async ({ page }, info) => {
+  test.setTimeout(60000)
+  await openLongPdf(page, 'single', 84)
+  await page.evaluate(() => {
+    const original = HTMLCanvasElement.prototype.toBlob
+    const hashes: string[] = [],
+      colors: number[] = []
+    Object.assign(window, { publicPdfPixelHashes: hashes, publicPdfColorTypes: colors })
+    HTMLCanvasElement.prototype.toBlob = function (callback, type, quality) {
+      if (type !== 'image/png' || this.width !== 1754) return original.call(this, callback, type, quality)
+      const copy = document.createElement('canvas')
+      copy.width = this.width
+      copy.height = this.height
+      const ctx = copy.getContext('2d', { alpha: true })!
+      ctx.drawImage(this, 0, 0)
+      const pixels = ctx.getImageData(0, 0, copy.width, copy.height).data
+      const rgb = new Uint8Array((copy.width * 3 + 1) * copy.height)
+      for (let y = 0; y < copy.height; y++)
+        for (let x = 0; x < copy.width; x++) {
+          const source = (y * copy.width + x) * 4,
+            destination = y * (copy.width * 3 + 1) + 1 + x * 3
+          if (pixels[source + 3] !== 255) throw Error('Public canvas must remain opaque')
+          rgb.set(pixels.subarray(source, source + 3), destination)
+        }
+      return original.call(
+        copy,
+        async (blob) => {
+          if (!blob) {
+            callback(null)
+            return
+          }
+          const header = new Uint8Array(await blob.slice(0, 33).arrayBuffer())
+          colors.push(header[25]!)
+          const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', rgb))
+          hashes.push(Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join(''))
+          callback(blob)
+        },
+        type,
+        quality
+      )
+    }
+  })
+  await page.getByRole('button', { name: '保存导出文件' }).click()
+  await expect(page.getByRole('status')).toContainText('1 个文件', { timeout: 30000 })
+  await page.getByRole('button', { name: '刷新测试文件列表' }).click()
+  await page.getByText('测试文件（1）', { exact: true }).click()
+  const downloaded = page.waitForEvent('download')
+  await page.getByRole('button', { name: /3 页完整中文\.pdf$/ }).click()
+  const file = await downloaded
+  await file.saveAs(info.outputPath('rgba-pixel-proof.pdf'))
+  const pdf = await readFile((await file.path())!)
+  expect(pdf.toString('latin1').match(/\/Type\s*\/Page\b/g)).toHaveLength(3)
+  const expected = await page.evaluate(() => ({
+    hashes: (window as any).publicPdfPixelHashes as string[],
+    colors: (window as any).publicPdfColorTypes as number[]
+  }))
+  expect(expected.colors).toEqual([6, 6, 6])
+  const pattern = /\/Subtype \/Image[\s\S]*?\/Length (\d+) >>\nstream\n/g
+  const hashes: string[] = []
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(pdf.toString('latin1')))) {
+    const start = match.index + match[0].length
+    const pixels = inflateSync(pdf.subarray(start, start + Number(match[1])))
+    hashes.push(createHash('sha256').update(pixels).digest('hex'))
+  }
+  expect(hashes).toEqual(expected.hashes)
+  expect(pdf.subarray(-32).toString()).toContain('%%EOF')
 })
