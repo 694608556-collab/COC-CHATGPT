@@ -1,5 +1,5 @@
 import { readBackupJsonStream } from './backup-stream'
-import { countMatches, recordMessages, searchExcerpt } from './search'
+import { compileBodyQuery, recordMessages } from './search'
 import type { FilterPreset } from '../../../src/shared/types'
 import type { NativeBackupFile } from './backup-stream-native'
 import type { StreamProof } from './backup-stream'
@@ -37,6 +37,7 @@ export async function searchBodyStream(
   const query = options.query.trim()
   if (!query || query.length > 4096 || wanted.size !== options.ids.length)
     throw new Error('正文搜索范围或查询无效。')
+  const matcher = compileBodyQuery(query)
   const preview = await readBackupJsonStream(source, {
     maximumBytes: options.expectedSource.bytes,
     expectedSource: options.expectedSource,
@@ -48,8 +49,8 @@ export async function searchBodyStream(
         excerpt = ''
       for (const message of recordMessages(record, options.preset)) {
         const text = message.header + '\n' + message.text,
-          count = countMatches(text, query)
-        if (count && !matches) excerpt = searchExcerpt(text, query)
+          count = matcher.count(text)
+        if (count && !matches) excerpt = matcher.excerpt(text)
         matches += count
       }
       if (matches) {

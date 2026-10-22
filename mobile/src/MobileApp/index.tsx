@@ -299,7 +299,8 @@ export function MobileApp({
       return
     searchAbort.current = controller
     setSearchingModule(moduleId)
-    const timer = setTimeout(() => {
+    // 已由用户主动提交；立即排入受取消与租约清理保护的队列，不再等待输入防抖。
+    {
       const task = searchQueue.current
         .catch(() => {})
         .then(async () => {
@@ -322,9 +323,8 @@ export function MobileApp({
         })
       searchQueue.current = task
       void task.catch(() => {})
-    }, 250)
+    }
     return () => {
-      clearTimeout(timer)
       controller.abort()
       if (searchAbort.current === controller) searchAbort.current = undefined
       setSearchingModule((current) => (current === moduleId ? '' : current))

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { FilterPreset, SessionRecord } from '../../../../../src/shared/types'
-import { hasMatch, matchRanges, recordMessages, searchExcerpt } from '../../../data/search'
+import { compileBodyQuery, matchRanges, recordMessages, searchExcerpt } from '../../../data/search'
 import { SystemMessage } from '../SystemMessage'
 import { SearchInput } from '../SearchInput'
 
@@ -49,16 +49,17 @@ export function LogReader(props: {
   const [jumpRequest, setJumpRequest] = useState<{ index: number; serial: number }>()
   const messageNodes = useRef(new Map<number, HTMLElement>())
   const needle = submittedQuery.trim()
+  const matcher = useMemo(() => compileBodyQuery(needle), [needle])
   const messages = useMemo(() => recordMessages(props.record, filters), [props.record, filters])
   const hits = useMemo(
     () =>
       needle
         ? messages.reduce<number[]>((found, message, index) => {
-            if (hasMatch(message.header, needle) || hasMatch(message.text, needle)) found.push(index)
+            if (matcher.count(message.header) > 0 || matcher.count(message.text) > 0) found.push(index)
             return found
           }, [])
         : [],
-    [messages, needle]
+    [messages, needle, matcher]
   )
   const pages = Math.max(1, Math.ceil(messages.length / 100))
   const currentPage = Math.min(page, pages - 1)

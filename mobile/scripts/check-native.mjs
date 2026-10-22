@@ -175,12 +175,13 @@ const backupCompiled = spawnSync(
     ...backupSources.map((name) => join(source, name + '.java')),
     resolve('tests/native/StorageBudgetCheck.java'),
     resolve('tests/native/SingleRecordCapacityCheck.java'),
+    resolve('tests/native/StrictJsonPerformanceCheck.java'),
     resolve('tests/native/BackupStreamCheck.java')
   ],
   { encoding: 'utf8' }
 )
 if (backupCompiled.status) throw new Error(backupCompiled.stderr)
-for (const name of ['StorageBudgetCheck', 'BackupStreamCheck']) {
+for (const name of ['StorageBudgetCheck', 'BackupStreamCheck', 'StrictJsonPerformanceCheck']) {
   const checked = spawnSync(
     java,
     [

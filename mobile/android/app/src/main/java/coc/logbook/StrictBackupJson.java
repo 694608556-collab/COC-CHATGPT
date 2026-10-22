@@ -8,6 +8,7 @@ import org.json.JSONArray;
  * Receives one native candidate line, never the complete library.
  */
 final class StrictBackupJson {
+    private static final java.util.regex.Pattern SCALAR=java.util.regex.Pattern.compile("(?:true|false|null|-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)");
     private final String text;
     private int offset;
     private StrictBackupJson(String text) { this.text=text; }
@@ -21,12 +22,13 @@ final class StrictBackupJson {
     private void expect(char c){space();if(peek()!=c)fail();offset++;}
     private String string(boolean key) throws Exception {
         int start=offset;expect('"');
-        boolean ended=false;
+        boolean ended=false,escaped=false;
         while(offset<text.length()){
             char c=text.charAt(offset++);
             if(c=='"'){ended=true;break;}
             if(c<32)fail();
             if(c=='\\'){
+                escaped=true;
                 if(offset>=text.length())fail();char escape=text.charAt(offset++);
                 if(escape=='u'){
                     for(int i=0;i<4;i++){if(offset>=text.length())fail();char hex=text.charAt(offset++);if(Character.digit(hex,16)<0||hex>127)fail();}
@@ -34,7 +36,9 @@ final class StrictBackupJson {
             }
         }
         if(!ended)fail();
-        return key?new JSONArray("["+text.substring(start,offset)+"]").getString(0):null;
+        // Plain decoded keys are already validated above. Only escaped aliases
+        // need a JSON decoder; avoid constructing a parser graph for every key.
+        return !key?null:escaped?new JSONArray("["+text.substring(start,offset)+"]").getString(0):text.substring(start+1,offset-1);
     }
     private void value(int depth) throws Exception {
         if(depth>256)fail();space();char c=peek();
@@ -48,6 +52,6 @@ final class StrictBackupJson {
         int start=offset;
         while(offset<text.length()&&",]} \t\r\n".indexOf(text.charAt(offset))<0)offset++;
         String token=text.substring(start,offset);
-        if(!token.matches("(?:true|false|null|-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)"))fail();
+        if(!SCALAR.matcher(token).matches())fail();
     }
 }
