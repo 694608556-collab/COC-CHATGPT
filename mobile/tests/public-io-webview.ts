@@ -19,6 +19,7 @@ const results: Array<{
 const published: SavedDocument[] = []
 let confirmations: ReturnType<typeof setInterval> | undefined
 let delayNextStageForCancellation = false
+let delayedCancellationStage: Promise<void> | undefined
 let calls: Array<{ method: string; milliseconds: number }> = []
 const cap = (
   window as unknown as {
@@ -45,7 +46,8 @@ cap.nativePromise = async (plugin, method, options) => {
     const result = await nativePromise(plugin, method, options)
     if (plugin === 'Logbook' && method === 'appendTableStage' && delayNextStageForCancellation) {
       delayNextStageForCancellation = false
-      await new Promise((resolve) => setTimeout(resolve, 1500))
+      delayedCancellationStage = new Promise((resolve) => setTimeout(resolve, 1500))
+      await delayedCancellationStage
     }
     if (
       plugin === 'Logbook' &&
@@ -356,7 +358,9 @@ void (async () => {
       await timed('character-import-back-cancel-with-delayed-stage', async () => {
         await click('导入七版角色卡')
         await waitFor(
-          () => document.querySelector('[role="progressbar"][aria-label="导入处理进度"]'),
+          () =>
+            !delayNextStageForCancellation &&
+            document.querySelector('[role="progressbar"][aria-label="导入处理进度"]'),
           'real card progress before back'
         )
         document.querySelector<HTMLButtonElement>('.app-back')!.click()
@@ -369,6 +373,8 @@ void (async () => {
           'Back-cancelled card must not write'
         )
       })
+      await delayedCancellationStage
+      delayNextStageForCancellation = false
     }
     for (const extension of window.__publicIoConfig.mode === 'matrix' ? [] : ['xlsx', 'xls'])
       for (let repeat = 0; repeat < 3; repeat++) {
