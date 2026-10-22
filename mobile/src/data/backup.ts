@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { unzipSync, zipSync } from 'fflate'
 import { DEFAULT_FILTER_PRESET } from '../../../src/shared/types'
 import type { ImportPreview, MobileSnapshot } from './types'
+import type { SessionRecord } from '../../../src/shared/types'
 
 const string = z.string()
 const number = z.number().finite()
@@ -59,6 +60,51 @@ const recordSchema = z.object({
   createdAt: string,
   updatedAt: string
 })
+
+/** Same normalized record schema as legacy preview, without retaining other bodies. */
+export function validateBackupRecord(value: unknown): SessionRecord {
+  const record = recordSchema.parse(value)
+  if (
+    record.sourceType === 'online' &&
+    record.rawContent &&
+    ((record.cacheSourceUrl && record.cacheSourceUrl !== record.link) ||
+      (record.rawContent.sourceUrl && record.rawContent.sourceUrl !== record.link))
+  )
+    throw new Error('正文来源与场次链接不匹配。')
+  return record
+}
+
+/** ZIP references have the same shapes and selection rules as legacy preview. */
+export function backupArchiveReferences(outer: unknown, root: unknown) {
+  const integrity = z
+    .object({
+      manifest: z.array(z.object({ zipPath: string, size: number, hash: string })).default([]),
+      noteImages: z.array(z.object({ zipPath: string, size: number, hash: string })).default([])
+    })
+    .parse(outer)
+  const selected = z
+    .object({
+      archiveEntries: z.array(z.object({ path: string, ownerType: string })).default([]),
+      manifest: z
+        .array(z.object({ archivePath: string, zipPath: string, size: number, hash: string }))
+        .default([])
+    })
+    .parse(root)
+  const seen = new Set<string>()
+  const ownedPaths = new Set(
+    selected.archiveEntries
+      .filter((entry) => ['record', 'module'].includes(entry.ownerType))
+      .map((entry) => entry.path)
+  )
+  return {
+    integrity: [...integrity.manifest, ...integrity.noteImages],
+    attachments: selected.manifest.filter((item) => {
+      if (seen.has(item.zipPath) || !ownedPaths.has(item.archivePath)) return false
+      seen.add(item.zipPath)
+      return true
+    })
+  }
+}
 const characterSchema = z.object({
   id: string.min(1),
   moduleId: optionalString,

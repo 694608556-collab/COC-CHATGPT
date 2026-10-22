@@ -41,6 +41,8 @@ jobs:
           test -x "$ANDROID_HOME/build-tools/36.0.0/zipalign"
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck && pnpm test && pnpm build
+      - name: Check bounded-memory complete JSON and ZIP backups above 64MiB
+        run: node scripts/check-backup-stream.mjs
       - run: pnpm exec cap sync android
       - run: chmod +x android/gradlew && cd android && ./gradlew :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest --no-daemon --console=plain
       - name: Prepare unsigned release for local signing
