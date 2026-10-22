@@ -4,6 +4,7 @@ import { StreamJson, utf8Size, checkStreamBudget, checkStreamCancelled } from '.
 import { StreamSha256 } from './stream-sha256'
 import type { MobileSnapshot } from './types'
 import type { SessionRecord } from '../../../src/shared/types'
+import { recordJsonWithBodyTokens } from './backup-body-tokens'
 
 const encoder = new TextEncoder()
 const encodeUtf8 = (text: string) => encoder.encode(text)
@@ -37,7 +38,8 @@ export interface StreamReadOptions {
   maximumBytes: number
   signal?: AbortSignal
   /** Consumer may only stage privately. Any subsequent parse/graph/hash failure invalidates ALL staged records. */
-  stageRecord(record: SessionRecord, index: number): Promise<void>
+  stageRecord(record: SessionRecord, index: number, json?: string): Promise<void>
+  preserveBodyTokens?: boolean
   expectedSource?: StreamProof
   /** Only ZIP input interprets archive manifests; plain legacy JSON ignores them. */
   archiveReferences?: boolean
@@ -84,14 +86,18 @@ export async function readBackupJsonStream(
       else flatRecords = true
       await reader.array(async () => {
         checkStreamCancelled(options.signal)
-        const record = validateBackupRecord(await reader.readValue())
+        const original = await reader.readRawValue()
+        const record = validateBackupRecord(original.value)
+        const preserved = options.preserveBodyTokens
+          ? recordJsonWithBodyTokens(record, original.value, original.json)
+          : undefined
         // Count normalized complete raw/manual together, not each field separately.
-        if (utf8Size(JSON.stringify(record)) > capacity.snapshotRequestBytes)
+        if (utf8Size(preserved ?? JSON.stringify(record)) > capacity.snapshotRequestBytes)
           throw new Error('单场完整数据超过64MiB。')
         const metadata = recordMetadata(record)
         metadataBytes += utf8Size(JSON.stringify(metadata)) + 1
         if (metadataBytes > capacity.snapshotRequestBytes) throw new Error('备份元数据超过处理上限。')
-        await options.stageRecord(record, records.length)
+        await options.stageRecord(record, records.length, preserved)
         records.push(metadata)
         if (record.rawContent || (record.sourceType === 'manual' && record.manualContent)) offlineRecords++
       })

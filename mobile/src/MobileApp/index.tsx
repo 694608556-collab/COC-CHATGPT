@@ -7,6 +7,8 @@ import type { FilterPreset, SessionRecord } from '../../../src/shared/types'
 import { Native, decodeBase64, encodeBase64 } from '../data/native'
 import type { LogbookPort, NativeState } from '../data/native'
 import { restoreBackup } from '../data/restore'
+import { previewNativeBackup, exportNativeBackup } from '../data/backup-stream-client'
+import type { LeasedBackupPreview } from '../data/backup-stream-native'
 import type { ImportPreview, MobileSnapshot } from '../data/types'
 import type { TableConfirmTiming } from '../data/table-timing'
 import { Records } from './components/Records'
@@ -155,7 +157,7 @@ export function MobileApp({
   }
   const [readerQuery, setReaderQuery] = useState('')
   const [moduleQueries, setModuleQueries] = useState<Record<string, string>>({})
-  const [preview, setPreview] = useState<ImportPreview>()
+  const [preview, setPreview] = useState<ImportPreview | LeasedBackupPreview>()
   const [busy, setBusy] = useState(false)
   const [confirmation, setConfirmation] = useState('')
   const confirmationResolver = useRef<((confirmed: boolean) => void) | undefined>(undefined)
@@ -740,7 +742,7 @@ export function MobileApp({
       setNotice('操作进行中，请稍候。')
       return
     }
-    if (preview) setPreview(undefined)
+    if (preview) void perform(discardBackupPreview)
     else if (batchCheck) setBatchCheck(false)
     else if (exportRequest) setExportRequest(undefined)
     else if (tablePreview) setTablePreview(undefined)
@@ -952,9 +954,28 @@ export function MobileApp({
     setNotice('归档位置已确认，并通过读写校验。')
   }
   /** @returns 仅生成预览，不在文件选择后自动恢复。 */
+  async function discardBackupPreview() {
+    if (preview && 'lease' in preview) {
+      if (!port.cancelBackupStage) throw new Error('本机缺少私有暂存清理能力，请重开应用。')
+      await port.cancelBackupStage({ id: preview.lease })
+    }
+    setPreview(undefined)
+    setNotice('已取消导入，当前数据未改变。')
+  }
   async function chooseBackup() {
+    if (preview) await discardBackupPreview()
     setNotice('请选择备份文件；读取后将进行后台校验…')
-    const choice = await port.openBackup()
+    const streaming = native?.backupStreamVersion === 1
+    const choice = await port.openBackup(
+      streaming ? { stream: true, expectedRevision: native!.revision } : undefined
+    )
+    if (!choice.cancelled && streaming) {
+      if (!choice.source) throw new Error('本机未提供完整备份流，未尝试整库载入。')
+      setNotice('正在逐场校验并私有暂存完整备份，尚未覆盖数据…')
+      setPreview(await previewNativeBackup(port, choice.source))
+      setNotice('备份校验完成；请核对并确认，尚未覆盖当前数据。')
+      return
+    }
     if (choice.cancelled || !choice.base64) {
       setNotice('已取消选择备份，当前数据未改变。')
       return
@@ -973,18 +994,23 @@ export function MobileApp({
     setNotice('正在准备安全导入，尚未覆盖数据…')
     // 先让确认弹窗的阶段与禁用状态实际绘制，再处理大对象或调用原生桥。
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-    await restoreBackup(port, preview, {
-      confirmed: true,
-      restoreSettings,
-      revision: native.revision,
-      current: snapshot,
-      serialize: async (value) => {
-        setNotice('正在后台编码完整导入数据…')
-        const json = await serializeInBackground(value)
-        setNotice('正在导入数据，请保持应用打开…')
-        return json
-      }
-    })
+    if ('lease' in preview) {
+      if (!port.commitBackupRestore) throw new Error('本机缺少完整流式恢复能力，未写入数据。')
+      setNotice('正在核对空间、完整候选和版本，并一次导入全部数据…')
+      await port.commitBackupRestore({ id: preview.lease, confirmed: true, restoreSettings })
+    } else
+      await restoreBackup(port, preview, {
+        confirmed: true,
+        restoreSettings,
+        revision: native.revision,
+        current: snapshot,
+        serialize: async (value) => {
+          setNotice('正在后台编码完整导入数据…')
+          const json = await serializeInBackground(value)
+          setNotice('正在导入数据，请保持应用打开…')
+          return json
+        }
+      })
     setPage('records')
     setPreview(undefined)
     setRecord(undefined)
@@ -993,6 +1019,14 @@ export function MobileApp({
   }
   /** @returns 保存含已获取正文的安卓备份；不冒充已兼容旧电脑版的整库格式。 */
   async function exportBackup(includeArchives = false) {
+    if (native?.backupStreamVersion === 1) {
+      setNotice('正在逐场生成完整备份，并核对保存空间…')
+      const name = 'coc-android-backup-' + Date.now() + (includeArchives ? '.zip' : '.json')
+      const file = await exportNativeBackup(port, native.revision, includeArchives, name)
+      setSavedDocument(file)
+      setNotice(`备份已保存并回读校验：${file.name}${file.warning ? '；' + file.warning : ''}`)
+      return
+    }
     let exported: SavedDocument[] | undefined
     if (includeArchives) {
       const known = (await port.listDocuments({ all: true, metadataOnly: true })).documents
@@ -1444,10 +1478,7 @@ export function MobileApp({
           stage={notice}
           error={error}
           currentRecords={snapshot.records.length}
-          onCancel={() => {
-            setPreview(undefined)
-            setNotice('已取消导入，当前数据未改变。')
-          }}
+          onCancel={() => void perform(discardBackupPreview)}
           onConfirm={(restoreSettings) => void perform(() => confirmRestore(restoreSettings))}
         />
       )}

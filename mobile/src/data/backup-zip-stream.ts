@@ -11,6 +11,7 @@ import type {
   StreamBackupHeader
 } from './backup-stream'
 import type { SessionRecord } from '../../../src/shared/types'
+import type { StreamArchiveReference } from './backup-stream'
 import { StreamCrc32, ZipTail } from './stream-zip-proof'
 
 /** One producer and one consumer; producer must await drained after each push. */
@@ -248,6 +249,67 @@ export async function writeBackupZipStream(
   sink: (chunk: Uint8Array) => Promise<void>,
   options: StreamWriteOptions
 ): Promise<StreamProof> {
+  return writeZipContainer(attachments, sink, options, (manifest, emit) =>
+    writeBackupJsonStream(metadata, records, emit, { ...options, archives: manifest })
+  )
+}
+
+/** Native-generated canonical envelope v1 only: both adapters end their
+ * independently validated immutable JSON with exactly two closing braces.
+ * Copy all original business bytes verbatim and add manifests at those two
+ * boundaries; never parse/stringify message.raw numeric tokens for export.
+ */
+export async function writeCanonicalBackupZipStream(
+  source: AsyncIterable<Uint8Array>,
+  expected: StreamProof,
+  attachments: readonly BackupStreamAttachment[],
+  sink: (chunk: Uint8Array) => Promise<void>,
+  options: StreamWriteOptions
+): Promise<StreamProof> {
+  return writeZipContainer(attachments, sink, options, async (manifest, emit) => {
+    const digest = new StreamSha256()
+    let tail = new Uint8Array()
+    for await (const bytes of source) {
+      checkStreamCancelled(options.signal)
+      if (bytes.length > capacity.transferChunkBytes || digest.bytes + bytes.length > expected.bytes)
+        throw new Error('本机完整备份长度或分段已变化。')
+      digest.update(bytes)
+      const joined = new Uint8Array(tail.length + bytes.length)
+      joined.set(tail)
+      joined.set(bytes, tail.length)
+      if (joined.length > 2) {
+        const end = joined.length - 2
+        for (let offset = 0; offset < end; offset += capacity.transferChunkBytes)
+          await emit(joined.subarray(offset, Math.min(end, offset + capacity.transferChunkBytes)))
+        tail = joined.slice(end)
+      } else tail = joined
+    }
+    checkProof({ bytes: digest.bytes, sha256: digest.digest() }, expected)
+    if (tail.length !== 2 || tail[0] !== 125 || tail[1] !== 125)
+      throw new Error('本机完整备份结束标记无效，不能生成ZIP。')
+    const text =
+      ',"manifest":' +
+      JSON.stringify(manifest) +
+      ',"archiveEntries":' +
+      JSON.stringify(manifest.map((item) => ({ path: item.archivePath, ownerType: 'record' }))) +
+      '},"manifest":' +
+      JSON.stringify(manifest) +
+      '}'
+    const bytes = new TextEncoder().encode(text)
+    for (let offset = 0; offset < bytes.length; offset += capacity.transferChunkBytes)
+      await emit(bytes.subarray(offset, offset + capacity.transferChunkBytes))
+  })
+}
+
+async function writeZipContainer(
+  attachments: readonly BackupStreamAttachment[],
+  sink: (chunk: Uint8Array) => Promise<void>,
+  options: StreamWriteOptions,
+  produceJson: (
+    manifest: StreamArchiveReference[],
+    emit: (chunk: Uint8Array) => Promise<void>
+  ) => Promise<unknown>
+): Promise<StreamProof> {
   checkStreamBudget(options.maximumBytes)
   if (attachments.length > capacity.archiveAttachments) throw new Error('归档附件数量超过处理上限。')
   let total = 0
@@ -291,15 +353,10 @@ export async function writeBackupZipStream(
   try {
     const json = new ZipPassThrough('backup.json')
     zip.add(json)
-    await writeBackupJsonStream(
-      metadata,
-      records,
-      async (bytes) => {
-        json.push(bytes, false)
-        await drain()
-      },
-      { ...options, archives: manifest }
-    )
+    await produceJson(manifest, async (bytes) => {
+      json.push(bytes, false)
+      await drain()
+    })
     json.push(new Uint8Array(), true)
     await drain()
     for (let index = 0; index < attachments.length; index++) {

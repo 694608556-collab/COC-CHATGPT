@@ -167,9 +167,13 @@ export class StreamJson {
     out.add(text)
   }
   async readValue(): Promise<unknown> {
+    return (await this.readRawValue()).value
+  }
+  async readRawValue(): Promise<{ value: unknown; json: string }> {
     const out = new TextValue(this.valueBytes)
     await this.value(out, 0)
-    return JSON.parse(out.text())
+    const json = out.text()
+    return { value: JSON.parse(json), json }
   }
   async finish() {
     await this.whitespace()

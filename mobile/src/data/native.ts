@@ -1,6 +1,7 @@
 import { registerPlugin } from '@capacitor/core'
 import type { DataAction } from './actions'
 import type { MobileSnapshot } from './types'
+import type { BackupStreamPort } from './backup-stream-native'
 export { decodeBase64, encodeBase64 } from './bytes'
 
 /** 原生归档目录状态。 */
@@ -14,6 +15,7 @@ export interface ArchiveLocation {
 }
 /** 原生数据库与授权读取结果。 */
 export interface NativeState {
+  backupStreamVersion?: 1
   tableDeltaVersion?: 1
   lastAutoBackupAt?: number
   lastAutoBackupRevision?: number
@@ -39,7 +41,7 @@ export interface SavedDocument {
   sha256: string
 }
 /** 所有请求/响应与本工程 LogbookPlugin.java 一一对应，不访问推测的 HTTP 接口。 */
-export interface LogbookPort {
+export interface LogbookPort extends BackupStreamPort {
   beginFetchBatch?(options: { ids: string[]; expectedRevision: number }): Promise<{ id: string }>
   stageFetchResult?(options: { batchId: string; id: string }): Promise<void>
   finishFetchBatch?(options: { id: string }): Promise<{ revision: number; exportedAt: string }>
@@ -175,7 +177,14 @@ export interface LogbookPort {
   /** @returns 用户明确选择的备份字节；取消不返回内容。 */
   openBackup(options?: {
     kind?: 'backup' | 'record-table' | 'character-table'
-  }): Promise<{ cancelled: boolean; base64?: string; name?: string }>
+    stream?: boolean
+    expectedRevision?: number
+  }): Promise<{
+    cancelled: boolean
+    base64?: string
+    name?: string
+    source?: import('./backup-stream-native').NativeRestoreSource
+  }>
   /**
    * 显式确认后在 SQLite 事务内覆盖；校验或提交失败不变更当前业务数据。
    * @param options - 已校验 JSON、预览时序号和用户明确确认标记。
