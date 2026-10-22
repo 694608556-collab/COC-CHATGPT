@@ -10,10 +10,27 @@ import Foundation
         throw LogbookFailure("Expected rejection: " + message)
     }
     static func main() throws {
+        let MiB = 1024 * 1024
+        try require(try LogbookCapacity.remaining(64 * MiB) == 0, "minimum free-space reserve")
+        try require(try LogbookCapacity.remaining(128 * MiB) == 64 * MiB, "available bytes after reserve")
+        try require(try LogbookCapacity.remaining(20 * 1024 * MiB) == 19 * 1024 * MiB, "proportional reserve")
+        try require(try LogbookCapacity.maximum(available: { 1024 * MiB }, copies: 6) == (1024 * MiB - 64 * MiB) / 6, "native operation budget")
+        try LogbookCapacity.require(available: {128 * MiB}, additional: 64 * MiB)
+        try rejects("space boundary plus one") { try LogbookCapacity.require(available: {128 * MiB}, additional: 64 * MiB + 1) }
+        try rejects("unavailable capacity") { _ = try LogbookCapacity.maximum(available: {0}, copies: 1) }
+        try rejects("capacity query failure") { _ = try LogbookCapacity.maximum(available: {throw LogbookFailure("unavailable")}, copies: 1) }
+        try rejects("invalid copies") { _ = try LogbookCapacity.maximum(available: {1024 * MiB}, copies: 0) }
+        try rejects("negative estimate") { _ = try LogbookCapacity.estimate(-1, copies: 6) }
+        try rejects("overflow estimate") { _ = try LogbookCapacity.estimate(Int.max, copies: 6) }
+        try require(try LogbookCapacity.estimate(512 * MiB, copies: 6) == 3076 * MiB, "temporary/WAL growth estimate")
+        var available = 1024 * MiB
+        try LogbookCapacity.require(available: { available }, additional: 128 * MiB); available = 100 * MiB
+        try rejects("space falls after preflight") { try LogbookCapacity.require(available: { available }, additional: 128 * MiB) }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("coc-ios-tests-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try logbookObject(String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8))
+        try backupStreamChecks(root: root, fixture: fixture)
         let store = try LogbookStore(url: root.appendingPathComponent("db/state.sqlite"))
         try require(try store.metadata() == nil, "fresh database")
         try require(try store.replace(fixture, expected: 0) == 1, "initial restore")

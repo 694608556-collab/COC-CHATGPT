@@ -40,6 +40,41 @@ enum LogbookLimits {
     static let transferChunkBytes = 256 * 1024
     static let encodedChunkBytes = 349528
 }
+/// Native-owned available-volume policy. Callers retain actual I/O/transaction
+/// rollback and recheck after staging; this query is not a disk reservation.
+enum LogbookCapacity {
+    static let minimumReserve = 64 * 1024 * 1024
+    static func remaining(_ available: Int) throws -> Int {
+        guard available > 0 else { throw LogbookFailure("无法确认本机可用空间；未写入数据。") }
+        return max(0, available - max(minimumReserve, available / 20))
+    }
+    static func available(_ directory: URL) throws -> Int {
+        let values = try directory.resourceValues(forKeys: [.isDirectoryKey, .volumeAvailableCapacityKey, .volumeAvailableCapacityForImportantUsageKey])
+        guard values.isDirectory == true, let free = values.volumeAvailableCapacity, free > 0,
+              let important = values.volumeAvailableCapacityForImportantUsage, important > 0 else {
+            throw LogbookFailure("无法确认保存卷可用空间；未写入数据。")
+        }
+        return min(free, Int(clamping: important))
+    }
+    static func maximum(available: () throws -> Int, copies: Int) throws -> Int {
+        guard copies > 0 else { throw LogbookFailure("空间估算参数无效。") }
+        let maximum = min(9007199254740991, try remaining(available()) / copies)
+        guard maximum > 0 else { throw LogbookFailure("本机可用空间不足，请释放空间后重试；原数据保留。") }
+        return maximum
+    }
+    static func require(available: () throws -> Int, additional: Int) throws {
+        guard additional >= 0, additional <= (try remaining(available())) else {
+            throw LogbookFailure("本机可用空间不足，操作未完成；原数据保留。")
+        }
+    }
+    static func estimate(_ bytes: Int, copies: Int) throws -> Int {
+        guard bytes >= 0, copies > 0 else { throw LogbookFailure("空间估算参数无效。") }
+        let multiplied = bytes.multipliedReportingOverflow(by: copies)
+        let result = multiplied.partialValue.addingReportingOverflow(4 * 1024 * 1024)
+        guard !multiplied.overflow, !result.overflow else { throw LogbookFailure("空间需求超出系统计量范围。") }
+        return result.partialValue
+    }
+}
 func logbookData(_ object: Any) throws -> Data {
     guard JSONSerialization.isValidJSONObject(object) else { throw LogbookFailure("数据格式不合法。") }
     return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
