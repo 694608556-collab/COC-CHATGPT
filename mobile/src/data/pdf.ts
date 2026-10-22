@@ -1,6 +1,6 @@
 import { capacity } from './capacity'
 import { waitForAppFonts } from './fonts'
-import { pdfImageFromPng } from './pdf-png'
+import { pdfPngInBackground } from './pdf-png-client'
 import type { PdfPngImage } from './pdf-png'
 
 /** 完整 PDF 的可观察生成状态；页数不是人为上限。 */
@@ -167,7 +167,7 @@ export async function textPdf(text: string, options: PdfOptions = {}): Promise<U
     target.height = 1240
     const opaque = target.getContext('2d', { alpha: false })
     if (!opaque) throw new Error('此设备无法生成 PDF。')
-    // 只转置像素、不旋转文字布局；PDF 矩阵还原方向，移除恒为不透明的 alpha 通道。
+    // 只转置像素、不旋转文字布局；PDF矩阵还原方向。编码器仍保留alpha时由Worker验证并无损移除。
     opaque.setTransform(0, 1, 1, 0, 0, 0)
     /** @param page - 从零开始的页号。 @returns 本页无损图像；至多一个尚未完成的编码任务。 */
     async function renderPage(page: number): Promise<PdfPngImage> {
@@ -182,7 +182,7 @@ export async function textPdf(text: string, options: PdfOptions = {}): Promise<U
       opaque!.drawImage(canvas, 0, 0)
       const png = await nativePng(target)
       checkPdfCancellation(options.signal)
-      return pdfImageFromPng(png)
+      return pdfPngInBackground(png)
     }
     await write(encoder.encode('%PDF-1.4\n%âãÏÓ\n'))
     nextPage = renderPage(0)
