@@ -1,3 +1,4 @@
+import { capacity } from './capacity'
 import { waitForAppFonts } from './fonts'
 import { pdfImageFromPng } from './pdf-png'
 import type { PdfPngImage } from './pdf-png'
@@ -24,7 +25,7 @@ export interface PdfOptions {
   /** 可选顺序字节接收器；每段不超过 256 KiB，resolve 后才发送下一段。 */
   write?: (bytes: Uint8Array) => Promise<void>
 }
-const MAX_BYTES = 64 * 1024 * 1024
+const MAX_BYTES = capacity.archiveFileBytes
 const encoder = new TextEncoder()
 
 /** @param signal - 用户取消信号。 @returns 无返回值；已取消时抛标准 AbortError。 */
@@ -148,9 +149,9 @@ export async function textPdf(text: string, options: PdfOptions = {}): Promise<U
         retained.push(bytes)
         return
       }
-      for (let i = 0; i < bytes.length; i += 256 * 1024) {
+      for (let i = 0; i < bytes.length; i += capacity.transferChunkBytes) {
         checkPdfCancellation(options.signal)
-        await options.write(bytes.subarray(i, i + 256 * 1024))
+        await options.write(bytes.subarray(i, i + capacity.transferChunkBytes))
       }
     }
     /** @param parts - 一页内的少量字符串和压缩像素。 @returns 单页顺序字节；不保留其他页图像。 */

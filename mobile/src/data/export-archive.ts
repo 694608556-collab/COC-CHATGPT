@@ -1,3 +1,4 @@
+import { capacity } from './capacity'
 import { Capacitor } from '@capacitor/core'
 import { encodeFileBase64 } from './bytes'
 import type { LogbookPort, SavedDocument } from './native'
@@ -14,7 +15,7 @@ export async function saveGeneratedExport(
   file: { name: string; mime: string; bytes: Uint8Array },
   purpose: 'export' | 'backup' = 'export'
 ): Promise<SavedDocument> {
-  if (file.bytes.length > 64 * 1024 * 1024) throw new Error('文件超过 64 MB，未保存。')
+  if (file.bytes.length > capacity.archiveFileBytes) throw new Error('文件超过 64 MB，未保存。')
   // iOS retains its verified native writer until its separate spool implementation is available.
   if (file.bytes.length <= 1024 * 1024 || Capacitor.getPlatform() === 'ios')
     return port.writeArchive({
@@ -26,10 +27,10 @@ export async function saveGeneratedExport(
   // 与 PDF 共用一个有界私有暂存；文字文件由不同的完成接口按原 MIME 发布。
   const { id } = await port.beginPdfArchive()
   try {
-    for (let offset = 0; offset < file.bytes.length; offset += 256 * 1024)
+    for (let offset = 0; offset < file.bytes.length; offset += capacity.transferChunkBytes)
       await port.appendPdfArchive({
         id,
-        base64: await encodeFileBase64(file.bytes.subarray(offset, offset + 256 * 1024))
+        base64: await encodeFileBase64(file.bytes.subarray(offset, offset + capacity.transferChunkBytes))
       })
     return await port.finishExportArchive({ id, name: file.name, mime: file.mime, purpose })
   } finally {

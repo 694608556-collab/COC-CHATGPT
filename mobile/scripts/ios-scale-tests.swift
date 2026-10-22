@@ -81,7 +81,7 @@ enum IOSScaleChecks {
         try IOSNativeChecks.require(try store.revision() == 6, "capacity failure does not commit")
         let source = try store.backupFile(expected: 6, directory: root)
         let proof = try LogbookArchive.fileProof(source)
-        try IOSNativeChecks.require(proof.0 > 48_000_000 && proof.0 < logbookMaximumBytes, "stream backup captures existing large bodies")
+        try IOSNativeChecks.require(proof.0 > 48_000_000 && proof.0 < LogbookLimits.backupFileBytes, "stream backup captures existing large bodies")
         let restored = try logbookObject(String(contentsOf: source, encoding: .utf8))["snapshot"] as! LogbookJSON
         try IOSNativeChecks.require((restored["records"] as! [LogbookJSON]).count == 1050, "streamed backup roundtrip complete")
         let reopened = try LogbookStore(url: root.appendingPathComponent("scale.sqlite"))

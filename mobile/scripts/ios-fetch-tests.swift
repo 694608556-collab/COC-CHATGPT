@@ -28,7 +28,7 @@ final class PublicFetchProtocol: URLProtocol {
                 }
             }
             let body = key.contains("invalid-utf8") ? Data([0xff]) : Data(key.utf8)
-            let length = key.contains("oversized-header") ? logbookMaximumBytes + 1 : body.count
+            let length = key.contains("oversized-header") ? LogbookLimits.recordResponseBytes + 1 : body.count
             let status = key.contains("missing") ? 404 : 200
             let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Length": String(length)])!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)

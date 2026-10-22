@@ -122,11 +122,11 @@ final class LogbookArchive {
     static func validateName(_ name: String) throws {
         guard !name.isEmpty, name.utf16.count <= 255, name != ".", name != "..", !name.contains("/"), !name.contains("\\"), !name.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }) else { throw LogbookFailure("文件名不合法。") }
     }
-    private func readBounded(_ url: URL) throws -> Data {
+    private func readBounded(_ url: URL, maximumBytes: Int = LogbookLimits.archiveFileBytes) throws -> Data {
         let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }
         var result = Data()
         while let chunk = try handle.read(upToCount: 65536), !chunk.isEmpty {
-            guard result.count + chunk.count <= logbookMaximumBytes else { throw LogbookFailure("文件超过 64 MB。") }
+            guard result.count + chunk.count <= maximumBytes else { throw LogbookFailure("文件超过 64 MB。") }
             result.append(chunk)
         }
         return result
@@ -134,7 +134,7 @@ final class LogbookArchive {
     func readPicked(_ url: URL) throws -> Data {
         let scoped = url.startAccessingSecurityScopedResource(); defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         var failure: NSError?, outcome: Result<Data, Error>?
-        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &failure) { coordinated in outcome = Result { try self.readBounded(coordinated) } }
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &failure) { coordinated in outcome = Result { try self.readBounded(coordinated, maximumBytes: LogbookLimits.pickedFileBytes) } }
         if let failure { throw failure }
         guard let outcome else { throw LogbookFailure("系统文件读取未完成。") }
         return try outcome.get()
@@ -155,7 +155,7 @@ final class LogbookArchive {
         throw LogbookFailure("同名文件过多，请更换文件名。")
     }
     func write(name: String, mime: String, bytes: Data, purpose: String, bookmark: Data? = nil) throws -> LogbookJSON {
-        guard bytes.count <= logbookMaximumBytes else { throw LogbookFailure("文件超过 64 MB。") }
+        guard bytes.count <= LogbookLimits.archiveFileBytes else { throw LogbookFailure("文件超过 64 MB。") }
         return try publish(name: name, mime: mime, purpose: purpose, bookmark: bookmark,
                            proof: (bytes.count, Self.digest(bytes))) { output in try output.write(contentsOf: bytes) }
     }
@@ -164,7 +164,7 @@ final class LogbookArchive {
         var total = 0, hash = SHA256()
         while let chunk = try input.read(upToCount: 65536), !chunk.isEmpty {
             total += chunk.count
-            guard total <= logbookMaximumBytes else { throw LogbookFailure("文件超过 64 MB。") }
+            guard total <= LogbookLimits.archiveFileBytes else { throw LogbookFailure("文件超过 64 MB。") }
             hash.update(data: chunk)
         }
         return (total, hash.finalize().map { String(format: "%02x", $0) }.joined())

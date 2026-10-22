@@ -23,7 +23,23 @@ struct LogbookFailure: LocalizedError {
     init(_ message: String) { self.message = message }
     var errorDescription: String? { message }
 }
-let logbookMaximumBytes = 64 * 1024 * 1024
+/// Independent native budgets. Keep current values/accounting until streaming
+/// backup and restore plus device scale/rollback validation are complete.
+enum LogbookLimits {
+    static let libraryBytes = 64 * 1024 * 1024
+    static let snapshotRequestBytes = 64 * 1024 * 1024
+    static let snapshotUploadBytes = 64 * 1024 * 1024
+    static let entityRequestBytes = 64 * 1024 * 1024
+    static let tableRequestBytes = 64 * 1024 * 1024
+    static let backupFileBytes = 64 * 1024 * 1024
+    static let batchStagingBytes = 64 * 1024 * 1024
+    static let recordResponseBytes = 64 * 1024 * 1024
+    static let pickedFileBytes = 64 * 1024 * 1024
+    static let archiveFileBytes = 64 * 1024 * 1024
+    static let attachmentTotalBytes = 128 * 1024 * 1024
+    static let transferChunkBytes = 256 * 1024
+    static let encodedChunkBytes = 349528
+}
 func logbookData(_ object: Any) throws -> Data {
     guard JSONSerialization.isValidJSONObject(object) else { throw LogbookFailure("数据格式不合法。") }
     return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
@@ -116,7 +132,7 @@ final class LogbookStore {
             var total = 0
             func write(_ text: String) throws {
                 let bytes = Data(text.utf8); total += bytes.count
-                guard total <= logbookMaximumBytes else { throw LogbookFailure("备份超过 64 MB 上限。") }
+                guard total <= LogbookLimits.backupFileBytes else { throw LogbookFailure("备份超过 64 MB 上限。") }
                 try output.write(contentsOf: bytes)
             }
             try write("{\"format\":\"coc.logbook.android\",\"formatVersion\":1,\"exportedAt\":" + String(try logbookText([logbookNow()]).dropFirst().dropLast()) + ",\"restoreScope\":[\"modules\",\"records\",\"characters\"],\"snapshot\":")
@@ -169,16 +185,16 @@ final class LogbookStore {
         timing?.mark("transactionBegin")
         do {
             try check(expected); timing?.mark("transactionCAS"); try action()
-            let size = Int(try rows("SELECT COALESCE(SUM(length(CAST(metadata AS BLOB))+length(CAST(body AS BLOB))),0) FROM records")[0][0]) ?? logbookMaximumBytes + 1
-            let rootSize = Int(try rows("SELECT COALESCE(length(CAST(json AS BLOB)),0) FROM state WHERE id=1")[0][0]) ?? logbookMaximumBytes + 1
-            guard size + rootSize <= logbookMaximumBytes else { throw LogbookFailure("数据超过 64 MB 上限。") }
+            let size = Int(try rows("SELECT COALESCE(SUM(length(CAST(metadata AS BLOB))+length(CAST(body AS BLOB))),0) FROM records")[0][0]) ?? LogbookLimits.libraryBytes + 1
+            let rootSize = Int(try rows("SELECT COALESCE(length(CAST(json AS BLOB)),0) FROM state WHERE id=1")[0][0]) ?? LogbookLimits.libraryBytes + 1
+            guard size + rootSize <= LogbookLimits.libraryBytes else { throw LogbookFailure("数据超过 64 MB 上限。") }
             timing?.mark("capacity")
             try execute("COMMIT"); timing?.mark("transactionEnd"); return expected + 1
         } catch { try? execute("ROLLBACK"); throw error }
     }
     func replace(_ data: LogbookJSON, expected: Int) throws -> Int {
         try LogbookValidation.snapshot(data)
-        guard try logbookData(data).count <= logbookMaximumBytes else { throw LogbookFailure("数据超过 64 MB 上限。") }
+        guard try logbookData(data).count <= LogbookLimits.snapshotRequestBytes else { throw LogbookFailure("数据超过 64 MB 上限。") }
         return try transaction(expected) {
             try execute("DELETE FROM records")
             for (index, value) in (data["records"] as! [LogbookJSON]).enumerated() { try writeRecord(value, position: index) }
@@ -294,7 +310,7 @@ final class LogbookSnapshotUpload {
     private var written = 0
     private var index = 0
     init(directory: URL, expected: Int, bytes: Int, sha256: String) throws {
-        guard bytes > 0, bytes <= logbookMaximumBytes, sha256.count == 64,
+        guard bytes > 0, bytes <= LogbookLimits.snapshotUploadBytes, sha256.count == 64,
               sha256.allSatisfy({ "0123456789abcdef".contains($0) }) else { throw LogbookFailure("暂存长度或摘要无效。") }
         self.expected = expected; self.bytes = bytes; self.sha256 = sha256
         url = directory.appendingPathComponent(id + ".upload")
@@ -303,8 +319,8 @@ final class LogbookSnapshotUpload {
     }
     deinit { try? output?.close(); try? FileManager.default.removeItem(at: url) }
     func append(index: Int, base64: String) throws {
-        guard index == self.index, base64.utf8.count <= 349528,
-              let chunk = Data(base64Encoded: base64), !chunk.isEmpty, chunk.count <= 262144,
+        guard index == self.index, base64.utf8.count <= LogbookLimits.encodedChunkBytes,
+              let chunk = Data(base64Encoded: base64), !chunk.isEmpty, chunk.count <= LogbookLimits.transferChunkBytes,
               written + chunk.count <= bytes, let output else { throw LogbookFailure("暂存片段缺失、乱序或超过上限。") }
         try output.write(contentsOf: chunk); written += chunk.count; self.index += 1
     }
@@ -368,7 +384,7 @@ final class LogbookFetchBatch {
             let id = value["id"] as! String
             guard segments[id] == nil else { throw LogbookFailure("检测结果重复。") }
             let data = try logbookData(value)
-            guard written + data.count <= logbookMaximumBytes else { throw LogbookFailure("检测结果超过 64 MB 上限；未保存，可减少所选场次后重试。") }
+            guard written + data.count <= LogbookLimits.batchStagingBytes else { throw LogbookFailure("检测结果超过 64 MB 上限；未保存，可减少所选场次后重试。") }
             let output = try FileHandle(forWritingTo: url); defer { try? output.close() }
             try output.seekToEnd(); try output.write(contentsOf: data); try output.synchronize()
             segments[id] = Segment(offset: UInt64(written), bytes: data.count, sha256: LogbookArchive.digest(data))

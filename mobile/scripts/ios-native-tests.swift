@@ -181,7 +181,7 @@ import Foundation
         try rejects("delta SQL rollback after manual write") { _ = try deltaStore.importTableDelta(delta, expected: 2) }
         try deltaStore.execute("DROP TRIGGER fail_delta")
         try require(try deltaStore.revision() == 2 && logbookData(deltaStore.fullSnapshot()!) == stableDelta, "delta rollback restores metadata and body")
-        var oversized = delta, largeManual = manualRows[manualIndex]; largeManual["manualContent"] = String(repeating: "x", count: logbookMaximumBytes)
+        var oversized = delta, largeManual = manualRows[manualIndex]; largeManual["manualContent"] = String(repeating: "x", count: LogbookLimits.libraryBytes)
         oversized["manualUpdates"] = [largeManual]
         try rejects("delta whole library capacity rollback") { _ = try deltaStore.importTableDelta(oversized, expected: 2) }
         try require(try deltaStore.revision() == 2 && logbookData(deltaStore.fullSnapshot()!) == stableDelta, "capacity rejection retains all data")

@@ -74,7 +74,7 @@ final class LogbookFetch: NSObject, URLSessionDataDelegate {
         else { completionHandler(nil); fail(task, "拒绝不受信任或过多的日志跳转。") }
     }
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        guard let response = response as? HTTPURLResponse, response.expectedContentLength <= Int64(logbookMaximumBytes),
+        guard let response = response as? HTTPURLResponse, response.expectedContentLength <= Int64(LogbookLimits.recordResponseBytes),
               let url = response.url, trusted(url) else {
             completionHandler(.cancel); fail(dataTask, "日志响应无效或超过 64 MB。"); return
         }
@@ -86,7 +86,7 @@ final class LogbookFetch: NSObject, URLSessionDataDelegate {
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         lock.lock()
         guard let state = pending[dataTask.taskIdentifier] else { lock.unlock(); return }
-        let overLimit = state.bytes.count + data.count > logbookMaximumBytes
+        let overLimit = state.bytes.count + data.count > LogbookLimits.recordResponseBytes
         if !overLimit { state.bytes.append(data) }
         lock.unlock()
         if overLimit { fail(dataTask, "日志超过 64 MB。") }
