@@ -229,3 +229,11 @@ const singleRecord = spawnSync(java, [
 ], { encoding: 'utf8' })
 process.stdout.write(singleRecord.stdout)
 if (singleRecord.status) throw new Error(singleRecord.stderr)
+const grammarCompiled = spawnSync(javac, [
+  '-encoding', 'UTF-8', '-cp', work + separator + process.env.JSON_JAR, '-d', work,
+  resolve('tests/native/SnapshotStreamGrammarCheck.java')
+], { encoding: 'utf8' })
+if (grammarCompiled.status !== 0) throw new Error(grammarCompiled.stderr || String(grammarCompiled.error))
+const grammarResult = spawnSync(java, ['-Xmx96m', '-cp', work + separator + process.env.JSON_JAR, 'coc.logbook.SnapshotStreamGrammarCheck'], { encoding: 'utf8' })
+process.stdout.write(grammarResult.stdout)
+if (grammarResult.status !== 0) throw new Error(grammarResult.stderr || String(grammarResult.error))
