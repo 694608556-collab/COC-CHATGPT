@@ -31,6 +31,7 @@ import Foundation
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try logbookObject(String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8))
         try backupStreamChecks(root: root, fixture: fixture)
+        try capacityDatabaseChecks(root: root, fixture: fixture)
         let store = try LogbookStore(url: root.appendingPathComponent("db/state.sqlite"))
         try require(try store.metadata() == nil, "fresh database")
         try require(try store.replace(fixture, expected: 0) == 1, "initial restore")
