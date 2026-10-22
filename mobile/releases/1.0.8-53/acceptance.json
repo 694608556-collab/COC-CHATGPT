@@ -1,0 +1,76 @@
+{
+  "sourceCommit": "7389023ec5d5ec9858f0692ce853371b877f6631",
+  "workflowRun": 39760537670,
+  "workflowUrl": "https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39760537670",
+  "workflowConclusion": "success",
+  "jobs": {
+    "mobile": "success",
+    "native-capacity": "success"
+  },
+  "cloudUnitTests": 177,
+  "cloudNativeInstrumentationTests": 29,
+  "nativeEnvironment": {
+    "platform": "Android API29 x86_64 cloud emulator",
+    "reportedOrdinaryMaxHeapMiB": 512,
+    "physicalPhone": false
+  },
+  "nativeSQLiteLibraryBodyMiB": [
+    96,
+    192,
+    512
+  ],
+  "single68MiBBody": {
+    "SQLiteSnapshotRoundtrip": true,
+    "lowSpaceAndSqlRollback": true,
+    "fullRestoreCandidateValidationInEmulator": false
+  },
+  "hostJvmSingle68MiBBody": {
+    "fullBackupAndRestoreValidation": true,
+    "corruptProofRejected": true,
+    "heapMiB": 1024,
+    "AndroidSQLite": false
+  },
+  "nativeWebView": {
+    "workerBodySearch96MiB": true,
+    "tableImportCommit": true
+  },
+  "nativeTable": {
+    "sourceMiB": 65,
+    "candidateMiBAbove64": true,
+    "fullBody": true,
+    "oldBodiesUntouched": true,
+    "rowsAboveFormerCap": 50001,
+    "lowSpaceRollback": true
+  },
+  "sharedCloud": {
+    "completeJsonAndZipLibraryMiB": [
+      96,
+      192,
+      512
+    ],
+    "csvBodyMiB": 96,
+    "xlsxBodyMiB": 512,
+    "singleCompleteBodyMiB": 70,
+    "singleBodyPhases": [
+      "CSV private table candidate",
+      "JSON backup and restore candidate",
+      "ZIP64 backup and restore candidate",
+      "complete edit upload"
+    ],
+    "phoneAcceptance": false
+  },
+  "completeBrowserTestsReportedInHandoff": 131,
+  "browserTestsRerunAtHome": false,
+  "package": {
+    "webAssetsMatch": 7,
+    "originalFontsMatch": 8,
+    "originalCertificate": true,
+    "sha256": "b1d9e1aa3db07f1fa156093021581c0aed6110004483b1c2a416dd447b321ffa"
+  },
+  "fixedContentQuotas": "removed including single-record 64MiB; actual capacity depends on runtime memory, storage and temporary space",
+  "physicalPhoneAcceptance": "pending; no install, launch or production data operation at home",
+  "iosWorkflow": {
+    "run": 39760569182,
+    "statusAtAndroidDelivery": "in_progress; native and arm64 package steps succeeded, system UI and WKWebView pending"
+  }
+}
