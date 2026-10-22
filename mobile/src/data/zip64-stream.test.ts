@@ -181,6 +181,21 @@ describe('ZIP64完整格式与真实资源范围', () => {
       }))
     ).rejects.toThrow('disk full')
     expect(closed).toBe(4)
+    const abort = new AbortController()
+    closed = 0
+    await expect(
+      readZipContainer(
+        source,
+        { maximumBytes, maximumExpandedBytes: maximumBytes, signal: abort.signal },
+        async () => ({
+          async push() {
+            abort.abort()
+          },
+          async end() {}
+        })
+      )
+    ).rejects.toThrow('取消')
+    expect(closed).toBe(4)
     const digest = new StreamSha256()
     digest.update(bytes)
     expect(digest.bytes).toBe(bytes.length)

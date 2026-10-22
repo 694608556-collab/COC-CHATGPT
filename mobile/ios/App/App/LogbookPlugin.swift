@@ -165,7 +165,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
             try self.checkTable(owner, store, archive); try owner.prepareCommit(store: store)
             let revision = try store.importTableStream(owner) { try self.checkTable(owner, store, archive, revision: false) }
             // All throwing file cleanup happened before the production transaction.
-            // close now only releases the immutable, already-unlinked SQLite handle.
+            // close now only releases the already-unlinked sequential file handles.
             try owner.close(); self.tableSession = nil
             return ["revision": revision]
         }

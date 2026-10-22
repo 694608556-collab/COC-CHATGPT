@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 @main struct IOSNativeChecks {
     static var checks = 0
@@ -10,6 +11,7 @@ import Foundation
         throw LogbookFailure("Expected rejection: " + message)
     }
     static func main() throws {
+        setbuf(stdout, nil)
         if CommandLine.arguments.count == 4 && CommandLine.arguments[1] == "--public-capacity-crash" {
             try crashRestoreForPublicTest(database: URL(fileURLWithPath: CommandLine.arguments[2]), candidate: URL(fileURLWithPath: CommandLine.arguments[3]))
             return

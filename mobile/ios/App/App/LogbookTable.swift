@@ -58,7 +58,7 @@ final class LogbookTableIndex {
             }
             code = sqlite3_step(statement)
         }
-        guard code == SQLITE_DONE else { throw LogbookFailure("表格索引读取失败（SQLite \(code)：\(String(cString: sqlite3_errmsg(handle)))）。") }
+        guard code == SQLITE_DONE else { throw LogbookFailure("表格索引读取失败（SQLite \(code)/\(sqlite3_extended_errcode(handle))：\(String(cString: sqlite3_errmsg(handle)))）。") }
     }
     func rows(_ sql: String, _ values: [String?] = []) throws -> [[String?]] {
         var result: [[String?]] = []; try each(sql, values) { result.append($0) }; return result
@@ -120,6 +120,8 @@ final class LogbookTableSession {
     private var sourceProof: LogbookBackupProof?
     private var candidateProof: LogbookBackupProof?
     private var indexProof: LogbookBackupProof?
+    private var commitMetadata: FileHandle?, commitRecords: FileHandle?
+    private var commitMetadataProof: LogbookBackupProof?, commitRecordsProof: LogbookBackupProof?
     private var stringsIndex = 0, stringsBytes = 0, stringsCount = 0, stageBytes = 0
     private var stringsLine = Data()
     private var ready = false, closed = false, unlinked = false
@@ -365,8 +367,31 @@ final class LogbookTableSession {
         try store.check(expected); try verify(source.url, sourceProof); try verify(candidate.url, candidateProof)
         try verify(directory.appendingPathComponent("index.sqlite"), indexProof)
         try LogbookCapacity.require(available: store.available, additional: LogbookCapacity.estimate(candidateProof.bytes, copies: 5))
-        // SQLite's existing read-only descriptor retains the immutable private
-        // index after unlink. No cleanup capable of failing follows COMMIT.
+        // Apple's SQLite VFS may still consult the original path, even with
+        // immutable=1. Freeze the validated rows into ordinary sequential files
+        // before unlinking; plain FileHandle descriptors survive that cleanup.
+        let metadata = try Output(directory.appendingPathComponent("commit-metadata"))
+        let records = try Output(directory.appendingPathComponent("commit-records"))
+        func append(_ value: LogbookJSON, kind: String, position: Int, changed: Int, to output: Output) throws {
+            let bytes = try logbookData(["kind": kind, "position": position, "changed": changed, "value": value]) + Data([10])
+            try LogbookCapacity.require(available: available, additional: bytes.count)
+            guard let handle = output.handle else { throw LogbookFailure("表格提交暂存已封存。") }
+            for start in stride(from: 0, to: bytes.count, by: LogbookLimits.transferChunkBytes) {
+                try handle.write(contentsOf: bytes.subdata(in: start..<min(bytes.count, start + LogbookLimits.transferChunkBytes)))
+            }
+            output.bytes += bytes.count
+        }
+        for kind in ["modules", "characters", "records"] {
+            try eachEntity(kind, bodies: false) { value, position, changed in try append(value, kind: kind, position: position, changed: changed, to: metadata) }
+        }
+        try eachEntity("records") { value, position, changed in try append(value, kind: "records", position: position, changed: changed, to: records) }
+        try metadata.seal(); try records.seal()
+        commitMetadataProof = try LogbookBackupSession.fileProof(metadata.url, maximumBytes: metadata.bytes)
+        commitRecordsProof = try LogbookBackupSession.fileProof(records.url, maximumBytes: records.bytes)
+        try verify(directory.appendingPathComponent("index.sqlite"), indexProof)
+        commitMetadata = try FileHandle(forReadingFrom: metadata.url); commitRecords = try FileHandle(forReadingFrom: records.url)
+        index.close()
+        // No cleanup capable of failing follows the production COMMIT.
         try Self.removeOwned(directory, id: id); unlinked = true
     }
     func requireCommitReady() throws {
@@ -374,6 +399,29 @@ final class LogbookTableSession {
     }
     func eachEntity(_ kind: String, changedOnly: Bool = false, bodies: Bool = true, _ receive: (LogbookJSON, Int, Int) throws -> Void) throws {
         guard ready, !closed else { throw LogbookFailure("表格索引尚未封存。") }
+        if unlinked {
+            let full = kind == "records" && bodies
+            guard let input = full ? commitRecords : commitMetadata, let proof = full ? commitRecordsProof : commitMetadataProof else { throw LogbookFailure("表格提交暂存缺失。") }
+            try input.seek(toOffset: 0)
+            var pending = Data(), hash = SHA256(), total = 0
+            while let chunk = try input.read(upToCount: 65536), !chunk.isEmpty {
+                guard chunk.count <= proof.bytes - total else { throw LogbookFailure("表格提交暂存长度已变化。") }
+                total += chunk.count; hash.update(data: chunk)
+                try Self.lines(chunk, pending: &pending) { bytes in
+                    try autoreleasepool {
+                        let row = try LogbookBackupJSON.object(bytes)
+                        try LogbookValidation.shape(row, "kind,position,changed,value")
+                        guard let rowKind = row["kind"] as? String, ["modules", "characters", "records"].contains(rowKind),
+                              let position = row["position"] as? Int, position >= 0, let changed = row["changed"] as? Int, (0...2).contains(changed),
+                              let value = row["value"] as? LogbookJSON else { throw LogbookFailure("表格提交暂存结构无效。") }
+                        if rowKind == kind && (!changedOnly || changed != 0) { try receive(value, position, changed) }
+                    }
+                }
+            }
+            guard pending.isEmpty else { throw LogbookFailure("表格提交暂存末行不完整。") }
+            try proof.matches(bytes: total, sha256: hash.finalize().map { String(format: "%02x", $0) }.joined())
+            return
+        }
         try index.each("SELECT value," + (bodies ? "manual" : "NULL") + ",position,changed FROM entities WHERE kind=?" + (changedOnly ? " AND changed<>0" : "") + " ORDER BY position", [kind]) { row in
             var value = try logbookObject(self.index.unpack(row[0]!)); if let manual = row[1] { value["manualContent"] = try self.index.unpackString(manual) }
             try receive(value, Int(row[2]!)!, Int(row[3]!)!)
@@ -382,6 +430,8 @@ final class LogbookTableSession {
     func close() throws {
         if closed { return }
         try source.seal(); try candidate.seal(); index.close()
+        try? commitMetadata?.close(); commitMetadata = nil
+        try? commitRecords?.close(); commitRecords = nil
         if !unlinked { try Self.removeOwned(directory, id: id) }
         closed = true
     }
@@ -395,7 +445,7 @@ final class LogbookTableSession {
               let value = try JSONSerialization.jsonObject(with: Data(contentsOf: marker)) as? LogbookJSON,
               value["kind"] as? String == "coc-table-stream-v1", value["id"] as? String == id else { throw LogbookFailure("表格暂存所有权标记不符，未删除文件。") }
         let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isSymbolicLinkKey])
-        let allowed = Set(["owner.json", "source", "candidate", "index.sqlite", "index.sqlite-journal", "index.sqlite-wal", "index.sqlite-shm"])
+        let allowed = Set(["owner.json", "source", "candidate", "index.sqlite", "index.sqlite-journal", "index.sqlite-wal", "index.sqlite-shm", "commit-metadata", "commit-records"])
         for file in files {
             guard allowed.contains(file.lastPathComponent), file.resolvingSymlinksInPath().deletingLastPathComponent() == directory.resolvingSymlinksInPath(),
                   try file.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { throw LogbookFailure("表格暂存目录含未知文件，未清理。") }
