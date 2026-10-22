@@ -1677,21 +1677,17 @@ export function MobileApp({
         />
         <div className="operation-feedback">
           {tableImporting && notice && !error && (
-            <div className="import-progress">
-              <SystemMessage kind="progress" ariaLabel="导入处理进度" message={notice} />
-              <button
-                onClick={() => {
-                  tableAbort.current?.abort()
-                  setNotice('正在取消导入…')
-                }}
-              >
-                取消导入
-              </button>
-            </div>
+            <SystemMessage kind="progress" ariaLabel="导入处理进度" message={notice} />
           )}
-          {busy && !tableImporting && !quietSaving && !preview && !error && !confirmation && (
-            <SystemMessage kind="progress" ariaLabel="数据处理进度" message={notice || '正在处理…'} />
-          )}
+          {busy &&
+            !tableImporting &&
+            !tablePreview &&
+            !quietSaving &&
+            !preview &&
+            !error &&
+            !confirmation && (
+              <SystemMessage kind="progress" ariaLabel="数据处理进度" message={notice || '正在处理…'} />
+            )}
           {error && !preview && (
             <SystemMessage
               kind="error"

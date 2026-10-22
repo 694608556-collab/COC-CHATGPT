@@ -65,10 +65,11 @@ test('慢速实际Worker导入只显示一处非模态进度，取消仍释放�
   })
   try {
     await page.getByRole('button', { name: '导入场次表格', exact: true }).click()
-    await expect(page.getByRole('button', { name: '取消导入', exact: true })).toBeVisible()
+    await expect(page.getByRole('progressbar', { name: '导入处理进度' })).toBeVisible()
+    expect(await page.getByRole('button', { name: '取消导入', exact: true }).count()).toBe(0)
     await expect(page.getByRole('progressbar')).toHaveCount(1)
     expect(await page.getByRole('dialog', { name: '正在导入表格' }).count()).toBe(0)
-    await page.getByRole('button', { name: '取消导入', exact: true }).click()
+    await page.evaluate(() => window.dispatchEvent(new Event('logbook-back')))
     await expect
       .poll(() => page.evaluate(() => window.__publicTableStreamFixture!.stats.cancellations))
       .toBe(1)

@@ -35,6 +35,7 @@ export function publicTableStreamCSV(count = 205): string {
 }
 interface Options {
   pickerDelayMs: number
+  commitDelayMs: number
   rows: number
   badSourceHash: boolean
   badCandidateHash: boolean
@@ -103,7 +104,13 @@ function oracleCSV(rows: TableImportRow[]) {
     .join('\r\n')
 }
 export function createTableStreamFixture(base: LogbookPort): LogbookPort {
-  const options: Options = { pickerDelayMs: 0, rows: 205, badSourceHash: false, badCandidateHash: false }
+  const options: Options = {
+    pickerDelayMs: 0,
+    commitDelayMs: 0,
+    rows: 205,
+    badSourceHash: false,
+    badCandidateHash: false
+  }
   const stats: Stats = {
     opened: 0,
     chunks: 0,
@@ -267,6 +274,7 @@ export function createTableStreamFixture(base: LogbookPort): LogbookPort {
       }
     },
     async commitTableStream({ id, confirmed }) {
+      await new Promise((resolve) => setTimeout(resolve, options.commitDelayMs))
       const { current } = await check(id)
       if (!confirmed || !current.preview || !base.commitTable) throw new Error('请先确认完整预览。')
       const result = await base.commitTable({
