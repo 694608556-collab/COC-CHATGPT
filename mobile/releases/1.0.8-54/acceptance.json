@@ -1,0 +1,41 @@
+{
+  "sourceCommit": "63dabaefbfcb6148148a1b16dcefe0a017e7ad99",
+  "workflowRun": 39772912157,
+  "workflowUrl": "https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39772912157",
+  "workflowConclusion": "success",
+  "jobs": [
+    {
+      "id": 119804627505,
+      "name": "mobile",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 119807639729,
+      "name": "native-capacity",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "unitTests": 204,
+  "completeLocalEdgeBrowserTests": 131,
+  "sharedCloud": {
+    "completeJsonZipBodyMiB": [
+      96,
+      192,
+      512
+    ],
+    "xlsxBodyMiB": 512,
+    "singleCompleteBodyMiB": 70
+  },
+  "regressionEvidence": "../../IMPORT-SEARCH-LATENCY-20261022.md",
+  "regressionFixtures": "fictional public inputs; deterministic bridge and Promise counts, not physical phone latency",
+  "fixedContentQuotas": "removed including single-record 64MiB; capacity depends on available runtime memory, storage and temporary space",
+  "physicalPhoneLatencyAcceptance": "pending; no production app launch for latency measurement",
+  "package": {
+    "sha256": "5853b00d85541340781fba183f7d771b7c203d3033f9d8deb39fef818c629747",
+    "webAssetsMatch": 7,
+    "originalFontsMatch": 8
+  },
+  "cloudNativeInstrumentationTests": 29
+}

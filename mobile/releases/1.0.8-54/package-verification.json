@@ -1,0 +1,41 @@
+{
+  "file": "coc-logbook-1.0.8-54-latency-63dabae.apk",
+  "bytes": 32834033,
+  "sha256": "5853b00d85541340781fba183f7d771b7c203d3033f9d8deb39fef818c629747",
+  "sourceCommit": "63dabaefbfcb6148148a1b16dcefe0a017e7ad99",
+  "workflowRun": 39772912157,
+  "artifactId": 12423532738,
+  "version": "1.0.8",
+  "build": 54,
+  "applicationId": "coc.logbook",
+  "physicalPhoneAcceptance": "pending",
+  "fixedContentQuota": "removed; capacity depends on available runtime memory, storage and temporary space",
+  "webAssets": {
+    "app.js": "132bb5213210c87423a3c49500a3f64d50d3028a476de4cf4b9234e925021a72",
+    "app.css": "aecde49564ba87f64e980c73f789acf9afe1fe73fef8ae9cdfe47942d10d46e0",
+    "index.html": "d231ccc1ffe23aae0d62440adcad273f62adcd73bc894e6705b6c102ac69d175",
+    "snapshot-worker.js": "d62bf234f83b4b2f4535ca40e627fd091a69516b9c671baba8de0cf6e2692f38",
+    "export-worker.js": "54aec09af887cc244c3e2bd3cdd76543a732e6b49297d30ca9e1764f0f234435",
+    "backup-stream-worker.js": "43dccf2fab8d7bcf2b2ae1451291ca6791b56d10915bd064a0154655e127f82b",
+    "table-stream-worker.js": "5d17474fe163e0f09c63109557cdb52b2ce9c42931b717aee3375195f7314931"
+  },
+  "webAssetCount": 7,
+  "originalFonts": {
+    "PingFangSC-Bold.ttf": "96ec2276d8e77453e0e44f1e9633ee513396f2eeabb3d330f9e9306343b25fd9",
+    "PingFangSC-Medium.ttf": "ddf051a97717d35e90d297eab1fbb75bab48120983586cf2a70be9fd3dfad2c8",
+    "PingFangSC-Regular.ttf": "26b017dfb34a8aa0059f47eda6f90d7ffd19a24912dc1129abc24867a1385353",
+    "SF-Pro-Display-Regular.otf": "71a2162c852e87baa6440c983e406283391646778c8bc74e57b00613a3412f80",
+    "SF-Pro-Display-Semibold.otf": "53a55ec7e0a90c0e1980b9d95e3cb93851b4e473b575693813a1b150066661ff",
+    "SF-Pro-Text-Medium.otf": "5d076c6ce94f8883e9cd33aec39c12222ed7b693b4a9624fe41c411ff2e41818",
+    "SF-Pro-Text-Regular.otf": "86189a6307187a6943add3596432f72a7cb914fa1c77697736292f5e4d8ea6d8",
+    "SF-Pro-Text-Semibold.otf": "874d3cf27683cd5f039c4e271642aa1feb2a550a02d17ef6807d6d9caeb74a2b"
+  },
+  "fontCount": 8,
+  "privateKeysDatabasesSourceMapsAbsent": true,
+  "zipIntegrity": true,
+  "signedWithOriginalCertificate": true,
+  "certificateSha256": "cc3020afe7446589b5dff92eb9fe69b7593af18f614445b1d8e5805e853143e7",
+  "signingPayloadUnchanged": true,
+  "debuggable": false,
+  "zipalign4ByteAnd16KiBNativePages": true
+}
