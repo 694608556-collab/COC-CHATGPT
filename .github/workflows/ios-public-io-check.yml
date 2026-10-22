@@ -25,7 +25,8 @@ jobs:
           cache-dependency-path: mobile/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck && pnpm ios:sync && node scripts/check-release-web.mjs
-      # Additional focused feedback. The existing complete ios-check.yml stays
+      # Capture the actual WebKit canvas PNG header with complete I/O feedback.
+      # The existing complete ios-check.yml stays
       # mandatory, including every capacity, startup, system UI and I/O gate.
       - name: Exercise complete public I/O in another fresh simulator
         run: python3 scripts/ios-public-io-check.py
