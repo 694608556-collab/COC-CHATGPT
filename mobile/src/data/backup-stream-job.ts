@@ -5,9 +5,7 @@ import { searchBodyStream } from './body-search-stream'
 import { searchBodyCache } from './body-search-cache'
 import type { FilterPreset } from '../../../src/shared/types'
 import type { LocalStreamSource } from './local-source-stream'
-import { readSource } from './local-source'
-import { capacity } from './capacity'
-import { checkStreamCancelled } from './stream-json'
+import { readVerifiedLocalChunks } from './verified-local-source'
 
 export type BackupStreamJob =
   | {
@@ -46,15 +44,7 @@ export async function performBackupStreamJob(
     if (Number.isSafeInteger(job.maximumReadBytes) && job.source.bytes <= job.maximumReadBytes!) {
       // Reuse the proven old local-file read for ordinary data. Feed the same
       // strict per-record parser afterwards; fast transport does not skip validation.
-      checkStreamCancelled(signal)
-      const bytes = await readSource(job.source)
-      checkStreamCancelled(signal)
-      input = (async function* () {
-        for (let at = 0; at < bytes.length; at += capacity.transferChunkBytes) {
-          checkStreamCancelled(signal)
-          yield bytes.subarray(at, at + capacity.transferChunkBytes)
-        }
-      })()
+      input = await readVerifiedLocalChunks(job.source, signal)
     }
     return searchBodyStream(input, {
       expectedSource: job.source,
