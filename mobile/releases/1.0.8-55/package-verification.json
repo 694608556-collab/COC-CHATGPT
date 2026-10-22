@@ -1,0 +1,41 @@
+{
+  "file": "coc-logbook-1.0.8-55-search-49b1846.apk",
+  "bytes": 32846321,
+  "sha256": "c13f224c3d767fa74ab1f3133723df9a9e10edb58cd67f531c0ff098d15e0f20",
+  "sourceCommit": "49b184620a8361621c6e7defdf90a0efe0de4fc0",
+  "workflowRun": null,
+  "artifactId": null,
+  "version": "1.0.8",
+  "build": 55,
+  "applicationId": "coc.logbook",
+  "physicalPhoneAcceptance": "S9 isolated native suite and complete I/O; production upgrade launch not performed",
+  "fixedContentQuota": "removed; capacity depends on available runtime memory, storage and temporary space",
+  "webAssets": {
+    "app.js": "1f07b0523fb31a80fd25d38c371d27ef2adf2f71442020e03c26486325aa508c",
+    "app.css": "aecde49564ba87f64e980c73f789acf9afe1fe73fef8ae9cdfe47942d10d46e0",
+    "index.html": "d231ccc1ffe23aae0d62440adcad273f62adcd73bc894e6705b6c102ac69d175",
+    "snapshot-worker.js": "49ab739e028ea7f0758c87f7c531be8bc0483dd2b8ceee0283929495c4fdb9b6",
+    "export-worker.js": "f54d31e6bb5737a8afa7e4d41d06c4d56a2bc51788f6d2e2c9fb39e7002e3642",
+    "backup-stream-worker.js": "0001f929d43048f8a26b5a8976cae036c51150d4a081b95fdedcab64d9f07d91",
+    "table-stream-worker.js": "ad272d66dffde15ab34cd0e0db7f95ea871e80ef2f0365e1e458b94847e36d92"
+  },
+  "webAssetCount": 7,
+  "originalFonts": {
+    "PingFangSC-Bold.ttf": "96ec2276d8e77453e0e44f1e9633ee513396f2eeabb3d330f9e9306343b25fd9",
+    "PingFangSC-Medium.ttf": "ddf051a97717d35e90d297eab1fbb75bab48120983586cf2a70be9fd3dfad2c8",
+    "PingFangSC-Regular.ttf": "26b017dfb34a8aa0059f47eda6f90d7ffd19a24912dc1129abc24867a1385353",
+    "SF-Pro-Display-Regular.otf": "71a2162c852e87baa6440c983e406283391646778c8bc74e57b00613a3412f80",
+    "SF-Pro-Display-Semibold.otf": "53a55ec7e0a90c0e1980b9d95e3cb93851b4e473b575693813a1b150066661ff",
+    "SF-Pro-Text-Medium.otf": "5d076c6ce94f8883e9cd33aec39c12222ed7b693b4a9624fe41c411ff2e41818",
+    "SF-Pro-Text-Regular.otf": "86189a6307187a6943add3596432f72a7cb914fa1c77697736292f5e4d8ea6d8",
+    "SF-Pro-Text-Semibold.otf": "874d3cf27683cd5f039c4e271642aa1feb2a550a02d17ef6807d6d9caeb74a2b"
+  },
+  "fontCount": 8,
+  "privateKeysDatabasesSourceMapsAbsent": true,
+  "zipIntegrity": true,
+  "signedWithOriginalCertificate": true,
+  "certificateSha256": "cc3020afe7446589b5dff92eb9fe69b7593af18f614445b1d8e5805e853143e7",
+  "signingPayloadUnchanged": true,
+  "debuggable": false,
+  "zipalign4ByteAnd16KiBNativePages": true
+}

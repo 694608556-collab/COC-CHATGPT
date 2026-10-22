@@ -1,0 +1,30 @@
+{
+  "sourceCommit": "49b184620a8361621c6e7defdf90a0efe0de4fc0",
+  "packageSha256": "c13f224c3d767fa74ab1f3133723df9a9e10edb58cd67f531c0ff098d15e0f20",
+  "unitTests": 230,
+  "browserTests": 138,
+  "nativePhoneTests": 30,
+  "workflowRun": null,
+  "cloudAndroidOmittedByUser": true,
+  "coldStarts": null,
+  "systemUITests": null,
+  "independentOutputProofs": 31,
+  "completeOriginalBodiesVerified": 78,
+  "fullTimingOperations": 46,
+  "sourceType": "fictional public data only",
+  "physicalPhone": true,
+  "productionInstalledWithoutLaunch": true,
+  "privateInputsAndRawLogsNotPublished": true,
+  "sharedScaleMiB": [
+    96,
+    192,
+    512
+  ],
+  "sharedSingleRecordMiB": 70,
+  "dataIntegrity": "full bodies, graph, authorization, CAS, rollback and automatic backups preserved; no fixed content quota",
+  "macOSNativeCoreChecks": null,
+  "sharedSingleRecordScope": "Desktop host full CSV, ZIP64, restore candidate and edit-upload proofs; not a 70MiB physical-phone restore commit",
+  "androidSingle68MiBScope": "S9 save, reopen, snapshot roundtrip, low-space and SQL rollback; fullRestoreCandidateValidation=false in this fixture",
+  "physicalIPhoneTested": false,
+  "productionUpgradeLaunchTested": false
+}
