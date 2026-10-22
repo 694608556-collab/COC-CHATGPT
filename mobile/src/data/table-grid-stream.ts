@@ -393,7 +393,7 @@ async function walkZip(
 function entities(text: string) {
   return text.replace(/&([^;]*);/g, (_, token: string) => {
     const named: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
-    if (Object.hasOwn(named, token)) return named[token]!
+    if (Object.prototype.hasOwnProperty.call(named, token)) return named[token]!
     const match = /^#(x[0-9a-f]+|[0-9]+)$/i.exec(token)
     if (!match) throw new Error('工作簿XML实体无效。')
     const code = match[1]![0]!.toLowerCase() === 'x' ? parseInt(match[1]!.slice(1), 16) : Number(match[1])
@@ -522,7 +522,8 @@ class Xml implements PartSink {
       let rest = tag.slice(match[0].length).replace(/\/\s*$/, '')
       while (rest.trim()) {
         const attr = /^\s+([\w:.-]+)\s*=\s*("[^"]*"|'[^']*')/.exec(rest)
-        if (!attr || Object.hasOwn(attrs, attr[1]!)) throw new Error('工作簿XML属性重复或格式无效。')
+        if (!attr || Object.prototype.hasOwnProperty.call(attrs, attr[1]!))
+          throw new Error('工作簿XML属性重复或格式无效。')
         const raw = attr[2]!.slice(1, -1)
         if (raw.includes('<') || /&(?!amp;|lt;|gt;|quot;|apos;|#(?:[0-9]+|x[0-9a-f]+);)/i.test(raw))
           throw new Error('工作簿XML属性实体无效。')
@@ -872,14 +873,13 @@ function csvSeparator(sample: string) {
   let quoted = false
   for (const char of sample.slice(0, 1024)) {
     if (char === '"') quoted = !quoted
-    else if (!quoted && Object.hasOwn(weights, char)) counts[char] = (counts[char] ?? 0) + 1
+    else if (!quoted && Object.prototype.hasOwnProperty.call(weights, char))
+      counts[char] = (counts[char] ?? 0) + 1
   }
   const choices = Object.keys(counts).length ? counts : weights
+  const ordered = Object.keys(choices).sort((a, b) => choices[a]! - choices[b]! || weights[a]! - weights[b]!)
   return {
-    separator:
-      Object.keys(choices)
-        .sort((a, b) => choices[a]! - choices[b]! || weights[a]! - weights[b]!)
-        .at(-1) ?? ',',
+    separator: ordered[ordered.length - 1] ?? ',',
     prefix: 0
   }
 }
@@ -956,7 +956,7 @@ async function csv(options: TableGridStreamOptions) {
           type: cell.t,
           ...(cell.f ? { formula: cell.f } : {}),
           hasFormula: !!cell.f,
-          ...(value == null ? {} : { value: values.at(-1)! })
+          ...(value == null ? {} : { value: values[values.length - 1]! })
         })
     }
     await options.onRow({ index: row++, values })

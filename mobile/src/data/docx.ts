@@ -39,7 +39,10 @@ async function loadTemplate(): Promise<DocxTemplate> {
         new Uint8Array(await Packer.toArrayBuffer(new Document({ sections: [{ children }] })))
       )
       const xml = strFromU8(parts['word/document.xml']!)
-      const paragraphs = [...xml.matchAll(/<w:p(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/w:p>)/g)]
+      const paragraphs: RegExpExecArray[] = []
+      const paragraphPattern = /<w:p(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/w:p>)/g
+      let paragraph: RegExpExecArray | null
+      while ((paragraph = paragraphPattern.exec(xml)) !== null) paragraphs.push(paragraph)
       if (paragraphs.length !== 10 || paragraphs.slice(0, 5).some((p, i) => !p[0].includes(marker + i)))
         throw new Error('DOCX 格式模板不兼容，未保存文件。')
       return {
