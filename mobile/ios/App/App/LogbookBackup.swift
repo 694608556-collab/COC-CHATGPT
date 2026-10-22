@@ -174,17 +174,15 @@ enum LogbookRestoreCandidate {
                         rawEach: ((LogbookJSON, Data, Int) throws -> Void)? = nil,
                         each: ((LogbookJSON, Int) throws -> Void)? = nil) throws -> Preview {
         var hash = SHA256(), total = 0, line = Data(), rows: [LogbookJSON] = []
-        var metadata: LogbookJSON?, offline = 0, metadataBytes = 2
+        var metadata: LogbookJSON?, offline = 0
         let newline = Data([10])
         func consume() throws {
-            guard line.count > 1, line.count <= LogbookLimits.snapshotRequestBytes + 1, metadata == nil else { throw LogbookFailure("恢复候选顺序或长度无效。") }
+            guard line.count > 1, (line.first == 77 || line.count <= LogbookLimits.entityRequestBytes + 1), metadata == nil else { throw LogbookFailure("恢复候选顺序或单场长度无效。") }
             let kind = line.first!, json = Data(line.dropFirst()), value = try LogbookBackupJSON.object(json)
             if kind == 82 {
                 try LogbookValidation.record(value)
                 var row = value
                 row.removeValue(forKey: "rawContent"); row.removeValue(forKey: "manualContent")
-                metadataBytes += try logbookData(row).count + 1
-                guard metadataBytes <= LogbookLimits.snapshotRequestBytes else { throw LogbookFailure("恢复元数据超过处理上限。") }
                 if value["rawContent"] != nil || (value["sourceType"] as? String == "manual" && !(value["manualContent"] as? String ?? "").isEmpty) { offline += 1 }
                 try each?(value, rows.count)
                 try rawEach?(value, json, rows.count)
@@ -206,7 +204,7 @@ enum LogbookRestoreCandidate {
                 line.append(chunk.subdata(in: start..<range.lowerBound)); try consume(); start = range.upperBound
             }
             line.append(chunk.subdata(in: start..<chunk.endIndex))
-            guard line.count <= LogbookLimits.snapshotRequestBytes + 1 else { throw LogbookFailure("单场完整数据或元数据超过64MiB。") }
+            guard line.first == 77 || line.count <= LogbookLimits.entityRequestBytes + 1 else { throw LogbookFailure("单场完整数据超过64MiB。") }
         }
         let digest = hash.finalize().map { String(format: "%02x", $0) }.joined()
         guard line.isEmpty, let metadata else { throw LogbookFailure("恢复候选不完整。") }

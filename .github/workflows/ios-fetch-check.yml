@@ -16,5 +16,5 @@ jobs:
         working-directory: mobile
         run: |
           mkdir -p ios/build
-          swiftc -swift-version 5 ios/App/App/LogbookStore.swift ios/App/App/LogbookValidation.swift ios/App/App/LogbookMutations.swift ios/App/App/LogbookArchive.swift ios/App/App/LogbookBackup.swift ios/App/App/LogbookFetch.swift scripts/ios-fetch-tests.swift -o ios/build/fetch-checks
+          swiftc -swift-version 5 ios/App/App/LogbookStore.swift ios/App/App/LogbookValidation.swift ios/App/App/LogbookMutations.swift ios/App/App/LogbookArchive.swift ios/App/App/LogbookBackup.swift ios/App/App/LogbookTable.swift ios/App/App/LogbookFetch.swift scripts/ios-fetch-tests.swift -o ios/build/fetch-checks
           ios/build/fetch-checks

@@ -50,6 +50,9 @@ import type { ExportFormat } from '../data/export'
 import { checkPdfCancellation } from '../data/pdf'
 import type { PdfProgress } from '../data/pdf'
 import type { TablePreview } from '../data/tables'
+import type { NativeTablePreview } from '../data/table-stream-native'
+import { previewNativeTable, confirmNativeTable, previewNativeCoc7 } from '../data/table-stream-client'
+import { TableStreamList } from './components/TableStreamList'
 import { tablePreviewBaseline, restoreTableBodies } from '../data/table-preview'
 import { previewCoc7Import } from '../data/coc7-import'
 import type { Coc7ImportSummary } from '../data/coc7-import'
@@ -65,6 +68,7 @@ import {
   previewBase64InBackground,
   previewInBackground,
   readInBackground,
+  readOverviewInBackground,
   serializeInBackground,
   exportInBackground,
   backupInBackground
@@ -250,13 +254,25 @@ export function MobileApp({
     filters: FilterPreset
   }>()
   const [tablePreviewLimit, setTablePreviewLimit] = useState({ names: 100, warnings: 100 })
-  const [tablePreview, setTablePreview] = useState<{ data: TablePreview; revision: number }>()
+  const [tablePreview, setTablePreview] = useState<
+    | { data: TablePreview; revision: number; stream?: undefined }
+    | {
+        data: Pick<TablePreview, 'updated' | 'names' | 'warnings'>
+        revision: number
+        stream: NativeTablePreview
+      }
+  >()
+  const [tableOffsets, setTableOffsets] = useState({ names: 0, warnings: 0 })
+  const [tableImporting, setTableImporting] = useState(false)
+  const tableAbort = useRef<AbortController | undefined>(undefined)
+  useEffect(() => () => tableAbort.current?.abort(), [])
+  const legacyTableLease = tablePreview && !tablePreview.stream ? tablePreview.data.lease : undefined
   useEffect(() => {
-    const id = tablePreview?.data.lease
+    const id = legacyTableLease
     return () => {
       if (id) void releaseTableInBackground(id).catch(() => {})
     }
-  }, [tablePreview?.data.lease])
+  }, [legacyTableLease])
   useEffect(() => {
     if (
       searchCleanupFailure.current ||
@@ -268,6 +284,7 @@ export function MobileApp({
       editing ||
       batchCheck ||
       preview ||
+      tablePreview ||
       page !== 'records'
     )
       return
@@ -320,6 +337,7 @@ export function MobileApp({
     editing,
     batchCheck,
     preview,
+    tablePreview,
     page,
     snapshot.settings.filterPreset,
     snapshot.records
@@ -668,27 +686,102 @@ export function MobileApp({
     if (failure) throw failure
   }
   async function previewTable(kind: 'records' | 'characters') {
+    if (!native) return
+    const revision = native.revision
+    if (native.tableStreamVersion === 1) {
+      const controller = new AbortController()
+      tableAbort.current = controller
+      setTableImporting(true)
+      setNotice('正在读取并校验表格，完成后可预览确认…')
+      try {
+        const selected = await port.openBackup({
+          kind: kind === 'records' ? 'record-table' : 'character-table',
+          stream: true,
+          expectedRevision: revision
+        })
+        if (selected.cancelled) return
+        if (!selected.tableSource) throw new Error('未取得完整表格来源，请重新选择。')
+        const stream = await previewNativeTable(port, selected.tableSource, kind, controller.signal)
+        if (nativeRef.current?.revision !== revision || stream.revision !== revision) {
+          await port.cancelTableStage!({ id: stream.id })
+          throw new Error('数据已变化，请重新选择表格。')
+        }
+        setTableOffsets({ names: 0, warnings: 0 })
+        setTablePreview({ data: stream, stream, revision })
+        setNotice('')
+      } finally {
+        tableAbort.current = undefined
+        setTableImporting(false)
+      }
+      return
+    }
     const selected = await port.openBackup({ kind: kind === 'records' ? 'record-table' : 'character-table' })
-    if (selected.cancelled || !selected.base64 || !selected.name || !native) return
+    if (selected.cancelled || !selected.base64 || !selected.name) return
     const data = await importTableInBackground(
       tablePreviewBaseline(snapshot),
       selected.base64,
       selected.name,
       kind,
-      native.revision
+      revision
     )
+    if (nativeRef.current?.revision !== revision) {
+      if (data.lease) await releaseTableInBackground(data.lease)
+      throw new Error('数据已变化，请重新选择表格。')
+    }
     setTablePreviewLimit({ names: 100, warnings: 100 })
-    setTablePreview({
-      data,
-      revision: native.revision
-    })
+    setTablePreview({ data, revision })
+  }
+  async function discardTablePreview() {
+    if (tablePreview?.stream) await port.cancelTableStage!({ id: tablePreview.stream.id })
+    else if (tablePreview?.data.lease) await releaseTableInBackground(tablePreview.data.lease)
+    setTablePreview(undefined)
+  }
+  async function tablePage(kind: 'names' | 'warnings', offset: number) {
+    if (!tablePreview?.stream || !port.readTablePreview) return
+    const current = tablePreview.stream
+    const result = await port.readTablePreview({ id: current.id, kind, offset, limit: 100 })
+    const total = kind === 'names' ? current.namesCount : current.warningsCount
+    if (
+      result.total !== total ||
+      result.values.length !== Math.min(100, total - offset) ||
+      result.values.some((value) => typeof value !== 'string')
+    )
+      throw new Error('表格预览分页校验失败，请重新选择表格。')
+    const stream = { ...current, [kind]: result.values }
+    setTablePreview({ data: stream, stream, revision: current.revision })
+    setTableOffsets((previous) => ({ ...previous, [kind]: offset }))
   }
   async function importCoc7() {
     if (!native) return
     const revision = native.revision
-    const selected = await port.openBackup({ kind: 'character-table' })
-    if (selected.cancelled || !selected.base64 || !selected.name) return
-    const imported = previewCoc7Import(decodeBase64(selected.base64), selected.name)
+    let imported: ReturnType<typeof previewCoc7Import>
+    if (native.tableStreamVersion === 1) {
+      const controller = new AbortController()
+      tableAbort.current = controller
+      setTableImporting(true)
+      setNotice('正在读取并校验角色卡…')
+      try {
+        const selected = await port.openBackup({
+          kind: 'character-table',
+          stream: true,
+          expectedRevision: revision
+        })
+        if (selected.cancelled) return
+        if (!selected.tableSource) throw new Error('未取得完整角色卡来源，请重新选择。')
+        if (selected.tableSource.revision !== revision) {
+          await port.cancelTableStage!({ id: selected.tableSource.id })
+          throw new Error('数据已变化，请重新选择角色卡。')
+        }
+        imported = await previewNativeCoc7(port, selected.tableSource, controller.signal)
+      } finally {
+        tableAbort.current = undefined
+        setTableImporting(false)
+      }
+    } else {
+      const selected = await port.openBackup({ kind: 'character-table' })
+      if (selected.cancelled || !selected.base64 || !selected.name) return
+      imported = previewCoc7Import(decodeBase64(selected.base64), selected.name)
+    }
     if (nativeRef.current?.revision !== revision) throw new Error('数据已变化，请重新选择角色卡。')
     setNotice('')
     setSaveStatus('')
@@ -714,6 +807,29 @@ export function MobileApp({
     )
       return
     if (nativeRef.current?.revision !== tablePreview.revision) throw new Error('数据已变化，请重新选择表格。')
+    if (tablePreview.stream) {
+      setNotice('正在保存表格数据…')
+      const id = tablePreview.stream.id
+      let result: Awaited<ReturnType<typeof confirmNativeTable>>
+      try {
+        result = await confirmNativeTable(port, id)
+      } catch (error) {
+        setTablePreview(undefined)
+        throw error
+      }
+      setTablePreview(undefined)
+      setNative((current) => current && { ...current, json: null, revision: result.revision })
+      try {
+        await reload()
+      } catch (error) {
+        setNotice('表格已保存。')
+        throw new Error(
+          '表格已保存，但列表刷新失败，请重开应用。' + (error instanceof Error ? error.message : '')
+        )
+      }
+      setNotice('表格数据已保存。' + (result.warning ?? ''))
+      return
+    }
     if (port.commitTable) {
       setNotice('正在后台校验表格数据…')
       const started = onTableTiming ? performance.now() : undefined
@@ -793,7 +909,7 @@ export function MobileApp({
     }
   }
   useEffect(() => {
-    if (!native?.archive.valid) return
+    if (!native?.archive.valid || tablePreview || preview) return
     const due = automaticBackupDelay(
       snapshot,
       native.lastAutoBackupAt,
@@ -814,7 +930,9 @@ export function MobileApp({
     native?.revision,
     native?.archive.valid,
     native?.lastAutoBackupAt,
-    native?.lastAutoBackupRevision
+    native?.lastAutoBackupRevision,
+    tablePreview,
+    preview
   ])
   const backHandler = useRef<() => void>(() => {})
   useNavigationGestures(() => backHandler.current(), requestHome)
@@ -840,6 +958,11 @@ export function MobileApp({
       window.dispatchEvent(new Event('logbook-dropdown-close'))
       return
     }
+    if (tableImporting) {
+      tableAbort.current?.abort()
+      setNotice('正在取消表格导入…')
+      return
+    }
     if (busyLock.current && (editing || preview || exportRequest || tablePreview || batchCheck)) {
       setNotice('操作进行中，请稍候。')
       return
@@ -847,7 +970,7 @@ export function MobileApp({
     if (preview) void perform(discardBackupPreview)
     else if (batchCheck) setBatchCheck(false)
     else if (exportRequest) setExportRequest(undefined)
-    else if (tablePreview) setTablePreview(undefined)
+    else if (tablePreview) void perform(discardTablePreview)
     else if (editing) window.dispatchEvent(new Event('logbook-editor-back'))
     else if (record) closeReader()
     else if (selectedCharacter) setSelectedCharacter('')
@@ -995,7 +1118,7 @@ export function MobileApp({
   async function reload(prefetched?: ReturnType<LogbookPort['getOverview']>) {
     setNotice('正在读取列表与设置…')
     const state = await (prefetched ?? port.getOverview())
-    const data = state.json ? await readInBackground(state.json) : emptySnapshot()
+    const data = state.json ? await readOverviewInBackground(state.json) : emptySnapshot()
     const deferred = deferredIds(data, state.deferredRecordIds)
     setSnapshot(data)
     replaceDeferred(deferred)
@@ -1616,6 +1739,22 @@ export function MobileApp({
           onExport={(format) => void perform(() => exportSelected(format))}
         />
       )}
+      {tableImporting && (
+        <div className="modal-backdrop">
+          <section className="restore-dialog panel" role="dialog" aria-modal="true" aria-label="正在导入表格">
+            <h2>正在导入表格</h2>
+            <SystemMessage kind="progress" message={notice || '正在校验表格…'} />
+            <button
+              onClick={() => {
+                tableAbort.current?.abort()
+                setNotice('正在取消表格导入…')
+              }}
+            >
+              取消导入
+            </button>
+          </section>
+        </div>
+      )}
       {tablePreview && (
         <div className="modal-backdrop">
           <section className="restore-dialog panel" role="dialog" aria-modal="true" aria-label="表格导入预览">
@@ -1623,42 +1762,54 @@ export function MobileApp({
             {busy && <SystemMessage kind="progress" message={notice || '正在添加表格数据…'} />}
             {error && <SystemMessage kind="error" message={error} />}
             <div className="dialog-body">
-              <p>
-                {tablePreview.data.updated ? '将添加或更新' : '新增'} {tablePreview.data.names.length} 项；
-                {tablePreview.data.updated ? '手动正文更新已在下方列明。' : '当前业务数据保留。'}
-              </p>
-              {tablePreview.data.names.slice(0, tablePreviewLimit.names).map((name, i) => (
-                <p key={i}>{name}</p>
-              ))}
-              {tablePreview.data.names.length > tablePreviewLimit.names && (
-                <button
-                  disabled={busy}
-                  onClick={() =>
-                    setTablePreviewLimit((current) => ({ ...current, names: current.names + 100 }))
-                  }
-                >
-                  显示更多场次（剩余 {tablePreview.data.names.length - tablePreviewLimit.names} 项）
-                </button>
-              )}
-              {!!tablePreview.data.warnings.length && (
-                <p>导入提醒共 {tablePreview.data.warnings.length} 条</p>
-              )}
-              {tablePreview.data.warnings.slice(0, tablePreviewLimit.warnings).map((warning, i) => (
-                <SystemMessage kind="warning" message={warning} key={i} />
-              ))}
-              {tablePreview.data.warnings.length > tablePreviewLimit.warnings && (
-                <button
-                  disabled={busy}
-                  onClick={() =>
-                    setTablePreviewLimit((current) => ({ ...current, warnings: current.warnings + 100 }))
-                  }
-                >
-                  显示更多提醒（剩余 {tablePreview.data.warnings.length - tablePreviewLimit.warnings} 条）
-                </button>
+              {tablePreview.stream ? (
+                <TableStreamList
+                  preview={tablePreview.stream}
+                  offsets={tableOffsets}
+                  busy={busy}
+                  onPage={(kind, offset) => void perform(() => tablePage(kind, offset))}
+                />
+              ) : (
+                <>
+                  <p>
+                    {tablePreview.data.updated ? '将添加或更新' : '新增'} {tablePreview.data.names.length}{' '}
+                    项；
+                    {tablePreview.data.updated ? '手动正文更新已在下方列明。' : '当前业务数据保留。'}
+                  </p>
+                  {tablePreview.data.names.slice(0, tablePreviewLimit.names).map((name, i) => (
+                    <p key={i}>{name}</p>
+                  ))}
+                  {tablePreview.data.names.length > tablePreviewLimit.names && (
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        setTablePreviewLimit((current) => ({ ...current, names: current.names + 100 }))
+                      }
+                    >
+                      显示更多场次（剩余 {tablePreview.data.names.length - tablePreviewLimit.names} 项）
+                    </button>
+                  )}
+                  {!!tablePreview.data.warnings.length && (
+                    <p>导入提醒共 {tablePreview.data.warnings.length} 条</p>
+                  )}
+                  {tablePreview.data.warnings.slice(0, tablePreviewLimit.warnings).map((warning, i) => (
+                    <SystemMessage kind="warning" message={warning} key={i} />
+                  ))}
+                  {tablePreview.data.warnings.length > tablePreviewLimit.warnings && (
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        setTablePreviewLimit((current) => ({ ...current, warnings: current.warnings + 100 }))
+                      }
+                    >
+                      显示更多提醒（剩余 {tablePreview.data.warnings.length - tablePreviewLimit.warnings} 条）
+                    </button>
+                  )}
+                </>
               )}
             </div>
             <div className="dialog-actions">
-              <button disabled={busy} onClick={() => setTablePreview(undefined)}>
+              <button disabled={busy} onClick={() => void perform(discardTablePreview)}>
                 取消
               </button>
               <button className="primary" disabled={busy} onClick={() => void perform(confirmTable)}>

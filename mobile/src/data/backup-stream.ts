@@ -1,4 +1,4 @@
-import { validateBackupRecord, validateSnapshotBytes, backupArchiveReferences } from './backup'
+import { validateBackupRecord, validateOverviewBytes, backupArchiveReferences } from './backup'
 import { capacity } from './capacity'
 import { StreamJson, utf8Size, checkStreamBudget, checkStreamCancelled } from './stream-json'
 import { StreamSha256 } from './stream-sha256'
@@ -51,7 +51,7 @@ export function recordMetadata(record: SessionRecord): BodylessRecord {
 
 /** Read legacy schema 1/2 JSON and existing mobile envelopes without whole-file allocation.
  * One record/field is bounded to the existing 64MiB request limit. Aggregate
- * metadata is independently bounded; records are awaited to enforce backpressure.
+ * metadata uses available resources; records are awaited to enforce backpressure.
  * A successful result still grants no database/authorization/commit capability.
  */
 export async function readBackupJsonStream(
@@ -62,8 +62,7 @@ export async function readBackupJsonStream(
   const flat: Record<string, unknown> = Object.create(null)
   const nested: Record<string, unknown> = Object.create(null)
   const records: SessionRecord[] = []
-  let metadataBytes = 0,
-    offlineRecords = 0,
+  let offlineRecords = 0,
     flatRecords = false,
     nestedRecords = false,
     hasSnapshot = false
@@ -95,18 +94,22 @@ export async function readBackupJsonStream(
         if (utf8Size(preserved ?? JSON.stringify(record)) > capacity.snapshotRequestBytes)
           throw new Error('单场完整数据超过64MiB。')
         const metadata = recordMetadata(record)
-        metadataBytes += utf8Size(JSON.stringify(metadata)) + 1
-        if (metadataBytes > capacity.snapshotRequestBytes) throw new Error('备份元数据超过处理上限。')
         await options.stageRecord(record, records.length, preserved)
         records.push(metadata)
         if (record.rawContent || (record.sourceType === 'manual' && record.manualContent)) offlineRecords++
       })
     } else {
-      const value = await reader.readValue()
-      if (retained.has(name)) {
-        metadataBytes += utf8Size(JSON.stringify(value)) + utf8Size(name) + 4
-        if (metadataBytes > capacity.snapshotRequestBytes) throw new Error('备份元数据超过处理上限。')
-        target[name] = value
+      // Entity collections have no cumulative 64MiB cap. Each item retains the
+      // independent field budget and strict JSON validation.
+      if (['modules', 'characters', 'manifest', 'noteImages', 'archiveEntries'].includes(name)) {
+        const values: unknown[] = []
+        await reader.array(async () => {
+          values.push(await reader.readValue())
+        })
+        target[name] = values
+      } else {
+        const value = await reader.readValue()
+        if (retained.has(name)) target[name] = value
       }
     }
   }
@@ -134,8 +137,7 @@ export async function readBackupJsonStream(
     root.records = records
     const input = envelope ? { ...flat, snapshot: root } : root
     const bytes = encodeUtf8(JSON.stringify(input))
-    if (bytes.length > capacity.snapshotRequestBytes) throw new Error('备份元数据超过处理上限。')
-    const checked = await validateSnapshotBytes(bytes)
+    const checked = await validateOverviewBytes(bytes)
     const archive = options.archiveReferences
       ? backupArchiveReferences(flat, root)
       : { integrity: [], attachments: [] }
@@ -180,7 +182,7 @@ export async function writeBackupJsonStream(
     metadata.records.some((record) => record.rawContent !== undefined || record.manualContent !== undefined)
   )
     throw new Error('流式备份头只能包含元数据，不能携带整库正文。')
-  const checked = (await validateSnapshotBytes(encodeUtf8(JSON.stringify(metadata)))).snapshot
+  const checked = (await validateOverviewBytes(encodeUtf8(JSON.stringify(metadata)))).snapshot
   const digest = new StreamSha256()
   async function emit(text: string) {
     checkStreamCancelled(options.signal)

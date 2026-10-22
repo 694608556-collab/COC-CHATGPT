@@ -1,5 +1,11 @@
 import { capacity } from './capacity'
-import { previewBackup, validateSnapshotBytes, encodeBackup, encodeArchiveBackup } from './backup'
+import {
+  previewBackup,
+  validateSnapshotBytes,
+  validateOverviewBytes,
+  encodeBackup,
+  encodeArchiveBackup
+} from './backup'
 import { decodeBase64, encodeBase64 } from './bytes'
 import type { MobileSnapshot } from './types'
 import { readSource } from './local-source'
@@ -29,6 +35,7 @@ export type SnapshotJob =
   | { type: 'preview'; bytes: Uint8Array }
   | { type: 'preview-base64'; base64: string }
   | { type: 'read'; json: string }
+  | { type: 'read-overview'; json: string }
   | { type: 'checked-json'; json: string }
   | { type: 'prepare'; snapshot: MobileSnapshot; measure?: boolean }
   | { type: 'prepare-upload'; snapshot: MobileSnapshot }
@@ -137,6 +144,7 @@ export async function performSnapshotJob(job: SnapshotJob) {
   if (job.type === 'sea-response') return decodeSeaResponse(job.text, job.sourceUrl)
   if (job.type === 'preview') return previewBackup(job.bytes)
   if (job.type === 'preview-base64') return previewBackup(decodeBase64(job.base64))
+  if (job.type === 'read-overview') return validateOverviewBytes(new TextEncoder().encode(job.json))
   if (job.type === 'read') return validateSnapshotBytes(new TextEncoder().encode(job.json))
   if (job.type === 'checked-json') {
     const checked = await validateSnapshotBytes(new TextEncoder().encode(job.json))

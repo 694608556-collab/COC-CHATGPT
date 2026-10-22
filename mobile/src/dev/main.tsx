@@ -16,6 +16,7 @@ import { AppLaunch } from '../AppLaunch'
 import { claimWelcome } from '../data/presentation'
 import { browserPresentation } from './presentation'
 import type { TableConfirmTiming } from '../data/table-timing'
+import { createTableStreamFixture } from './table-stream-fixture'
 
 // Explicit browser-fixture opt-in. This entry is never included in an APK/IPA.
 const tableTimings: TableConfirmTiming[] = []
@@ -27,6 +28,9 @@ const onTableTiming = new URLSearchParams(location.search).has('table-timing')
   : undefined
 
 const browser = createBrowserPort()
+const previewPort = new URLSearchParams(location.search).has('table-stream-fixture')
+  ? createTableStreamFixture(browser.port)
+  : browser.port
 function download(name: string, bytes: Uint8Array, mime: string) {
   const url = URL.createObjectURL(new Blob([new Uint8Array(bytes).buffer], { type: mime }))
   const a = document.createElement('a')
@@ -119,7 +123,7 @@ function Preview() {
         }
       </aside>
       <MobileApp
-        port={browser.port}
+        port={previewPort}
         onTableTiming={onTableTiming}
         testBackup={() => new TextEncoder().encode(JSON.stringify(searchSample()))}
       />

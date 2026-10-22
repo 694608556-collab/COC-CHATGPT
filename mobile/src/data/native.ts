@@ -2,6 +2,7 @@ import { registerPlugin } from '@capacitor/core'
 import type { DataAction } from './actions'
 import type { MobileSnapshot } from './types'
 import type { BackupStreamPort } from './backup-stream-native'
+import type { TableStreamPort } from './table-stream-native'
 export { decodeBase64, encodeBase64 } from './bytes'
 
 /** 原生归档目录状态。 */
@@ -24,6 +25,7 @@ export interface NativeState {
   backupStreamVersion?: 1
   bodySearchStreamVersion?: 1
   tableDeltaVersion?: 1
+  tableStreamVersion?: 1
   lastAutoBackupAt?: number
   lastAutoBackupRevision?: number
   /** 当前是否有活动网络；类型为 boolean，不表示远程日志网站一定可达。 */
@@ -48,7 +50,7 @@ export interface SavedDocument {
   sha256: string
 }
 /** 所有请求/响应与本工程 LogbookPlugin.java 一一对应，不访问推测的 HTTP 接口。 */
-export interface LogbookPort extends BackupStreamPort {
+export interface LogbookPort extends BackupStreamPort, TableStreamPort {
   createSearchSource?(options: {
     ids: string[]
     expectedRevision: number
@@ -195,6 +197,7 @@ export interface LogbookPort extends BackupStreamPort {
     base64?: string
     name?: string
     source?: import('./backup-stream-native').NativeRestoreSource
+    tableSource?: import('./table-stream-native').NativeTableSource
   }>
   /**
    * 显式确认后在 SQLite 事务内覆盖；校验或提交失败不变更当前业务数据。

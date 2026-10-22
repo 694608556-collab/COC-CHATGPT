@@ -197,7 +197,7 @@ final class LogbookStore {
     func metadata() throws -> LogbookJSON? {
         guard let text = try rows("SELECT json FROM state WHERE id=1").first?.first else { throw LogbookFailure("本机数据状态缺失。") }
         if text.isEmpty { return nil }
-        guard try metadataBytes() <= LogbookLimits.snapshotRequestBytes else { throw LogbookFailure("整库元数据超过独立处理上限。") }
+        // Body-free overview is bounded by actual device RAM, not a total byte quota.
         var data = try logbookObject(text)
         data["records"] = try rows("SELECT metadata FROM records ORDER BY position").map { try logbookObject($0[0]) }
         try LogbookValidation.snapshot(data, metadataOnly: true)
@@ -227,7 +227,7 @@ final class LogbookStore {
         let allRecords = root.removeValue(forKey: "records") as! [LogbookJSON]
         let wanted = selected.map { Set($0) }
         let records = allRecords.filter { wanted == nil || wanted!.contains($0["id"] as! String) }
-        if let selected { guard !selected.isEmpty, selected.count <= 50000, wanted!.count == selected.count, records.count == selected.count else { throw LogbookFailure("搜索场次缺失、重复或无效。") } }
+        if let selected { guard !selected.isEmpty, wanted!.count == selected.count, records.count == selected.count else { throw LogbookFailure("搜索场次缺失、重复或无效。") } }
         let maximum = deviceSpace ? maximumBytes : min(maximumBytes, LogbookLimits.backupFileBytes)
         guard maximum > 0 else { throw LogbookFailure("备份空间预算无效。") }
         var total = 0
@@ -332,8 +332,7 @@ final class LogbookStore {
         do {
             try check(expected); timing?.mark("transactionCAS"); try action()
             if deviceSpace {
-                guard try metadataBytes() <= LogbookLimits.snapshotRequestBytes,
-                      try scalar("SELECT COALESCE(MAX(metadata_bytes+body_bytes-CASE WHEN body_bytes=2 THEN 2 ELSE 1 END),0) FROM record_sizes") <= LogbookLimits.entityRequestBytes else { throw LogbookFailure("单场完整正文或整库元数据超过独立处理上限。") }
+                guard try scalar("SELECT COALESCE(MAX(metadata_bytes+body_bytes-CASE WHEN body_bytes=2 THEN 2 ELSE 1 END),0) FROM record_sizes") <= LogbookLimits.entityRequestBytes else { throw LogbookFailure("单场完整正文超过独立处理上限。") }
                 try LogbookCapacity.require(available: available, additional: 0)
             } else { guard try logicalBytes() <= LogbookLimits.libraryBytes else { throw LogbookFailure("数据超过 64 MB 上限。") } }
             timing?.mark("capacity")
@@ -367,6 +366,29 @@ final class LogbookStore {
             })
             guard try logbookData(actual.metadata) == logbookData(preview.metadata) else { throw LogbookFailure("恢复候选元数据已变化。") }
             try saveRoot(root, revision: expected + 1); try authorize()
+        }
+    }
+    /// Streaming tables add/patch only staged rows. Existing online body tokens
+    /// never enter Foundation or a write statement. Metadata remains RAM-bound.
+    func importTableStream(_ owner: LogbookTableSession, authorize: () throws -> Void = {}) throws -> Int {
+        try owner.requireCommitReady()
+        guard var data = owner.root else { throw LogbookFailure("表格预览尚未完整。") }
+        for kind in ["modules", "characters", "records"] {
+            var values: [LogbookJSON] = []
+            try owner.eachEntity(kind, bodies: false) { value, _, _ in values.append(value) }
+            data[kind] = values
+        }
+        data["exportedAt"] = logbookNow()
+        try LogbookValidation.snapshot(data, metadataOnly: true)
+        return try transaction(owner.expected) {
+            try authorize()
+            try owner.eachEntity("records", changedOnly: true) { value, position, change in
+                try LogbookValidation.record(value)
+                if change == 1 { try self.writeRecord(value, position: position) }
+                else { try self.writeManual(value) }
+            }
+            try saveRoot(data, revision: owner.expected + 1)
+            try authorize()
         }
     }
     /// Delta writes skip comparison/serialization of untouched records; all graph and capacity checks remain.
@@ -526,7 +548,7 @@ final class LogbookFetchBatch {
     private let deviceSpace: Bool
     init(directory: URL, store: LogbookStore, ids: [String], expected: Int, bookmark: Data) throws {
         try store.check(expected)
-        guard !ids.isEmpty, ids.count <= 50000, Set(ids).count == ids.count,
+        guard !ids.isEmpty, Set(ids).count == ids.count,
               let data = try store.metadata() else { throw LogbookFailure("批量检测目标无效。") }
         let wanted = Set(ids)
         let rows = (data["records"] as! [LogbookJSON]).filter { wanted.contains($0["id"] as! String) }

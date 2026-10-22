@@ -26,7 +26,7 @@ export interface Coc7ImportPreview extends Coc7ImportSummary {
 /** 只读专用模板“人物卡”的已保存结果，不执行公式或读取其他工作表。 */
 export function previewCoc7Import(bytes: Uint8Array, fileName: string): Coc7ImportPreview {
   if (!/\.xlsx$/i.test(fileName)) throw new Error('请选择七版角色卡的 XLSX 文件。')
-  if (!bytes.length || bytes.length > 20 * 1024 * 1024) throw new Error('角色卡文件为空或超过 20 MB。')
+  if (!bytes.length) throw new Error('角色卡文件为空。')
   let workbook: XLSX.WorkBook
   try {
     workbook = XLSX.read(bytes, {
@@ -45,6 +45,11 @@ export function previewCoc7Import(bytes: Uint8Array, fileName: string): Coc7Impo
   }
   const sheet = workbook.Sheets['人物卡']
   if (!sheet) throw new Error('文件中没有“人物卡”工作表。')
+  return previewCoc7Sheet(sheet)
+}
+
+/** Validate the same saved cells after streaming XLSX decoding. */
+export function previewCoc7Sheet(sheet: XLSX.WorkSheet): Coc7ImportPreview {
   const issues: Coc7ImportIssue[] = []
   const fieldNames: Record<string, string> = {
     E3: '姓名',

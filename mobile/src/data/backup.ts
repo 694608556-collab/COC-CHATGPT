@@ -200,6 +200,19 @@ export function validateSnapshotBytes(bytes: Uint8Array): Promise<ImportPreview>
   return previewBounded(bytes, capacity.snapshotRequestBytes)
 }
 
+/** Validate a body-free overview without imposing a whole-library byte budget. */
+export async function validateOverviewBytes(bytes: Uint8Array): Promise<ImportPreview> {
+  if (bytes[0] === 0x50 && bytes[1] === 0x4b) throw new Error('概览格式无效。')
+  const result = await previewBounded(bytes, bytes.length)
+  if (
+    result.snapshot.records.some(
+      (record) => record.rawContent !== undefined || record.manualContent !== undefined
+    )
+  )
+    throw new Error('概览包含正文，不能作为轻量列表读取。')
+  return result
+}
+
 async function previewBounded(bytes: Uint8Array, maximumBytes: number): Promise<ImportPreview> {
   if (!bytes.length || bytes.length > maximumBytes) throw new Error('备份大小无效，首阶段上限为 64 MB。')
   let input: unknown

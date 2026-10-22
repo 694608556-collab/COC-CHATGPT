@@ -9,7 +9,7 @@ import Network
 public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate, QLPreviewControllerDataSource, QLPreviewControllerDelegate {
     public let identifier = "LogbookPlugin"
     public let jsName = "Logbook"
-    public let pluginMethods: [CAPPluginMethod] = ["createSearchSource", "appendBackupStage", "finishBackupPreview", "commitBackupRestore", "cancelBackupStage", "createBackupStream", "finishBackupExport", "beginFetchBatch", "stageFetchResult", "finishFetchBatch", "cancelFetchBatch", "beginSnapshotEdit", "appendSnapshotEdit", "cancelSnapshotEdit", "claimFirstLaunchIntro", "getOverview", "getState", "getStatus", "getRecordContent", "commitSettings", "commitModule", "commitEntity", "commitAction", "commitTable", "commitTableDelta", "commitEdit", "commitRestore", "selectArchive", "openBackup", "writeArchive", "readDocument", "listDocuments", "openDocument", "shareDocument", "fetchLog", "automaticBackup"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise)! }
+    public let pluginMethods: [CAPPluginMethod] = ["appendTableStage", "readTableString", "finishTablePreview", "readTablePreview", "commitTableStream", "cancelTableStage", "createSearchSource", "appendBackupStage", "finishBackupPreview", "commitBackupRestore", "cancelBackupStage", "createBackupStream", "finishBackupExport", "beginFetchBatch", "stageFetchResult", "finishFetchBatch", "cancelFetchBatch", "beginSnapshotEdit", "appendSnapshotEdit", "cancelSnapshotEdit", "claimFirstLaunchIntro", "getOverview", "getState", "getStatus", "getRecordContent", "commitSettings", "commitModule", "commitEntity", "commitAction", "commitTable", "commitTableDelta", "commitEdit", "commitRestore", "selectArchive", "openBackup", "writeArchive", "readDocument", "listDocuments", "openDocument", "shareDocument", "fetchLog", "automaticBackup"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise)! }
     private let work = DispatchQueue(label: "coc.logbook.storage", qos: .userInitiated)
     private let backupWriter = DispatchQueue(label: "coc.logbook.automatic-backup", qos: .utility)
     private let logFetch = LogbookFetch()
@@ -59,7 +59,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         return value.intValue
     }
     private func state(_ store: LogbookStore, _ archive: LogbookArchive) throws -> LogbookJSON {
-        var result: LogbookJSON = ["bodySearchStreamVersion": 1, "backupStreamVersion": 1, "storageUsage": try store.storageUsage(), "tableDeltaVersion": 1, "revision": try store.revision(), "archive": archive.location(), "networkConnected": connected, "lastAutoBackupAt": 0]
+        var result: LogbookJSON = ["tableStreamVersion": 1, "bodySearchStreamVersion": 1, "backupStreamVersion": 1, "storageUsage": try store.storageUsage(), "tableDeltaVersion": 1, "revision": try store.revision(), "archive": archive.location(), "networkConnected": connected, "lastAutoBackupAt": 0]
         if let saved = archive.preferences.dictionary(forKey: "coc.automatic-backup") { result["lastAutoBackupAt"] = saved["savedAt"]; result["lastAutoBackupRevision"] = saved["revision"] }
         return result
     }
@@ -78,6 +78,102 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
             let show = !preferences.bool(forKey: key)
             if show { preferences.set(true, forKey: key); guard preferences.synchronize() else { throw LogbookFailure("首次欢迎状态未保存。") } }
             return ["show": show]
+        }
+    }
+    private var tableSession: LogbookTableSession?
+    // Storage-queue state covers the interval while a document picker is open.
+    private var filePickerPending = false
+    private var cleanedTableDirectory = false
+    private func tableDirectory() throws -> URL {
+        let directory = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("table-stream-staging", isDirectory: true)
+        if !cleanedTableDirectory { try LogbookTableSession.cleanupStale(directory); cleanedTableDirectory = true }
+        return directory
+    }
+    private func tableOwner(_ call: CAPPluginCall) throws -> LogbookTableSession {
+        guard let owner = tableSession else { throw LogbookFailure("表格租约已失效，请重新选择。") }
+        try owner.require(call.getString("id")); return owner
+    }
+    private func tableInteger(_ call: CAPPluginCall, _ key: String) throws -> Int {
+        guard LogbookValidation.number(call.options[key]), let value = call.options[key] as? NSNumber,
+              value.doubleValue >= 0, value.doubleValue < 9007199254740991, value.doubleValue.rounded(.down) == value.doubleValue else { throw LogbookFailure("表格分段位置无效。") }
+        return value.intValue
+    }
+    private func checkTable(_ owner: LogbookTableSession, _ store: LogbookStore, _ archive: LogbookArchive, revision: Bool = true) throws {
+        guard try archive.bookmark() == owner.bookmark else { throw LogbookFailure("保存位置已变化，请重新预览表格。") }
+        try archive.requirePermission()
+        if revision { try store.check(owner.expected) }
+    }
+    private func tableRun(_ call: CAPPluginCall, _ action: @escaping (LogbookStore, LogbookArchive) throws -> LogbookJSON) {
+        work.async {
+            do { let (store, archive) = try self.resources(); call.resolve(try action(store, archive)) }
+            catch {
+                var message = error.localizedDescription
+                if let owner = self.tableSession, owner.id == call.getString("id") {
+                    do { try owner.close(); self.tableSession = nil }
+                    catch { message += " 表格私有暂存清理失败，请重开后重试。" }
+                }
+                call.reject(message)
+            }
+        }
+    }
+    private func openTableStream(_ call: CAPPluginCall, _ url: URL, _ store: LogbookStore, _ archive: LogbookArchive) throws -> LogbookJSON {
+        guard tableSession == nil, backupSession == nil, fetchBatch == nil, snapshotUpload == nil, !filePickerPending else { throw LogbookFailure("已有文件或检测任务，请先完成或取消。") }
+        let revision = try expected(call); try store.check(revision); try archive.requirePermission()
+        let owner = try LogbookTableSession(directory: tableDirectory(), expected: revision, bookmark: archive.bookmark(), kind: call.getString("kind") ?? "")
+        tableSession = owner
+        do {
+            let source = try archive.withPicked(url) { try owner.capture($0, name: url.lastPathComponent) }
+            try checkTable(owner, store, archive)
+            return ["cancelled": false, "tableSource": source]
+        } catch {
+            do { try owner.close(); tableSession = nil }
+            catch { throw LogbookFailure("表格未导入，私有暂存清理失败，请重开后重试。") }
+            throw error
+        }
+    }
+    @objc func appendTableStage(_ call: CAPPluginCall) {
+        tableRun(call) { store, archive in
+            let owner = try self.tableOwner(call); try self.checkTable(owner, store, archive)
+            guard let key = call.getString("key"), let encoded = call.getString("base64"), encoded.utf8.count <= LogbookLimits.encodedChunkBytes,
+                  let bytes = Data(base64Encoded: encoded) else { throw LogbookFailure("表格分段无效。") }
+            try owner.append(key: key, chunkIndex: self.tableInteger(call, "index"), bytes: bytes); return [:]
+        }
+    }
+    @objc func readTableString(_ call: CAPPluginCall) {
+        tableRun(call) { store, archive in
+            let owner = try self.tableOwner(call); try self.checkTable(owner, store, archive)
+            return try owner.readString(self.tableInteger(call, "stringIndex"), offset: self.tableInteger(call, "offset"))
+        }
+    }
+    @objc func finishTablePreview(_ call: CAPPluginCall) {
+        tableRun(call) { store, archive in
+            let owner = try self.tableOwner(call); try self.checkTable(owner, store, archive)
+            guard let candidate = call.getObject("candidate") else { throw LogbookFailure("表格候选证明缺失。") }
+            return try owner.preview(LogbookBackupSession.requestProof(candidate), store: store)
+        }
+    }
+    @objc func readTablePreview(_ call: CAPPluginCall) {
+        tableRun(call) { store, archive in
+            let owner = try self.tableOwner(call); try self.checkTable(owner, store, archive)
+            return try owner.page(call.getString("kind") ?? "", offset: self.tableInteger(call, "offset"), limit: self.tableInteger(call, "limit"))
+        }
+    }
+    @objc func commitTableStream(_ call: CAPPluginCall) {
+        tableRun(call) { store, archive in
+            let owner = try self.tableOwner(call)
+            guard call.getBool("confirmed") == true else { throw LogbookFailure("请先确认表格预览。") }
+            try self.checkTable(owner, store, archive); try owner.prepareCommit(store: store)
+            let revision = try store.importTableStream(owner) { try self.checkTable(owner, store, archive, revision: false) }
+            // All throwing file cleanup happened before the production transaction.
+            // close now only releases the immutable, already-unlinked SQLite handle.
+            try owner.close(); self.tableSession = nil
+            return ["revision": revision]
+        }
+    }
+    @objc func cancelTableStage(_ call: CAPPluginCall) {
+        run(call) { _, _ in
+            if let owner = self.tableSession, owner.id == call.getString("id") { try owner.close(); self.tableSession = nil }
+            return [:]
         }
     }
     private var backupSession: LogbookBackupSession?
@@ -111,7 +207,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         return ["fileUri": try owner.file(key).absoluteString, "bytes": proof.bytes, "sha256": proof.sha256]
     }
     private func openRestoreStream(_ call: CAPPluginCall, _ url: URL, _ store: LogbookStore, _ archive: LogbookArchive) throws -> LogbookJSON {
-        guard backupSession == nil else { throw LogbookFailure("已有备份任务，请先关闭预览。") }
+        guard backupSession == nil, tableSession == nil, !filePickerPending else { throw LogbookFailure("已有备份任务，请先关闭预览。") }
         let revision = try expected(call); try store.check(revision); try archive.requirePermission()
         let owner = try LogbookBackupSession(directory: backupDirectory(), expected: revision, bookmark: archive.bookmark(), restoring: true, includeArchives: false)
         backupSession = owner
@@ -187,7 +283,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
     }
     @objc func createSearchSource(_ call: CAPPluginCall) {
         run(call) { store, _ in
-            guard self.backupSession == nil, let ids = call.options["ids"] as? [String], !ids.isEmpty, ids.count <= 50000, Set(ids).count == ids.count else { throw LogbookFailure("搜索场次无效或已有文件任务。") }
+            guard self.backupSession == nil, self.tableSession == nil, !self.filePickerPending, let ids = call.options["ids"] as? [String], !ids.isEmpty, Set(ids).count == ids.count else { throw LogbookFailure("搜索场次无效或已有文件任务。") }
             let revision = try self.expected(call); try store.check(revision)
             let owner = try LogbookBackupSession(directory: self.backupDirectory(), expected: revision, bookmark: Data(), restoring: false, includeArchives: false, searching: true)
             self.backupSession = owner
@@ -204,7 +300,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
     }
     @objc func createBackupStream(_ call: CAPPluginCall) {
         run(call) { store, archive in
-            guard self.backupSession == nil else { throw LogbookFailure("已有备份任务，请先关闭预览。") }
+            guard self.backupSession == nil, self.tableSession == nil, !self.filePickerPending else { throw LogbookFailure("已有备份任务，请先关闭预览。") }
             let revision = try self.expected(call); try store.check(revision); try archive.requirePermission()
             let include = call.getBool("includeArchives") == true
             let owner = try LogbookBackupSession(directory: self.backupDirectory(), expected: revision, bookmark: archive.bookmark(), restoring: false, includeArchives: include)
@@ -269,7 +365,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
     }
     @objc func beginFetchBatch(_ call: CAPPluginCall) {
         run(call) { store, archive in
-            guard self.fetchBatch == nil, let ids = call.options["ids"] as? [String] else { throw LogbookFailure("已有批量检测或目标无效。") }
+            guard self.fetchBatch == nil, self.tableSession == nil, !self.filePickerPending, let ids = call.options["ids"] as? [String] else { throw LogbookFailure("已有批量检测或目标无效。") }
             try archive.requirePermission()
             let batch = try LogbookFetchBatch(directory: self.fetchDirectory(), store: store, ids: ids, expected: self.expected(call), bookmark: archive.bookmark())
             self.fetchBatch = batch
@@ -352,7 +448,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
     @objc func getRecordContent(_ call: CAPPluginCall) {
         run(call) { store, _ in
             let expected = try self.expected(call); try store.check(expected)
-            guard let ids = call.options["ids"] as? [String], !ids.isEmpty, Set(ids).count == ids.count, ids.count <= 50000, let snapshot = try store.fullSnapshot(selected: ids) else { throw LogbookFailure("所选场次无效或尚未保存。") }
+            guard let ids = call.options["ids"] as? [String], !ids.isEmpty, Set(ids).count == ids.count, let snapshot = try store.fullSnapshot(selected: ids) else { throw LogbookFailure("所选场次无效或尚未保存。") }
             try store.check(expected); return ["json": try logbookText(snapshot), "revision": expected]
         }
     }
@@ -454,7 +550,10 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
     }
     private func presentPicker(_ call: CAPPluginCall, folder: Bool) {
         DispatchQueue.main.async {
-            guard self.pickerCall == nil, let controller = self.bridge?.viewController, controller.presentedViewController == nil else { call.reject("请先关闭当前系统窗口。"); return }
+            guard self.pickerCall == nil, let controller = self.bridge?.viewController, controller.presentedViewController == nil else {
+                if !folder { self.work.async { self.filePickerPending = false } }
+                call.reject("请先关闭当前系统窗口。"); return
+            }
             self.pickerCall = call; self.choosingFolder = folder
             let picker = UIDocumentPickerViewController(forOpeningContentTypes: folder ? [.folder] : [.data], asCopy: !folder)
             #if DEBUG && targetEnvironment(simulator)
@@ -499,6 +598,10 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         if ProcessInfo.processInfo.arguments.contains("--coc-ios-scale"), let uri = call.getString("publicRestoreDocument") {
             run(call) { store, archive in
                 try archive.withDocument(uri) { url, document, _ in
+                    if call.getBool("stream") == true, call.getString("kind") == "record-table", document["purpose"] as? String == "export",
+                       (document["name"] as? String ?? "").hasPrefix("public-table-stream"), url.pathExtension.lowercased() == "csv" {
+                        return try self.openTableStream(call, url, store, archive)
+                    }
                     guard call.getBool("stream") == true, call.getString("kind") == "backup", document["purpose"] as? String == "backup",
                           (document["name"] as? String ?? "").hasPrefix("public-capacity-") else { throw LogbookFailure("仅限隔离模拟器的公开容量夹具。") }
                     return try self.openRestoreStream(call, url, store, archive)
@@ -507,13 +610,17 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
             return
         }
         #endif
-        presentPicker(call, folder: false)
+        work.async {
+            guard self.tableSession == nil, self.backupSession == nil, self.fetchBatch == nil, self.snapshotUpload == nil, !self.filePickerPending else { call.reject("已有文件或检测任务，请先完成或取消。"); return }
+            self.filePickerPending = true; self.presentPicker(call, folder: false)
+        }
     }
     public func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
         guard controller === activePicker else { return }
         let call = pickerCall; pickerCall = nil; activePicker = nil
         controller.delegate = nil
         controller.dismiss(animated: true)
+        if !choosingFolder { work.async { self.filePickerPending = false } }
         call?.resolve(["cancelled": true])
     }
     public func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
@@ -526,10 +633,12 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         let folder = choosingFolder; pickerCall = nil; activePicker = nil
         controller.delegate = nil
         controller.dismiss(animated: true)
-        guard let url = urls.first else { call.resolve(["cancelled": true]); return }
+        guard let url = urls.first else { if !folder { work.async { self.filePickerPending = false } }; call.resolve(["cancelled": true]); return }
         run(call) { store, archive in
+            if !folder { self.filePickerPending = false }
             if folder { return ["cancelled": false, "archive": try archive.choose(url)] }
             if call.getBool("stream") == true, (call.getString("kind") ?? "backup") == "backup" { return try self.openRestoreStream(call, url, store, archive) }
+            if call.getBool("stream") == true, ["record-table", "character-table"].contains(call.getString("kind") ?? "") { return try self.openTableStream(call, url, store, archive) }
             return ["cancelled": false, "name": url.lastPathComponent, "base64": try archive.readPicked(url).base64EncodedString()]
         }
     }

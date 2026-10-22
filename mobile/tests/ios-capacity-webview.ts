@@ -4,6 +4,9 @@ import { exportNativeBackup, previewNativeBackup, searchNativeBodies } from '../
 import type { NativeRestoreSource } from '../src/data/backup-stream-native'
 import { readLocalSourceStream } from '../src/data/local-source-stream'
 import { Capacitor } from '@capacitor/core'
+import { previewNativeTable, confirmNativeTable } from '../src/data/table-stream-client'
+import type { NativeTableSource } from '../src/data/table-stream-native'
+import { encodeBase64 } from '../src/data/bytes'
 
 declare global {
   interface Window {
@@ -121,6 +124,106 @@ window.__cocSmokeTask = (async () => {
       automatic.document.bytes > 96 * 1024 * 1024 && automatic.revision === restored.revision,
       'Automatic backup incomplete'
     )
+    setStage('native-table-stream-source')
+    check(initial.tableStreamVersion === 1, 'Native table stream capability missing')
+    const manual = (index: number) =>
+      `PUBLIC_TABLE_BEGIN_${index}\n${'完整正文😀,'.repeat(300)}\nPUBLIC_TABLE_END_${index}`
+    const cell = (value: string) => '"' + value.replace(/"/g, '""') + '"'
+    const csv = new TextEncoder().encode(
+      [
+        '模组名,场次名,海豹链接,手动保存内容',
+        ...Array.from({ length: 205 }, (_, index) =>
+          ['公开原生表格团', `PUBLIC_TABLE_SESSION_${index}`, '', manual(index)].map(cell).join(',')
+        )
+      ].join('\r\n')
+    )
+    check(csv.length > 262144, 'Public table source must exercise multiple WK ranges')
+    const tableDocument = await Native.writeArchive({
+      name: 'public-table-stream.csv',
+      mime: 'text/csv',
+      base64: encodeBase64(csv),
+      purpose: 'export'
+    })
+    async function openTable(): Promise<NativeTableSource> {
+      const result = await (Native.openBackup as (o: unknown) => Promise<{ tableSource: NativeTableSource }>)(
+        {
+          kind: 'record-table',
+          stream: true,
+          expectedRevision: restored.revision,
+          publicRestoreDocument: tableDocument.uri
+        }
+      )
+      return result.tableSource
+    }
+    const sourceTable = await openTable()
+    let tableRangeBytes = 0
+    for await (const chunk of readLocalSourceStream(
+      { ...sourceTable, url: Capacitor.convertFileSrc(sourceTable.fileUri), ranged: true },
+      { maximumBytes: sourceTable.bytes }
+    ))
+      tableRangeBytes += chunk.length
+    check(tableRangeBytes === csv.length, 'Public table WK ranges did not cover complete source')
+    setStage('packaged-table-worker-native-preview')
+    const tablePreview = await previewNativeTable(Native, sourceTable, 'records')
+    check(
+      tablePreview.added === 205 &&
+        tablePreview.updated === 0 &&
+        tablePreview.names.length === 100 &&
+        tablePreview.namesCount === 205,
+      'Native table initial preview incomplete'
+    )
+    const page = await Native.readTablePreview!({
+      id: tablePreview.id,
+      kind: 'names',
+      offset: 200,
+      limit: 100
+    })
+    check(
+      page.total === 205 && page.values.length === 5 && page.values[4]!.endsWith('PUBLIC_TABLE_SESSION_204'),
+      'Native table SQLite preview pagination failed'
+    )
+    check(
+      (await Native.getOverview()).revision === restored.revision,
+      'Native table preview wrote production state'
+    )
+    await Native.cancelTableStage!({ id: tablePreview.id })
+    let cancelled = false
+    try {
+      await Native.readTablePreview!({ id: tablePreview.id, kind: 'names', offset: 0, limit: 100 })
+    } catch {
+      cancelled = true
+    }
+    check(
+      cancelled && (await Native.getOverview()).revision === restored.revision,
+      'Native table cancellation did not release owner'
+    )
+    setStage('native-table-stream-commit')
+    const tableAgain = await previewNativeTable(Native, await openTable(), 'records')
+    const tableSaved = await confirmNativeTable(Native, tableAgain.id)
+    check(tableSaved.revision === restored.revision + 1, 'Native table must commit once')
+    const tableOverview = await Native.getOverview(),
+      tableData = JSON.parse(tableOverview.json!)
+    const finalTableRow = tableData.records.find(
+      (record: { name: string }) => record.name === 'PUBLIC_TABLE_SESSION_204'
+    )
+    check(tableData.records.length === 301 && finalTableRow, 'Native table lost prior or new records')
+    const tableBodies = await Native.getRecordContent({
+      ids: ['public-capacity-0', 'public-capacity-95', finalTableRow.id],
+      expectedRevision: tableSaved.revision
+    })
+    const tableRows = JSON.parse(tableBodies.json).records
+    check(
+      tableRows.find((record: { id: string }) => record.id === finalTableRow.id).manualContent ===
+        manual(204),
+      'Native table full multiline final body changed'
+    )
+    for (const old of JSON.parse(last.json).records) {
+      check(
+        JSON.stringify(tableRows.find((record: { id: string }) => record.id === old.id)) ===
+          JSON.stringify(old),
+        'Native table rewrote a previous complete record'
+      )
+    }
     check(rangedRequests > 300 && largestRange <= 262144, 'WK native range path not exercised')
     return {
       passed: true,
@@ -135,6 +238,11 @@ window.__cocSmokeTask = (async () => {
       rangedRequests,
       largestRange,
       revision: restored.revision,
+      tableAdded: tablePreview.added,
+      tableSourceBytes: csv.length,
+      tableRangeBytes,
+      tableRevision: tableSaved.revision,
+      recordsAfterTable: tableData.records.length,
       nativeSQLite: true,
       packagedWorker: true,
       physicalPhone: false
