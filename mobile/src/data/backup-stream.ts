@@ -1,6 +1,6 @@
 import { validateBackupRecord, validateOverviewBytes, backupArchiveReferences } from './backup'
 import { capacity } from './capacity'
-import { StreamJson, utf8Size, checkStreamBudget, checkStreamCancelled } from './stream-json'
+import { StreamJson, checkStreamBudget, checkStreamCancelled } from './stream-json'
 import { StreamSha256 } from './stream-sha256'
 import type { MobileSnapshot } from './types'
 import type { SessionRecord } from '../../../src/shared/types'
@@ -50,15 +50,15 @@ export function recordMetadata(record: SessionRecord): BodylessRecord {
 }
 
 /** Read legacy schema 1/2 JSON and existing mobile envelopes without whole-file allocation.
- * One record/field is bounded to the existing 64MiB request limit. Aggregate
- * metadata uses available resources; records are awaited to enforce backpressure.
+ * One complete record uses available runtime memory and the operation's actual
+ * storage budget; records are awaited to enforce backpressure.
  * A successful result still grants no database/authorization/commit capability.
  */
 export async function readBackupJsonStream(
   source: AsyncIterable<Uint8Array>,
   options: StreamReadOptions
 ): Promise<StreamBackupPreview> {
-  const reader = new StreamJson(source, options.maximumBytes, capacity.snapshotRequestBytes, options.signal)
+  const reader = new StreamJson(source, options.maximumBytes, options.maximumBytes, options.signal)
   const flat: Record<string, unknown> = Object.create(null)
   const nested: Record<string, unknown> = Object.create(null)
   const records: SessionRecord[] = []
@@ -90,17 +90,13 @@ export async function readBackupJsonStream(
         const preserved = options.preserveBodyTokens
           ? recordJsonWithBodyTokens(record, original.value, original.json)
           : undefined
-        // Count normalized complete raw/manual together, not each field separately.
-        if (utf8Size(preserved ?? JSON.stringify(record)) > capacity.snapshotRequestBytes)
-          throw new Error('单场完整数据超过64MiB。')
         const metadata = recordMetadata(record)
         await options.stageRecord(record, records.length, preserved)
         records.push(metadata)
         if (record.rawContent || (record.sourceType === 'manual' && record.manualContent)) offlineRecords++
       })
     } else {
-      // Entity collections have no cumulative 64MiB cap. Each item retains the
-      // independent field budget and strict JSON validation.
+      // Entity collections and individual values use the actual operation budget.
       if (['modules', 'characters', 'manifest', 'noteImages', 'archiveEntries'].includes(name)) {
         const values: unknown[] = []
         await reader.array(async () => {
@@ -221,7 +217,6 @@ export async function writeBackupJsonStream(
     checkStreamCancelled(options.signal)
     const record = validateBackupRecord(value)
     const json = JSON.stringify(record)
-    if (utf8Size(json) > capacity.snapshotRequestBytes) throw new Error('单场完整数据超过64MiB。')
     if (JSON.stringify(recordMetadata(record)) !== JSON.stringify(checked.records[index]))
       throw new Error('备份场次缺失、重复、顺序或元数据已变化。')
     await emit((index ? ',' : '') + json)

@@ -1,4 +1,3 @@
-import { capacity } from './capacity'
 import type { ExportSource } from './export-source'
 
 /**
@@ -17,11 +16,7 @@ export async function readSource(
     !url.pathname.startsWith(attachment ? '/_capacitor_content_/' : '/_capacitor_file_/')
   )
     throw new Error('只允许读取本应用的本地导出正文。')
-  if (
-    !Number.isSafeInteger(source.bytes) ||
-    source.bytes < (attachment ? 0 : 1) ||
-    source.bytes > (attachment ? capacity.archiveFileBytes : capacity.readSourceBytes)
-  )
+  if (!Number.isSafeInteger(source.bytes) || source.bytes < (attachment ? 0 : 1))
     throw new Error('导出正文大小无效。')
   const response = await fetch(url.href, { cache: 'no-store', redirect: 'error' })
   if (!response.ok) throw new Error('读取完整导出正文失败。')

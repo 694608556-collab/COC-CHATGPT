@@ -6,7 +6,7 @@ import { readWorkbookGrid } from '../../../src/shared/table-grid'
 import type { GridSheet } from '../../../src/shared/table-grid'
 import { detectCharacterSheets, importCharacterFromSheet } from '../../../src/shared/character-template'
 import { capacity } from './capacity'
-import { checkStreamBudget, checkStreamCancelled } from './stream-json'
+import { addStreamBytes, checkStreamBudget, checkStreamCancelled } from './stream-json'
 import { StreamSha256 } from './stream-sha256'
 import { parseSeaLogUrl } from './sea-parser'
 import { previewCoc7Sheet } from './coc7-import'
@@ -53,11 +53,9 @@ export async function performTableStreamJob(
   async function send(key: 'candidate' | 'strings', text: string) {
     checkStreamCancelled(signal)
     const bytes = encoder.encode(text)
-    if (bytes.length > capacity.snapshotRequestBytes)
-      throw new Error('单场记录或独立字段超过处理上限，未导入部分数据。')
-    if (staged + bytes.length > job.maximumStageBytes)
+    if (addStreamBytes(staged, bytes.length) > job.maximumStageBytes)
       throw new Error('表格暂存所需空间超过手机本次可用空间。')
-    staged += bytes.length
+    staged = addStreamBytes(staged, bytes.length)
     for (let offset = 0; offset < bytes.length;) {
       checkStreamCancelled(signal)
       const count = Math.min(bytes.length - offset, capacity.transferChunkBytes - used[key])

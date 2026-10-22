@@ -34,7 +34,6 @@ async function readString(index: number): Promise<string> {
     if (
       !Number.isSafeInteger(result.bytes) ||
       result.bytes < 0 ||
-      result.bytes > capacity.snapshotRequestBytes ||
       (expected !== undefined && expected !== result.bytes)
     )
       throw new Error('表格字符串证明无效。')

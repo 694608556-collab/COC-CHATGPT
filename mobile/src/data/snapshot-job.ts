@@ -70,7 +70,7 @@ let tableLease:
 let tableGeneration = 0
 
 /**
- * 运行只读文件任务，保留既有大小/结构/ZIP/关联校验。
+ * 运行只读文件任务，保留精确字节计量及结构/ZIP/关联校验。
  * @param job - 明确的解码、校验或编码请求。
  * @returns 校验预览、编码文本、完整海豹正文或校验后的快照与 JSON，或待上传字节的私有租约/分段。
  */
@@ -103,8 +103,6 @@ export async function performSnapshotJob(job: SnapshotJob) {
     const started = performance.now()
     const delta = createTableDelta(lease.baseline, prepared.snapshot)
     const json = JSON.stringify(delta)
-    if (new TextEncoder().encode(json).length > capacity.tableRequestBytes)
-      throw new Error('表格差量超过 64 MiB。')
     if (tableLease !== lease) throw new Error('表格预览已失效。')
     if (prepared.timing) {
       const elapsed = performance.now() - started
@@ -172,7 +170,6 @@ export async function performSnapshotJob(job: SnapshotJob) {
   mark('outputJson')
   if (job.type === 'prepare-upload') {
     const bytes = new TextEncoder().encode(json)
-    if (bytes.length > capacity.snapshotUploadBytes) throw new Error('待保存数据超过 64 MiB。')
     const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (b) =>
       b.toString(16).padStart(2, '0')
     ).join('')

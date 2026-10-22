@@ -4,15 +4,15 @@ import { exampleBackup } from './fixtures'
 import { zipSync, strToU8 } from 'fflate'
 
 describe('安卓备份校验公共边界', () => {
-  it('ZIP 解压总量包含完整正文和清单，不能生成自身恢复器拒绝的备份', async () => {
+  it('ZIP附件超过旧1999项门槛仍完整往返，逐份摘要验证', async () => {
     const current = (await previewBackup(strToU8(JSON.stringify(exampleBackup())))).snapshot
-    const rejected = await encodeArchiveBackup(current, [
-      { name: 'public-limit.txt', bytes: new Uint8Array(128 * 1024 * 1024) }
-    ]).then(
-      () => false,
-      (error: Error) => error.message.includes('128')
-    )
-    expect(rejected).toBe(true)
+    const files = Array.from({ length: 2001 }, (_, index) => ({
+      name: `public-${index}.txt`,
+      bytes: strToU8(String(index))
+    }))
+    const preview = await previewBackup(await encodeArchiveBackup(current, files))
+    expect(preview.attachments).toHaveLength(files.length)
+    expect(new TextDecoder().decode(preview.attachments!.at(-1)!.bytes)).toBe('2000')
   }, 20000)
   it('旧备份的首行缩进及深色导出标记被禁用', async () => {
     const payload = exampleBackup()

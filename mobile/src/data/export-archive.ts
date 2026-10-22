@@ -15,7 +15,6 @@ export async function saveGeneratedExport(
   file: { name: string; mime: string; bytes: Uint8Array },
   purpose: 'export' | 'backup' = 'export'
 ): Promise<SavedDocument> {
-  if (file.bytes.length > capacity.archiveFileBytes) throw new Error('文件超过 64 MB，未保存。')
   // iOS retains its verified native writer until its separate spool implementation is available.
   if (file.bytes.length <= 1024 * 1024 || Capacitor.getPlatform() === 'ios')
     return port.writeArchive({

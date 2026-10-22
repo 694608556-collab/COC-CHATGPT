@@ -1,6 +1,7 @@
-import { capacity } from './capacity'
 import { z } from 'zod'
-import { unzipSync, zipSync } from 'fflate'
+import { unzipSync } from 'fflate'
+import { addStreamBytes } from './stream-json'
+import { StreamSha256 } from './stream-sha256'
 import { DEFAULT_FILTER_PRESET } from '../../../src/shared/types'
 import type { ImportPreview, MobileSnapshot } from './types'
 import type { SessionRecord } from '../../../src/shared/types'
@@ -190,20 +191,20 @@ const payloadSchema = z.object({
  * @throws 版本、实体结构或 JSON 不合法时拒绝导入。
  */
 export function previewBackup(bytes: Uint8Array): Promise<ImportPreview> {
-  return previewBounded(bytes, capacity.backupInputBytes)
+  return previewBounded(bytes)
 }
 
 /** Validate an internal complete candidate using its request budget, with the
  * same format, body, attachment and association checks as backup preview.
  */
 export function validateSnapshotBytes(bytes: Uint8Array): Promise<ImportPreview> {
-  return previewBounded(bytes, capacity.snapshotRequestBytes)
+  return previewBounded(bytes)
 }
 
 /** Validate a body-free overview without imposing a whole-library byte budget. */
 export async function validateOverviewBytes(bytes: Uint8Array): Promise<ImportPreview> {
   if (bytes[0] === 0x50 && bytes[1] === 0x4b) throw new Error('概览格式无效。')
-  const result = await previewBounded(bytes, bytes.length)
+  const result = await previewBounded(bytes)
   if (
     result.snapshot.records.some(
       (record) => record.rawContent !== undefined || record.manualContent !== undefined
@@ -213,8 +214,8 @@ export async function validateOverviewBytes(bytes: Uint8Array): Promise<ImportPr
   return result
 }
 
-async function previewBounded(bytes: Uint8Array, maximumBytes: number): Promise<ImportPreview> {
-  if (!bytes.length || bytes.length > maximumBytes) throw new Error('备份大小无效，首阶段上限为 64 MB。')
+async function previewBounded(bytes: Uint8Array): Promise<ImportPreview> {
+  if (!bytes.length) throw new Error('备份不能为空。')
   let input: unknown
   let zipFiles: Record<string, Uint8Array> | undefined
   if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
@@ -234,8 +235,7 @@ async function previewBounded(bytes: Uint8Array, maximumBytes: number): Promise<
         if (seen.has(info.name)) throw new Error('ZIP 条目重复，校验失败。')
         seen.add(info.name)
         total += info.originalSize
-        if (total > capacity.zipExpandedBytes || seen.size > capacity.zipEntries)
-          throw new Error('ZIP 解压大小校验失败。')
+        if (!Number.isSafeInteger(total)) throw new Error('ZIP 解压大小超出系统可精确计量范围。')
         return !info.name.endsWith('/')
       }
     })
@@ -393,47 +393,54 @@ export function encodeBackup(snapshot: MobileSnapshot): Uint8Array {
   )
 }
 /**
- * 编码含完整业务快照及全部已验证附件的 ZIP，大小边界与恢复器一致。
+ * 编码含完整业务快照及全部已验证附件的 ZIP64，保留原完整备份格式。
  * @param snapshot - 完整业务快照，不修改原数据。
- * @param files - 全部附件字节；任何附件不得因超限而省略。
- * @returns 可供既有恢复器读取的完整 ZIP；解压总量或压缩大小超限时拒绝，不发布文件。
+ * @param files - 全部附件字节；不能为减少资源使用而省略附件。
+ * @returns 可供既有恢复器读取的完整 ZIP64；实际内存或校验失败时拒绝，不发布部分文件。
  */
 export async function encodeArchiveBackup(
   snapshot: MobileSnapshot,
   files: Array<{ name: string; bytes: Uint8Array }>
 ) {
-  const entries: Record<string, Uint8Array> = {}
-  const manifest = []
-  const archiveEntries = []
+  // Browser/legacy callers already own their objects in RAM. Reuse the same
+  // ZIP64 writer so this entry point cannot retain the ZIP32 format ceiling.
+  const { writeBackupZipStream } = await import('./backup-zip-stream')
+  const { recordMetadata } = await import('./backup-stream')
+  const { capacity } = await import('./capacity')
+  const parts: Uint8Array[] = []
   let total = 0
-  for (const [index, file] of files.entries()) {
-    total += file.bytes.length
-    if (total > capacity.attachmentTotalBytes || files.length > capacity.archiveAttachments)
-      throw new Error('归档附件过大或超过 1999 份，请分批导出。')
-    const path = index + '-' + file.name.replace(/[\\/]/g, '_')
-    const zipPath = 'archives/' + path
-    const hash = Array.from(
-      new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(file.bytes).buffer)),
-      (b) => b.toString(16).padStart(2, '0')
-    ).join('')
-    manifest.push({ archivePath: path, zipPath, size: file.bytes.length, hash })
-    archiveEntries.push({ path, ownerType: 'record' })
-    entries[zipPath] = file.bytes
+  async function* records() {
+    yield* snapshot.records
   }
-  entries['backup.json'] = new TextEncoder().encode(
-    JSON.stringify({
-      format: 'coc.logbook.android',
-      formatVersion: 1,
-      exportedAt: new Date().toISOString(),
-      restoreScope: ['modules', 'records', 'characters'],
-      snapshot: { ...snapshot, manifest, archiveEntries },
-      manifest
-    })
+  const attachments = files.map((file) => {
+    const digest = new StreamSha256()
+    digest.update(file.bytes)
+    return {
+      name: file.name,
+      bytes: file.bytes.length,
+      sha256: digest.digest(),
+      chunks: (async function* () {
+        for (let offset = 0; offset < file.bytes.length; offset += capacity.transferChunkBytes)
+          yield file.bytes.subarray(offset, offset + capacity.transferChunkBytes)
+      })()
+    }
+  })
+  await writeBackupZipStream(
+    { ...snapshot, records: snapshot.records.map(recordMetadata) },
+    records(),
+    attachments,
+    async (chunk) => {
+      total = addStreamBytes(total, chunk.length)
+      parts.push(chunk.slice())
+    },
+    // Exact JS counter range only; allocation/I/O capacity controls feasibility.
+    { maximumBytes: Number.MAX_SAFE_INTEGER }
   )
-  // 恢复器统计所有解压条目；正文、清单和 envelope 也必须纳入同一个 128 MiB 上限。
-  if (total + entries['backup.json'].length > capacity.zipExpandedBytes)
-    throw new Error('完整正文与归档附件合计超过 128 MB，无法打包。原文件保留。')
-  const zipped = zipSync(entries)
-  if (zipped.length > capacity.backupFileBytes) throw new Error('ZIP 备份超过 64 MB，请先分批导出归档文件。')
-  return zipped
+  const result = new Uint8Array(total)
+  let offset = 0
+  for (const part of parts) {
+    result.set(part, offset)
+    offset += part.length
+  }
+  return result
 }

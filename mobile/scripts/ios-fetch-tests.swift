@@ -28,7 +28,7 @@ final class PublicFetchProtocol: URLProtocol {
                 }
             }
             let body = key.contains("invalid-utf8") ? Data([0xff]) : Data(key.utf8)
-            let length = key.contains("oversized-header") ? LogbookLimits.recordResponseBytes + 1 : body.count
+            let length = key.contains("oversized-header") ? 65 * 1024 * 1024 : body.count
             let status = key.contains("missing") ? 404 : 200
             let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Length": String(length)])!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
@@ -124,8 +124,11 @@ final class PublicFetchProtocol: URLProtocol {
         guard rejected(isolated[0]), try isolated[1].get()["text"] as? String == "public-slow-unaffected", try isolated[2].get()["status"] as? Int == 404 else { throw LogbookFailure("One failure cancelled another task") }
         let redirect = try batch(["public-redirect-first", "public-redirect-second"])
         for result in redirect { guard try result.get()["status"] as? Int == 200 else { throw LogbookFailure("Redirect budgets crossed") } }
-        let invalid = try batch(["public-redirect-excessive", "public-redirect-foreign", "public-invalid-utf8", "public-oversized-header", "public-oversized-body"])
+        let invalid = try batch(["public-redirect-excessive", "public-redirect-foreign", "public-invalid-utf8"])
         guard invalid.allSatisfy(rejected), try batch(["public-after-rejections"])[0].get()["status"] as? Int == 200, sessions.count == 1 else { throw LogbookFailure("Limits invalidated the shared transport") }
+        let large = try batch(["public-oversized-header", "public-oversized-body"])
+        guard try large[0].get()["text"] as? String == "public-oversized-header", let complete = try large[1].get()["text"] as? String,
+              complete.utf8.count == 64 * 1024 * 1024 + 1, complete.first == "A", complete.last == "A" else { throw LogbookFailure("Large complete response was truncated or rejected") }
         for address in ["http://dice-api.weizaima.com/dice/api/load_data", "https://example.invalid/dice/api/load_data", "https://user:secret@dice-api.weizaima.com/dice/api/load_data", "https://dice-api.weizaima.com:443/dice/api/load_data", "https://dice-api.weizaima.com/other"] {
             var denied = false
             fetch.start(URL(string: address)!) { denied = rejected($0) }
@@ -135,7 +138,7 @@ final class PublicFetchProtocol: URLProtocol {
         for _ in 0..<3 { closing.enter(); fetch.start(URL(string: "https://dice-api.weizaima.com/dice/api/load_data?key=public-slow-close")!) { result in precondition(rejected(result)); completed.increment(); closing.leave() } }
         fetch.close()
         guard closing.wait(timeout: .now() + 5) == .success, completed.count == 3, rejected(try batch(["public-after-close"])[0]), sessions.count == 1 else { throw LogbookFailure("Session teardown did not settle each task exactly once") }
-        print("iOS native network: 114-request reuse, concurrent isolation, HTTP errors, redirects, UTF-8, 64MiB limits, trust and teardown passed; no real network or phone tested.")
+        print("iOS native network: 114-request reuse, concurrent isolation, HTTP errors, redirects, UTF-8, complete response above64MiB, trust and teardown passed; no real network or phone tested.")
         try profileStorage()
     }
 }

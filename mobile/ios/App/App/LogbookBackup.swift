@@ -74,7 +74,7 @@ enum LogbookBackupJSON {
                             guard let decoded = try JSONSerialization.jsonObject(with: Data(bytes[span]), options: [.fragmentsAllowed]) as? String else { throw invalid() }
                             key = decoded
                         } else { key = String(decoding: bytes[(span.lowerBound + 1)..<(span.upperBound - 1)], as: UTF8.self) }
-                        guard keys.count < 100000, keys.insert(key).inserted else { throw invalid() }
+                        guard keys.insert(key).inserted else { throw invalid() }
                         whitespace(); try take(58); try value(depth + 1); whitespace()
                         if index < bytes.count && bytes[index] == 125 { index += 1; return }
                         try take(44)
@@ -105,6 +105,12 @@ enum LogbookBackupJSON {
     static func body(_ data: Data) throws -> String {
         let fields = try members(data, selected: ["rawContent", "manualContent"])
         return "{" + fields.keys.sorted().map { "\"" + $0 + "\":" + String(decoding: fields[$0]!, as: UTF8.self) }.joined(separator: ",") + "}"
+    }
+    static func replacingManual(_ data: Data, manual: String) throws -> String {
+        let raw = try members(data, selected: ["rawContent"])["rawContent"]
+        let patch = try logbookText(["manualContent": manual])
+        guard let raw else { return patch }
+        return "{\"rawContent\":" + String(decoding: raw, as: UTF8.self) + "," + String(patch.dropFirst())
     }
     static func singleRecord(_ data: Data) throws -> Data {
         guard let records = try members(data, selected: ["records"])["records"], records.first == 91, records.last == 93 else { throw LogbookFailure("暂存缺少完整场次数组。") }
@@ -177,7 +183,7 @@ enum LogbookRestoreCandidate {
         var metadata: LogbookJSON?, offline = 0
         let newline = Data([10])
         func consume() throws {
-            guard line.count > 1, (line.first == 77 || line.count <= LogbookLimits.entityRequestBytes + 1), metadata == nil else { throw LogbookFailure("恢复候选顺序或单场长度无效。") }
+            guard line.count > 1, metadata == nil else { throw LogbookFailure("恢复候选顺序或单场数据无效。") }
             let kind = line.first!, json = Data(line.dropFirst()), value = try LogbookBackupJSON.object(json)
             if kind == 82 {
                 try LogbookValidation.record(value)
@@ -204,7 +210,6 @@ enum LogbookRestoreCandidate {
                 line.append(chunk.subdata(in: start..<range.lowerBound)); try consume(); start = range.upperBound
             }
             line.append(chunk.subdata(in: start..<chunk.endIndex))
-            guard line.first == 77 || line.count <= LogbookLimits.entityRequestBytes + 1 else { throw LogbookFailure("单场完整数据超过64MiB。") }
         }
         let digest = hash.finalize().map { String(format: "%02x", $0) }.joined()
         guard line.isEmpty, let metadata else { throw LogbookFailure("恢复候选不完整。") }
@@ -265,7 +270,6 @@ final class LogbookBackupSession {
     func require(_ token: String?) throws { guard !closed, token == id else { throw LogbookFailure("备份暂存租约已失效。") } }
     private func create(_ key: String) throws -> Entry {
         if let entry = entries[key] { return entry }
-        guard entries.count < 2002 else { throw LogbookFailure("备份暂存条目过多。") }
         let entry = try Entry(url: directory.appendingPathComponent("coc-backup-\(id)-\(entries.count).part"))
         entries[key] = entry; return entry
     }
@@ -311,7 +315,6 @@ final class LogbookBackupSession {
         guard !chunk.isEmpty, chunk.count <= LogbookLimits.transferChunkBytes, outputBytes + chunk.count <= maximumOutputBytes else { throw LogbookFailure("备份暂存分段或可用空间不足。") }
         let entry = try create(key)
         guard let output = entry.output, entry.index == index else { throw LogbookFailure("备份暂存已封存或分段乱序。") }
-        if key.hasPrefix("zip:"), entry.bytes + chunk.count > LogbookLimits.archiveFileBytes { throw LogbookFailure("单个归档附件超过64MiB。") }
         try LogbookCapacity.require(available: available, additional: chunk.count)
         try output.write(contentsOf: chunk); entry.bytes += chunk.count; entry.index += 1; outputBytes += chunk.count
     }
@@ -343,20 +346,18 @@ final class LogbookBackupSession {
         return LogbookBackupProof(bytes: bytes.intValue, sha256: hash)
     }
     func previewRestore(candidate: LogbookBackupProof, selected: [LogbookJSON]) throws {
-        guard restoring, !ready, !closed, selected.count <= 1999 else { throw LogbookFailure("恢复预览状态或附件数无效。") }
+        guard restoring, !ready, !closed else { throw LogbookFailure("恢复预览状态无效。") }
         try verify("candidate", expected: candidate)
         let input = try FileHandle(forReadingFrom: file("candidate")); defer { try? input.close() }
         let preview = try LogbookRestoreCandidate.inspect(input, proof: candidate)
-        var keep: Set<String> = ["source", "candidate"], checked: [Attachment] = [], total = 0
+        var keep: Set<String> = ["source", "candidate"], checked: [Attachment] = []
         for value in selected {
             try LogbookValidation.shape(value, "zipPath,name,mime,bytes,sha256")
             guard let path = value["zipPath"] as? String, let name = value["name"] as? String, let mime = value["mime"] as? String else { throw LogbookFailure("恢复附件类型无效。") }
             let key = "zip:" + path, proof = try Self.requestProof(value)
             guard key.utf8.count <= 4096, !name.isEmpty, name.count <= 255, name != ".", name != "..", !name.contains("/"), !name.contains("\\"),
-                  !name.unicodeScalars.contains(where: { $0.value < 32 }), !mime.isEmpty, mime.count <= 128, proof.bytes <= LogbookLimits.archiveFileBytes,
+                  !name.unicodeScalars.contains(where: { $0.value < 32 }), !mime.isEmpty, mime.count <= 128,
                   keep.insert(key).inserted else { throw LogbookFailure("恢复附件名称、大小或重复引用无效。") }
-            total += proof.bytes
-            guard total <= LogbookLimits.attachmentTotalBytes else { throw LogbookFailure("恢复附件合计超过128MiB。") }
             try verify(key, expected: proof); checked.append(Attachment(key: key, name: name, mime: mime, proof: proof))
         }
         try finish(keeping: keep); restorePreview = preview; attachments = checked

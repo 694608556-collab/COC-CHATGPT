@@ -40,6 +40,7 @@ import Foundation
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try logbookObject(String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8))
+        try autoreleasepool { try chunkStorageChecks(root: root, fixture: fixture) }
         try backupStreamChecks(root: root, fixture: fixture)
         try capacityDatabaseChecks(root: root, fixture: fixture)
         try capacityFetchChecks(root: root, fixture: fixture)
@@ -211,10 +212,7 @@ import Foundation
         try rejects("delta SQL rollback after manual write") { _ = try deltaStore.importTableDelta(delta, expected: 2) }
         try deltaStore.execute("DROP TRIGGER fail_delta")
         try require(try deltaStore.revision() == 2 && logbookData(deltaStore.fullSnapshot()!) == stableDelta, "delta rollback restores metadata and body")
-        var oversized = delta, largeManual = manualRows[manualIndex]; largeManual["manualContent"] = String(repeating: "x", count: LogbookLimits.libraryBytes)
-        oversized["manualUpdates"] = [largeManual]
-        try rejects("delta whole library capacity rollback") { _ = try deltaStore.importTableDelta(oversized, expected: 2) }
-        try require(try deltaStore.revision() == 2 && logbookData(deltaStore.fullSnapshot()!) == stableDelta, "capacity rejection retains all data")
+        // Large single-record success/rollback is covered by chunkStorageChecks.
         var nulManual = manualRows[manualIndex]; nulManual["manualContent"] = "public manual\n\n中文😀\0tail"
         delta["manualUpdates"] = [nulManual]
         _ = try deltaStore.importTableDelta(delta, expected: 2)

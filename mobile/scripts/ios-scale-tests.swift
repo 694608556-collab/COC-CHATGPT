@@ -52,9 +52,9 @@ enum IOSScaleChecks {
             for i in 0..<1000 { try autoreleasepool { try stage(result(i, failed: i % 17 == 0), batch) } }
             try IOSNativeChecks.require(try store.revision() == round + 1, "staging never publishes partial results")
             try IOSNativeChecks.require(try store.finishFetch(batch).0 == round + 2, "1000 results commit exactly once")
-            try IOSNativeChecks.require(try store.rows("SELECT body FROM records WHERE id=?", [ids[0]])[0][0] == oldBody, "failed fetch retains old body")
+            try IOSNativeChecks.require(try store.bodyText(ids[0]) == oldBody, "failed fetch retains old body")
         }
-        let untouched = try store.rows("SELECT body FROM records WHERE id=?", [ids[0]])[0][0]
+        let untouched = try store.bodyText(ids[0])
         try store.execute("CREATE TRIGGER unselected_body BEFORE UPDATE OF body ON records WHEN OLD.id NOT IN ('public-record-999') BEGIN SELECT RAISE(ABORT,'unselected body write'); END")
         let selected = try LogbookFetchBatch(directory: stageDirectory, store: store, ids: [ids[999]], expected: 4, bookmark: Data())
         try stage(result(999), selected)
@@ -68,20 +68,18 @@ enum IOSScaleChecks {
         try stage(result(0), tampered)
         let handle = try FileHandle(forWritingTo: tampered.url); try handle.write(contentsOf: Data("X".utf8)); try handle.close()
         try IOSNativeChecks.rejects("spool hash") { _ = try store.finishFetch(tampered) }
-        try IOSNativeChecks.require(try store.revision() == 5 && store.rows("SELECT body FROM records WHERE id=?", [ids[0]])[0][0] == untouched, "hash failure preserves revision and body")
+        try IOSNativeChecks.require(try store.revision() == 5 && store.bodyText(ids[0]) == untouched, "hash failure preserves revision and body")
         let stale = try LogbookFetchBatch(directory: stageDirectory, store: store, ids: [ids[0]], expected: 5, bookmark: Data())
         try stage(result(0), stale)
         _ = try store.mutate(expected: 5) { $0["settings"] = data["settings"] }
         try IOSNativeChecks.rejects("CAS rejects staged old revision") { _ = try store.finishFetch(stale) }
         let over = try LogbookFetchBatch(directory: stageDirectory, store: store, ids: ids, expected: 6, bookmark: Data())
         var hugeRaw = raw; var hugeMessage = message; hugeMessage["text"] = String(repeating: "Z", count: 96000); hugeRaw["messages"] = [hugeMessage]
-        try IOSNativeChecks.rejects("64 MiB staging cap") {
-            for i in 0..<1000 { try autoreleasepool { var row = result(i); row["rawContent"] = hugeRaw; try stage(row, over) } }
-        }
-        try IOSNativeChecks.require(try store.revision() == 6, "capacity failure does not commit")
+        for i in 0..<1000 { try autoreleasepool { var row = result(i); row["rawContent"] = hugeRaw; try stage(row, over) } }
+        try IOSNativeChecks.require(over.stagedBytes > 64 * 1024 * 1024 && store.revision() == 6, "staging above64MiB remains private until commit")
         let source = try store.backupFile(expected: 6, directory: root)
         let proof = try LogbookArchive.fileProof(source)
-        try IOSNativeChecks.require(proof.0 > 48_000_000 && proof.0 < LogbookLimits.backupFileBytes, "stream backup captures existing large bodies")
+        try IOSNativeChecks.require(proof.0 > 48_000_000, "stream backup captures existing large bodies")
         let restored = try logbookObject(String(contentsOf: source, encoding: .utf8))["snapshot"] as! LogbookJSON
         try IOSNativeChecks.require((restored["records"] as! [LogbookJSON]).count == 1050, "streamed backup roundtrip complete")
         let reopened = try LogbookStore(url: root.appendingPathComponent("scale.sqlite"), deviceSpace: false)

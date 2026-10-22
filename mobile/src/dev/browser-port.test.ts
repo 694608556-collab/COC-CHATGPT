@@ -146,7 +146,7 @@ describe('浏览器测试存储事务：自动备份与数据保存独立', () =
     expect(await browser.documents()).toEqual(completed)
     expect(await browser.port.getState()).toEqual(before)
     await browser.close()
-  })
+  }, 30000)
   it('PDF 取消和失败不发布半成品，成功同名另存且不改变场次、版本或已有文件', async () => {
     const { browser, json } = await setup()
     await browser.port.commitRestore({ json, expectedRevision: 0, confirmed: true })

@@ -57,17 +57,17 @@ extension IOSNativeChecks {
                 }
                 try require(try restore(0) == 1, "actual SQLite streamed restore \(count)MiB")
                 try require(try store.logicalBytes() > count * MiB && store.deferredIDs().count == count, "indexed complete data exceeds old cap")
-                try rejects("large full bridge allocation") { _ = try store.fullSnapshot() }
+                if count == 96 { try require(try (store.fullSnapshot()!["records"] as! [LogbookJSON]).count == count, "complete snapshot above64MiB succeeds with available RAM") }
                 let selected = try store.fullSnapshot(selected: ["capacity-0"])!
                 try require((selected["records"] as! [LogbookJSON])[0]["manualContent"] as? String == body, "complete selected Unicode and NUL body")
-                let original = try store.rows("SELECT body FROM records WHERE id='capacity-0'")[0][0]
+                let original = try store.bodyText("capacity-0")
                 let hash = LogbookArchive.digest(Data(original.utf8))
                 try store.execute("CREATE TRIGGER protect_bodies BEFORE UPDATE OF body ON records BEGIN SELECT RAISE(ABORT,'unchanged body write'); END")
                 try store.execute("CREATE TRIGGER protect_deletes BEFORE DELETE ON records BEGIN SELECT RAISE(ABORT,'unchanged body delete'); END")
                 _ = try store.mutate(expected: 1) { data in
                     var settings = data["settings"] as! LogbookJSON; settings["theme"] = "dark"; data["settings"] = settings
                 }
-                try require(try store.revision() == 2 && LogbookArchive.digest(Data(store.rows("SELECT body FROM records WHERE id='capacity-0'")[0][0].utf8)) == hash, "metadata-only edit touches no body")
+                try require(try store.revision() == 2 && LogbookArchive.digest(Data(store.bodyText("capacity-0").utf8)) == hash, "metadata-only edit touches no body")
                 try store.execute("DROP TRIGGER protect_bodies"); try store.execute("DROP TRIGGER protect_deletes")
                 free = LogbookCapacity.minimumReserve
                 try rejects("low space before transaction") { _ = try store.mutate(expected: 2) { $0["exportedAt"] = logbookNow() } }
@@ -75,7 +75,7 @@ extension IOSNativeChecks {
                 try store.execute("CREATE TRIGGER fail_commit BEFORE UPDATE ON state BEGIN SELECT RAISE(ABORT,'public injected failure'); END")
                 try rejects("SQLite failure rolls back entire streamed restore") { _ = try restore(2) }
                 try store.execute("DROP TRIGGER fail_commit")
-                try require(try store.revision() == 2 && LogbookArchive.digest(Data(store.rows("SELECT body FROM records WHERE id='capacity-0'")[0][0].utf8)) == hash, "large restore rollback preserves exact body and CAS")
+                try require(try store.revision() == 2 && LogbookArchive.digest(Data(store.bodyText("capacity-0").utf8)) == hash, "large restore rollback preserves exact body and CAS")
                 try rejects("authorization changes during restore") { _ = try restore(2) { throw LogbookFailure("public denied permission") } }
                 let backup = try store.backupFile(expected: 2, directory: directory)
                 let fullProof = try LogbookArchive.fileProof(backup, maximumBytes: proof.bytes + MiB)
@@ -99,7 +99,7 @@ extension IOSNativeChecks {
                     try process.run(); process.waitUntilExit()
                     try require(process.terminationStatus == 99, "native process terminated before SQLite COMMIT")
                     let recovered = try LogbookStore(url: database, deviceSpace: true, available: { free })
-                    try require(try recovered.revision() == 2 && recovered.deferredIDs().count == count && LogbookArchive.digest(Data(recovered.rows("SELECT body FROM records WHERE id='capacity-0'")[0][0].utf8)) == hash, "process interruption retains complete old library")
+                    try require(try recovered.revision() == 2 && recovered.deferredIDs().count == count && LogbookArchive.digest(Data(recovered.bodyText("capacity-0").utf8)) == hash, "process interruption retains complete old library")
                 }
                 if count == 96 && LogbookLimits.deviceSpaceLibrary {
                     let suite = "coc-capacity-archive-" + UUID().uuidString

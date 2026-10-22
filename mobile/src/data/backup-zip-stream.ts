@@ -1,7 +1,6 @@
-import { Unzip, UnzipInflate, Zip, ZipPassThrough } from 'fflate'
 import { capacity } from './capacity'
 import { StreamSha256 } from './stream-sha256'
-import { checkStreamBudget, checkStreamCancelled } from './stream-json'
+import { addStreamBytes, checkStreamBudget, checkStreamCancelled } from './stream-json'
 import { readBackupJsonStream, writeBackupJsonStream } from './backup-stream'
 import type {
   StreamBackupPreview,
@@ -12,7 +11,8 @@ import type {
 } from './backup-stream'
 import type { SessionRecord } from '../../../src/shared/types'
 import type { StreamArchiveReference } from './backup-stream'
-import { StreamCrc32, ZipTail } from './stream-zip-proof'
+import { readZipContainer, Zip64Writer } from './zip64-stream'
+import type { ReopenableZipSource } from './zip64-stream'
 
 /** One producer and one consumer; producer must await drained after each push. */
 class ChunkQueue implements AsyncIterable<Uint8Array> {
@@ -100,114 +100,67 @@ export interface StreamAttachment {
  * Queue backpressure stops decompression while a staging sink is busy.
  */
 export async function readBackupZipStream(
-  source: AsyncIterable<Uint8Array>,
+  source: ReopenableZipSource,
   options: ZipStreamReadOptions
 ): Promise<StreamBackupPreview & { attachments: StreamAttachment[]; expandedBytes: number }> {
-  checkStreamBudget(options.maximumBytes)
-  checkStreamBudget(options.maximumExpandedBytes)
-  const raw = new StreamSha256(),
-    tail = new ZipTail(),
-    proofs = new Map<string, StreamProof & { crc32: number }>(),
-    names = new Set<string>()
-  const queues: ChunkQueue[] = [],
-    consumers: Promise<void>[] = []
-  let preview: StreamBackupPreview | undefined,
-    expandedBytes = 0,
-    failure: Error | undefined
-  const fail = (reason: unknown) => {
-    failure ??= reason instanceof Error ? reason : new Error(String(reason))
-    for (const queue of queues) queue.end(failure)
-  }
-  const unzip = new Unzip((file) => {
-    try {
-      safeZipPath(file.name)
-      tail.observe(file.name)
-      if (names.has(file.name)) throw new Error('ZIP 条目重复。')
-      names.add(file.name)
-      if (names.size > capacity.zipEntries) throw new Error('ZIP 条目数超过处理上限。')
-      if (file.compression !== 0 && file.compression !== 8) throw new Error('ZIP 压缩格式不受支持。')
-      if (file.originalSize !== undefined && file.originalSize > options.maximumExpandedBytes)
-        throw new Error('ZIP 声明解压大小超过处理空间。')
-      const queue = new ChunkQueue()
-      queues.push(queue)
-      const digest = new StreamSha256(),
-        crc = new StreamCrc32()
-      const consumer = (async () => {
+  const proofs = new Map<string, StreamProof>()
+  let preview: StreamBackupPreview | undefined
+  let active: ChunkQueue | undefined
+  let consumer: Promise<void> | undefined
+  let failure: Error | undefined
+  try {
+    const result = await readZipContainer(source, options, async (entry) => {
+      safeZipPath(entry.name)
+      const queue = new ChunkQueue(),
+        digest = new StreamSha256()
+      active = queue
+      failure = undefined
+      consumer = (async () => {
         async function* checked() {
           for await (const bytes of queue) {
             digest.update(bytes)
-            crc.update(bytes)
             yield bytes
           }
         }
-        if (file.name === 'backup.json') {
+        if (entry.name === 'backup.json') {
           preview = await readBackupJsonStream(checked(), {
             ...options,
             maximumBytes: options.maximumExpandedBytes,
             expectedSource: undefined,
             archiveReferences: true
           })
-        } else
+        } else {
           for await (const bytes of checked()) {
             checkStreamCancelled(options.signal)
-            if (!file.name.endsWith('/') && digest.bytes > capacity.archiveFileBytes)
-              throw new Error('ZIP 单个附件超过处理上限。')
-            if (file.name.endsWith('/') && bytes.length) throw new Error('ZIP 目录条目含文件内容。')
-            await options.stageAttachment?.(file.name, bytes)
+            if (entry.name.endsWith('/') && bytes.length) throw new Error('ZIP目录条目含文件内容。')
+            await options.stageAttachment?.(entry.name, bytes)
           }
-        proofs.set(file.name, { bytes: digest.bytes, sha256: digest.digest(), crc32: crc.value })
-      })().catch(fail)
-      consumers.push(consumer)
-      file.ondata = (error, data, final) => {
-        if (error) {
-          fail(error)
-          return
         }
-        try {
-          expandedBytes += data.length
-          if (expandedBytes > options.maximumExpandedBytes) throw new Error('ZIP 实际解压大小超过处理空间。')
-          queue.push(data)
-          if (final) queue.end()
-        } catch (error) {
-          fail(error)
+        proofs.set(entry.name, { bytes: digest.bytes, sha256: digest.digest() })
+      })().catch((reason: unknown) => {
+        failure = reason instanceof Error ? reason : new Error(String(reason))
+        queue.end(failure)
+      })
+      return {
+        async push(bytes) {
+          if (failure) throw failure
+          queue.push(bytes)
+          await queue.drained()
+          if (failure) throw failure
+        },
+        async end() {
+          queue.end()
+          await consumer
+          if (failure) throw failure
+          active = undefined
         }
       }
-      file.start()
-    } catch (error) {
-      fail(error)
-    }
-  })
-  unzip.register(UnzipInflate)
-  try {
-    for await (const bytes of source) {
-      checkStreamCancelled(options.signal)
-      if (bytes.length > capacity.transferChunkBytes || raw.bytes + bytes.length > options.maximumBytes)
-        throw new Error('ZIP 输入分段或总量超过本次预算。')
-      raw.update(bytes)
-      // Small compressed slices bound the maximum synchronous inflation window.
-      for (let offset = 0; offset < bytes.length; offset += 4096) {
-        if (failure) throw failure
-        const part = bytes.subarray(offset, offset + 4096)
-        tail.push(part)
-        unzip.push(part, false)
-        await Promise.all(queues.map((queue) => queue.drained()))
-        if (failure) throw failure
-      }
-    }
-    unzip.push(new Uint8Array(), true)
-    await Promise.all(consumers)
-    if (failure) throw failure
-    if (!preview) throw new Error('ZIP 校验失败：缺少完整backup.json。')
-    tail.verify(proofs)
-    const sourceProof = { bytes: raw.bytes, sha256: raw.digest() }
-    if (options.expectedSource) checkProof(sourceProof, options.expectedSource)
+    })
+    if (!preview) throw new Error('ZIP校验失败：缺少完整backup.json。')
     for (const item of preview.archive.integrity)
       checkProof(proofs.get(item.zipPath), { bytes: item.size, sha256: item.hash })
-    let attachmentBytes = 0
     const attachments = preview.archive.attachments.map((item) => {
       checkProof(proofs.get(item.zipPath), { bytes: item.size, sha256: item.hash })
-      attachmentBytes += item.size
-      if (attachmentBytes > capacity.attachmentTotalBytes) throw new Error('ZIP 待恢复附件超过处理上限。')
       return {
         zipPath: item.zipPath,
         name: item.archivePath.split(/[\\/]/).pop() || '归档文件',
@@ -217,9 +170,8 @@ export async function readBackupZipStream(
     })
     return {
       ...preview,
-      source: sourceProof,
+      ...result,
       attachments,
-      expandedBytes,
       warnings: preview.warnings
         .filter((message) => !message.includes('此备份不含可恢复'))
         .concat(
@@ -229,8 +181,8 @@ export async function readBackupZipStream(
         )
     }
   } catch (error) {
-    fail(error)
-    await Promise.all(consumers)
+    active?.end(error instanceof Error ? error : new Error(String(error)))
+    await consumer
     throw error
   }
 }
@@ -311,76 +263,35 @@ async function writeZipContainer(
   ) => Promise<unknown>
 ): Promise<StreamProof> {
   checkStreamBudget(options.maximumBytes)
-  if (attachments.length > capacity.archiveAttachments) throw new Error('归档附件数量超过处理上限。')
   let total = 0
   const manifest = attachments.map((file, index) => {
-    if (
-      !Number.isSafeInteger(file.bytes) ||
-      file.bytes < 0 ||
-      file.bytes > capacity.archiveFileBytes ||
-      !/^[a-f0-9]{64}$/.test(file.sha256)
-    )
+    if (!Number.isSafeInteger(file.bytes) || file.bytes < 0 || !/^[a-f0-9]{64}$/.test(file.sha256))
       throw new Error('归档附件证明无效。')
-    total += file.bytes
-    if (total > capacity.attachmentTotalBytes) throw new Error('归档附件合计超过处理上限。')
+    total = addStreamBytes(total, file.bytes)
+    if (total > options.maximumBytes) throw new Error('归档附件超过本次可用空间。')
     const archivePath = index + '-' + file.name.replace(/[\\/]/g, '_')
     const zipPath = 'archives/' + archivePath
     safeZipPath(zipPath)
     return { archivePath, zipPath, size: file.bytes, hash: file.sha256 }
   })
-  const output = new StreamSha256(),
-    pending: Uint8Array[] = []
-  let failure: Error | undefined
-  const zip = new Zip((error, bytes) => {
-    if (error) failure = error
-    else pending.push(bytes)
-  })
-  async function drain() {
-    if (failure) throw failure
-    while (pending.length) {
-      const bytes = pending.shift()!
-      for (let i = 0; i < bytes.length; i += capacity.transferChunkBytes) {
-        checkStreamCancelled(options.signal)
-        const chunk = bytes.subarray(i, i + capacity.transferChunkBytes)
-        if (output.bytes + chunk.length >= 0xffffffff)
-          throw new Error('ZIP32格式无法容纳此完整备份，请使用JSON备份。')
-        if (output.bytes + chunk.length > options.maximumBytes) throw new Error('ZIP 备份超过本次可用空间。')
-        await sink(chunk)
-        output.update(chunk)
-      }
-    }
-  }
-  try {
-    const json = new ZipPassThrough('backup.json')
-    zip.add(json)
-    await produceJson(manifest, async (bytes) => {
-      json.push(bytes, false)
-      await drain()
-    })
-    json.push(new Uint8Array(), true)
-    await drain()
-    for (let index = 0; index < attachments.length; index++) {
-      const file = attachments[index]!,
-        entry = new ZipPassThrough(manifest[index]!.zipPath),
-        digest = new StreamSha256()
-      zip.add(entry)
-      await drain()
+  const writer = new Zip64Writer(sink, options)
+  await writer.add('backup.json', (emit) => produceJson(manifest, emit))
+  for (let index = 0; index < attachments.length; index++) {
+    const file = attachments[index]!,
+      digest = new StreamSha256()
+    await writer.add(manifest[index]!.zipPath, async (emit) => {
       for await (const bytes of file.chunks) {
         checkStreamCancelled(options.signal)
-        if (bytes.length > capacity.transferChunkBytes || digest.bytes + bytes.length > file.bytes)
+        if (
+          bytes.length > capacity.transferChunkBytes ||
+          addStreamBytes(digest.bytes, bytes.length) > file.bytes
+        )
           throw new Error('归档附件大小或分段已变化。')
         digest.update(bytes)
-        entry.push(bytes, false)
-        await drain()
+        await emit(bytes)
       }
       checkProof({ bytes: digest.bytes, sha256: digest.digest() }, file)
-      entry.push(new Uint8Array(), true)
-      await drain()
-    }
-    zip.end()
-    await drain()
-    return { bytes: output.bytes, sha256: output.digest() }
-  } finally {
-    zip.terminate()
+    })
   }
+  return writer.finish()
 }

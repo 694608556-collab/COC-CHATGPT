@@ -1,4 +1,3 @@
-import { capacity } from './capacity'
 import { readSource } from './local-source'
 import { previewBackup, encodeBackup, encodeArchiveBackup } from './backup'
 import { createExport } from './export'
@@ -12,7 +11,7 @@ export interface ExportSource {
   id: string
   /** Capacitor 同源本地文件映射地址；类型为 string，不接受互联网地址。 */
   url: string
-  /** 原生实际文件字节数；类型为 number，最多 64 MiB。 */
+  /** 原生实际文件字节数；类型为 number，必须可精确计量。 */
   bytes: number
   /** 原生完整字节 SHA-256；类型为 string。 */
   sha256: string
@@ -90,9 +89,6 @@ export async function performExportSourceJob(job: ExportSourceJob) {
   if (job.type === 'export-source-backup') {
     let bytes: Uint8Array
     if (job.files) {
-      const total = job.files.reduce((sum, file) => sum + file.bytes, 0)
-      if (job.files.length > capacity.archiveAttachments || total > capacity.attachmentTotalBytes)
-        throw new Error('归档附件过大或超过 1999 份，请分批导出。')
       const files = []
       for (const file of job.files) files.push({ name: file.name, bytes: await readSource(file, true) })
       if (current !== lease) throw new Error('导出正文租约已失效。')

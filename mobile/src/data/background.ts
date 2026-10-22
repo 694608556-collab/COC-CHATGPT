@@ -218,7 +218,7 @@ export function readLocalInBackground(source: ExportSource): Promise<MobileSnaps
 export function prepareUploadInBackground(snapshot: MobileSnapshot): Promise<{
   /** 完整校验后的业务快照；不包含桥接用 JSON 字符串。 */
   snapshot: MobileSnapshot
-  /** 完整 UTF-8 字节数，number，至多 64 MiB。 */
+  /** 完整 UTF-8 字节数，number，必须可精确计量。 */
   bytes: number
   /** 完整字节 SHA-256，小写十六进制 string。 */
   sha256: string

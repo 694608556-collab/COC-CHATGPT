@@ -25,7 +25,6 @@ export interface PdfOptions {
   /** 可选顺序字节接收器；每段不超过 256 KiB，resolve 后才发送下一段。 */
   write?: (bytes: Uint8Array) => Promise<void>
 }
-const MAX_BYTES = capacity.archiveFileBytes
 const encoder = new TextEncoder()
 
 /** @param signal - 用户取消信号。 @returns 无返回值；已取消时抛标准 AbortError。 */
@@ -142,8 +141,7 @@ export async function textPdf(text: string, options: PdfOptions = {}): Promise<U
     /** @param bytes - 已排序 PDF 字节。 @returns 接收器确认写入；超限前失败，不生成截断 PDF。 */
     async function write(bytes: Uint8Array): Promise<void> {
       checkPdfCancellation(options.signal)
-      if (size + bytes.length > MAX_BYTES)
-        throw new Error('完整 PDF 超过 64 MB，未保存；请减少所选内容或使用 TXT / DOCX。')
+      if (!Number.isSafeInteger(size + bytes.length)) throw new Error('PDF 字节数超出系统可精确计量范围。')
       size += bytes.length
       if (!options.write) {
         retained.push(bytes)

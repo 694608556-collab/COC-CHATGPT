@@ -31,6 +31,8 @@ jobs:
         run: node scripts/check-backup-stream.mjs
       - name: Check disk-backed CSV and XLSX streams above 64MiB
         run: node scripts/check-table-stream.mjs
+      - name: Check one complete 70MiB record through CSV, ZIP64, restore and editing
+        run: node scripts/check-single-record-stream.mjs
       - name: Check iOS native transactions, bodies and local archive protection
         run: |
           node scripts/ios-native-fixture.mjs

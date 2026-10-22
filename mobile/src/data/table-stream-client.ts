@@ -39,7 +39,6 @@ async function run(job: TableStreamJob, port: Required<TableStreamPort>, id: str
           if (
             !Number.isSafeInteger(value.bytes) ||
             value.bytes < 0 ||
-            value.bytes > capacity.snapshotRequestBytes ||
             (expected !== undefined && expected !== value.bytes) ||
             bytes.length > capacity.transferChunkBytes ||
             offset + bytes.length > value.bytes ||

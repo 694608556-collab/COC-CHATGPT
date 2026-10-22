@@ -85,7 +85,7 @@ describe('分块摘要与严格JSON游标', () => {
   })
   it('独立字段和输入总量边界、非法UTF-8及取消均拒绝', async () => {
     const value = strToU8('"123456789"')
-    await expect(new StreamJson(chunks(value), 100, 10).readValue()).rejects.toThrow('上限')
+    await expect(new StreamJson(chunks(value), 100, 10).readValue()).rejects.toThrow('本次')
     await expect(new StreamJson(chunks(value), 10, 100).readValue()).rejects.toThrow('空间')
     await expect(
       new StreamJson(chunks(new Uint8Array([0x22, 0xc0, 0xaf, 0x22])), 100, 100).readValue()

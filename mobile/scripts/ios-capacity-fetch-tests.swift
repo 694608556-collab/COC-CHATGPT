@@ -39,18 +39,18 @@ extension IOSNativeChecks {
         try require(first.stagedBytes > 96 * 1024 * 1024, "native batch staging exceeds 64MiB")
         try require(try store.revision() == 1 && store.deferredIDs().isEmpty, "large batch stays private until complete")
         try require(try store.finishFetch(first).0 == 2, "96MiB batch commits once")
-        let original = try store.rows("SELECT body FROM records WHERE id=?", [ids[0]])[0][0]
+        let original = try store.bodyText(ids[0])
         try require(original.contains("900719925474099312345"), "fetch retains original opaque long integer")
         let originalHash = LogbookArchive.digest(Data(original.utf8))
         let denied = try batch(2); try stage(denied); free = LogbookCapacity.minimumReserve
         try rejects("low space after complete batch staging") { _ = try store.finishFetch(denied) }
         free = 32 * 1024 * 1024 * 1024; try denied.close()
-        try require(try store.revision() == 2 && LogbookArchive.digest(Data(store.rows("SELECT body FROM records WHERE id=?", [ids[0]])[0][0].utf8)) == originalHash, "batch low-space failure keeps body and revision")
+        try require(try store.revision() == 2 && LogbookArchive.digest(Data(store.bodyText(ids[0]).utf8)) == originalHash, "batch low-space failure keeps body and revision")
         // Simulate the original v1 schema, without altering any original cells.
         try store.execute("DROP TRIGGER record_size_insert"); try store.execute("DROP TRIGGER record_size_metadata"); try store.execute("DROP TRIGGER record_size_body")
         try store.execute("DROP TRIGGER record_size_delete"); try store.execute("DROP TRIGGER record_size_id"); try store.execute("DROP TABLE record_sizes"); try store.execute("PRAGMA user_version=1")
         let migrated = try LogbookStore(url: directory.appendingPathComponent("db.sqlite"), deviceSpace: true, available: { free })
-        try require(try migrated.revision() == 2 && LogbookArchive.digest(Data(migrated.rows("SELECT body FROM records WHERE id=?", [ids[0]])[0][0].utf8)) == originalHash, "v1 migration retains original complete body and revision")
+        try require(try migrated.revision() == 2 && LogbookArchive.digest(Data(migrated.bodyText(ids[0]).utf8)) == originalHash, "v1 migration retains original complete body and revision")
         let source = try migrated.backupFile(expected: 2, directory: directory)
         try require(try LogbookArchive.fileProof(source, maximumBytes: 128 * 1024 * 1024).0 > 96 * 1024 * 1024, "migrated large library complete backup")
         print("PUBLIC_IOS_CAPACITY_FETCH records=96 nativeSQLite=true opaqueTokens=true lowSpaceRollback=true migrationV1=true physicalPhone=false")

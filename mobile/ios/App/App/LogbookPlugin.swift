@@ -307,14 +307,12 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
             self.backupSession = owner
             do {
                 _ = try owner.captureJSON { write in try store.writeBackup(expected: revision, maximumBytes: owner.sourceBudget, sink: write) }
-                var files: [LogbookJSON] = [], total = 0
+                var files: [LogbookJSON] = []
                 if include {
                     for document in try archive.documents(all: true).reversed() {
                         let purpose = document["purpose"] as? String ?? "", name = document["name"] as? String ?? ""
                         if purpose != "export" && purpose != "import" && (!purpose.isEmpty || ["before-", "auto-backup-", "coc-android-backup-"].contains(where: name.hasPrefix)) { continue }
                         let proof = try LogbookBackupSession.requestProof(document)
-                        total += proof.bytes
-                        guard proof.bytes <= LogbookLimits.archiveFileBytes, total <= LogbookLimits.attachmentTotalBytes, files.count < 1999 else { throw LogbookFailure("完整归档附件超过独立处理上限；未省略原文件。") }
                         let key = "archive:\(files.count)"
                         try archive.withDocument(document["uri"] as! String) { url, _, _ in
                             let input = try FileHandle(forReadingFrom: url); defer { try? input.close() }
@@ -474,7 +472,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
     }
     @objc func commitEntity(_ call: CAPPluginCall) {
         mutate(call) { data in
-            guard let edit = call.getObject("edit"), try logbookData(edit).count <= LogbookLimits.entityRequestBytes else { throw LogbookFailure("编辑数据缺失或过大。") }
+            guard let edit = call.getObject("edit") else { throw LogbookFailure("编辑数据缺失。") }
             try LogbookMutations.entity(edit, data: &data)
         }
     }
@@ -488,7 +486,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
             let expected = try self.expected(call); try store.check(expected); try archive.requirePermission()
             let bookmark = try archive.bookmark()
             timing?.mark("authorization")
-            guard let json = call.getString("json"), json.utf8.count <= LogbookLimits.tableRequestBytes else { throw LogbookFailure("表格差量缺失或超过 64 MiB。") }
+            guard let json = call.getString("json") else { throw LogbookFailure("表格差量缺失。") }
             timing?.mark("inputSize")
             let delta = try logbookObject(json)
             timing?.mark("candidateParse")
@@ -508,7 +506,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
             let expected = try self.expected(call); try store.check(expected); try archive.requirePermission()
             let bookmark = try archive.bookmark()
             timing?.mark("authorization")
-            guard let json = call.getString("json"), json.utf8.count <= LogbookLimits.tableRequestBytes else { throw LogbookFailure("表格数据缺失或超过 64 MB。") }
+            guard let json = call.getString("json") else { throw LogbookFailure("表格数据缺失。") }
             timing?.mark("inputSize")
             let candidate = try logbookObject(json)
             timing?.mark("candidateParse")
@@ -530,15 +528,13 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         run(call) { store, archive in
             if restoring && call.getBool("confirmed") != true { throw LogbookFailure("需要明确确认覆盖数据。") }
             let expected = try self.expected(call); try store.check(expected)
-            guard let json = call.getString("json"), json.utf8.count <= LogbookLimits.snapshotRequestBytes else { throw LogbookFailure("数据缺失或超过 64 MB。") }
+            guard let json = call.getString("json") else { throw LogbookFailure("数据缺失。") }
             let snapshot = try logbookObject(json); try LogbookValidation.snapshot(snapshot); try archive.requirePermission()
             let attachments = restoring ? (call.options["attachments"] as? [LogbookJSON] ?? []) : []
-            guard attachments.count <= 2000 else { throw LogbookFailure("归档附件数量过多。") }
-            var imported: [String] = [], total = 0
+            var imported: [String] = []
             do {
                 for attachment in attachments {
                     guard let encoded = attachment["base64"] as? String, let bytes = Data(base64Encoded: encoded), let name = attachment["name"] as? String, let mime = attachment["mime"] as? String else { throw LogbookFailure("归档附件不合法。") }
-                    total += bytes.count; guard total <= LogbookLimits.attachmentTotalBytes else { throw LogbookFailure("归档附件超过 128 MB。") }
                     let document = try archive.write(name: name, mime: mime, bytes: bytes, purpose: "import")
                     imported.append(document["uri"] as! String)
                 }
@@ -644,7 +640,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
     }
     @objc func writeArchive(_ call: CAPPluginCall) {
         run(call) { _, archive in
-            guard let name = call.getString("name"), let mime = call.getString("mime"), let encoded = call.getString("base64"), encoded.count <= 90 * 1024 * 1024, let bytes = Data(base64Encoded: encoded) else { throw LogbookFailure("文件参数不合法。") }
+            guard let name = call.getString("name"), let mime = call.getString("mime"), let encoded = call.getString("base64"), let bytes = Data(base64Encoded: encoded) else { throw LogbookFailure("文件参数不合法。") }
             let purpose = call.getString("purpose") ?? "export"
             guard ["export", "backup"].contains(purpose) else { throw LogbookFailure("文件用途不合法。") }
             return try archive.write(name: name, mime: mime, bytes: bytes, purpose: purpose)

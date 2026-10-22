@@ -7,13 +7,14 @@ import CryptoKit
 final class LogbookTableIndex {
     private var handle: OpaquePointer?
     private let url: URL
+    private var chunks: LogbookChunks { LogbookChunks(handle) }
     private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
     init(_ url: URL) throws {
         self.url = url
         guard sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else { throw LogbookFailure("表格私有索引无法创建。") }
         do {
         try execute("PRAGMA journal_mode=DELETE"); try execute("PRAGMA synchronous=FULL")
-        try execute("CREATE TABLE strings(id INTEGER PRIMARY KEY,value BLOB NOT NULL)")
+        try chunks.create()
         try execute("CREATE TABLE frames(sheet INTEGER NOT NULL,row INTEGER NOT NULL,kind TEXT NOT NULL,value TEXT NOT NULL,warnings TEXT NOT NULL,PRIMARY KEY(sheet,row))")
         try execute("CREATE TABLE entities(kind TEXT NOT NULL,id TEXT NOT NULL,position INTEGER NOT NULL,value TEXT NOT NULL,manual TEXT,name TEXT NOT NULL,module TEXT NOT NULL,link TEXT NOT NULL,source TEXT NOT NULL,changed INTEGER NOT NULL,PRIMARY KEY(kind,id))")
         try execute("CREATE INDEX entity_names ON entities(kind,name,position)")
@@ -31,10 +32,9 @@ final class LogbookTableIndex {
         for (offset, value) in values.enumerated() {
             let code: Int32
             if let value {
-                guard value.utf8.count <= Int(Int32.max) else { sqlite3_finalize(statement); throw LogbookFailure("表格单项超出系统文本范围。") }
-                code = sqlite3_bind_text(statement, Int32(offset + 1), value, Int32(value.utf8.count), transient)
+                code = sqlite3_bind_text64(statement, Int32(offset + 1), value, UInt64(value.utf8.count), transient, UInt8(SQLITE_UTF8))
             } else { code = sqlite3_bind_null(statement, Int32(offset + 1)) }
-            guard code == SQLITE_OK else { sqlite3_finalize(statement); throw LogbookFailure("表格私有索引参数失败。") }
+            guard code == SQLITE_OK else { sqlite3_finalize(statement); throw LogbookFailure("表格私有索引参数失败，或内容超出当前SQLite/内存的实际处理能力。") }
         }
         return statement
     }
@@ -58,7 +58,7 @@ final class LogbookTableIndex {
             }
             code = sqlite3_step(statement)
         }
-        guard code == SQLITE_DONE else { throw LogbookFailure("表格索引读取失败。") }
+        guard code == SQLITE_DONE else { throw LogbookFailure("表格索引读取失败（SQLite \(code)：\(String(cString: sqlite3_errmsg(handle)))）。") }
     }
     func rows(_ sql: String, _ values: [String?] = []) throws -> [[String?]] {
         var result: [[String?]] = []; try each(sql, values) { result.append($0) }; return result
@@ -66,20 +66,30 @@ final class LogbookTableIndex {
     func count(_ sql: String, _ values: [String?] = []) throws -> Int {
         guard let cell = try rows(sql, values).first?.first, let text = cell, let count = Int(text), count >= 0 else { throw LogbookFailure("表格索引计量失败。") }; return count
     }
+    // The SQLite cell contains either a small complete JSON value or a private
+    // chunk key. Arbitrarily large text never becomes a single SQLite value.
+    func pack(_ text: String, key: String) throws -> String {
+        if text.utf8.count <= LogbookLimits.transferChunkBytes { try chunks.remove(key); return text }
+        try chunks.put(Data(text.utf8), key: key); return "@chunks:" + key
+    }
+    func unpack(_ text: String) throws -> String {
+        guard text.hasPrefix("@chunks:") else { return text }
+        let key = String(text.dropFirst(8))
+        guard let bytes = try chunks.data(key), let result = String(data: bytes, encoding: .utf8) else { throw LogbookFailure("表格分块内容缺失或UTF-8无效。") }
+        return result
+    }
+    func unpackString(_ text: String) throws -> String {
+        guard let values = try JSONSerialization.jsonObject(with: Data(unpack(text).utf8)) as? [String], values.count == 1 else { throw LogbookFailure("表格文本分块无效。") }
+        return values[0]
+    }
+    func putString(_ id: Int, _ text: String) throws { try chunks.put(Data(text.utf8), key: "sst:" + String(id)) }
     func string(_ id: Int, offset: Int) throws -> LogbookJSON {
-        guard offset >= 0 else { throw LogbookFailure("表格字符串读取位置无效。") }
-        let statement = try prepare("SELECT length(value),substr(value,?,?) FROM strings WHERE id=?", [String(offset + 1), String(LogbookLimits.transferChunkBytes), String(id)])
-        defer { sqlite3_finalize(statement) }
-        guard sqlite3_step(statement) == SQLITE_ROW else { throw LogbookFailure("表格共享字符串缺失。") }
-        let length = Int(sqlite3_column_int64(statement, 0)), size = Int(sqlite3_column_bytes(statement, 1))
-        guard offset <= length, size <= LogbookLimits.transferChunkBytes else { throw LogbookFailure("表格共享字符串区间无效。") }
-        let data = sqlite3_column_blob(statement, 1).map { Data(bytes: $0, count: size) } ?? Data()
-        guard size == min(LogbookLimits.transferChunkBytes, length - offset) else { throw LogbookFailure("表格共享字符串未取齐。") }
-        return ["base64": data.base64EncodedString(), "bytes": length, "done": offset + size == length]
+        let (data, length) = try chunks.range("sst:" + String(id), offset: offset, limit: LogbookLimits.transferChunkBytes)
+        return ["base64": data.base64EncodedString(), "bytes": length, "done": offset + data.count == length]
     }
     func freeze() throws {
         close()
-        guard sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else { throw LogbookFailure("表格预览索引无法封存。") }
+        guard sqlite3_open_v2(url.absoluteString + "?immutable=1", &handle, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_URI, nil) == SQLITE_OK else { throw LogbookFailure("表格预览索引无法封存。") }
         try execute("PRAGMA query_only=ON")
     }
 }
@@ -168,9 +178,8 @@ final class LogbookTableSession {
                     var wrapped = Data("{\"value\":".utf8); wrapped.append(line); wrapped.append(125)
                     let object = try LogbookBackupJSON.object(wrapped)
                     guard let value = object["value"] as? [Any], value.count == 2, let number = value[0] as? NSNumber,
-                          LogbookValidation.number(number), number.doubleValue == Double(self.stringsCount), let text = value[1] as? String,
-                          text.utf8.count <= LogbookLimits.entityRequestBytes else { throw LogbookFailure("表格共享字符串索引或内容无效。") }
-                    try self.index.execute("INSERT INTO strings VALUES(?,CAST(? AS BLOB))", [String(self.stringsCount), text]); self.stringsCount += 1
+                          LogbookValidation.number(number), number.doubleValue == Double(self.stringsCount), let text = value[1] as? String else { throw LogbookFailure("表格共享字符串索引或内容无效。") }
+                    try self.index.putString(self.stringsCount, text); self.stringsCount += 1
                 }
                 try index.execute("COMMIT"); stringsIndex += 1; stringsBytes += bytes.count
             } catch { try? index.execute("ROLLBACK"); throw error }
@@ -181,11 +190,10 @@ final class LogbookTableSession {
         var start = bytes.startIndex
         for position in bytes.indices where bytes[position] == 10 {
             pending.append(bytes[start..<position])
-            guard !pending.isEmpty, pending.count <= LogbookLimits.entityRequestBytes else { throw LogbookFailure("表格单行或字段超过独立处理范围。") }
+            guard !pending.isEmpty else { throw LogbookFailure("表格候选含空行。") }
             try receive(pending); pending.removeAll(keepingCapacity: false); start = bytes.index(after: position)
         }
         pending.append(bytes[start..<bytes.endIndex])
-        guard pending.count <= LogbookLimits.entityRequestBytes else { throw LogbookFailure("表格单行或字段超过独立处理范围。") }
     }
     func readString(_ string: Int, offset: Int) throws -> LogbookJSON {
         guard !closed, !ready, string >= 0, string < stringsCount, offset >= 0, offset < Int.max else { throw LogbookFailure("表格共享字符串位置无效。") }
@@ -195,14 +203,19 @@ final class LogbookTableSession {
         let actual = try LogbookBackupSession.fileProof(url, maximumBytes: proof.bytes)
         try proof.matches(bytes: actual.bytes, sha256: actual.sha256)
     }
+    private static func indexKey(_ text: String) -> String { LogbookArchive.digest(Data(text.utf8)) }
     private func put(_ kind: String, _ value: LogbookJSON, position: Int, changed: Int, manual: String? = nil) throws {
         var metadata = value; metadata.removeValue(forKey: "rawContent"); metadata.removeValue(forKey: "manualContent")
         let name = kind == "characters" ? ((value["basic"] as? LogbookJSON)?["name"] as? String ?? "") : value["name"] as? String ?? ""
-        try index.execute("INSERT OR REPLACE INTO entities VALUES(?,?,?,?,?,?,?,?,?,?)", [kind, value["id"] as? String, String(position), try logbookText(metadata), manual, name, value["moduleId"] as? String ?? "", value["link"] as? String ?? "", value["sourceType"] as? String ?? "", String(changed)])
+        let id = value["id"] as! String, key = kind + ":" + id
+        let head = try index.pack(logbookText(metadata), key: "entity:" + key)
+        let body = try manual.map { try index.pack(logbookText([$0]), key: "manual:" + key) }
+        try index.execute("INSERT OR REPLACE INTO entities VALUES(?,?,?,?,?,?,?,?,?,?)", [kind, id, String(position), head, body, Self.indexKey(name), value["moduleId"] as? String ?? "", Self.indexKey(value["link"] as? String ?? ""), value["sourceType"] as? String ?? "", String(changed)])
     }
     private func note(_ kind: String, _ text: String) throws {
         let position = kind == "names" ? namesCount : warningsCount
-        try index.execute("INSERT INTO preview VALUES(?,?,?)", [kind, String(position), text])
+        let value = try index.pack(logbookText([text]), key: "preview:" + kind + ":" + String(position))
+        try index.execute("INSERT INTO preview VALUES(?,?,?)", [kind, String(position), value])
         if kind == "names" { namesCount += 1 } else { warningsCount += 1 }
     }
     private static func whitespace(_ value: Unicode.Scalar) -> Bool {
@@ -246,11 +259,11 @@ final class LogbookTableSession {
         if let status = row["status"] as? String, !["pending", "valid", "fetch_failed", "manual"].contains(status) { throw LogbookFailure("表格链接状态无效。") }
         if let fetched = row["fetchedAt"] as? String, fetched.range(of: "^\\d{4}-\\d{2}-\\d{2}T", options: .regularExpression) == nil { throw LogbookFailure("表格抓取时间无效。") }
         try Self.validateLink(link)
-        let date = logbookNow(), existing = try index.rows("SELECT value,position,changed FROM entities WHERE kind='modules' AND name=? ORDER BY position LIMIT 1", [name]).first
+        let date = logbookNow(), existing = try index.rows("SELECT value,position,changed FROM entities WHERE kind='modules' AND name=? ORDER BY position LIMIT 1", [Self.indexKey(name)]).first
         var module: LogbookJSON
         let modulePosition: Int, moduleChange: Int
         if let existing {
-            module = try mergeParticipants(logbookObject(existing[0]!), row); modulePosition = Int(existing[1]!)!; moduleChange = existing[2] == "1" ? 1 : 2
+            module = try mergeParticipants(logbookObject(index.unpack(existing[0]!)), row); modulePosition = Int(existing[1]!)!; moduleChange = existing[2] == "1" ? 1 : 2
         } else {
             modulePosition = moduleTotal; moduleTotal += 1; moduleChange = 1
             module = ["id": UUID().uuidString.lowercased(), "name": name, "playStatus": row["playStatus"] ?? "not_started", "kps": row["kps"]!, "pairs": pairs, "order": modulePosition, "collapsed": false, "createdAt": date, "updatedAt": date]
@@ -260,17 +273,16 @@ final class LogbookTableSession {
         let moduleID = module["id"] as! String, manual = row["manualContent"] as? String
         let explicit = manual?.unicodeScalars.contains(where: { !Self.whitespace($0) }) == true
         var matching: [[String?]] = []
-        if explicit { matching = try index.rows("SELECT value,position,changed FROM entities WHERE kind='records' AND module=? AND name=? AND source='manual'" + (link.isEmpty ? "" : " AND link=?") + " ORDER BY position LIMIT 2", [moduleID, sessionName] + (link.isEmpty ? [] : [link])) }
+        if explicit { matching = try index.rows("SELECT value,position,changed FROM entities WHERE kind='records' AND module=? AND name=? AND source='manual'" + (link.isEmpty ? "" : " AND link=?") + " ORDER BY position LIMIT 2", [moduleID, Self.indexKey(sessionName)] + (link.isEmpty ? [] : [Self.indexKey(link)])) }
         if matching.count == 1 {
-            let found = matching[0]; var record = try logbookObject(found[0]!); record["updatedAt"] = date
+            let found = matching[0]; var record = try logbookObject(index.unpack(found[0]!)); record["updatedAt"] = date
             if let playDate = row["playDate"] as? String, !playDate.isEmpty { record["playDate"] = playDate; record["dateSource"] = "manual" }
             record["manualContent"] = manual!; try LogbookValidation.record(record)
-            guard try logbookData(record).count <= LogbookLimits.entityRequestBytes else { throw LogbookFailure("单场完整记录超过64MiB。") }
             try put("records", record, position: Int(found[1]!)!, changed: found[2] == "1" ? 1 : 2, manual: manual)
             updated += 1; try note("names", name + " / " + (record["name"] as! String)); try note("warnings", (record["name"] as! String) + "：将更新已有同名手动场次正文，确认后生效。")
             return
         }
-        if !link.isEmpty, try index.count("SELECT EXISTS(SELECT 1 FROM entities WHERE kind='records' AND module=? AND link=?)", [moduleID, link]) > 0 {
+        if !link.isEmpty, try index.count("SELECT EXISTS(SELECT 1 FROM entities WHERE kind='records' AND module=? AND link=?)", [moduleID, Self.indexKey(link)]) > 0 {
             skipped += 1; try note("warnings", sessionName + "：来源已存在，已跳过。"); return
         }
         let count = try index.count("SELECT value FROM module_counts WHERE id=?", [moduleID]), position = recordTotal
@@ -280,15 +292,13 @@ final class LogbookTableSession {
         let body: String? = explicit ? manual : link.isEmpty ? "" : nil
         if let body { record["manualContent"] = body }
         try LogbookValidation.record(record)
-        guard try logbookData(record).count <= LogbookLimits.entityRequestBytes else { throw LogbookFailure("单场完整记录超过64MiB。") }
         try put("records", record, position: position, changed: 1, manual: body); added += 1; recordTotal += 1
         try index.execute("UPDATE module_counts SET value=value+1 WHERE id=?", [moduleID])
         try note("names", name + " / " + (record["name"] as! String))
     }
     private func applyCharacter(_ value: LogbookJSON, warnings: [String]) throws {
         try LogbookValidation.character(value)
-        guard let id = value["id"] as? String, !id.isEmpty, try index.count("SELECT COUNT(*) FROM entities WHERE kind='characters' AND id=?", [id]) == 0,
-              try logbookData(value).count <= LogbookLimits.entityRequestBytes else { throw LogbookFailure("角色标识重复或单项内容过大。") }
+        guard let id = value["id"] as? String, !id.isEmpty, try index.count("SELECT COUNT(*) FROM entities WHERE kind='characters' AND id=?", [id]) == 0 else { throw LogbookFailure("角色标识无效或重复。") }
         let links = value["moduleIds"] as! [String]
         guard Set(links).count == links.count else { throw LogbookFailure("角色模组关联重复。") }
         for link in links + ([value["moduleId"] as? String].compactMap { $0 }) {
@@ -322,16 +332,17 @@ final class LogbookTableSession {
                     guard let sheet = value["sheetOrder"] as? NSNumber, LogbookValidation.number(sheet), sheet.doubleValue >= 0, sheet.doubleValue < 9007199254740991, sheet.doubleValue.rounded(.down) == sheet.doubleValue,
                           let row = value["rowOrder"] as? NSNumber, LogbookValidation.number(row), row.doubleValue >= 0, row.doubleValue < 9007199254740991, row.doubleValue.rounded(.down) == row.doubleValue,
                           let object = value["value"] as? LogbookJSON, value["warnings"] == nil || value["warnings"] is [String] else { throw LogbookFailure("表格工作表、行号或候选值无效。") }
-                    try self.index.execute("INSERT INTO frames VALUES(?,?,?,?,?)", [sheet.stringValue, row.stringValue, prefix == 84 ? "T" : "C", try logbookText(object), try logbookText(value["warnings"] ?? [String]())])
+                    let key = sheet.stringValue + ":" + row.stringValue
+                    try self.index.execute("INSERT INTO frames VALUES(?,?,?,?,?)", [sheet.stringValue, row.stringValue, prefix == 84 ? "T" : "C", try self.index.pack(logbookText(object), key: "frame:" + key), try self.index.pack(logbookText(value["warnings"] ?? [String]()), key: "warnings:" + key)])
                 }
                 try LogbookCapacity.require(available: available, additional: LogbookCapacity.estimate(chunk.count, copies: 3))
             }
             guard pending.isEmpty else { throw LogbookFailure("表格候选末行不完整。") }
             try index.each("SELECT kind,value,warnings FROM frames ORDER BY sheet,row") { row in
-                if row[0] == "T" { try self.applyRow(logbookObject(row[1]!)) }
+                if row[0] == "T" { try self.applyRow(logbookObject(self.index.unpack(row[1]!))) }
                 else {
-                    guard let warnings = try JSONSerialization.jsonObject(with: Data(row[2]!.utf8)) as? [String] else { throw LogbookFailure("角色导入提醒无效。") }
-                    try self.applyCharacter(logbookObject(row[1]!), warnings: warnings)
+                    guard let warnings = try JSONSerialization.jsonObject(with: Data(self.index.unpack(row[2]!).utf8)) as? [String] else { throw LogbookFailure("角色导入提醒无效。") }
+                    try self.applyCharacter(logbookObject(self.index.unpack(row[1]!)), warnings: warnings)
                 }
                 try LogbookCapacity.require(available: self.available, additional: 0)
             }
@@ -346,7 +357,7 @@ final class LogbookTableSession {
     }
     func page(_ kind: String, offset: Int, limit: Int) throws -> LogbookJSON {
         guard ready, !closed, ["names", "warnings"].contains(kind), offset >= 0, limit > 0 else { throw LogbookFailure("表格预览分页无效。") }
-        let values = try index.rows("SELECT value FROM preview WHERE kind=? ORDER BY position LIMIT ? OFFSET ?", [kind, String(min(100, limit)), String(offset)]).map { $0[0]! }
+        let values = try index.rows("SELECT value FROM preview WHERE kind=? ORDER BY position LIMIT ? OFFSET ?", [kind, String(min(100, limit)), String(offset)]).map { try index.unpackString($0[0]!) }
         return ["values": values, "total": kind == "names" ? namesCount : warningsCount]
     }
     func prepareCommit(store: LogbookStore) throws {
@@ -364,7 +375,7 @@ final class LogbookTableSession {
     func eachEntity(_ kind: String, changedOnly: Bool = false, bodies: Bool = true, _ receive: (LogbookJSON, Int, Int) throws -> Void) throws {
         guard ready, !closed else { throw LogbookFailure("表格索引尚未封存。") }
         try index.each("SELECT value," + (bodies ? "manual" : "NULL") + ",position,changed FROM entities WHERE kind=?" + (changedOnly ? " AND changed<>0" : "") + " ORDER BY position", [kind]) { row in
-            var value = try logbookObject(row[0]!); if let manual = row[1] { value["manualContent"] = manual }
+            var value = try logbookObject(self.index.unpack(row[0]!)); if let manual = row[1] { value["manualContent"] = try self.index.unpackString(manual) }
             try receive(value, Int(row[2]!)!, Int(row[3]!)!)
         }
     }

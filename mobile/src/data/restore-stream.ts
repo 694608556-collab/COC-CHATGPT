@@ -1,7 +1,7 @@
 import { readBackupJsonStream } from './backup-stream'
 import { readBackupZipStream } from './backup-zip-stream'
 import { StreamSha256 } from './stream-sha256'
-import { checkStreamCancelled, checkStreamBudget } from './stream-json'
+import { addStreamBytes, checkStreamCancelled, checkStreamBudget } from './stream-json'
 import { capacity } from './capacity'
 import type { StreamProof, StreamBackupPreview } from './backup-stream'
 import type { StreamAttachment } from './backup-zip-stream'
@@ -18,7 +18,7 @@ export interface RestoreStreamResult {
  * permissions and CAS. Callbacks only write unpublished private candidates.
  */
 export async function prepareRestoreStream(
-  source: AsyncIterable<Uint8Array>,
+  source: AsyncIterable<Uint8Array> | (() => AsyncIterable<Uint8Array>),
   options: {
     format: 'json' | 'zip'
     expectedSource: StreamProof
@@ -35,10 +35,10 @@ export async function prepareRestoreStream(
     for (let offset = 0; offset < bytes.length; offset += capacity.transferChunkBytes) {
       checkStreamCancelled(options.signal)
       const chunk = bytes.subarray(offset, offset + capacity.transferChunkBytes)
-      if (staged + chunk.length > options.maximumStageBytes)
+      if (addStreamBytes(staged, chunk.length) > options.maximumStageBytes)
         throw new Error('恢复暂存所需空间超过本次可用预算。')
       await options.write(key, chunk)
-      staged += chunk.length
+      staged = addStreamBytes(staged, chunk.length)
       if (key === 'candidate') digest.update(chunk)
     }
   }
@@ -66,7 +66,7 @@ export async function prepareRestoreStream(
     })
     preview = result
     attachments = result.attachments
-  } else preview = await readBackupJsonStream(source, read)
+  } else preview = await readBackupJsonStream(typeof source === 'function' ? source() : source, read)
   await write('candidate', encoder.encode('M' + JSON.stringify(preview.metadata) + '\n'))
   return { preview, candidate: { bytes: digest.bytes, sha256: digest.digest() }, attachments }
 }

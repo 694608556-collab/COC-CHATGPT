@@ -2,6 +2,102 @@ import Foundation
 import CryptoKit
 
 extension IOSNativeChecks {
+    static func chunkStorageChecks(root: URL, fixture: LogbookJSON) throws {
+        let MiB = 1024 * 1024, directory = root.appendingPathComponent("single-large-public")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var free = 16 * 1024 * MiB
+        let database = directory.appendingPathComponent("state.sqlite"), store = try LogbookStore(url: database, available: { free })
+        var baseline = fixture, record = (fixture["records"] as! [LogbookJSON]).first { $0["sourceType"] as? String == "manual" }!
+        record.removeValue(forKey: "rawContent"); record["manualContent"] = "before"
+        baseline["records"] = [record]; _ = try store.replace(baseline, expected: 0)
+        let id = record["id"] as! String
+        let original = "{\"manualContent\":\"before\",\"rawContent\":{\"parserVersion\":1.000e0,\"messages\":[]}}"
+        try store.execute("UPDATE records SET body=? WHERE id=?", [original, id])
+        print("CHUNK_STAGE transactional v2 migration preserves inline tokens")
+        // Simulate a v2 store and force migration failure after the new tables
+        // and triggers are created. The schema and content must roll back too.
+        try store.execute("DROP TABLE value_chunks"); try store.execute("DROP TABLE value_manifests")
+        try store.execute("PRAGMA user_version=2")
+        try store.execute("INSERT INTO record_sizes VALUES('public-invalid-ledger',1,1)")
+        try rejects("v3 migration failure rolls back schema") { _ = try LogbookStore(url: database, available: { free }) }
+        try require(try store.rows("PRAGMA user_version")[0][0] == "2" && store.rows("SELECT COUNT(*) FROM sqlite_master WHERE name='value_chunks'")[0][0] == "0" && store.rows("SELECT body FROM records WHERE id=?", [id])[0][0] == original, "failed migration keeps v2 schema and exact inline body")
+        try store.execute("DELETE FROM record_sizes WHERE id='public-invalid-ledger'")
+        let migrated = try LogbookStore(url: database, available: { free })
+        try require(try migrated.rows("PRAGMA user_version")[0][0] == "3" && migrated.bodyText(id) == original && migrated.revision() == 1, "v2 migration changes no body and no revision")
+
+        print("CHUNK_STAGE single65MiB manual table candidate and SST")
+        let source = directory.appendingPathComponent("public.csv"); try Data("public".utf8).write(to: source)
+        let table = try LogbookTableSession(directory: directory, expected: 1, bookmark: Data(), kind: "record-table", available: { free })
+        let input = try FileHandle(forReadingFrom: source); _ = try table.capture(input, name: "public.csv"); try input.close()
+        let large = "公开😀\0\r\n" + String(repeating: "X", count: 65 * MiB) + "完整尾"
+        func append(_ data: Data, key: String) throws {
+            for (part, start) in stride(from: 0, to: data.count, by: LogbookLimits.transferChunkBytes).enumerated() {
+                try table.append(key: key, chunkIndex: part, bytes: data.subdata(in: start..<min(data.count, start + LogbookLimits.transferChunkBytes)))
+            }
+        }
+        try append(logbookData([0, large]) + Data([10]), key: "strings")
+        let utf8 = Data(large.utf8), offset = utf8.count - 11
+        let tail = try table.readString(0, offset: offset)
+        try require(tail["bytes"] as? Int == utf8.count && tail["done"] as? Bool == true && Data(base64Encoded: tail["base64"] as! String) == utf8.subdata(in: offset..<utf8.count), "single SST string above64MiB remains complete at byte offsets")
+        let module = (fixture["modules"] as! [LogbookJSON]).first { $0["id"] as? String == record["moduleId"] as? String }!
+        let row: LogbookJSON = ["sheet": "public", "moduleName": module["name"]!, "sessionName": record["name"]!, "link": record["link"] ?? "", "kps": [String](), "pairs": [LogbookJSON](), "manualContent": large]
+        let candidate = Data([84]) + (try logbookData(["sheetOrder": 0, "rowOrder": 0, "value": row])) + Data([10])
+        try append(candidate, key: "candidate")
+        let preview = try table.preview(LogbookBackupProof(bytes: candidate.count, sha256: LogbookArchive.digest(candidate)), store: migrated)
+        try require(preview["updated"] as? Int == 1 && preview["added"] as? Int == 0, "single large manual import updates uniquely matched record")
+        try require(try table.index.count("SELECT MAX(length(value)) FROM value_chunks") <= LogbookLimits.transferChunkBytes && table.index.count("SELECT MAX(length(value)) FROM frames") <= LogbookLimits.transferChunkBytes && table.index.count("SELECT MAX(length(manual)) FROM entities") <= LogbookLimits.transferChunkBytes, "table candidates manual and SST never need oversized SQLite cells")
+        try table.prepareCommit(store: migrated); _ = try migrated.importTableStream(table); try table.close()
+        let complete = try migrated.bodyText(id), completeHash = LogbookArchive.digest(Data(complete.utf8))
+        try require(complete.contains("1.000e0") && (try logbookObject(complete))["manualContent"] as? String == large, "large manual update preserves complete Unicode NUL and exact old raw numeric tokens")
+        try require(try migrated.rows("SELECT MAX(length(value)) FROM value_chunks")[0][0] == String(LogbookLimits.transferChunkBytes) && migrated.logicalBytes() > 65 * MiB, "production chunks bounded and logical usage complete")
+        try rejects("record primary key cannot detach chunk references") { try migrated.execute("UPDATE records SET id='public-renamed' WHERE id=?", [id]) }
+        try require(try LogbookArchive.digest(Data(migrated.bodyText(id).utf8)) == completeHash, "rejected identifier change preserves chunk body")
+        let reopened = try LogbookStore(url: database, available: { free })
+        try require(try reopened.revision() == 2 && LogbookArchive.digest(Data(reopened.bodyText(id).utf8)) == completeHash, "large single body reopens intact")
+
+        print("CHUNK_STAGE complete backup restore upload and error rollback")
+        let backup = try reopened.backupFile(expected: 2, directory: directory)
+        let envelope = try logbookObject(String(contentsOf: backup, encoding: .utf8)), full = envelope["snapshot"] as! LogbookJSON
+        try require((full["records"] as! [LogbookJSON])[0]["manualContent"] as? String == large, "single above64MiB backup contains complete body")
+        let uploadBytes = try logbookData(full), upload = try LogbookSnapshotUpload(directory: directory, expected: 2, bytes: uploadBytes.count, sha256: LogbookArchive.digest(uploadBytes), available: { free })
+        for (part, start) in stride(from: 0, to: uploadBytes.count, by: LogbookLimits.transferChunkBytes).enumerated() { try upload.append(index: part, base64: uploadBytes.subdata(in: start..<min(start + LogbookLimits.transferChunkBytes, uploadBytes.count)).base64EncodedString()) }
+        _ = try upload.snapshot()
+        try require((upload.recordJSON?.count ?? 0) > 65 * MiB, "single upload above64MiB remains complete"); try upload.close()
+        var metadata = try reopened.metadata()!, restore = Data([82])
+        restore.append(try logbookData((full["records"] as! [LogbookJSON])[0])); restore.append(10); restore.append(77); restore.append(try logbookData(metadata)); restore.append(10)
+        let restoreFile = directory.appendingPathComponent("restore-candidate"); try restore.write(to: restoreFile)
+        let restoreProof = LogbookBackupProof(bytes: restore.count, sha256: LogbookArchive.digest(restore))
+        func restoreIntoStore(_ expected: Int) throws -> Int {
+            let input = try FileHandle(forReadingFrom: restoreFile); defer { try? input.close() }
+            let preview = try LogbookRestoreCandidate.inspect(input, proof: restoreProof); try input.seek(toOffset: 0)
+            return try reopened.restoreCandidate(input, preview: preview, expected: expected, restoreSettings: true, authorize: {})
+        }
+        try reopened.execute("CREATE TRIGGER fail_large BEFORE UPDATE ON state BEGIN SELECT RAISE(ABORT,'public rollback'); END")
+        try rejects("large restore SQL rollback") { _ = try restoreIntoStore(2) }
+        try reopened.execute("DROP TRIGGER fail_large")
+        try require(try reopened.revision() == 2 && LogbookArchive.digest(Data(reopened.bodyText(id).utf8)) == completeHash, "large restore rollback restores every chunk and proof")
+        free = LogbookCapacity.minimumReserve
+        try rejects("large content low disk rollback") { _ = try reopened.replace(full, expected: 2) }
+        free = 16 * 1024 * MiB
+        try require(try restoreIntoStore(2) == 3 && (reopened.fullSnapshot(selected: [id])!["records"] as! [LogbookJSON])[0]["manualContent"] as? String == large, "single full body restore and reopen paths no64MiB gate")
+        try reopened.execute("BEGIN")
+        try reopened.execute("DELETE FROM value_chunks WHERE key=? AND part=1", ["body:" + id])
+        try rejects("missing chunk cannot masquerade as empty body") { _ = try reopened.bodyText(id) }
+        try reopened.execute("ROLLBACK")
+        // Metadata/root have the same chunk representation. Large labels are
+        // resource-bound too, rather than inheriting SQLite's cell length cap.
+        print("CHUNK_STAGE large metadata root and corruption rejection")
+        var modules = metadata["modules"] as! [LogbookJSON]; modules[0]["name"] = large; metadata["modules"] = modules
+        _ = try reopened.mutate(expected: 3) { $0["modules"] = modules }
+        let final = try LogbookStore(url: database, available: { free })
+        try require(try (final.metadata()!["modules"] as! [LogbookJSON])[0]["name"] as? String == large && final.rows("SELECT length(json) FROM state")[0][0] == String("@chunks:state".utf8.count), "large metadata root uses bounded cells and reopens intact")
+        try final.execute("BEGIN"); try final.execute("DELETE FROM value_manifests WHERE key=?", ["body:" + id])
+        try rejects("missing manifest cannot silently erase a body") { _ = try final.bodyText(id) }; try final.execute("ROLLBACK")
+        try require(try final.rows("PRAGMA integrity_check")[0][0] == "ok", "chunked store SQLite integrity")
+        print("PUBLIC_IOS_SINGLE_BODY bytes=\(utf8.count) chunkBytes=262144 v3MigrationRollback=true fullBody=true restoreRollback=true phone=false")
+    }
+
     static func tableStreamChecks(root: URL, fixture: LogbookJSON) throws {
         let MiB = 1024 * 1024, free = { 8 * 1024 * 1024 * 1024 }
         let base = root.appendingPathComponent("table-tests"), source = root.appendingPathComponent("table-public.csv")
@@ -34,6 +130,7 @@ extension IOSNativeChecks {
         }
         // Out-of-order physical sheets must apply in workbook order. Repeated
         // manual rows update a newly added record, not create duplicate bodies.
+        print("TABLE_STAGE ordered coalescing and unlink/commit")
         let ordered = try owner()
         var bytes = try frame(row("公开新团", "同名", "最终正文\n😀\u{0000}完整"), sheet: 2)
         bytes.append(try frame(row("公开新团", "同名", "第一份正文"), sheet: 0))
@@ -48,6 +145,7 @@ extension IOSNativeChecks {
         try require(saved.count == 1 && logbookObject(saved[0][0])["manualContent"] as? String == "最终正文\n😀\u{0000}完整", "table final complete manual content")
         try require(Array(try store.rows("SELECT id,body FROM records ORDER BY position").prefix(originalBodies.count)) == originalBodies, "table import preserves every previous body byte")
 
+        print("TABLE_STAGE duplicates, integrity, authorization and rollback")
         let duplicate = try owner()
         let link = "https://log.weizaima.com/?key=public-table"
         var links = try frame(row(oldModule["name"] as! String, "链接一", "", link: link))
@@ -96,6 +194,7 @@ extension IOSNativeChecks {
         try rejects("table CAS rejects stale preview") { try stale.prepareCommit(store: store) }; try stale.close()
 
         // Total SST >64MiB stays on disk; byte offsets may split UTF-8 and NUL.
+        print("TABLE_STAGE SST chunk storage")
         let strings = try owner(); var stringChunk = 0
         let text = String(repeating: "s", count: MiB) + "😀\u{0000}尾"
         for number in 0..<65 {
@@ -108,6 +207,7 @@ extension IOSNativeChecks {
         try rejects("SST missing index") { _ = try strings.readString(65, offset: 0) }; try strings.close()
 
         // Candidate total exceeds64MiB while each complete record is1MiB.
+        print("TABLE_STAGE 65MiB candidate aggregate")
         let large = try owner(); var chunk = 0, total = 0, hash = SHA256()
         let body = String(repeating: "B", count: MiB)
         for number in 0..<65 {
@@ -120,8 +220,11 @@ extension IOSNativeChecks {
         try require(largePreview["added"] as? Int == 65, "large table preview retains all records")
         try large.prepareCommit(store: store); _ = try store.importTableStream(large); try large.close()
         try require(try store.rows("SELECT COUNT(*) FROM records WHERE json_extract(metadata,'$.name') LIKE '完整场次%'")[0][0] == "65", "large table writes every record")
-        try require(try store.rows("SELECT MIN(length(json_extract(body,'$.manualContent'))),MAX(length(json_extract(body,'$.manualContent'))) FROM records WHERE json_extract(metadata,'$.name') LIKE '完整场次%'")[0] == [String(MiB), String(MiB)], "large table complete body lengths")
+        for row in try store.rows("SELECT id FROM records WHERE json_extract(metadata,'$.name') LIKE '完整场次%'") {
+            try autoreleasepool { try require(try (logbookObject(store.bodyText(row[0]))["manualContent"] as! String).utf8.count == MiB, "large table complete body lengths") }
+        }
 
+        print("TABLE_STAGE 50001 entities")
         // This exercises the removed50000 entity gate without retaining bodies
         // or a candidate array. Empty-body records remain individually tiny.
         try autoreleasepool {
@@ -139,6 +242,7 @@ extension IOSNativeChecks {
             try require(try store.rows("SELECT COUNT(*) FROM records WHERE json_extract(metadata,'$.name') LIKE '数量%'")[0][0] == "50001", "table commits every entity beyond50000")
         }
 
+        print("TABLE_STAGE paging and characters")
         let paged = try owner(); var pages = Data()
         for number in 0..<105 { pages.append(try frame(row("分页", "页\(number)", "完整"), row: number)) }
         let pagePreview = try preview(pages, paged)
@@ -152,6 +256,7 @@ extension IOSNativeChecks {
         try require(cards["added"] as? Int == 1 && cards["warningsCount"] as? Int == 1, "character stream retains recognition warnings")
         try characters.prepareCommit(store: store); _ = try store.importTableStream(characters); try characters.close()
 
+        print("TABLE_STAGE 65MiB metadata")
         // Body-free metadata itself may exceed64MiB. Neither overview nor the
         // next transaction imposes the former whole-library metadata ceiling.
         try autoreleasepool {
@@ -173,6 +278,7 @@ extension IOSNativeChecks {
             try require(try store.revision() == current + 1, "metadata above64MiB does not block later transaction")
         }
 
+        print("TABLE_STAGE cleanup and source capacity")
         let cancelled = try owner(), cancelledDirectory = cancelled.directory; try cancelled.close()
         try require(!FileManager.default.fileExists(atPath: cancelledDirectory.path), "table exact owner cancellation cleanup")
         let abandoned = try owner(); try LogbookTableSession.cleanupStale(base)

@@ -122,11 +122,10 @@ final class LogbookArchive {
     static func validateName(_ name: String) throws {
         guard !name.isEmpty, name.utf16.count <= 255, name != ".", name != "..", !name.contains("/"), !name.contains("\\"), !name.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }) else { throw LogbookFailure("文件名不合法。") }
     }
-    private func readBounded(_ url: URL, maximumBytes: Int = LogbookLimits.archiveFileBytes) throws -> Data {
+    private func readComplete(_ url: URL) throws -> Data {
         let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }
         var result = Data()
         while let chunk = try handle.read(upToCount: 65536), !chunk.isEmpty {
-            guard result.count + chunk.count <= maximumBytes else { throw LogbookFailure("文件超过 64 MB。") }
             result.append(chunk)
         }
         return result
@@ -134,7 +133,7 @@ final class LogbookArchive {
     func readPicked(_ url: URL) throws -> Data {
         let scoped = url.startAccessingSecurityScopedResource(); defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         var failure: NSError?, outcome: Result<Data, Error>?
-        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &failure) { coordinated in outcome = Result { try self.readBounded(coordinated, maximumBytes: LogbookLimits.pickedFileBytes) } }
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &failure) { coordinated in outcome = Result { try self.readComplete(coordinated) } }
         if let failure { throw failure }
         guard let outcome else { throw LogbookFailure("系统文件读取未完成。") }
         return try outcome.get()
@@ -144,7 +143,9 @@ final class LogbookArchive {
         let existing = Set(try FileManager.default.contentsOfDirectory(atPath: directory.path).map { $0.precomposedStringWithCanonicalMapping.lowercased() })
         let name = requested as NSString, ext = name.pathExtension
         let stem = ext.isEmpty ? requested : name.deletingPathExtension
-        for index in 1...100000 {
+        var index = 0
+        while index < Int.max {
+            index += 1
             let candidate = index == 1 ? requested : stem + " (\(index))" + (ext.isEmpty ? "" : "." + ext)
             if existing.contains(candidate.precomposedStringWithCanonicalMapping.lowercased()) { continue }
             let file = directory.appendingPathComponent(candidate, isDirectory: false)
@@ -155,23 +156,21 @@ final class LogbookArchive {
         throw LogbookFailure("同名文件过多，请更换文件名。")
     }
     func write(name: String, mime: String, bytes: Data, purpose: String, bookmark: Data? = nil) throws -> LogbookJSON {
-        guard bytes.count <= LogbookLimits.archiveFileBytes else { throw LogbookFailure("文件超过 64 MB。") }
         return try publish(name: name, mime: mime, purpose: purpose, bookmark: bookmark,
                            proof: (bytes.count, Self.digest(bytes))) { output in try output.write(contentsOf: bytes) }
     }
-    static func fileProof(_ url: URL, maximumBytes: Int = LogbookLimits.archiveFileBytes) throws -> (Int, String) {
+    static func fileProof(_ url: URL, maximumBytes: Int? = nil) throws -> (Int, String) {
         let input = try FileHandle(forReadingFrom: url); defer { try? input.close() }
         var total = 0, hash = SHA256()
         while let chunk = try input.read(upToCount: 65536), !chunk.isEmpty {
             total += chunk.count
-            guard total <= maximumBytes else { throw LogbookFailure("文件超过本次独立读取预算。") }
+            if let maximumBytes { guard total <= maximumBytes else { throw LogbookFailure("文件超过已验证完整长度。") } }
             hash.update(data: chunk)
         }
         return (total, hash.finalize().map { String(format: "%02x", $0) }.joined())
     }
     func writeFile(name: String, mime: String, source: URL, purpose: String, bookmark: Data) throws -> LogbookJSON {
-        let backup = purpose == "backup" || purpose == "auto"
-        let proof = try Self.fileProof(source, maximumBytes: backup && LogbookLimits.deviceSpaceLibrary ? 9007199254740991 : LogbookLimits.archiveFileBytes)
+        let proof = try Self.fileProof(source)
         return try publish(name: name, mime: mime, purpose: purpose, bookmark: bookmark, proof: proof) { output in
             let input = try FileHandle(forReadingFrom: source); defer { try? input.close() }
             var written = 0
@@ -185,7 +184,7 @@ final class LogbookArchive {
     }
     private func publish(name: String, mime: String, purpose: String, bookmark: Data?, proof: (Int, String), write: @escaping (FileHandle) throws -> Void) throws -> LogbookJSON {
         try Self.validateName(name)
-        guard proof.0 >= 0, proof.0 <= ((purpose == "backup" || purpose == "auto") && LogbookLimits.deviceSpaceLibrary ? 9007199254740991 : LogbookLimits.archiveFileBytes) else { throw LogbookFailure("归档文件超过独立预算。") }
+        guard proof.0 >= 0 else { throw LogbookFailure("归档文件长度无效。") }
         let captured = try bookmark ?? self.bookmark()
         return try access(captured) { directory in
             try LogbookCapacity.require(available: { try LogbookCapacity.available(directory) }, additional: LogbookCapacity.estimate(proof.0, copies: 1))
@@ -238,7 +237,7 @@ final class LogbookArchive {
             var failure: NSError?, outcome: Result<T, Error>?
             NSFileCoordinator().coordinate(readingItemAt: directory.appendingPathComponent(name), options: [], error: &failure) { file in
                 outcome = Result {
-                    let proof = try Self.fileProof(file, maximumBytes: (document["bytes"] as? NSNumber)?.intValue ?? LogbookLimits.archiveFileBytes)
+                    let proof = try Self.fileProof(file, maximumBytes: (document["bytes"] as? NSNumber)?.intValue)
                     guard proof.0 == (document["bytes"] as? NSNumber)?.intValue, proof.1 == document["sha256"] as? String else { throw LogbookFailure("已登记文件缺失或改变；未省略。") }
                     return try action(file, document, row["mime"] as? String ?? "application/octet-stream")
                 }
@@ -288,7 +287,7 @@ final class LogbookArchive {
             var failure: NSError?, outcome: Result<Void, Error>?
             NSFileCoordinator().coordinate(writingItemAt: file, options: [.forDeleting], error: &failure) { file in
                 outcome = Result {
-                    let proof = try Self.fileProof(file, maximumBytes: (document["bytes"] as? NSNumber)?.intValue ?? LogbookLimits.archiveFileBytes)
+                    let proof = try Self.fileProof(file, maximumBytes: (document["bytes"] as? NSNumber)?.intValue)
                     guard proof.1 == document["sha256"] as? String, proof.0 == (document["bytes"] as? NSNumber)?.intValue else { throw LogbookFailure("旧文件已改变，已保留。") }
                     try FileManager.default.removeItem(at: file)
                 }
