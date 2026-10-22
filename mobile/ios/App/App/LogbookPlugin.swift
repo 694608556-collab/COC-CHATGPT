@@ -4,6 +4,7 @@ import UIKit
 import UniformTypeIdentifiers
 import QuickLook
 import Network
+import os
 
 @objc(LogbookPlugin)
 public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate, QLPreviewControllerDataSource, QLPreviewControllerDelegate {
@@ -288,9 +289,12 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
             let owner = try LogbookBackupSession(directory: self.backupDirectory(), expected: revision, bookmark: Data(), restoring: false, includeArchives: false, searching: true)
             self.backupSession = owner
             do {
-                _ = try owner.captureJSON { write in try store.writeBackup(expected: revision, maximumBytes: owner.sourceBudget, selected: ids, sink: write) }
+                // Read-only search publishes no document or restore candidate.
+                // Worker checks complete grammar, records, graph and SHA before hits.
+                _ = try owner.captureJSON { write in try store.writeBackup(expected: revision, maximumBytes: owner.sourceBudget, selected: ids, validateRecords: false, sink: write) }
                 try store.check(revision)
-                return ["id": owner.id, "revision": revision, "source": try self.backupFile(owner, "source")]
+                let memory = os_proc_available_memory()
+                return ["id": owner.id, "revision": revision, "source": try self.backupFile(owner, "source"), "cacheMemoryBytes": Int(memory / 8), "maximumReadBytes": Int(memory / 32)]
             } catch {
                 do { try owner.close(); self.backupSession = nil }
                 catch { throw LogbookFailure("搜索未完成，私有读取暂存清理失败，请重开后重试。") }

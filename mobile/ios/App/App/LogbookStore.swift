@@ -309,9 +309,10 @@ final class LogbookStore {
             return url
         } catch { try? FileManager.default.removeItem(at: url); throw error }
     }
-    /// Canonical envelope v1, fully validated without reserializing body tokens.
+    /// Canonical envelope v1 without reserializing body tokens. Exports validate
+    /// here; read-only search delegates full semantic validation to its Worker.
     /// The trusted native caller chooses the operation budget, never JavaScript.
-    func writeBackup(expected: Int, maximumBytes: Int, selected: [String]? = nil, sink: (Data) throws -> Void) throws {
+    func writeBackup(expected: Int, maximumBytes: Int, selected: [String]? = nil, validateRecords: Bool = true, sink: (Data) throws -> Void) throws {
         try check(expected)
         var root = try metadata() ?? Self.empty()
         let allRecords = root.removeValue(forKey: "records") as! [LogbookJSON]
@@ -341,8 +342,11 @@ final class LogbookStore {
                 let head = try metadataText(id), tail = try bodyText(id)
                 guard head.hasSuffix("}"), tail.hasPrefix("{"), tail.hasSuffix("}") else { throw LogbookFailure("本机正文格式异常。") }
                 let text = tail == "{}" ? head : String(head.dropLast()) + "," + String(tail.dropFirst())
-                let value = try LogbookBackupJSON.object(Data(text.utf8)); try LogbookValidation.record(value)
-                var row = value; row.removeValue(forKey: "rawContent"); row.removeValue(forKey: "manualContent")
+                var row = try logbookObject(head)
+                if validateRecords {
+                    let value = try LogbookBackupJSON.object(Data(text.utf8)); try LogbookValidation.record(value)
+                    row = value; row.removeValue(forKey: "rawContent"); row.removeValue(forKey: "manualContent")
+                }
                 guard try logbookData(row) == logbookData(records[count]) else { throw LogbookFailure("备份场次次序或元数据已变化。") }
                 try write((count == 0 ? "" : ",") + text); count += 1
             }

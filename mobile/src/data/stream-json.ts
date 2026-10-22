@@ -1,8 +1,21 @@
 import { capacity } from './capacity'
 import { StreamSha256 } from './stream-sha256'
 
-const utf8 = new TextEncoder()
-export const utf8Size = (text: string) => (/[^\x00-\x7f]/.test(text) ? utf8.encode(text).length : text.length)
+/** UTF-8 accounting preserves standard surrogate/newline handling
+ * without allocating an encoded byte array for every raw token segment.
+ * @param text One raw token segment. @returns Exact UTF-8 byte length.
+ */
+export function utf8Size(text: string): number {
+  if (!/[^\x00-\x7f]/.test(text)) return text.length
+  // Add one byte for every non-ASCII unit and another for each unit >= 0x800.
+  // A surrogate pair encodes as four bytes, so remove its two extra units.
+  // Native regex/string operations avoid both per-character JS and byte arrays.
+  return (
+    text.replace(/[\x00-\x7f]/g, '').length +
+    text.replace(/[\x00-\u07ff]/g, '').length +
+    text.replace(/[\ud800-\udbff][\udc00-\udfff]/g, '').length
+  )
+}
 export function checkStreamBudget(value: number) {
   if (!Number.isSafeInteger(value) || value < 1) throw new Error('文件处理预算无效。')
 }
@@ -25,10 +38,12 @@ export function checkStreamCancelled(signal?: AbortSignal) {
 class TextValue {
   private parts: string[] = []
   private bytes = 0
-  constructor(private maximumBytes: number) {}
+  constructor(private maximumBytes?: number) {}
   add(text: string) {
-    this.bytes = addStreamBytes(this.bytes, utf8Size(text))
-    if (this.bytes > this.maximumBytes) throw new Error('正文或字段超过本次实际来源/可用空间。')
+    if (this.maximumBytes !== undefined) {
+      this.bytes = addStreamBytes(this.bytes, utf8Size(text))
+      if (this.bytes > this.maximumBytes) throw new Error('正文或字段超过本次实际来源/可用空间。')
+    }
     this.parts.push(text)
   }
   text() {
@@ -47,6 +62,7 @@ export class StreamJson {
   private buffer = ''
   private offset = 0
   private ended = false
+  private valueLimit?: number
   constructor(
     source: AsyncIterable<Uint8Array>,
     private maximumBytes: number,
@@ -55,6 +71,10 @@ export class StreamJson {
   ) {
     checkStreamBudget(maximumBytes)
     checkStreamBudget(valueBytes)
+    // Input bytes are already counted before decoding. A raw token cannot be
+    // larger than that complete input; only a smaller independent value budget
+    // needs a second UTF-8 accounting pass.
+    this.valueLimit = valueBytes < maximumBytes ? valueBytes : undefined
     this.iterator = source[Symbol.asyncIterator]()
   }
   private async fill(): Promise<boolean> {
@@ -127,7 +147,7 @@ export class StreamJson {
     if ((await this.peek()) !== '}')
       for (;;) {
         await this.whitespace()
-        const key = new TextValue(this.valueBytes)
+        const key = new TextValue(this.valueLimit)
         await this.string(key)
         const raw = key.text(),
           name = JSON.parse(raw) as string
@@ -166,7 +186,7 @@ export class StreamJson {
     if (char === '{') return this.object(() => this.value(out, depth + 1), out, depth + 1)
     if (char === '[') return this.array(() => this.value(out, depth + 1), out)
     if (char === '"') return this.string(out)
-    const token = new TextValue(this.valueBytes)
+    const token = new TextValue(this.valueLimit)
     for (;;) {
       const part = await this.peek()
       if (!part || /[,}\]\x20\t\r\n]/.test(part)) break
@@ -183,39 +203,54 @@ export class StreamJson {
    */
   private async container(out: TextValue): Promise<void> {
     const frames: Array<{ keys?: Set<string>; expectingKey: boolean; weight: number }> = []
+    const stringBoundary = /["\\]/g
     let quoted = false,
       escaped = false,
+      keyOpen = false,
       key: TextValue | undefined,
       depth = 0
     for (;;) {
       if (!(await this.fill())) throw new Error('JSON 文件不完整。')
       const start = this.offset
-      let keyStart = key ? start : -1
+      let keyStart = keyOpen ? start : -1
       while (this.offset < this.buffer.length) {
-        const at = this.offset++,
-          code = this.buffer.charCodeAt(at)
+        const at = this.offset++
+        let code = this.buffer.charCodeAt(at)
         if (quoted) {
           if (escaped) {
             escaped = false
             continue
           }
+          // Native regex scanning skips ordinary body text in one engine call.
+          // Escape state and key boundaries still carry across input chunks;
+          // JSON.parse below checks every string's complete grammar.
+          stringBoundary.lastIndex = at
+          const boundary = stringBoundary.exec(this.buffer)
+          if (!boundary) {
+            this.offset = this.buffer.length
+            break
+          }
+          this.offset = boundary.index + 1
+          code = this.buffer.charCodeAt(boundary.index)
           if (code === 92) {
             escaped = true
             continue
           }
           if (code !== 34) continue
           quoted = false
-          if (key) {
-            key.add(this.buffer.slice(keyStart, this.offset))
+          if (keyOpen) {
+            const part = this.buffer.slice(keyStart, this.offset)
+            if (key) key.add(part)
             // Plain keys dominate saved message objects. Decode escaped aliases
             // strictly; the complete value still receives JSON.parse grammar validation.
-            const rawKey = key.text()
+            const rawKey = key ? key.text() : part
             const name = rawKey.includes('\\') ? (JSON.parse(rawKey) as string) : rawKey.slice(1, -1),
               frame = frames[frames.length - 1]!
             if (frame.keys!.has(name)) throw new Error('JSON 字段重复。')
             frame.keys!.add(name)
             frame.expectingKey = false
             key = undefined
+            keyOpen = false
             keyStart = -1
           }
           continue
@@ -239,7 +274,7 @@ export class StreamJson {
         const frame = frames[frames.length - 1]
         if (code === 34 && frame?.keys && frame.expectingKey) {
           quoted = true
-          key = new TextValue(this.valueBytes)
+          keyOpen = true
           keyStart = at
           continue
         }
@@ -257,14 +292,17 @@ export class StreamJson {
         } else if (code === 34) quoted = true
       }
       out.add(this.buffer.slice(start, this.offset))
-      if (key) key.add(this.buffer.slice(keyStart, this.offset))
+      if (keyOpen) {
+        key ??= new TextValue(this.valueLimit)
+        key.add(this.buffer.slice(keyStart, this.offset))
+      }
     }
   }
   async readValue(): Promise<unknown> {
     return (await this.readRawValue()).value
   }
   async readRawValue(): Promise<{ value: unknown; json: string }> {
-    const out = new TextValue(this.valueBytes)
+    const out = new TextValue(this.valueLimit)
     await this.whitespace()
     const first = await this.peek()
     if (first === '{' || first === '[') await this.container(out)

@@ -88,6 +88,11 @@ extension IOSNativeChecks {
                     try output.synchronize(); try output.close()
                     let projected = try logbookObject(String(contentsOf: selected, encoding: .utf8))["snapshot"] as! LogbookJSON
                     try require((projected["records"] as! [LogbookJSON]).map { $0["id"] as! String } == ["capacity-0","capacity-95"], "read-only search source contains only selected complete records")
+                    var fastBytes = Data()
+                    try store.writeBackup(expected: 2, maximumBytes: 4 * MiB, selected: ["capacity-0","capacity-95"], validateRecords: false) { fastBytes.append($0) }
+                    let fastProjected = try logbookObject(String(decoding: fastBytes, as: UTF8.self))["snapshot"] as! LogbookJSON
+                    try require(try logbookData(projected) == logbookData(fastProjected), "read-only worker-validated search retains exactly the complete selected data")
+                    try rejects("read-only search rejects stale source revision") { try store.writeBackup(expected: 1, maximumBytes: 4 * MiB, selected: ["capacity-0"], validateRecords: false) { _ in } }
                     let owner = try LogbookBackupSession(directory: directory.appendingPathComponent("read-only-source"), expected: 2, bookmark: Data(), restoring: false, includeArchives: false, searching: true, available: { free })
                     _ = try owner.captureJSON { sink in try store.writeBackup(expected: 2, maximumBytes: owner.sourceBudget, selected: ["capacity-0"], sink: sink) }
                     try rejects("search source cannot enable staging or publication") { _ = try owner.beginOutput() }

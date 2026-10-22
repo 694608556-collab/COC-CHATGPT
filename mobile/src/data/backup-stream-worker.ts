@@ -6,7 +6,7 @@ import type { BackupStreamJob } from './backup-stream-job'
 let started = false,
   request = 0
 const pending = new Map<number, { resolve(): void; reject(error: Error): void }>()
-const controller = new AbortController()
+let controller = new AbortController()
 let sending: Promise<void> = Promise.resolve()
 self.onmessage = (event) => {
   const message = event.data
@@ -20,6 +20,7 @@ self.onmessage = (event) => {
   }
   if (message.type !== 'start' || started) return
   started = true
+  controller = new AbortController()
   const indexes = new Map<string, number>()
   const write = (key: string, bytes: Uint8Array) => {
     const result = sending.then(
@@ -36,9 +37,13 @@ self.onmessage = (event) => {
     return result
   }
   void performBackupStreamJob(message.job as BackupStreamJob, write, controller.signal).then(
-    (result) => self.postMessage({ type: 'done', result }),
+    (result) => {
+      started = false
+      self.postMessage({ type: 'done', result })
+    },
     (reason) => {
       controller.abort()
+      started = false
       self.postMessage({
         type: 'failed',
         error: reason instanceof Error ? reason.message : '大文件处理失败，未发布数据。'

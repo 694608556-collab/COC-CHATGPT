@@ -10,6 +10,21 @@ export function decodeBase64(value: string): Uint8Array {
   return bytes
 }
 
+/** Encode complete UTF-8 text in a Worker through the native Blob path.
+ * @param text Full text, including Unicode, newlines and lone surrogates.
+ * @returns Standard UTF-8 bytes; main thread/Node use TextEncoder.
+ */
+export function encodeUtf8(text: string): Uint8Array<ArrayBuffer> {
+  const Reader = (
+    globalThis as typeof globalThis & {
+      FileReaderSync?: new () => { readAsArrayBuffer(blob: Blob): ArrayBuffer }
+    }
+  ).FileReaderSync
+  if (typeof document === 'undefined' && Reader)
+    return new Uint8Array(new Reader().readAsArrayBuffer(new Blob([text], { endings: 'transparent' })))
+  return new TextEncoder().encode(text)
+}
+
 /**
  * 分块编码文件，避免大数组展开超过实参数量限制。
  * @param bytes - 文本或二进制字节。

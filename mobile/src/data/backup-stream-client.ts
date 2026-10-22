@@ -17,6 +17,16 @@ import type {
 } from './backup-stream-native'
 
 type Port = Required<BackupStreamPort>
+// Tokens are admitted only after full source proof, final revision and native
+// cleanup succeed. A page restart never trusts a cache merely left on disk.
+const admittedSearchCaches = new WeakMap<LogbookPort, { signature: string; generation: string }>()
+let searchWorker: { worker: Worker; busy: boolean } | undefined
+/** @returns A reusable computation worker; no body read starts until an explicit job is submitted. */
+function prepareSearchWorker() {
+  if (typeof document === 'undefined' || typeof Worker === 'undefined') return
+  if (!searchWorker) searchWorker = { worker: new Worker('backup-stream-worker.js'), busy: false }
+  return searchWorker
+}
 function required(port: BackupStreamPort): Port {
   for (const method of [
     'appendBackupStage',
@@ -66,12 +76,16 @@ async function run<T>(job: BackupStreamJob, port: Port, id: string, signal?: Abo
     )) as T
   }
   if (typeof Worker === 'undefined') throw new Error('此环境缺少后台大文件处理能力，未尝试整库载入。')
-  const worker = new Worker('backup-stream-worker.js'),
+  const prepared = job.type === 'search' || job.type === 'search-cached' ? prepareSearchWorker() : undefined
+  const shared = prepared && !prepared.busy ? prepared : undefined
+  if (shared) shared.busy = true
+  const worker = shared?.worker ?? new Worker('backup-stream-worker.js'),
     inFlight = new Set<Promise<void>>()
   let active = true
+  let succeeded = false
   let abort: (() => void) | undefined
   try {
-    return await new Promise<T>((resolve, reject) => {
+    const result = await new Promise<T>((resolve, reject) => {
       abort = () => reject(new Error('搜索已取消。'))
       signal?.addEventListener('abort', abort, { once: true })
       if (signal?.aborted) {
@@ -102,16 +116,26 @@ async function run<T>(job: BackupStreamJob, port: Port, id: string, signal?: Abo
         } else if (data.type === 'done') resolve(data.result)
         else if (data.type === 'failed') reject(new Error(data.error))
       }
-      worker.onerror = () => reject(new Error('大文件后台处理器启动或运行失败，未发布数据。'))
+      worker.onerror = () => {
+        if (searchWorker?.worker === worker) searchWorker = undefined
+        worker.terminate()
+        reject(new Error('大文件后台处理器启动或运行失败，未发布数据。'))
+      }
       worker.postMessage({ type: 'start', job })
     })
+    succeeded = true
+    return result
   } finally {
     active = false
     if (abort) signal?.removeEventListener('abort', abort)
-    worker.terminate()
     // Native writes already dispatched must settle before their owner is released.
     // Android's older system WebViews have Promise.all but not allSettled.
     await Promise.all(Array.from(inFlight, (task) => task.catch(() => undefined)))
+    if (shared && succeeded) shared.busy = false
+    else {
+      if (searchWorker?.worker === worker) searchWorker = undefined
+      worker.terminate()
+    }
   }
 }
 export async function previewNativeBackup(
@@ -216,13 +240,44 @@ export async function searchNativeBodies(
   checkStreamCancelled(signal)
   if (!trimmed || trimmed.length > 4096) throw new Error('正文搜索查询无效或过长。')
   if (!ids.length) return { query: trimmed, hits: [], revision, presetKey }
+  // Compile the worker while the native source is prepared; typing alone never calls this function.
+  prepareSearchWorker()
+  const signature = JSON.stringify({ revision, ids, presetKey })
+  const cached = admittedSearchCaches.get(port)
+  if (cached?.signature === signature) {
+    const before = await port.getStatus()
+    checkStreamCancelled(signal)
+    if (before.revision !== revision) throw new Error('数据已变化，请重新搜索。')
+    const hits = await run<BodySearchResult['hits'] | null>(
+      { type: 'search-cached', generation: cached.generation, signature, ids, query: trimmed },
+      required(port),
+      '',
+      signal
+    )
+    const after = await port.getStatus()
+    checkStreamCancelled(signal)
+    if (after.revision !== revision) throw new Error('数据已变化，请重新搜索。')
+    if (hits) return { query: trimmed, hits, revision, presetKey }
+    admittedSearchCaches.delete(port)
+  }
   if (!port.createSearchSource) throw new Error('本机缺少逐场正文搜索能力。')
   const lease = await port.createSearchSource({ ids, expectedRevision: revision })
+  const generation = crypto.randomUUID()
+  let completed: BodySearchResult | undefined
+  let cacheReady = false
   try {
     checkStreamCancelled(signal)
     if (lease.revision !== revision) throw new Error('搜索数据版本已变化。')
     const result = await run<Awaited<ReturnType<typeof import('./body-search-stream').searchBodyStream>>>(
-      { type: 'search', source: local(lease.source), ids, query: trimmed, preset },
+      {
+        type: 'search',
+        source: local(lease.source),
+        ids,
+        query: trimmed,
+        preset,
+        maximumReadBytes: lease.maximumReadBytes,
+        cache: { generation, signature, maximumMemoryBytes: lease.cacheMemoryBytes }
+      },
       required(port),
       lease.id,
       signal
@@ -236,7 +291,8 @@ export async function searchNativeBodies(
     const status = await port.getStatus()
     checkStreamCancelled(signal)
     if (status.revision !== revision) throw new Error('数据已变化，请重新搜索。')
-    return { query: trimmed, hits: result.hits, revision, presetKey }
+    completed = { query: trimmed, hits: result.hits, revision, presetKey }
+    cacheReady = result.cacheReady
   } finally {
     try {
       await port.cancelBackupStage!({ id: lease.id })
@@ -244,4 +300,7 @@ export async function searchNativeBodies(
       throw new BodySearchCleanupError('搜索读取暂存清理失败，请重开应用后重试；未发布搜索结果。')
     }
   }
+  checkStreamCancelled(signal)
+  if (cacheReady) admittedSearchCaches.set(port, { signature, generation })
+  return completed
 }
