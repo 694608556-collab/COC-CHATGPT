@@ -188,6 +188,8 @@ export function MobileApp({
   }
   const [readerQuery, setReaderQuery] = useState('')
   const [moduleQueries, setModuleQueries] = useState<Record<string, string>>({})
+  // 输入不读取正文；任何编辑都会撤销该模组的已提交搜索，重新输入原词也须再次提交。
+  const [submittedModuleQueries, setSubmittedModuleQueries] = useState<Record<string, string>>({})
   const [preview, setPreview] = useState<ImportPreview | LeasedBackupPreview>()
   const [busy, setBusy] = useState(false)
   const [confirmation, setConfirmation] = useState('')
@@ -1548,8 +1550,14 @@ export function MobileApp({
                       busy={busy}
                       onEditModule={(value) => startEdit({ kind: 'module', value })}
                       queries={moduleQueries}
+                      submittedQueries={submittedModuleQueries}
                       onQuery={(id, query) => {
                         setModuleQueries((current) => ({ ...current, [id]: query }))
+                        setSubmittedModuleQueries((current) => ({ ...current, [id]: '' }))
+                        setSearchRequest((current) => (current?.moduleId === id ? undefined : current))
+                      }}
+                      onSearch={(id, query) => {
+                        setSubmittedModuleQueries((current) => ({ ...current, [id]: query }))
                         if (streamedSearch) {
                           setSearchRequest({ moduleId: id, query })
                           return

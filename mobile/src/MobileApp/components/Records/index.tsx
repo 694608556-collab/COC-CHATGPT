@@ -29,7 +29,9 @@ export function Records(props: {
   snapshot: MobileSnapshot
   onRead(record: SessionRecord, query?: string): void
   queries: Record<string, string>
+  submittedQueries: Record<string, string>
   onQuery(moduleId: string, query: string): void
+  onSearch(moduleId: string, query: string): void
   onImport(): void
   onNewModule(): void
   onNewRecord(moduleId: string): void
@@ -179,7 +181,9 @@ export function Records(props: {
                   records={snapshot.records}
                   preset={snapshot.settings.filterPreset}
                   query={props.queries[m.id] ?? ''}
+                  submittedQuery={props.submittedQueries[m.id] ?? ''}
                   onQuery={(query) => props.onQuery(m.id, query)}
+                  onSearch={(query) => props.onSearch(m.id, query)}
                   onRead={props.onRead}
                 />
                 <div
