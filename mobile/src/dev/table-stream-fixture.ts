@@ -34,6 +34,7 @@ export function publicTableStreamCSV(count = 205): string {
   ].join('\r\n')
 }
 interface Options {
+  pickerDelayMs: number
   rows: number
   badSourceHash: boolean
   badCandidateHash: boolean
@@ -102,7 +103,7 @@ function oracleCSV(rows: TableImportRow[]) {
     .join('\r\n')
 }
 export function createTableStreamFixture(base: LogbookPort): LogbookPort {
-  const options: Options = { rows: 205, badSourceHash: false, badCandidateHash: false }
+  const options: Options = { pickerDelayMs: 0, rows: 205, badSourceHash: false, badCandidateHash: false }
   const stats: Stats = {
     opened: 0,
     chunks: 0,
@@ -145,6 +146,7 @@ export function createTableStreamFixture(base: LogbookPort): LogbookPort {
     },
     async openBackup(request) {
       if (!request?.stream || request.kind !== 'record-table') return base.openBackup(request)
+      await new Promise((resolve) => setTimeout(resolve, options.pickerDelayMs))
       const state = await base.getState()
       if (lease || !state.archive.valid || state.revision !== request.expectedRevision)
         throw new Error('公开测试表格状态无效。')

@@ -1865,3 +1865,16 @@ input[type='checkbox']:checked::after {
   font-size: 12px;
   line-height: 1.7;
 }
+
+.import-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.import-progress .system-message {
+  flex: 1;
+  min-width: 0;
+}
+.import-progress > button {
+  flex: none;
+}

@@ -702,9 +702,8 @@ export function MobileApp({
         })
         if (selected.cancelled) return
         if (!selected.tableSource) throw new Error('未取得完整表格来源，请重新选择。')
-        // Do not flash a waiting notice while choosing a file or completing a
-        // small preview; the existing cancel action remains available at once.
-        progressTimer = setTimeout(() => setNotice('正在读取并校验表格，完成后可预览确认…'), 200)
+        // 选择文件时不显示应用进度；快速完成不闪提示，慢操作保留轻量取消入口。
+        progressTimer = setTimeout(() => setNotice('正在读取并校验表格，完成后可预览确认…'), 500)
         const stream = await previewNativeTable(port, selected.tableSource, kind, controller.signal)
         if (nativeRef.current?.revision !== revision || stream.revision !== revision) {
           await port.cancelTableStage!({ id: stream.id })
@@ -717,6 +716,7 @@ export function MobileApp({
         clearTimeout(progressTimer)
         tableAbort.current = undefined
         setTableImporting(false)
+        setNotice('')
       }
       return
     }
@@ -777,12 +777,13 @@ export function MobileApp({
           await port.cancelTableStage!({ id: selected.tableSource.id })
           throw new Error('数据已变化，请重新选择角色卡。')
         }
-        progressTimer = setTimeout(() => setNotice('正在读取并校验角色卡…'), 200)
+        progressTimer = setTimeout(() => setNotice('正在读取并校验角色卡…'), 500)
         imported = await previewNativeCoc7(port, selected.tableSource, controller.signal)
       } finally {
         clearTimeout(progressTimer)
         tableAbort.current = undefined
         setTableImporting(false)
+        setNotice('')
       }
     } else {
       const selected = await port.openBackup({ kind: 'character-table' })
@@ -1675,7 +1676,20 @@ export function MobileApp({
           aria-hidden={confirmation ? true : undefined}
         />
         <div className="operation-feedback">
-          {busy && !quietSaving && !preview && !error && !confirmation && (
+          {tableImporting && notice && !error && (
+            <div className="import-progress">
+              <SystemMessage kind="progress" ariaLabel="导入处理进度" message={notice} />
+              <button
+                onClick={() => {
+                  tableAbort.current?.abort()
+                  setNotice('正在取消导入…')
+                }}
+              >
+                取消导入
+              </button>
+            </div>
+          )}
+          {busy && !tableImporting && !quietSaving && !preview && !error && !confirmation && (
             <SystemMessage kind="progress" ariaLabel="数据处理进度" message={notice || '正在处理…'} />
           )}
           {error && !preview && (
@@ -1744,22 +1758,6 @@ export function MobileApp({
           onClose={() => setExportRequest(undefined)}
           onExport={(format) => void perform(() => exportSelected(format))}
         />
-      )}
-      {tableImporting && (
-        <div className="modal-backdrop">
-          <section className="restore-dialog panel" role="dialog" aria-modal="true" aria-label="正在导入表格">
-            <h2>正在导入表格</h2>
-            <SystemMessage kind="progress" message={notice || '正在校验表格…'} />
-            <button
-              onClick={() => {
-                tableAbort.current?.abort()
-                setNotice('正在取消表格导入…')
-              }}
-            >
-              取消导入
-            </button>
-          </section>
-        </div>
       )}
       {tablePreview && (
         <div className="modal-backdrop">
