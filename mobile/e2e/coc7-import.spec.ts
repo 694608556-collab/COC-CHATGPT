@@ -121,7 +121,7 @@ test('七版人物卡预览取消不保存；15边界、红框物品、完整经
   await page.getByRole('button', { name: '刷新测试文件列表' }).click()
   await page.getByText(/测试文件（/).click()
   const download = page.waitForEvent('download')
-  await page.getByRole('button', { name: /^coc-android-backup-.*\.json$/ }).click()
+  await page.getByRole('button', { name: /^[0-9]{8}COC跑团记录簿[0-9]*\.json$/ }).click()
   const saved = JSON.parse(await readFile((await (await download).path())!, 'utf8')).snapshot
   expect(saved.modules).toEqual(sample.modules)
   expect(saved.records).toEqual(sample.records)

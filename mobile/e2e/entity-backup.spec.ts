@@ -77,7 +77,7 @@ test('大正文：场次打开、输入、保存与角色保存保留全部正�
   await page.getByRole('button', { name: '刷新测试文件列表' }).click()
   await page.getByText(/测试文件（/).click()
   const download = page.waitForEvent('download')
-  await page.getByRole('button', { name: /^coc-android-backup-.*\.json$/ }).click()
+  await page.getByRole('button', { name: /^[0-9]{8}COC跑团记录簿[0-9]*\.json$/ }).click()
   const saved = JSON.parse((await readFile((await (await download).path())!)).toString()).snapshot
   expect(saved.records.map((row: { rawContent: unknown }) => row.rawContent)).toEqual(
     sample.records.map((row) => row.rawContent)

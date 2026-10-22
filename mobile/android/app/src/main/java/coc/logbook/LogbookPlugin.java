@@ -913,7 +913,7 @@ public final class LogbookPlugin extends Plugin {
     private void finishAutomaticBackup(PluginCall call, ReadLease lease, ReadLease.Value current, long expected, String tree) {
         try {
             requireArchivePermission(tree);
-            JSObject saved = publishArchive(current.file,tree,"auto-backup-"+System.currentTimeMillis()+".json","application/json","auto",current.bytes,current.sha256);
+            JSObject saved = publishArchive(current.file,tree,DocumentNames.backup(java.time.LocalDate.now(),"json"),"application/json","auto",current.bytes,current.sha256);
             if (!tree.equals(prefs().getString("tree", ""))) throw new IllegalStateException("保存位置已变化；旧位置文件保留，本次未标记为已备份。");
             long savedAt = System.currentTimeMillis();
             JSONObject owned = new JSONObject(saved.toString()); owned.put("tree", tree); owned.put("createdAt", savedAt);

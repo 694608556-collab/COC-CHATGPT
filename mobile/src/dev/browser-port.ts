@@ -9,7 +9,7 @@ import { applyAction } from '../data/actions'
 import { checkJsonInBackground, encodeInBackground } from '../data/background'
 import { validateSettings } from '../data/settings'
 import { applyEdit } from '../data/edit'
-import { nextExportName } from '../../../src/shared/export-filenames'
+import { backupExportName, nextExportName } from '../../../src/shared/export-filenames'
 
 export interface BrowserDocument extends SavedDocument {
   kind?: 'auto'
@@ -412,7 +412,11 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
       const snapshot = (await previewBackup(new TextEncoder().encode(source))).snapshot
       const startedAt = Date.now()
       const file = {
-        ...(await document('auto-backup-' + startedAt + '.json', 'application/json', encodeBackup(snapshot))),
+        ...(await document(
+          backupExportName('json', new Date(startedAt)),
+          'application/json',
+          encodeBackup(snapshot)
+        )),
         kind: 'auto' as const,
         purpose: 'auto' as const,
         createdAt: startedAt
@@ -431,24 +435,31 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
             tx.abort()
             return
           }
-          documents.add(file)
-          const back = documents.get(file.uri)
-          back.onsuccess = () => {
-            if (back.result?.base64 !== file.base64) {
-              failure = new Error('自动备份回读失败。')
-              tx.abort()
-              return
-            }
-            savedAt = Date.now()
-            states.put(
-              { ...current.result, lastAutoBackupAt: savedAt, lastAutoBackupRevision: expectedRevision },
-              'current'
+          const names = documents.getAll()
+          names.onsuccess = () => {
+            file.name = nextExportName(
+              names.result.map((entry: BrowserDocument) => entry.name),
+              file.name
             )
-            const all = documents.getAll()
-            all.onsuccess = () => {
-              const owned: BrowserDocument[] = all.result.filter((f: BrowserDocument) => f.kind === 'auto')
-              owned.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
-              owned.slice(10).forEach((f) => documents.delete(f.uri))
+            documents.add(file)
+            const back = documents.get(file.uri)
+            back.onsuccess = () => {
+              if (back.result?.base64 !== file.base64) {
+                failure = new Error('自动备份回读失败。')
+                tx.abort()
+                return
+              }
+              savedAt = Date.now()
+              states.put(
+                { ...current.result, lastAutoBackupAt: savedAt, lastAutoBackupRevision: expectedRevision },
+                'current'
+              )
+              const all = documents.getAll()
+              all.onsuccess = () => {
+                const owned: BrowserDocument[] = all.result.filter((f: BrowserDocument) => f.kind === 'auto')
+                owned.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+                owned.slice(10).forEach((f) => documents.delete(f.uri))
+              }
             }
           }
         }

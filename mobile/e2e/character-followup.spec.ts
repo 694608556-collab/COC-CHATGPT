@@ -144,7 +144,7 @@ test('手填伤害不被属性及版次覆盖；短物品三列、长名称加�
   const download = page.waitForEvent('download')
   await page
     .locator('.dev-banner')
-    .getByRole('button', { name: /^coc-android-backup-/ })
+    .getByRole('button', { name: /^[0-9]{8}COC跑团记录簿[0-9]*/ })
     .click()
   const backup = JSON.parse(await readFile((await (await download).path())!, 'utf8'))
   expect(backup.snapshot.characters[0].occupationFormula).toBe('旧公式原文')

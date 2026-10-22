@@ -23,6 +23,10 @@ public final class MetadataCheck {
     }
     interface Throwing { void run() throws Exception; }
     public static void main(String[] args) throws Exception {
+        check("20261022COC跑团记录簿.json".equals(DocumentNames.backup(java.time.LocalDate.of(2026,10,22),"json")),"local date backup name");
+        check("20261022COC跑团记录簿1.zip".equals(DocumentNames.available(java.util.List.of("20261022COC跑团记录簿.json"),"20261022COC跑团记录簿.zip")),"JSON ZIP share daily numbering from one");
+        check("20261022COC跑团记录簿5.json".equals(DocumentNames.available(java.util.List.of("20261022COC跑团记录簿4.zip"),"20261022COC跑团记录簿.json")),"continue maximum after old backup removal");
+        check("20261023COC跑团记录簿.json".equals(DocumentNames.available(java.util.List.of("20261022COC跑团记录簿4.zip"),"20261023COC跑团记录簿.json")),"next day starts without suffix");
         check("20261016模组合集.txt".equals(DocumentNames.available(java.util.List.of(),"20261016模组合集.txt")),"no random filename suffix");
         check("记录 (3).TXT".equals(DocumentNames.available(java.util.List.of("记录.txt","记录 (2).txt"),"记录.TXT")),"case insensitive desktop numbering preserves existing files");
         check("记录.版本 (2).txt".equals(DocumentNames.available(java.util.List.of("记录.版本.txt"),"记录.版本.txt")),"only final extension is separated");
