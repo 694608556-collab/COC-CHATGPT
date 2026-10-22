@@ -95,7 +95,10 @@ async function run(job: TableStreamJob, port: Required<TableStreamPort>, id: str
           }
         })()
         inFlight.add(task)
-        void task.finally(() => inFlight.delete(task))
+        void task.then(
+          () => inFlight.delete(task),
+          () => inFlight.delete(task)
+        )
       }
       worker.onerror = () => reject(new Error('表格后台处理失败，尚未确认导入。'))
       worker.postMessage({ type: 'start', job })
@@ -105,7 +108,8 @@ async function run(job: TableStreamJob, port: Required<TableStreamPort>, id: str
     if (abort) signal?.removeEventListener('abort', abort)
     worker.terminate()
     // Settle already-dispatched native writes before releasing their owner.
-    await Promise.allSettled(inFlight)
+    // Android's older system WebViews have Promise.all but not allSettled.
+    await Promise.all(Array.from(inFlight, (task) => task.catch(() => undefined)))
   }
 }
 export async function previewNativeTable(

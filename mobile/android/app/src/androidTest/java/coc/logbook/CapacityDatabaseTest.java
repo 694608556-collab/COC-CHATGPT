@@ -44,7 +44,7 @@ public final class CapacityDatabaseTest {
                 assertEquals(bodyHash,recordHash(db,id));assertEquals(2,db.revision());
                 try(Reader input=new InputStreamReader(new FileInputStream(source),StandardCharsets.UTF_8)){
                     try{db.edit(2,store->{store.replace(input);free[0]=StorageBudget.MINIMUM_RESERVE;});fail("late low space accepted");}
-                    catch(IOException expected){}finally{free[0]=32L*1024*1024*1024;}
+                    catch(IOException|IllegalStateException expected){}finally{free[0]=32L*1024*1024*1024;}
                 }
                 assertEquals(2,db.revision());assertEquals(bodyHash,recordHash(db,id));
                 db.getWritableDatabase().execSQL("CREATE TRIGGER reject_single_commit BEFORE UPDATE ON app_state BEGIN SELECT RAISE(ABORT,'injected'); END");

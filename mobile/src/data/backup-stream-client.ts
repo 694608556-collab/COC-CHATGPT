@@ -95,7 +95,10 @@ async function run<T>(job: BackupStreamJob, port: Port, id: string, signal?: Abo
             }
           })()
           inFlight.add(task)
-          void task.finally(() => inFlight.delete(task))
+          void task.then(
+            () => inFlight.delete(task),
+            () => inFlight.delete(task)
+          )
         } else if (data.type === 'done') resolve(data.result)
         else if (data.type === 'failed') reject(new Error(data.error))
       }
@@ -107,7 +110,8 @@ async function run<T>(job: BackupStreamJob, port: Port, id: string, signal?: Abo
     if (abort) signal?.removeEventListener('abort', abort)
     worker.terminate()
     // Native writes already dispatched must settle before their owner is released.
-    await Promise.allSettled(inFlight)
+    // Android's older system WebViews have Promise.all but not allSettled.
+    await Promise.all(Array.from(inFlight, (task) => task.catch(() => undefined)))
   }
 }
 export async function previewNativeBackup(

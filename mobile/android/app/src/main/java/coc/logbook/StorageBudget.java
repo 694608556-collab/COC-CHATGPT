@@ -23,7 +23,8 @@ final class StorageBudget {
         return result;
     }
     static void require(Available available, long additional) throws Exception {
-        if (additional < 0 || additional > remaining(available.bytes()))
+        long budget=remaining(available.bytes());
+        if (budget < 1 || additional < 0 || additional > budget)
             throw new IOException("本机可用空间不足，操作未完成；原数据保留。");
     }
     static Available volume(File directory) {

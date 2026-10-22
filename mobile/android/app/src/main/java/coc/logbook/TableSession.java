@@ -107,7 +107,9 @@ final class TableSession implements AutoCloseable {
         Long ref=reference("strings","value","id=?",new String[]{Long.toString(index)});if(ref==null)throw new IOException("共享字符串不存在。");
         long bytes=scalar("SELECT bytes FROM blobs WHERE id=?",Long.toString(ref));if(offset>bytes)throw new IOException("共享字符串偏移无效。");
         int count=(int)Math.min(LogbookLimits.TRANSFER_CHUNK_BYTES,bytes-offset);byte[] chunk=new byte[count];int filled=0;
-        try(Cursor rows=stage.rawQuery("SELECT offset,data FROM blob_chunks WHERE owner=? AND offset>=? AND offset<? AND offset+length(data)>? ORDER BY position",new String[]{Long.toString(ref),Long.toString(Math.max(0,offset-LogbookLimits.TRANSFER_CHUNK_BYTES)),Long.toString(offset+count),Long.toString(offset)})){
+        // rawQuery binds strings: computed expressions have no column affinity,
+        // so their byte offsets must be explicitly compared as integers.
+        try(Cursor rows=stage.rawQuery("SELECT offset,data FROM blob_chunks WHERE owner=? AND offset>=? AND offset<? AND offset+length(data)>CAST(? AS INTEGER) ORDER BY position",new String[]{Long.toString(ref),Long.toString(Math.max(0,offset-LogbookLimits.TRANSFER_CHUNK_BYTES)),Long.toString(offset+count),Long.toString(offset)})){
             while(rows.moveToNext()){long start=rows.getLong(0);byte[] part=rows.getBlob(1);int from=(int)Math.max(0,offset-start),take=Math.min(part.length-from,count-filled);if(take<0||start+from!=offset+filled)throw new IOException("共享字符串分段不完整。");System.arraycopy(part,from,chunk,filled,take);filled+=take;}
         }
         if(filled!=count)throw new IOException("共享字符串分段不完整。");

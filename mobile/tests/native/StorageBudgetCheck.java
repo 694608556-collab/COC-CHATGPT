@@ -12,6 +12,9 @@ public final class StorageBudgetCheck {
         require(StorageBudget.remaining(20 * 1024 * MiB) == 19 * 1024 * MiB);
         require(StorageBudget.maximum(() -> 1024 * MiB, 6) == (1024 * MiB - 64 * MiB) / 6);
         StorageBudget.require(() -> 128 * MiB, 64 * MiB); count++;
+        StorageBudget.require(() -> 64 * MiB + 1, 0); count++;
+        rejects(() -> StorageBudget.require(() -> 64 * MiB, 0));
+        rejects(() -> StorageBudget.require(() -> 32 * MiB, 0));
         rejects(() -> StorageBudget.require(() -> 128 * MiB, 64 * MiB + 1));
         rejects(() -> StorageBudget.maximum(() -> 0, 1));
         rejects(() -> StorageBudget.maximum(() -> { throw new java.io.IOException("unavailable"); }, 1));
