@@ -691,7 +691,7 @@ export function MobileApp({
       const controller = new AbortController()
       tableAbort.current = controller
       setTableImporting(true)
-      setNotice('正在读取并校验表格，完成后可预览确认…')
+      let progressTimer: ReturnType<typeof setTimeout> | undefined
       try {
         const selected = await port.openBackup({
           kind: kind === 'records' ? 'record-table' : 'character-table',
@@ -700,6 +700,9 @@ export function MobileApp({
         })
         if (selected.cancelled) return
         if (!selected.tableSource) throw new Error('未取得完整表格来源，请重新选择。')
+        // Do not flash a waiting notice while choosing a file or completing a
+        // small preview; the existing cancel action remains available at once.
+        progressTimer = setTimeout(() => setNotice('正在读取并校验表格，完成后可预览确认…'), 200)
         const stream = await previewNativeTable(port, selected.tableSource, kind, controller.signal)
         if (nativeRef.current?.revision !== revision || stream.revision !== revision) {
           await port.cancelTableStage!({ id: stream.id })
@@ -709,6 +712,7 @@ export function MobileApp({
         setTablePreview({ data: stream, stream, revision })
         setNotice('')
       } finally {
+        clearTimeout(progressTimer)
         tableAbort.current = undefined
         setTableImporting(false)
       }
@@ -758,7 +762,7 @@ export function MobileApp({
       const controller = new AbortController()
       tableAbort.current = controller
       setTableImporting(true)
-      setNotice('正在读取并校验角色卡…')
+      let progressTimer: ReturnType<typeof setTimeout> | undefined
       try {
         const selected = await port.openBackup({
           kind: 'character-table',
@@ -771,8 +775,10 @@ export function MobileApp({
           await port.cancelTableStage!({ id: selected.tableSource.id })
           throw new Error('数据已变化，请重新选择角色卡。')
         }
+        progressTimer = setTimeout(() => setNotice('正在读取并校验角色卡…'), 200)
         imported = await previewNativeCoc7(port, selected.tableSource, controller.signal)
       } finally {
+        clearTimeout(progressTimer)
         tableAbort.current = undefined
         setTableImporting(false)
       }
