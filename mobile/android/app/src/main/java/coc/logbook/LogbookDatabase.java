@@ -42,15 +42,19 @@ final class LogbookDatabase extends SQLiteOpenHelper {
  }
  synchronized String snapshot(){
   if(!exists())return null;
-  try{if(projectedBytes(null)>LogbookLimits.SNAPSHOT_REQUEST_BYTES)throw new IllegalStateException("整库超过单次内存读取预算，请使用概览或分块备份。");StringWriter out=new StringWriter();writeSnapshot(out,null);return out.toString();}
+  try{StringWriter out=new StringWriter();writeSnapshot(out,null);return out.toString();}
   catch(Exception error){throw new IllegalStateException("正文读取失败；原数据未改变。",error);}
  }
  long revision(){try(Cursor row=getReadableDatabase().rawQuery("SELECT revision FROM app_state WHERE id=1",null)){row.moveToFirst();return row.getLong(0);}}
  interface Edit{void apply(IndexedSnapshot store)throws Exception;}
+ interface Authorization{void check()throws Exception;}
  synchronized long edit(long expected,Edit edit)throws Exception{
   return edit(expected,edit,null);
  }
  synchronized long edit(long expected,Edit edit,TableTiming timing)throws Exception{
+  return edit(expected,edit,timing,()->{});
+ }
+ private synchronized long edit(long expected,Edit edit,TableTiming timing,Authorization authorizeCommit)throws Exception{
   SQLiteDatabase db=getWritableDatabase();
   if(deviceSpace)StorageBudget.require(available,StorageBudget.estimate(new IndexedSnapshot(db,deviceSpace,available).metadataBytes(),4));
   db.beginTransaction();
@@ -60,6 +64,7 @@ final class LogbookDatabase extends SQLiteOpenHelper {
    TableTiming.mark(timing,"transactionCAS");
    IndexedSnapshot store=new IndexedSnapshot(db,deviceSpace,available);edit.apply(store);store.checkSize();
    TableTiming.mark(timing,"capacity");
+   authorizeCommit.check();
    db.execSQL("UPDATE app_state SET json='indexed-v4',revision=? WHERE id=1",new Object[]{expected+1});
    TableTiming.mark(timing,"revisionWrite");
    db.setTransactionSuccessful();return expected+1;
@@ -70,13 +75,15 @@ final class LogbookDatabase extends SQLiteOpenHelper {
   return edit(expected,store->store.patch(fields));
  }
  synchronized long replace(Reader reader,long expected)throws Exception{return edit(expected,store->store.replace(reader));}
- synchronized long restoreCandidate(InputStream input,RestoreCandidate.Preview preview,long expected,boolean restoreSettings,String defaultSettings)throws Exception{
+ synchronized long restoreCandidate(InputStream input,RestoreCandidate.Preview preview,long expected,boolean restoreSettings,String defaultSettings,Authorization authorize)throws Exception{
+  Objects.requireNonNull(authorize,"Native restore authorization is required");
   BackupValidation.metadata(preview.metadata);
   Map<String,String> root=JsonFields.split(preview.metadata.toString());root.remove("records");
   return edit(expected,store->{
+   authorize.check();
    if(!restoreSettings){Map<String,String> current=store.rootFields();root.put("settings",current.containsKey("settings")?current.get("settings"):defaultSettings);}
    store.replaceCandidate(root,input,preview);
-  });
+  },null,authorize);
  }
  synchronized long replace(String json,long expected){
   try{return replace(new StringReader(json),expected);}catch(RuntimeException error){throw error;}catch(Exception error){throw new IllegalStateException("保存失败；原数据未改变。",error);}

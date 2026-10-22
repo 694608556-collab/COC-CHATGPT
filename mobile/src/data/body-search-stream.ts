@@ -1,7 +1,5 @@
 import { readBackupJsonStream } from './backup-stream'
 import { countMatches, recordMessages, searchExcerpt } from './search'
-import { utf8Size } from './stream-json'
-import { capacity } from './capacity'
 import type { FilterPreset } from '../../../src/shared/types'
 import type { NativeBackupFile } from './backup-stream-native'
 import type { StreamProof } from './backup-stream'
@@ -39,7 +37,6 @@ export async function searchBodyStream(
   const query = options.query.trim()
   if (!query || query.length > 4096 || wanted.size !== options.ids.length)
     throw new Error('正文搜索范围或查询无效。')
-  let resultBytes = 0
   const preview = await readBackupJsonStream(source, {
     maximumBytes: options.expectedSource.bytes,
     expectedSource: options.expectedSource,
@@ -57,9 +54,6 @@ export async function searchBodyStream(
       }
       if (matches) {
         const hit = { id: record.id, matches, excerpt }
-        resultBytes += utf8Size(JSON.stringify(hit)) + 1
-        if (resultBytes > capacity.snapshotRequestBytes)
-          throw new Error('搜索结果摘要超过独立处理预算，请缩小查询范围。')
         hits.push(hit)
       }
     }

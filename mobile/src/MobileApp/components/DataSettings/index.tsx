@@ -72,7 +72,7 @@ export function DataSettings(props: {
           </p>
           {props.expandedLibrary && (
             <p className="muted">
-              整库容量随手机可用空间增长。保存、恢复和备份需要额外空闲空间；单场完整正文仍限 64MiB。
+              不设整库、单场或导入表格的固定容量上限。可处理的内容量取决于可用运行内存和存储空间；保存、恢复和备份需要额外空闲空间。
             </p>
           )}
         </section>

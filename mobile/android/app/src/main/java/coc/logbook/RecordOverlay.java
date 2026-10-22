@@ -7,7 +7,7 @@ import org.json.JSONObject;
 
 /** Native-owned record fragments. Unchanged bodies never enter JSONObject or metadata writes. */
 final class RecordOverlay {
-    /** Applies the existing 64 MB snapshot limit without assembling or encoding all body text. */
+    /** Counts the complete snapshot without assembling or encoding all body text. */
     static long bytes(Map<String,String> fields) throws Exception {
         long records = 2;
         for (Map<String,String> row : rows(fields).values()) {

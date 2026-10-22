@@ -24,7 +24,12 @@ final class SnapshotUploadCheck {
   final String stale=upload.begin("tree",8,bytes.length,hash(bytes));upload.append(stale,0,bytes);
   // Closing a canceled transfer leaves no private bytes; actual process death is tested on device.
   upload.close();new SnapshotUpload(dir).close();if(dir.list().length!=0)throw new AssertionError();
-  rejected(()->upload.begin("tree",8,64L*1024*1024+1,hash(bytes)));
+  byte[] chunk=new byte[256*1024];java.util.Arrays.fill(chunk,(byte)'x');MessageDigest largeHash=MessageDigest.getInstance("SHA-256");
+  for(int i=0;i<272;i++)largeHash.update(chunk);
+  StringBuilder hex=new StringBuilder();for(byte b:largeHash.digest())hex.append(String.format("%02x",b&255));
+  String large=upload.begin("tree",8,68L*1024*1024,hex.toString());for(int i=0;i<272;i++)upload.append(large,i,chunk);
+  upload.finish(large,(file,tree,revision)->{if(file.length()!=68L*1024*1024||revision!=8)throw new AssertionError("Large upload truncated");return null;});
+  if(dir.list().length!=0)throw new AssertionError("Large upload leaked");
   System.out.println("Snapshot upload: ordered bounded bytes/hash, stale token, incomplete/duplicate rejection, failed commit and cleanup passed");
  }
 }

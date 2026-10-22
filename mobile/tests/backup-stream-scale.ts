@@ -122,8 +122,9 @@ async function main() {
       assert.equal(proof.bytes, file.size)
       assert.equal(proof.sha256, outputHash.digest('hex'))
       let seen = 0
-      const inputHash = createHash('sha256')
+      let inputHash = createHash('sha256')
       async function* source() {
+        inputHash = createHash('sha256')
         for await (const bytes of createReadStream(path, { highWaterMark: 64 * 1024 })) {
           inputHash.update(bytes)
           memory()
@@ -143,7 +144,7 @@ async function main() {
       const preview =
         format === 'json'
           ? await readBackupJsonStream(source(), options)
-          : await readBackupZipStream(source(), { ...options, maximumExpandedBytes: maximumBytes })
+          : await readBackupZipStream(source, { ...options, maximumExpandedBytes: maximumBytes })
       assert.equal(seen, count)
       assert.equal(preview.offlineRecords, count)
       if (format !== 'json') assert('expandedBytes' in preview && Number(preview.expandedBytes) > 64 * MiB)

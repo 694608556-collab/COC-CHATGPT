@@ -65,9 +65,8 @@ final class TextPdfJobs implements AutoCloseable {
                         // Android 9 Skia retries swallowed OutputStream exceptions. Drain/discard instead,
                         // then reject outside writeTo; never publish these cancelled/failed private bytes.
                         if (job.cancelled || failure != null) return;
-                        if (size + length > LogbookLimits.ARCHIVE_FILE_BYTES) { failure = new IOException("PDF 超过 64 MB，未保存；正文未截断。"); return; }
-                        try { file.write(bytes, offset, length); size += length; }
-                        catch (IOException error) { failure = error; }
+                        try { StorageBudget.require(StorageBudget.volume(directory),length);file.write(bytes, offset, length); size=Math.addExact(size,length); }
+                        catch (Exception error) { failure = error instanceof IOException?(IOException)error:new IOException("PDF生成空间不足或计量失败。",error); }
                     }
                 }
                 BoundedOutput bounded = new BoundedOutput();

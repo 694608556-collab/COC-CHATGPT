@@ -2,7 +2,6 @@ import { retainBodySelection } from '../data/body-cache'
 import { BodySearchCleanupError } from '../data/body-search-stream'
 import { searchNativeBodies } from '../data/backup-stream-client'
 import type { BodySearchResult } from '../data/body-search-stream'
-import { capacity } from '../data/capacity'
 import { BatchCheck } from './components/BatchCheck'
 import { buildTableImportTemplateCsv, buildTableImportTemplateXlsx } from '../../../src/shared/table-import'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -1267,13 +1266,6 @@ export function MobileApp({
           file.purpose === 'import' ||
           (!file.purpose && !/^(before-|auto-backup-|coc-android-backup-)/.test(file.name))
       )
-      let total = 0
-      for (const file of exported) {
-        total += file.bytes
-        if (total > capacity.attachmentTotalBytes)
-          throw new Error('归档附件超过 128 MB，无法打包。原文件保留。')
-      }
-      if (exported.length > 1999) throw new Error('归档附件超过 1999 份，无法打包。原文件保留。')
     }
     const name = 'coc-android-backup-' + Date.now() + (includeArchives ? '.zip' : '.json')
     let source: NativeExportSession | undefined

@@ -10,7 +10,8 @@ import java.util.UUID;
 
 /** One private, bounded PDF spool. Call on the bridge's serial queue; never accepts caller paths. */
 final class PdfSpool implements AutoCloseable {
-    private final long maximumBytes;
+    private long maximumBytes;
+    private final StorageBudget.Available available;
     private final File directory;
     private File file;
     private FileOutputStream output;
@@ -19,14 +20,14 @@ final class PdfSpool implements AutoCloseable {
 
     /** Creates/cleans only our dedicated cache directory; never scans shared user storage. */
     PdfSpool(File directory) throws Exception {
-        this(directory, LogbookLimits.ARCHIVE_FILE_BYTES);
+        this(directory, (StorageBudget.Available)null);
     }
 
     /** Budget chosen by the native operation, never by a bridge argument. */
-    PdfSpool(File directory, long maximumBytes) throws Exception {
-        this.maximumBytes = maximumBytes;
+    PdfSpool(File directory, StorageBudget.Available available) throws Exception {
         this.directory = directory;
         if (!directory.isDirectory() && !directory.mkdirs()) throw new IllegalStateException("无法创建 PDF 临时目录。");
+        this.available=available==null?StorageBudget.volume(directory):available;
         File[] stale = directory.listFiles((dir, name) -> name.matches("coc-pdf-[a-f0-9-]+\\.part"));
         if (stale == null) throw new IllegalStateException("无法读取 PDF 临时目录。");
         for (File item : stale) if (!item.delete()) throw new IllegalStateException("无法清理上次 PDF 临时文件。");
@@ -35,6 +36,7 @@ final class PdfSpool implements AutoCloseable {
     /** Starts one private spool bound to the current archive tree. */
     String begin(String location) throws Exception {
         if (file != null) throw new IllegalStateException("已有 PDF 正在导出。");
+        maximumBytes=StorageBudget.maximum(available,3);
         id = UUID.randomUUID().toString();
         file = new File(directory, "coc-pdf-" + id + ".part");
         tree = location; size = 0;
@@ -46,8 +48,9 @@ final class PdfSpool implements AutoCloseable {
     void append(String token, byte[] bytes) throws Exception {
         require(token);
         try {
-            if (output == null || bytes.length > LogbookLimits.TRANSFER_CHUNK_BYTES || size + bytes.length > maximumBytes)
-                throw new IllegalArgumentException("PDF 文件或分段超过大小限制。");
+            if (output == null || bytes.length > LogbookLimits.TRANSFER_CHUNK_BYTES || bytes.length>maximumBytes-size)
+                throw new IllegalArgumentException("导出分段无效或超过本次可用空间。");
+            StorageBudget.require(available,bytes.length);
             output.write(bytes); size += bytes.length;
         } catch (Exception error) { close(); throw error; }
     }
@@ -83,20 +86,17 @@ final class PdfSpool implements AutoCloseable {
         try {
             output.flush(); output.getFD().sync(); output.close(); output = null;
             if (file.length() != size) throw new IllegalStateException("导出临时文件不完整。");
-            return publish(file, tree, name, pdf, maximumBytes, publisher);
+            return publish(file, tree, name, pdf, publisher);
         } finally { close(); }
     }
 
     /** Shared verification/commit boundary for both browser raster and native text PDF files. */
     static <T> T publish(File file, String tree, String name, boolean pdf, Publisher<T> publisher) throws Exception {
-            return publish(file, tree, name, pdf, LogbookLimits.ARCHIVE_FILE_BYTES, publisher);
-    }
-
-    private static <T> T publish(File file, String tree, String name, boolean pdf, long maximumBytes, Publisher<T> publisher) throws Exception {
             long size = file.length();
             if (name == null || name.isEmpty() || name.equals(".") || name.equals("..") || name.length() > 255 || (pdf && !name.endsWith(".pdf")) || name.matches(".*[/\\\\\u0000-\u001f].*"))
                 throw new IllegalArgumentException("导出文件名不合法。");
-            if ((pdf && size < 16) || size > maximumBytes) throw new IllegalStateException("导出临时文件不完整或超过大小限制。");
+            if (pdf && size < 16) throw new IllegalStateException("导出临时文件不完整。");
+            StorageBudget.require(StorageBudget.volume(file.getAbsoluteFile().getParentFile()),0);
             if (pdf) try (RandomAccessFile input = new RandomAccessFile(file, "r")) {
                 byte[] header = new byte[5]; input.readFully(header);
                 byte[] tail = new byte[(int)Math.min(32, size)]; input.seek(size - tail.length); input.readFully(tail);
@@ -115,6 +115,7 @@ final class PdfSpool implements AutoCloseable {
 
     /** Idempotent cancellation cannot remove another export or an already published document. */
     void cancel(String token) throws Exception { if (id != null && id.equals(token)) close(); }
+    long maximumBytes()throws Exception{return file==null?StorageBudget.maximum(available,3):maximumBytes;}
 
     private void require(String token) {
         if (file == null || id == null || !id.equals(token)) throw new IllegalArgumentException("PDF 暂存已失效。");

@@ -45,6 +45,12 @@ public final class TableStreamTest {
     private static void remove(File root)throws Exception{
         if(!root.exists())return;for(File child:Objects.requireNonNull(root.listFiles())){if(child.isDirectory())remove(child);else assertTrue(child.delete());}assertTrue(root.delete());
     }
+    private static void assertChunked(TableSession session,long minimumValueBytes)throws Exception{
+        try(android.database.sqlite.SQLiteDatabase db=android.database.sqlite.SQLiteDatabase.openDatabase(new File(session.directory,"stage.sqlite").getPath(),null,android.database.sqlite.SQLiteDatabase.OPEN_READONLY)){
+            try(Cursor row=db.rawQuery("SELECT MAX(bytes) FROM blobs",null)){assertTrue(row.moveToFirst());assertTrue(row.getLong(0)>=minimumValueBytes);}
+            try(Cursor row=db.rawQuery("SELECT MAX(length(data)),COUNT(*) FROM blob_chunks",null)){assertTrue(row.moveToFirst());assertTrue(row.getLong(0)<=LogbookLimits.TRANSFER_CHUNK_BYTES);assertTrue(row.getLong(1)>1);}
+        }
+    }
     @Test public void largeSourceAndCandidateCommitWithoutOldBodyWrites()throws Exception{
         String name="public-table-large-"+UUID.randomUUID()+".sqlite";File root=new File(context.getCacheDir(),"public-table-"+UUID.randomUUID());assertTrue(root.mkdir());
         try(LogbookDatabase db=new LogbookDatabase(context,name,true,()->FREE)){
@@ -55,6 +61,7 @@ public final class TableStreamTest {
                 assertEquals(total,stage.sourceProof().bytes);Send candidate=new Send(stage,"candidate");String body="公开完整正文😀\u0000\r\n"+String.join("",Collections.nCopies(1024*1024,"A"));
                 for(int i=0;i<66;i++)candidate.record(0,i,row("公开大表","场次"+i,"",body));
                 assertTrue(candidate.bytes>64L*1024*1024);JSONObject preview=stage.preview(db,candidate.proof(),initial.getJSONObject("settings"));assertEquals(66,preview.getInt("added"));assertEquals(1,db.revision());
+                assertChunked(stage,1024*1024);
                 stage.prepareCommit();assertFalse(stage.directory.exists());assertEquals(2,db.edit(1,stage::apply));assertEquals(oldHash,bodyHash(db,old.getString("id")));assertTrue(db.logicalBytes()>66L*1024*1024);
                 try(Cursor rows=db.getReadableDatabase().rawQuery("SELECT id FROM indexed_records ORDER BY ordinal DESC LIMIT 1",null)){assertTrue(rows.moveToFirst());Set<String> selected=Collections.singleton(rows.getString(0));StringWriter output=new StringWriter();db.writeSnapshot(output,selected);JSONObject saved=new JSONObject(output.toString()).getJSONArray("records").getJSONObject(0);assertEquals("场次65",saved.getString("name"));assertEquals(body,saved.getString("manualContent"));}
             }
@@ -67,6 +74,8 @@ public final class TableStreamTest {
             JSONObject initial=fixture();
             try(TableSession stage=session(root,db)){
                 Send strings=new Send(stage,"strings");String value=String.join("",Collections.nCopies(100000,"中😀"));strings.text(new JSONArray().put(0).put(value)+"\n");ByteArrayOutputStream output=new ByteArrayOutputStream();boolean done=false;while(!done){JSONObject part=stage.string(0,output.size());output.write(Base64.decode(part.getString("base64"),Base64.DEFAULT));done=part.getBoolean("done");assertEquals(value.getBytes(StandardCharsets.UTF_8).length,part.getLong("bytes"));}assertEquals(value,output.toString("UTF-8"));
+                assertChunked(stage,700000);byte[] exact=value.getBytes(StandardCharsets.UTF_8);
+                for(int offset:new int[]{1,65535,65536,152914,262143,262144,exact.length-1,exact.length}){JSONObject part=stage.string(0,offset);assertArrayEquals(Arrays.copyOfRange(exact,offset,Math.min(exact.length,offset+LogbookLimits.TRANSFER_CHUNK_BYTES)),Base64.decode(part.getString("base64"),Base64.DEFAULT));}
                 Send candidate=new Send(stage,"candidate");candidate.record(1,0,row("公开","同名","","最终正文"));JSONObject first=row("公开","同名","","最初正文");first.put("playDate","2026/10/22（公开）");first.put("kps",new JSONArray().put("\u3000公开KP\u00a0").put("\u0000保留\u0000"));candidate.record(0,0,first);
                 candidate.record(0,1,row("公开","在线","https://log.weizaima.com/?key=public",null));candidate.record(1,1,row("公开","重复","https://log.weizaima.com/?key=public",null));
                 for(int i=0;i<110;i++)candidate.record(2,i,row("公开","分页"+i,"",null));

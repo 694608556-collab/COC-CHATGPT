@@ -136,7 +136,6 @@ public final class LogbookPlugin extends Plugin {
             if (input == null) throw new IllegalStateException("无法读取文件。");
             byte[] chunk = new byte[8192]; int count;
             while ((count = input.read(chunk)) != -1) {
-                if (output.size() + count > LogbookLimits.PICKED_FILE_BYTES) throw new IllegalStateException("首阶段文件上限为 64 MB。");
                 output.write(chunk, 0, count);
             }
             return output.toByteArray();
@@ -193,7 +192,6 @@ public final class LogbookPlugin extends Plugin {
     @PluginMethod public void getState(PluginCall call) {
         execute(() -> {
             try {
-                if(database.logicalBytes()>LogbookLimits.SNAPSHOT_REQUEST_BYTES)throw new IllegalStateException("整库超过单次内存读取预算，请使用概览或完整分块备份。");
                 JSObject out = new JSObject(); String json = database.snapshot();
                 out.put("bodySearchStreamVersion",1);out.put("backupStreamVersion",1);out.put("tableStreamVersion",1);out.put("json", json == null ? JSONObject.NULL : json); out.put("revision", database.revision());
                 ConnectivityManager connectivity = (ConnectivityManager)getContext().getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
@@ -252,7 +250,6 @@ public final class LogbookPlugin extends Plugin {
                 for (int i=0;i<ids.length();i++) if (!selected.add(ids.getString(i))) throw new IllegalArgumentException("场次选择重复。");
                 java.util.Map<String,String> fields = database.fields();
                 if (fields == null) throw new IllegalStateException("尚无已保存数据。");
-                if(database.projectedBytes(selected)>LogbookLimits.SNAPSHOT_REQUEST_BYTES)throw new IllegalStateException("所选完整正文超过单次读取预算，请减少场次或使用完整备份。");
                 java.io.StringWriter writer=new java.io.StringWriter();database.writeSnapshot(writer,selected);
                 JSONObject view = new JSONObject().put("json",writer.toString());
                 if (database.revision() != expected) throw new IllegalStateException("数据已变化，请重新读取。");
@@ -356,7 +353,8 @@ public final class LogbookPlugin extends Plugin {
                 byte[] bytes = read(document);
                 JSObject out = new JSObject(); out.put("cancelled", false); out.put("name", displayName(document));
                 out.put("base64", Base64.encodeToString(bytes, Base64.NO_WRAP)); call.resolve(out);
-            } catch (Exception error) { call.reject("备份读取失败；未写入数据。", error); }
+            } catch (OutOfMemoryError error) { call.reject("手机可用内存不足以读取此文件；未写入数据。"); }
+              catch (Exception error) { call.reject("备份读取失败；未写入数据。", error); }
         });
     }
     private TableSession tableOwner(PluginCall call)throws Exception{
@@ -510,8 +508,9 @@ public final class LogbookPlugin extends Plugin {
             RestoreCandidate.Preview preview=owner.restorePreview;
             try(java.io.FileInputStream input=new java.io.FileInputStream(owner.file("candidate"))){
                 RestoreCandidate.inspect(input,preview.bytes,preview.sha256,null);input.getChannel().position(0);
+                final BackupSession authorizationOwner=owner;
                 owner.close();backupSession=null;
-                long revision=database.restoreCandidate(input,preview,owner.revision,Boolean.TRUE.equals(call.getBoolean("restoreSettings",false)),emptySnapshot().getJSONObject("settings").toString());
+                long revision=database.restoreCandidate(input,preview,owner.revision,Boolean.TRUE.equals(call.getBoolean("restoreSettings",false)),emptySnapshot().getJSONObject("settings").toString(),()->checkBackupLocation(authorizationOwner,true));
                 committed=true;JSObject out=new JSObject();out.put("revision",revision);call.resolve(out);
             }
         }catch(Exception|OutOfMemoryError error){
@@ -555,8 +554,8 @@ public final class LogbookPlugin extends Plugin {
             if(include){JSONArray all=archives.list(true,prefs().getString("created-documents","[]"));
                 for(int i=all.length()-1;i>=0;i--){JSONObject file=all.getJSONObject(i);String purpose=file.optString("purpose"),name=file.getString("name");
                     if(!purpose.equals("export")&&!purpose.equals("import")&&(!purpose.isEmpty()||name.matches("^(before-|auto-backup-|coc-android-backup-).*")))continue;
-                    BackupSession.Proof proof=BackupSession.requestProof(file);total+=proof.bytes;
-                    if(proof.bytes>LogbookLimits.ARCHIVE_FILE_BYTES||total>128L*1024*1024||files.length()>=1999)throw new IllegalStateException("完整归档附件超过独立处理上限；原文件保留。");
+                    BackupSession.Proof proof=BackupSession.requestProof(file);total=Math.addExact(total,proof.bytes);
+                    StorageBudget.require(owner.available,StorageBudget.estimate(proof.bytes,3));
                     String key="archive:"+files.length();
                     try(InputStream input=getContext().getContentResolver().openInputStream(Uri.parse(file.getString("uri")))){
                         if(input==null)throw new IllegalStateException("已登记归档附件缺失，不能省略。");owner.capture(key,input,proof.bytes,proof.sha256);
@@ -586,7 +585,7 @@ public final class LogbookPlugin extends Plugin {
         return write(name,mime,bytes,purpose,prefs().getString("tree", ""));
     }
     private JSObject write(String name, String mime, byte[] bytes, String purpose, String location) throws Exception {
-        if (bytes.length > LogbookLimits.ARCHIVE_FILE_BYTES || name.length() > 255 || name.isEmpty() || name.equals(".") || name.equals("..") || name.matches(".*[/\\\\\u0000-\u001f].*")) throw new IllegalArgumentException("文件名或文件大小不合法。");
+        if (name.length() > 255 || name.isEmpty() || name.equals(".") || name.equals("..") || name.matches(".*[/\\\\\u0000-\u001f].*")) throw new IllegalArgumentException("文件名不合法。");
         if (location.isEmpty()) throw new IllegalStateException("请先选择并确认归档文件夹。");
         publications().recoverFor(location);
         java.io.File source = java.io.File.createTempFile("coc-direct-", ".part", directInputs());
@@ -612,7 +611,7 @@ public final class LogbookPlugin extends Plugin {
     }
     private JSObject publishArchive(java.io.File source, String location, String name, String mime, String purpose, long size, String hash) throws Exception {
         boolean backup=purpose.equals("backup")||purpose.equals("auto");
-        if(name==null||name.isEmpty()||name.equals(".")||name.equals("..")||name.length()>255||name.matches(".*[/\\\\\u0000-\u001f].*")||size<0||size>(backup?StorageBudget.JS_SAFE_INTEGER:LogbookLimits.ARCHIVE_FILE_BYTES))throw new IllegalArgumentException("归档名称或独立文件预算无效。");
+        if(name==null||name.isEmpty()||name.equals(".")||name.equals("..")||name.length()>255||name.matches(".*[/\\\\\u0000-\u001f].*")||size<0||size>StorageBudget.JS_SAFE_INTEGER)throw new IllegalArgumentException("归档名称或文件计量无效。");
         if (!location.equals(prefs().getString("tree", ""))) throw new IllegalStateException("归档位置已变化，请重新导出。");
         requireArchivePermission(location); Uri tree = Uri.parse(location); validateTree(tree);
         java.io.File targetVolume=archiveVolume(tree),privateVolume=getContext().getFilesDir();
@@ -704,6 +703,7 @@ public final class LogbookPlugin extends Plugin {
     @PluginMethod public void writeArchive(PluginCall call) {
         execute(() -> {
             try { call.resolve(write(call.getString("name", ""), call.getString("mime", "application/octet-stream"), Base64.decode(call.getString("base64", ""), Base64.DEFAULT), call.getString("purpose", "export"))); }
+            catch (OutOfMemoryError error) { call.reject("手机可用内存不足，归档处理未完成，请检查归档列表。"); }
             catch (Exception error) { call.reject("保存失败：" + error.getMessage(), error); }
         });
     }
@@ -871,7 +871,6 @@ public final class LogbookPlugin extends Plugin {
                             if (input != null) {
                                 byte[] chunk = new byte[8192]; int count;
                                 while ((count = input.read(chunk)) != -1) {
-                                    if (output.size() + count > LogbookLimits.RECORD_RESPONSE_BYTES) throw new IllegalStateException("日志超过 64 MB。");
                                     output.write(chunk, 0, count);
                                 }
                             }
@@ -882,7 +881,8 @@ public final class LogbookPlugin extends Plugin {
                     } finally { connection.disconnect(); }
                 }
                 throw new IllegalStateException("日志跳转次数过多。");
-            } catch (Exception error) { call.reject("日志网络请求失败。", error); }
+            } catch (OutOfMemoryError error) { call.reject("手机可用内存不足，无法读取本场完整联网正文；原数据未改变。"); }
+              catch (Exception error) { call.reject("日志网络请求失败。", error); }
         }, () -> call.reject("日志请求队列已满或已关闭，请稍后重试。"));
     }
     @PluginMethod public void automaticBackup(PluginCall call) {
@@ -894,7 +894,7 @@ public final class LogbookPlugin extends Plugin {
                 String tree = prefs().getString("tree", ""); requireArchivePermission(tree);
                 java.io.File automaticDirectory=new java.io.File(getContext().getCacheDir(),"automatic-read-sources");
                 if(!automaticDirectory.isDirectory()&&!automaticDirectory.mkdirs())throw new IllegalStateException("无法创建自动备份私有目录。");
-                long maximum=LogbookLimits.DEVICE_SPACE_LIBRARY?StorageBudget.maximum(StorageBudget.volume(automaticDirectory),3):LogbookLimits.READ_LEASE_BYTES;
+                long maximum=StorageBudget.maximum(StorageBudget.volume(automaticDirectory),3);
                 ReadLease lease=new ReadLease(automaticDirectory,maximum);
                 ReadLease.Value current;
                 try {current=lease.create(writer->{
@@ -927,7 +927,7 @@ public final class LogbookPlugin extends Plugin {
                 if (!obsolete.contains(i)) { retained.put(item); continue; }
                 try {
                     Uri uri = Uri.parse(item.getString("uri"));
-                    long maximumOld=item.has("bytes")?item.getLong("bytes"):LogbookLimits.ARCHIVE_FILE_BYTES;
+                    long maximumOld=item.has("bytes")?item.getLong("bytes"):StorageBudget.JS_SAFE_INTEGER;
                     BackupSession.Proof proof;
                     try(InputStream input=getContext().getContentResolver().openInputStream(uri)){proof=BackupSession.streamProof(input,maximumOld);}
                     if ((item.has("bytes")&&proof.bytes!=maximumOld)||!proof.sha256.equals(item.getString("sha256"))) { retained.put(item); warning = "部分旧备份被修改，已保留。"; continue; }
@@ -1063,7 +1063,7 @@ public final class LogbookPlugin extends Plugin {
             String tree=prefs().getString("tree","");requireArchivePermission(tree);
             TableTiming.mark(timing,"authorization");
             String json=call.getString("json");
-            if(json==null||JsonFields.bytes(json)>LogbookLimits.TABLE_REQUEST_BYTES)throw new IllegalArgumentException("表格差量缺失或超过 64 MiB。");
+            if(json==null)throw new IllegalArgumentException("表格差量缺失。");
             TableTiming.mark(timing,"inputSize");
             JSONObject delta=new JSONObject(json);
             TableTiming.mark(timing,"candidateParse");
@@ -1073,7 +1073,8 @@ public final class LogbookPlugin extends Plugin {
                 requireArchivePermission(tree);store.importTableDelta(delta,now,timing);
             },timing);
             JSObject result=new JSObject();result.put("revision",revision);result.put("exportedAt",now);if(timing!=null)result.put("timing",timing.result());call.resolve(result);
-        } catch(Exception error){call.reject("表格未保存："+error.getMessage(),error);} });
+        } catch(OutOfMemoryError error){call.reject("手机可用内存不足，表格处理未完成，请重新读取当前数据。");}
+          catch(Exception error){call.reject("表格未保存："+error.getMessage(),error);} });
     }
     @PluginMethod public void commitTable(PluginCall call) {
         final TableTiming timing=Boolean.TRUE.equals(call.getBoolean("measure",false))?new TableTiming():null;
@@ -1084,7 +1085,7 @@ public final class LogbookPlugin extends Plugin {
             String tree=prefs().getString("tree","");requireArchivePermission(tree);
             TableTiming.mark(timing,"authorization");
             String json=call.getString("json");
-            if(json==null||JsonFields.bytes(json)>LogbookLimits.TABLE_REQUEST_BYTES)throw new IllegalArgumentException("表格数据缺失或超过 64 MiB。");
+            if(json==null)throw new IllegalArgumentException("表格数据缺失。");
             TableTiming.mark(timing,"inputSize");
             SnapshotStream.validate(new java.io.StringReader(json));
             TableTiming.mark(timing,"candidateValidation");
@@ -1096,7 +1097,8 @@ public final class LogbookPlugin extends Plugin {
                 requireArchivePermission(tree);store.importTable(candidate,timing);
             },timing);
             JSObject result=new JSObject();result.put("revision",revision);result.put("exportedAt",now);if(timing!=null)result.put("timing",timing.result());call.resolve(result);
-        } catch(Exception error){call.reject("表格未保存："+error.getMessage(),error);} });
+        } catch(OutOfMemoryError error){call.reject("手机可用内存不足，表格处理未完成，请重新读取当前数据。");}
+          catch(Exception error){call.reject("表格未保存："+error.getMessage(),error);} });
     }
     @PluginMethod public void commitEdit(PluginCall call) {
         commitSnapshot(call, false);
@@ -1154,7 +1156,7 @@ public final class LogbookPlugin extends Plugin {
                 Long expected = call.getData().has("expectedRevision") ? call.getData().getLong("expectedRevision") : null;
                 if (expected == null || expected != database.revision()) throw new IllegalStateException("数据已变化，请重新读取。");
                 JSONObject value = call.getObject("value");
-                if (value == null || value.toString().getBytes(StandardCharsets.UTF_8).length > 1024 * 1024) throw new IllegalArgumentException("模组数据缺失或过大。");
+                if (value == null) throw new IllegalArgumentException("模组数据缺失。");
                 Set<String> allowed = new HashSet<>(Arrays.asList("id","name","playStatus","kps","pairs","order","collapsed","createdAt","updatedAt"));
                 if (value.length() != allowed.size()) throw new IllegalArgumentException("模组字段不完整。");
                 java.util.Iterator<String> keys = value.keys();
@@ -1216,7 +1218,8 @@ public final class LogbookPlugin extends Plugin {
                     revision = database.replaceFields(changes, expected);
                 }
                 JSObject result = new JSObject(); result.put("revision", revision); result.put("exportedAt", exportedAt); call.resolve(result);
-            } catch (Exception error) { call.reject("模组未保存：" + error.getMessage(), error); }
+            } catch (OutOfMemoryError error) { call.reject("手机可用内存不足，模组处理未完成，请重新读取当前数据。"); }
+              catch (Exception error) { call.reject("模组未保存：" + error.getMessage(), error); }
         });
     }
     /** One validated entity and associated metadata, without serializing unrelated log bodies. */
@@ -1227,7 +1230,7 @@ public final class LogbookPlugin extends Plugin {
                 if (expected == null || expected != database.revision()) throw new IllegalStateException("数据已变化，请重新读取。");
                 requireArchivePermission(prefs().getString("tree", ""));
                 JSONObject edit = call.getObject("edit");
-                if (edit == null || edit.length() != 2 || edit.toString().getBytes(StandardCharsets.UTF_8).length > LogbookLimits.ENTITY_REQUEST_BYTES) throw new IllegalArgumentException("实体请求不完整或过大。");
+                if (edit == null || edit.length() != 2) throw new IllegalArgumentException("实体请求不完整。");
                 String kind = edit.getString("kind"); JSONObject value = edit.getJSONObject("value");
                 java.util.Map<String,String> fields = database.fields(); boolean empty = fields == null;
                 if (empty) fields = JsonFields.split(emptySnapshot().toString());
@@ -1251,7 +1254,8 @@ public final class LogbookPlugin extends Plugin {
                 if (empty) { fields.putAll(changes); RecordOverlay.compose(fields); revision = database.replace(JsonFields.join(fields),expected); }
                 else revision = database.replaceFields(changes,expected);
                 JSObject result = new JSObject(); result.put("revision",revision); result.put("exportedAt",now); call.resolve(result);
-            } catch (Exception error) { call.reject("编辑未保存：" + error.getMessage(),error); }
+            } catch (OutOfMemoryError error) { call.reject("手机可用内存不足，编辑处理未完成，请重新读取当前数据。"); }
+              catch (Exception error) { call.reject("编辑未保存：" + error.getMessage(),error); }
         });
     }
     /** Android's JSONObject parser is lenient. Raw text may be persisted only after a strict JSON syntax check. */
@@ -1363,20 +1367,16 @@ public final class LogbookPlugin extends Plugin {
                 Long expected = call.getData().has("expectedRevision") ? call.getData().getLong("expectedRevision") : null;
                 if (expected == null || expected != database.revision()) throw new IllegalStateException("数据已变化，请重新预览。");
                 String json = call.getString("json", "");
-                if (json.getBytes(StandardCharsets.UTF_8).length > LogbookLimits.SNAPSHOT_REQUEST_BYTES) throw new IllegalArgumentException("数据超过首阶段大小上限。");
                 validateJsonText(json);
                 SnapshotStream.validate(new java.io.StringReader(json));
                 String tree = prefs().getString("tree", "");
                 requireArchivePermission(tree);
                 JSONArray files = restoring ? call.getArray("attachments") : null;
                 if (files != null) {
-                    if (files.length() > 2000) throw new IllegalArgumentException("归档文件数量过多。");
-                    long total = 0;
                     for (int i = 0; i < files.length(); i++) {
                         JSONObject file = files.getJSONObject(i);
                         byte[] bytes = Base64.decode(file.getString("base64"), Base64.DEFAULT);
-                        total += bytes.length;
-                        if (total > 128L * 1024 * 1024) throw new IllegalArgumentException("归档文件总大小超过 128 MB。");
+                        StorageBudget.require(StorageBudget.volume(getContext().getFilesDir()),StorageBudget.estimate(bytes.length,3));
                         JSObject saved = write(file.getString("name"), file.getString("mime"), bytes, "import");
                         imported.add(Uri.parse(saved.getString("uri")));
                     }
@@ -1387,6 +1387,9 @@ public final class LogbookPlugin extends Plugin {
                 JSObject out = new JSObject(); out.put("revision", revision);
 
                 call.resolve(out);
+            } catch (OutOfMemoryError error) {
+                if (!committed) for (Uri uri : imported) try { DocumentsContract.deleteDocument(getContext().getContentResolver(), uri); } catch (Exception ignored) { }
+                call.reject(committed ? "数据已保存，但手机内存不足以返回结果，请重新读取。" : "手机可用内存不足；原数据未改变。");
             } catch (Exception error) {
                 if (!committed) for (Uri uri : imported) try { DocumentsContract.deleteDocument(getContext().getContentResolver(), uri); } catch (Exception ignored) { }
                 call.reject((restoring ? "恢复未完成：" : "编辑未保存：") + error.getMessage(), error);

@@ -2,7 +2,7 @@ import { Inflate } from 'fflate'
 import * as XLSX from 'xlsx'
 import { StreamSha256 } from './stream-sha256'
 import { StreamCrc32 } from './stream-zip-proof'
-import { checkStreamBudget, checkStreamCancelled, utf8Size } from './stream-json'
+import { addStreamBytes, checkStreamBudget, checkStreamCancelled, utf8Size } from './stream-json'
 import { capacity } from './capacity'
 
 type Cell = string | number | boolean | null
@@ -29,17 +29,15 @@ export interface TableGridStreamOptions {
   onSheetEnd(): Promise<void>
 }
 
-const fieldLimit = capacity.recordResponseBytes
 function bounded(value: string) {
-  if (utf8Size(value) > fieldLimit) throw new Error('表格单行或单个字段超过独立处理预算。')
+  addStreamBytes(0, utf8Size(value))
   return value
 }
 class TextValue {
   private parts: string[] = []
   private bytes = 0
   add(value: string) {
-    this.bytes += utf8Size(value)
-    if (this.bytes > fieldLimit) throw new Error('表格单个字段超过独立处理预算。')
+    this.bytes = addStreamBytes(this.bytes, utf8Size(value))
     this.parts.push(value)
   }
   value() {
@@ -686,8 +684,7 @@ async function xlsx(options: TableGridStreamOptions) {
             const [first, last] = range.split(':')
             cellAddress(first!)
             if (last) cellAddress(last)
-            bytes += utf8Size(range)
-            if (bytes > fieldLimit) throw new Error('单个工作表合并范围元数据超过独立处理预算。')
+            bytes = addStreamBytes(bytes, utf8Size(range))
             ranges.push(range)
           }
         })
@@ -828,8 +825,7 @@ async function xlsx(options: TableGridStreamOptions) {
             // SheetJS 0.18.5's missing-cache formula stub is omitted by its
             // numeric blank-cell check. Preserve null rather than inventing 0.
           } else if (type !== 's') throw new Error('工作表单元格类型不受支持。')
-          rowBytes += typeof value === 'string' ? utf8Size(value) : 16
-          if (rowBytes > fieldLimit) throw new Error('单行表格数据超过独立场次处理预算。')
+          rowBytes = addStreamBytes(rowBytes, typeof value === 'string' ? utf8Size(value) : 16)
           while (values.length < cell.column) values.push(null)
           values[cell.column] = value
           if (options.onCell) {
@@ -970,8 +966,7 @@ async function csv(options: TableGridStreamOptions) {
   }
   async function consumeCharacter(value: string) {
     checkStreamCancelled(options.signal)
-    rowBytes += utf8Size(value)
-    if (rowBytes > fieldLimit) throw new Error('CSV单行超过独立场次处理预算。')
+    rowBytes = addStreamBytes(rowBytes, utf8Size(value))
     if (quotePending) {
       quotePending = false
       if (value === '"') {
@@ -1008,8 +1003,7 @@ async function csv(options: TableGridStreamOptions) {
         quotePending = false
         quoted = false
       }
-      rowBytes += utf8Size(value)
-      if (rowBytes > fieldLimit) throw new Error('CSV单行超过独立场次处理预算。')
+      rowBytes = addStreamBytes(rowBytes, utf8Size(value))
       line += value
       first = false
     }
@@ -1039,7 +1033,7 @@ async function csv(options: TableGridStreamOptions) {
   await options.onSheetEnd()
 }
 
-/** No workbook/file/row/sheet-count product cap. Only per-field/row windows and actual operation resources. */
+/** No file, row, field or sheet-count quota. Source proofs and actual operation resources remain enforced. */
 export async function readTableGridStream(options: TableGridStreamOptions): Promise<void> {
   checkStreamBudget(options.expectedSource.bytes)
   checkStreamBudget(options.maximumExpandedBytes)

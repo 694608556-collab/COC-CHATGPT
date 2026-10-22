@@ -141,6 +141,7 @@ const uploadCompiled = spawnSync(
     join(source, 'LogbookLimits.java'),
     join(source, 'PdfSpool.java'),
     join(source, 'SnapshotUpload.java'),
+    join(source, 'StorageBudget.java'),
     resolve('tests/native/SnapshotUploadCheck.java')
   ],
   { encoding: 'utf8' }
@@ -173,6 +174,7 @@ const backupCompiled = spawnSync(
     work,
     ...backupSources.map((name) => join(source, name + '.java')),
     resolve('tests/native/StorageBudgetCheck.java'),
+    resolve('tests/native/SingleRecordCapacityCheck.java'),
     resolve('tests/native/BackupStreamCheck.java')
   ],
   { encoding: 'utf8' }
@@ -194,3 +196,9 @@ for (const name of ['StorageBudgetCheck', 'BackupStreamCheck']) {
   process.stdout.write(checked.stdout)
   if (checked.status) throw new Error(checked.stderr)
 }
+const singleRecord = spawnSync(java, [
+  '-Xmx1024m', '-cp', work + separator + process.env.JSON_JAR,
+  'coc.logbook.SingleRecordCapacityCheck', join(work, 'sample.json')
+], { encoding: 'utf8' })
+process.stdout.write(singleRecord.stdout)
+if (singleRecord.status) throw new Error(singleRecord.stderr)

@@ -20,6 +20,54 @@ public final class CapacityDatabaseTest {
     @Test public void complete96MiB()throws Exception{check(96);}
     @Test public void complete192MiB()throws Exception{check(192);}
     @Test public void complete512MiB()throws Exception{check(512);}
+    /** Complete single body travels through actual indexed SQLite chunks; the
+     * separate JVM test covers full semantic candidate validation at a stated heap. */
+    @Test public void single68MiBBodySaveReopenAndSnapshotRoundtrip()throws Exception{
+        String name="public-single-body-"+UUID.randomUUID()+".sqlite",other=name+"-restored";
+        File directory=new File(context.getCacheDir(),"public-single-body-"+UUID.randomUUID());assertTrue(directory.mkdirs());
+        File source=new File(directory,"source.json"),backup=new File(directory,"backup.json");long[] free={32L*1024*1024*1024};
+        String id=null,bodyHash=null,snapshotHash=null;
+        try{
+            JSONObject root=fixture(),manual=null;JSONArray records=root.getJSONArray("records");
+            for(int i=0;i<records.length();i++)if("manual".equals(records.getJSONObject(i).getString("sourceType"))){manual=BackupValidation.metadataOf(records.getJSONObject(i));break;}
+            assertNotNull(manual);id=manual.getString("id");root.remove("records");String fields=root.toString(),row=manual.toString();
+            try(Writer output=new BufferedWriter(new OutputStreamWriter(new FileOutputStream(source),StandardCharsets.UTF_8),65536)){
+                output.write(fields.substring(0,fields.length()-1)+",\"records\":["+row.substring(0,row.length()-1)+",\"manualContent\":\"公开😀\\n\\u0000");
+                String block=String.join("",Collections.nCopies(65536,"x"));for(int i=0;i<1088;i++)output.write(block);output.write("完整末尾😀\"}]}");
+            }
+            assertTrue(source.length()>68L*1024*1024);
+            try(Reader input=new InputStreamReader(new FileInputStream(source),StandardCharsets.UTF_8)){SnapshotStream.validate(input);}
+            try(LogbookDatabase db=new LogbookDatabase(context,name,true,()->free[0])){
+                try(Reader input=new InputStreamReader(new FileInputStream(source),StandardCharsets.UTF_8)){assertEquals(1,db.replace(input,0));}
+                assertEquals(1,db.recordCount());assertTrue(db.logicalBytes()>68L*1024*1024);bodyHash=recordHash(db,id);
+                SQLiteAssertions.assertBodyUntouched(db,()->db.replaceFields(Collections.singletonMap("exportedAt","\"single-body-save\""),1));
+                assertEquals(bodyHash,recordHash(db,id));assertEquals(2,db.revision());
+                try(Reader input=new InputStreamReader(new FileInputStream(source),StandardCharsets.UTF_8)){
+                    try{db.edit(2,store->{store.replace(input);free[0]=StorageBudget.MINIMUM_RESERVE;});fail("late low space accepted");}
+                    catch(IOException expected){}finally{free[0]=32L*1024*1024*1024;}
+                }
+                assertEquals(2,db.revision());assertEquals(bodyHash,recordHash(db,id));
+                db.getWritableDatabase().execSQL("CREATE TRIGGER reject_single_commit BEFORE UPDATE ON app_state BEGIN SELECT RAISE(ABORT,'injected'); END");
+                try(Reader input=new InputStreamReader(new FileInputStream(source),StandardCharsets.UTF_8)){
+                    try{db.replace(input,2);fail("injected write failure accepted");}catch(android.database.sqlite.SQLiteException expected){}
+                }finally{db.getWritableDatabase().execSQL("DROP TRIGGER reject_single_commit");}
+                assertEquals(2,db.revision());assertEquals(bodyHash,recordHash(db,id));
+            }
+            try(LogbookDatabase reopened=new LogbookDatabase(context,name,true,()->free[0])){
+                assertEquals(2,reopened.revision());assertEquals(bodyHash,recordHash(reopened,id));
+                try(Writer output=new BufferedWriter(new OutputStreamWriter(new FileOutputStream(backup),StandardCharsets.UTF_8),65536)){reopened.writeSnapshot(output,null);}
+                snapshotHash=BackupSession.fileProof(backup,backup.length()).sha256;
+                assertEquals(0,context.getApplicationInfo().flags&android.content.pm.ApplicationInfo.FLAG_LARGE_HEAP);
+            }
+            try(LogbookDatabase restored=new LogbookDatabase(context,other,true,()->free[0])){
+                try(Reader input=new InputStreamReader(new FileInputStream(backup),StandardCharsets.UTF_8)){assertEquals(1,restored.replace(input,0));}
+                assertEquals(bodyHash,recordHash(restored,id));
+                try(Writer output=new BufferedWriter(new OutputStreamWriter(new FileOutputStream(source),StandardCharsets.UTF_8),65536)){restored.writeSnapshot(output,null);}
+                assertEquals(snapshotHash,BackupSession.fileProof(source,source.length()).sha256);
+            }
+            System.out.println("PUBLIC_ANDROID_SINGLE_BODY bodyMiB=68 SQLiteSnapshotRoundtrip=true lowSpaceAndSqlRollback=true ordinaryMaxHeapMiB="+(Runtime.getRuntime().maxMemory()/1048576)+" fullRestoreCandidateValidation=false physicalPhone=false");
+        }finally{context.deleteDatabase(name);context.deleteDatabase(other);for(File file:Objects.requireNonNull(directory.listFiles()))assertTrue(file.delete());assertTrue(directory.delete());}
+    }
     private JSONObject fixture()throws Exception{
         try(InputStream input=InstrumentationRegistry.getInstrumentation().getContext().getAssets().open("public-capacity.json")){
             ByteArrayOutputStream output=new ByteArrayOutputStream();byte[] chunk=new byte[65536];int count;
@@ -77,7 +125,29 @@ public final class CapacityDatabaseTest {
     }
     private static String hex(byte[] bytes){StringBuilder result=new StringBuilder();for(byte value:bytes)result.append(String.format("%02x",value&255));return result.toString();}
     private long restore(LogbookDatabase db,File candidate,RestoreCandidate.Preview preview,long expected)throws Exception{
-        try(InputStream input=new FileInputStream(candidate)){return db.restoreCandidate(input,preview,expected,true,"{}");}
+        try(InputStream input=new FileInputStream(candidate)){return db.restoreCandidate(input,preview,expected,true,"{}",()->{});}
+    }
+    @Test public void restoreLateAuthorizationFailureRollsBackBodiesAndRevision()throws Exception{
+        String name="public-restore-auth-"+UUID.randomUUID()+".sqlite";File candidate=File.createTempFile("public-restore-auth-",".part",context.getCacheDir());
+        try(LogbookDatabase db=new LogbookDatabase(context,name,true,()->32L*1024*1024*1024)){
+            JSONObject root=fixture();assertEquals(1,db.replace(root.toString(),0));String before=db.snapshot();
+            JSONObject changed=new JSONObject(root.toString());JSONArray records=changed.getJSONArray("records"),metadata=new JSONArray();String altered=null;
+            try(Writer output=new BufferedWriter(new OutputStreamWriter(new FileOutputStream(candidate),StandardCharsets.UTF_8),65536)){
+                for(int i=0;i<records.length();i++){JSONObject record=records.getJSONObject(i);if(altered==null&&"manual".equals(record.getString("sourceType"))){altered=record.getString("id");record.put("manualContent","公开授权回滚😀\u0000"+String.join("",Collections.nCopies(1024*1024,"x")));}metadata.put(BackupValidation.metadataOf(record));output.write("R"+record+"\n");}
+                changed.put("records",metadata);output.write("M"+changed+"\n");
+            }
+            assertNotNull(altered);final String id=altered,beforeBody=recordHash(db,id);BackupSession.Proof proof=BackupSession.fileProof(candidate,candidate.length());RestoreCandidate.Preview preview;
+            try(InputStream input=new FileInputStream(candidate)){preview=RestoreCandidate.inspect(input,proof.bytes,proof.sha256,null);}
+            int[] checks={0};try(InputStream input=new FileInputStream(candidate)){
+                try{db.restoreCandidate(input,preview,1,true,"{}",()->{
+                    assertEquals(1,db.revision());if(++checks[0]==1)assertEquals(beforeBody,recordHash(db,id));
+                    else{assertNotEquals(beforeBody,recordHash(db,id));throw new SecurityException("public late authorization revoked");}
+                });fail("late authorization revocation committed");}catch(SecurityException expected){}
+            }
+            assertEquals(2,checks[0]);assertEquals(1,db.revision());assertEquals(beforeBody,recordHash(db,id));assertEquals(before,db.snapshot());
+            int[] successChecks={0};try(InputStream input=new FileInputStream(candidate)){assertEquals(2,db.restoreCandidate(input,preview,1,true,"{}",()->{successChecks[0]++;assertEquals(1,db.revision());}));}
+            assertEquals(2,successChecks[0]);assertNotEquals(beforeBody,recordHash(db,id));
+        }finally{assertTrue(candidate.delete());context.deleteDatabase(name);}
     }
     private void check(int count)throws Exception{
         String name="public-capacity-"+UUID.randomUUID()+".sqlite";

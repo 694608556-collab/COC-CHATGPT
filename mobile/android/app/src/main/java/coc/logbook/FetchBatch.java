@@ -29,7 +29,7 @@ final class FetchBatch implements AutoCloseable {
         // This directory is exclusive to batch staging; stale files never contain committed data.
         File[] stale=directory.listFiles();if(stale!=null)for(File old:stale)if(!old.delete())throw new IOException("旧检测暂存清理失败。");
         this.available=available==null?StorageBudget.volume(directory):available;
-        maximumBytes=deviceSpace?StorageBudget.maximum(this.available,4):LogbookLimits.BATCH_STAGING_BYTES;
+        maximumBytes=StorageBudget.maximum(this.available,4);
         file=File.createTempFile("batch-",".json",directory);
     }
     void require(String token){if(!id.equals(token))throw new IllegalArgumentException("检测批次已失效。");}

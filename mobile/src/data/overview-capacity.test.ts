@@ -1,15 +1,9 @@
-import { expect, it, vi } from 'vitest'
+import { expect, it } from 'vitest'
 import { validateOverviewBytes, validateSnapshotBytes } from './backup'
 import { readBackupJsonStream, writeBackupJsonStream } from './backup-stream'
 import type { MobileSnapshot } from './types'
 import { DEFAULT_FILTER_PRESET } from '../../../src/shared/types'
 
-// A smaller independent item/request budget exercises the same boundary without
-// allocating hundreds of MiB in every unit-test worker.
-vi.mock('./capacity', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./capacity')>()
-  return { capacity: { ...actual.capacity, snapshotRequestBytes: 2048 } }
-})
 function overview(): MobileSnapshot {
   return {
     schemaVersion: 2,
@@ -33,12 +27,12 @@ function overview(): MobileSnapshot {
 async function* chunks(bytes: Uint8Array) {
   for (let offset = 0; offset < bytes.length; offset += 127) yield bytes.subarray(offset, offset + 127)
 }
-it('累计元数据超过独立请求预算仍能概览及完整备份往返，独立请求限制保留', async () => {
+it('概览和完整候选共用格式校验，不再使用固定请求容量门槛', async () => {
   const original = overview(),
     bytes = new TextEncoder().encode(JSON.stringify(original))
   expect(bytes.length).toBeGreaterThan(2048)
   expect((await validateOverviewBytes(bytes)).snapshot.modules).toHaveLength(12)
-  await expect(validateSnapshotBytes(bytes)).rejects.toThrow('大小')
+  expect((await validateSnapshotBytes(bytes)).snapshot.modules).toHaveLength(12)
   const parts: Uint8Array[] = []
   async function* noRecords() {}
   await writeBackupJsonStream(
@@ -63,7 +57,7 @@ it('累计元数据超过独立请求预算仍能概览及完整备份往返，�
   })
   expect(read.metadata).toEqual((await validateOverviewBytes(bytes)).snapshot)
 })
-it('取消累计限制不会绕过失效关联、正文混入概览或独立实体预算', async () => {
+it('取消容量门槛不会绕过失效关联、正文混入概览或本次实际来源预算', async () => {
   const original = overview()
   original.records = [
     {
@@ -87,7 +81,12 @@ it('取消累计限制不会绕过失效关联、正文混入概览或独立实�
   original.records = []
   original.modules[0]!.name = '字'.repeat(1000)
   const bytes = encode()
+  const read = await readBackupJsonStream(chunks(bytes), {
+    maximumBytes: bytes.length,
+    stageRecord: async () => {}
+  })
+  expect(read.metadata.modules[0]!.name).toBe(original.modules[0]!.name)
   await expect(
-    readBackupJsonStream(chunks(bytes), { maximumBytes: bytes.length, stageRecord: async () => {} })
-  ).rejects.toThrow('独立字段')
+    readBackupJsonStream(chunks(bytes), { maximumBytes: bytes.length - 1, stageRecord: async () => {} })
+  ).rejects.toThrow('本次')
 })

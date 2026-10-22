@@ -55,16 +55,20 @@ public final class PdfSpoolCheck {
         try { spool.finish(id, "fail.pdf", (a,b,c,d,e) -> { throw new IllegalStateException("Simulated publication failure"); }); }
         catch (IllegalStateException expected) { rejected = true; }
         if (!rejected || directory.list().length != 0) throw new AssertionError("Publication failure leaked spool");
-        id = spool.begin("test-tree"); rejected = false;
+        id = spool.begin("test-tree");
         byte[] chunk = new byte[256 * 1024];
-        try { for (int i = 0; i < 257; i++) spool.append(id, chunk); }
-        catch (IllegalArgumentException expected) { rejected = true; }
-        if (!rejected || directory.list().length != 0) throw new AssertionError("Size failure leaked spool");
+        for (int i = 0; i < 272; i++) spool.append(id, chunk);
+        long largeSize=spool.finish(id,"large.json",false,(source,tree,name,size,hash)->size);
+        if(largeSize!=68L*1024*1024||directory.list().length!=0)throw new AssertionError("Complete export above 64MiB failed");
+        spool.close();long[] free={1024L*1024*1024};spool=new PdfSpool(directory,()->free[0]);
+        id=spool.begin("test-tree");free[0]=StorageBudget.MINIMUM_RESERVE;rejected=false;
+        try{spool.append(id,chunk);}catch(java.io.IOException expected){rejected=true;}
+        if(!rejected||directory.list().length!=0)throw new AssertionError("Actual low space failure leaked spool");
         File stale = new File(directory, "coc-pdf-01234567-abcd.part"); Files.write(stale.toPath(), complete);
         File unrelated = new File(directory, "leave-user-file.pdf"); Files.write(unrelated.toPath(), complete);
         spool = new PdfSpool(directory);
         if (stale.exists() || !Arrays.equals(Files.readAllBytes(unrelated.toPath()), complete)) throw new AssertionError("Crash cleanup touched wrong file");
         spool.close(); Files.delete(unrelated.toPath()); Files.delete(directory.toPath());
-        System.out.println("PDF spool: ordered complete bytes/checksum, cancel, incomplete rejection, publication failure, 64MB bound, stale cleanup passed; no Android SAF claim.");
+        System.out.println("PDF spool: ordered complete bytes/checksum, 68MiB export, cancel, incomplete rejection, publication failure, actual low-space cleanup passed; no Android SAF claim.");
     }
 }

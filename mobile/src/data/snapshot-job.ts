@@ -23,7 +23,7 @@ export interface FetchUpload {
   record: SessionRecord
   /** 当前唯一上传租约标识。 */
   id: string
-  /** 完整 UTF-8 字节数，不超过 64 MiB。 */
+  /** 完整 UTF-8 字节数，必须可精确计量。 */
   bytes: number
   /** 完整字节 SHA-256。 */
   sha256: string
@@ -155,8 +155,6 @@ export async function performSnapshotJob(job: SnapshotJob) {
     const started = performance.now()
     const delta = createTableDelta(lease.baseline, prepared.snapshot)
     const json = JSON.stringify(delta)
-    if (new TextEncoder().encode(json).length > capacity.tableRequestBytes)
-      throw new Error('表格差量超过 64 MiB。')
     if (tableLease !== lease) throw new Error('表格预览已失效。')
     if (prepared.timing) {
       const elapsed = performance.now() - started
@@ -224,7 +222,6 @@ export async function performSnapshotJob(job: SnapshotJob) {
   mark('outputJson')
   if (job.type === 'prepare-upload') {
     const bytes = encodeUtf8(json)
-    if (bytes.length > capacity.snapshotUploadBytes) throw new Error('待保存数据超过 64 MiB。')
     const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (b) =>
       b.toString(16).padStart(2, '0')
     ).join('')

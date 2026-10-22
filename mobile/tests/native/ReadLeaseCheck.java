@@ -30,15 +30,13 @@ public final class ReadLeaseCheck {
             if (boundary.bytes != 64L * 1024 * 1024 || boundary.revision != 20)
                 throw new AssertionError("Exact old read boundary was changed");
             leases.release(boundary.id);
-            boolean rejected = false;
-            try {
-                leases.create(writer -> {
-                    for (int i = 0; i < 8192; i++) writer.write(block);
-                    writer.write('x');
-                }, 21);
-            } catch (IOException expectedFailure) { rejected = true; }
-            if (!rejected || directory.list().length != 0)
-                throw new AssertionError("Overflow created a lease or leaked private body");
+            ReadLease.Value larger=leases.create(writer -> {
+                for (int i = 0; i < 8704; i++) writer.write(block);
+                writer.write('x');
+            }, 21);
+            if(larger.bytes!=68L*1024*1024+1)throw new AssertionError("Complete source above 64MiB rejected or truncated");
+            leases.release(larger.id);
+            if(directory.list().length!=0)throw new AssertionError("Large source leaked private body");
         }
         System.out.println("Read lease: complete bytes/version/hash, token-scoped idempotent cleanup passed");
     }

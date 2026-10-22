@@ -66,7 +66,8 @@ async function run<T>(job: BackupStreamJob, port: Port, id: string, signal?: Abo
     )) as T
   }
   if (typeof Worker === 'undefined') throw new Error('此环境缺少后台大文件处理能力，未尝试整库载入。')
-  const worker = new Worker('backup-stream-worker.js')
+  const worker = new Worker('backup-stream-worker.js'),
+    inFlight = new Set<Promise<void>>()
   let active = true
   let abort: (() => void) | undefined
   try {
@@ -77,19 +78,24 @@ async function run<T>(job: BackupStreamJob, port: Port, id: string, signal?: Abo
         abort()
         return
       }
-      worker.onmessage = async ({ data }) => {
+      worker.onmessage = ({ data }) => {
+        if (!active) return
         if (data.type === 'chunk') {
-          try {
-            await port.appendBackupStage({ id, key: data.key, index: data.index, base64: data.base64 })
-            if (active) worker.postMessage({ type: 'ack', request: data.request })
-          } catch (reason) {
-            if (active)
-              worker.postMessage({
-                type: 'ack',
-                request: data.request,
-                error: reason instanceof Error ? reason.message : '私有暂存失败。'
-              })
-          }
+          const task = (async () => {
+            try {
+              await port.appendBackupStage({ id, key: data.key, index: data.index, base64: data.base64 })
+              if (active) worker.postMessage({ type: 'ack', request: data.request })
+            } catch (reason) {
+              if (active)
+                worker.postMessage({
+                  type: 'ack',
+                  request: data.request,
+                  error: reason instanceof Error ? reason.message : '私有暂存失败。'
+                })
+            }
+          })()
+          inFlight.add(task)
+          void task.finally(() => inFlight.delete(task))
         } else if (data.type === 'done') resolve(data.result)
         else if (data.type === 'failed') reject(new Error(data.error))
       }
@@ -100,6 +106,8 @@ async function run<T>(job: BackupStreamJob, port: Port, id: string, signal?: Abo
     active = false
     if (abort) signal?.removeEventListener('abort', abort)
     worker.terminate()
+    // Native writes already dispatched must settle before their owner is released.
+    await Promise.allSettled(inFlight)
   }
 }
 export async function previewNativeBackup(

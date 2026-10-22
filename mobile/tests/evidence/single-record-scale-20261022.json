@@ -1,0 +1,57 @@
+{
+  "kind": "public-single-record-resource-check",
+  "host": "win32/x64",
+  "node": "v24.21.0",
+  "recordCount": 1,
+  "manualBodyBytes": 73400320,
+  "manualBodySha256": "3f564e852a5c835c8ec5e7dc68566519c0af16cea6b3b3e8746c2d0c332cf9a9",
+  "retainedRawSha256": "0936fa4fd7a35d573e77fe6600eda4cef0c02f0ffe471000b23956033b90a379",
+  "sourceProof": {
+    "bytes": 73400392,
+    "sha256": "d2c6b105406d7afb21d59b3d775b5b99a6789117b8702b6b7a10127798d67b89"
+  },
+  "heapFlagMiB": 1024,
+  "peakHeapBytes": 1134742752,
+  "peakRssBytes": 1500135424,
+  "peakExternalBytes": 155659283,
+  "milliseconds": 10223,
+  "phases": [
+    {
+      "phase": "csv-private-table-candidate",
+      "bytes": 73400490,
+      "bodyBytes": 73400320,
+      "bodySha256": "3f564e852a5c835c8ec5e7dc68566519c0af16cea6b3b3e8746c2d0c332cf9a9",
+      "acknowledgements": 281,
+      "maxChunk": 262144
+    },
+    {
+      "phase": "json-backup-and-private-restore",
+      "fileBytes": 73401358,
+      "fileSha256": "cbdfc2c59b76dce91b19f27baf4710658e787578c5114c4e74a7ea4bb87ea663",
+      "candidateBytes": 73401425,
+      "candidateSha256": "41cb76935bd46a7d9546d9082d487b34ffc5136cde2c0f8ad4f3a5a1074ab1ac",
+      "recordsSeen": 1,
+      "metadataSeen": 1,
+      "milliseconds": 1911
+    },
+    {
+      "phase": "zip-backup-and-private-restore",
+      "fileBytes": 73401674,
+      "fileSha256": "8e23f435edb4f069deaa0d1e92c519f7ae6277e7bb71d1f7544cb0af3b8c3ccc",
+      "candidateBytes": 73401425,
+      "candidateSha256": "41cb76935bd46a7d9546d9082d487b34ffc5136cde2c0f8ad4f3a5a1074ab1ac",
+      "recordsSeen": 1,
+      "metadataSeen": 1,
+      "milliseconds": 3905
+    },
+    {
+      "phase": "complete-edit-upload",
+      "bytes": 73401206,
+      "chunks": 281,
+      "sha256": "567ec6c89be7643de3411721bd08c610a1c1d78bbb7800838c1f378a365722d4"
+    }
+  ],
+  "scope": "Desktop shared parser, table candidate, complete backup/restore candidate and edit upload; real private temporary files. Not phone/native CAS acceptance. Runtime memory is measured, not a new production quota.",
+  "command": "cd mobile; node scripts/check-single-record-stream.mjs",
+  "capturedDate": "2026-10-22"
+}

@@ -480,14 +480,16 @@ public class IndexedPressureTest {
             }
         }finally{assertTrue(initial.delete());context().deleteDatabase(name);}
     }
-    @Test public void overLimitRollsBackOriginalBodiesAndRevision()throws Exception{
+    @Test public void insufficientDeviceSpaceRollsBackOriginalBodiesAndRevision()throws Exception{
         String name="public-limit-"+UUID.randomUUID()+".sqlite";File initial=fixture(1,100,0,"valid"),large=fixture(1000,68000,0,"valid");
-        try(LogbookDatabase db=new LogbookDatabase(context(),name,false,null)){
+        long[] available={32L*1024*1024*1024};
+        try(LogbookDatabase db=new LogbookDatabase(context(),name,true,()->available[0])){
             try(Reader reader=new InputStreamReader(new FileInputStream(initial),StandardCharsets.UTF_8)){db.replace(reader,0);}
             String before=hash(db,null);assertTrue(large.length()>64L*1024*1024);
+            available[0]=StorageBudget.MINIMUM_RESERVE;
             try(Reader reader=new InputStreamReader(new FileInputStream(large),StandardCharsets.UTF_8)){
-                try{db.replace(reader,1);fail("Oversized data committed");}catch(IllegalArgumentException expected){}
-            }
+                try{db.replace(reader,1);fail("Insufficient device space committed");}catch(IOException|IllegalStateException expected){}
+            }finally{available[0]=32L*1024*1024*1024;}
             assertEquals(1,db.revision());assertEquals(before,hash(db,null));
         }finally{initial.delete();large.delete();context().deleteDatabase(name);}
     }

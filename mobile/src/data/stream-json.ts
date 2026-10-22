@@ -6,6 +6,18 @@ export const utf8Size = (text: string) => (/[^\x00-\x7f]/.test(text) ? utf8.enco
 export function checkStreamBudget(value: number) {
   if (!Number.isSafeInteger(value) || value < 1) throw new Error('文件处理预算无效。')
 }
+/** Exact accounting is a protocol requirement, not a product storage quota. */
+export function addStreamBytes(current: number, incoming: number): number {
+  if (
+    !Number.isSafeInteger(current) ||
+    current < 0 ||
+    !Number.isSafeInteger(incoming) ||
+    incoming < 0 ||
+    !Number.isSafeInteger(current + incoming)
+  )
+    throw new Error('文件字节数超出系统可精确计量范围。')
+  return current + incoming
+}
 export function checkStreamCancelled(signal?: AbortSignal) {
   if (signal?.aborted) throw new Error('备份处理已取消，未发布数据。')
 }
@@ -15,8 +27,8 @@ class TextValue {
   private bytes = 0
   constructor(private maximumBytes: number) {}
   add(text: string) {
-    this.bytes += utf8Size(text)
-    if (this.bytes > this.maximumBytes) throw new Error('单场正文或独立字段超过处理上限。')
+    this.bytes = addStreamBytes(this.bytes, utf8Size(text))
+    if (this.bytes > this.maximumBytes) throw new Error('正文或字段超过本次实际来源/可用空间。')
     this.parts.push(text)
   }
   text() {
@@ -120,7 +132,6 @@ export class StreamJson {
         const raw = key.text(),
           name = JSON.parse(raw) as string
         if (seen.has(name)) throw new Error('JSON 字段重复。')
-        if (seen.size >= 100000) throw new Error('单个JSON对象字段数超过处理上限。')
         seen.add(name)
         out?.add(raw)
         await this.expect(':', out)

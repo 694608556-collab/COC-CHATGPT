@@ -56,7 +56,6 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
       name === '..'
     )
       throw new Error('文件名不合法。')
-    if (bytes.length > capacity.archiveFileBytes) throw new Error('文件超过 64 MB。')
     const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer))
     return {
       uri: 'browser-test:' + crypto.randomUUID(),
@@ -183,12 +182,9 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
     async appendPdfArchive({ id, base64 }) {
       if (!pdf || pdf.id !== id) throw new Error('PDF 暂存已失效。')
       const bytes = decodeBase64(base64)
-      if (
-        bytes.length > capacity.transferChunkBytes ||
-        pdf.bytes + bytes.length > capacity.archiveFileBytes
-      ) {
+      if (bytes.length > capacity.transferChunkBytes || !Number.isSafeInteger(pdf.bytes + bytes.length)) {
         pdf = undefined
-        throw new Error('PDF 文件或分段超过大小限制。')
+        throw new Error('PDF 分段或文件计量无效。')
       }
       pdf.bytes += bytes.length
       pdf.chunks.push(bytes)
@@ -542,7 +538,6 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
               resolve({ cancelled: true })
               return
             }
-            if (file.size > capacity.backupInputBytes) throw new Error('备份超过 64 MB。')
             resolve({
               cancelled: false,
               name: file.name,
@@ -617,8 +612,6 @@ export function createBrowserPort(name = 'coc-logbook-browser-dev-v1') {
     async commitTableDelta({ json, expectedRevision }) {
       const before = await readState()
       if (before.revision !== expectedRevision || !before.archive.valid) throw new Error('数据或目录已变化。')
-      if (new TextEncoder().encode(json).length > capacity.tableRequestBytes)
-        throw new Error('差量超过 64 MiB。')
       const current = before.json ? JSON.parse(await checkJsonInBackground(before.json)) : undefined
       const exportedAt = new Date().toISOString()
       const next = applyTableDelta(JSON.parse(json), current, exportedAt)

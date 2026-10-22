@@ -2,6 +2,7 @@ package coc.logbook;
 
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteStatement;
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.charset.*;
@@ -39,7 +40,7 @@ final class TableSession implements AutoCloseable {
                 String value=StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(buf,0,size())).toString();reset();accept.accept(value);
             }part(input,start,end-start);
         }
-        private void part(byte[] input,int start,int length)throws Exception{if((long)size()+length>LogbookLimits.ENTITY_REQUEST_BYTES+4096)throw new IOException("单场或独立字段超过处理上限。");write(input,start,length);}
+        private void part(byte[] input,int start,int length)throws Exception{write(input,start,length);}
         void finish()throws Exception{if(size()!=0)throw new IOException("表格暂存末行不完整。");}
     }
     TableSession(File root,String tree,long revision,String kind,String name,StorageBudget.Available available)throws Exception{
@@ -57,16 +58,19 @@ final class TableSession implements AutoCloseable {
             ownershipEstablished=true;
             stage=SQLiteDatabase.openOrCreateDatabase(new File(directory,"stage.sqlite"),null);
             try(Cursor mode=stage.rawQuery("PRAGMA journal_mode=DELETE",null)){if(!mode.moveToFirst())throw new IOException("表格暂存日志配置失败。");}stage.execSQL("PRAGMA synchronous=FULL");
-            stage.execSQL("CREATE TABLE strings(id INTEGER PRIMARY KEY,value BLOB NOT NULL)");
-            stage.execSQL("CREATE TABLE incoming(sheet INTEGER NOT NULL,row INTEGER NOT NULL,kind TEXT NOT NULL,value BLOB NOT NULL,PRIMARY KEY(sheet,row))");
-            stage.execSQL("CREATE TABLE modules(id TEXT PRIMARY KEY,name TEXT NOT NULL,ordinal INTEGER NOT NULL,value BLOB NOT NULL,count INTEGER NOT NULL DEFAULT 0)");
+            stage.execSQL("CREATE TABLE blobs(id INTEGER PRIMARY KEY,bytes INTEGER NOT NULL)");
+            stage.execSQL("CREATE TABLE blob_chunks(owner INTEGER NOT NULL,position INTEGER NOT NULL,offset INTEGER NOT NULL,data BLOB NOT NULL,PRIMARY KEY(owner,position))");
+            stage.execSQL("CREATE INDEX blob_offsets ON blob_chunks(owner,offset)");
+            stage.execSQL("CREATE TABLE strings(id INTEGER PRIMARY KEY,value INTEGER NOT NULL)");
+            stage.execSQL("CREATE TABLE incoming(sheet INTEGER NOT NULL,row INTEGER NOT NULL,kind TEXT NOT NULL,value INTEGER NOT NULL,PRIMARY KEY(sheet,row))");
+            stage.execSQL("CREATE TABLE modules(id TEXT PRIMARY KEY,name TEXT NOT NULL,ordinal INTEGER NOT NULL,value INTEGER NOT NULL,count INTEGER NOT NULL DEFAULT 0)");
             stage.execSQL("CREATE INDEX module_name ON modules(name,ordinal)");
-            stage.execSQL("CREATE TABLE characters(id TEXT PRIMARY KEY,ordinal INTEGER NOT NULL,value BLOB NOT NULL)");
-            stage.execSQL("CREATE TABLE records(id TEXT PRIMARY KEY,module_id TEXT NOT NULL,name TEXT NOT NULL,link TEXT NOT NULL,source TEXT NOT NULL,ordinal INTEGER NOT NULL,value BLOB NOT NULL,manual BLOB,original INTEGER NOT NULL,changed INTEGER NOT NULL DEFAULT 0,raw_bytes INTEGER NOT NULL DEFAULT 0)");
+            stage.execSQL("CREATE TABLE characters(id TEXT PRIMARY KEY,ordinal INTEGER NOT NULL,value INTEGER NOT NULL)");
+            stage.execSQL("CREATE TABLE records(id TEXT PRIMARY KEY,module_id TEXT NOT NULL,name TEXT NOT NULL,link TEXT NOT NULL,source TEXT NOT NULL,ordinal INTEGER NOT NULL,value INTEGER NOT NULL,manual INTEGER,original INTEGER NOT NULL,changed INTEGER NOT NULL DEFAULT 0,raw_bytes INTEGER NOT NULL DEFAULT 0)");
             stage.execSQL("CREATE INDEX record_link ON records(module_id,link)");stage.execSQL("CREATE INDEX record_manual ON records(module_id,source,name,link)");
             stage.execSQL("CREATE INDEX record_order ON records(ordinal)");
-            stage.execSQL("CREATE TABLE preview(kind TEXT NOT NULL,position INTEGER NOT NULL,value TEXT NOT NULL,PRIMARY KEY(kind,position))");
-        }catch(Exception error){try{close();}catch(Exception cleanup){error.addSuppressed(cleanup);}throw error;}
+            stage.execSQL("CREATE TABLE preview(kind TEXT NOT NULL,position INTEGER NOT NULL,value INTEGER NOT NULL,PRIMARY KEY(kind,position))");
+        }catch(Exception|OutOfMemoryError error){try{close();}catch(Exception cleanup){error.addSuppressed(cleanup);}throw error;}
     }
     static long integer(Object value)throws Exception{if(!(value instanceof Number))throw new IOException("表格整数参数无效。");double number=((Number)value).doubleValue();if(!Double.isFinite(number)||number<0||number>StorageBudget.JS_SAFE_INTEGER||number!=Math.floor(number))throw new IOException("表格整数参数无效。");return (long)number;}
     void require(String token)throws Exception{if(closed||!id.equals(token))throw new IOException("表格预览已失效，请重新选择。");}
@@ -90,39 +94,77 @@ final class TableSession implements AutoCloseable {
         if(key.equals("strings")){
             stage.beginTransaction();try{stringLines.append(bytes,0,bytes.length,value->{
                 StrictBackupJson.validate(value);JSONArray row=new JSONArray(value);if(row.length()!=2||integer(row.get(0))!=stringCount||!(row.get(1) instanceof String))throw new IOException("共享字符串索引无效。");
-                byte[] text=row.getString(1).getBytes(StandardCharsets.UTF_8);if(text.length>LogbookLimits.ENTITY_REQUEST_BYTES)throw new IOException("独立字符串超过处理上限。");StorageBudget.require(available,StorageBudget.estimate(text.length,3));
-                stage.execSQL("INSERT INTO strings VALUES(?,?)",new Object[]{stringCount++,text});
+                stage.execSQL("INSERT INTO strings VALUES(?,?)",new Object[]{stringCount++,storeText(row.getString(1))});
             });stage.setTransactionSuccessful();}finally{stage.endTransaction();}
         }
     }
     JSONObject string(long index,long offset)throws Exception{
-        if(closed||ready||index>=stringCount)throw new IOException("共享字符串索引无效。");
-        try(Cursor row=stage.rawQuery("SELECT length(value),substr(value,?,?) FROM strings WHERE id=?",new String[]{Long.toString(offset+1),Integer.toString(LogbookLimits.TRANSFER_CHUNK_BYTES),Long.toString(index)})){
-            if(!row.moveToFirst())throw new IOException("共享字符串不存在。");long bytes=row.getLong(0);if(offset>bytes)throw new IOException("共享字符串偏移无效。");byte[] chunk=row.getBlob(1);
-            return new JSONObject().put("base64",android.util.Base64.encodeToString(chunk,android.util.Base64.NO_WRAP)).put("bytes",bytes).put("done",offset+chunk.length==bytes);
+        if(closed||ready||index<0||index>=stringCount||offset<0)throw new IOException("共享字符串索引无效。");
+        Long ref=reference("strings","value","id=?",new String[]{Long.toString(index)});if(ref==null)throw new IOException("共享字符串不存在。");
+        long bytes=scalar("SELECT bytes FROM blobs WHERE id=?",Long.toString(ref));if(offset>bytes)throw new IOException("共享字符串偏移无效。");
+        int count=(int)Math.min(LogbookLimits.TRANSFER_CHUNK_BYTES,bytes-offset);byte[] chunk=new byte[count];int filled=0;
+        try(Cursor rows=stage.rawQuery("SELECT offset,data FROM blob_chunks WHERE owner=? AND offset>=? AND offset<? AND offset+length(data)>? ORDER BY position",new String[]{Long.toString(ref),Long.toString(Math.max(0,offset-LogbookLimits.TRANSFER_CHUNK_BYTES)),Long.toString(offset+count),Long.toString(offset)})){
+            while(rows.moveToNext()){long start=rows.getLong(0);byte[] part=rows.getBlob(1);int from=(int)Math.max(0,offset-start),take=Math.min(part.length-from,count-filled);if(take<0||start+from!=offset+filled)throw new IOException("共享字符串分段不完整。");System.arraycopy(part,from,chunk,filled,take);filled+=take;}
         }
+        if(filled!=count)throw new IOException("共享字符串分段不完整。");
+        return new JSONObject().put("base64",android.util.Base64.encodeToString(chunk,android.util.Base64.NO_WRAP)).put("bytes",bytes).put("done",offset+count==bytes);
+    }
+    /** Content is stored in bounded values; SQLite's single-BLOB limit is never a content limit. */
+    private long storeText(String text)throws Exception{
+        long bytes=JsonFields.bytes(text),ref;StorageBudget.require(available,StorageBudget.estimate(bytes,3));
+        try(SQLiteStatement insert=stage.compileStatement("INSERT INTO blobs(bytes) VALUES(?)")){insert.bindLong(1,bytes);ref=insert.executeInsert();}
+        long offset=0,position=0;
+        for(int at=0;at<text.length();){int end=(int)Math.min((long)at+65536,text.length());if(end<text.length()&&Character.isHighSurrogate(text.charAt(end-1)))end--;
+            byte[] part=text.substring(at,end).getBytes(StandardCharsets.UTF_8);StorageBudget.require(available,StorageBudget.estimate(part.length,3));
+            stage.execSQL("INSERT INTO blob_chunks VALUES(?,?,?,?)",new Object[]{ref,position++,offset,part});offset=Math.addExact(offset,part.length);at=end;
+        }
+        if(offset!=bytes)throw new IOException("表格文本UTF-8计量不符。");return ref;
+    }
+    private Long reference(String table,String column,String where,String[] args)throws Exception{
+        try(Cursor row=stage.rawQuery("SELECT "+column+" FROM "+table+" WHERE "+where,args)){if(!row.moveToFirst()||row.isNull(0))return null;return row.getLong(0);}
+    }
+    private void replaceText(String table,String id,String column,String text)throws Exception{
+        Long previous=reference(table,column,"id=?",new String[]{id});long next=storeText(text);
+        stage.execSQL("UPDATE "+table+" SET "+column+"=? WHERE id=?",new Object[]{next,id});
+        if(previous!=null){stage.execSQL("DELETE FROM blob_chunks WHERE owner=?",new Object[]{previous});stage.execSQL("DELETE FROM blobs WHERE id=?",new Object[]{previous});}
+    }
+    private InputStream content(long ref)throws Exception{
+        final long bytes=scalar("SELECT bytes FROM blobs WHERE id=?",Long.toString(ref));final Cursor rows=stage.rawQuery("SELECT position,offset,data FROM blob_chunks WHERE owner=? ORDER BY position",new String[]{Long.toString(ref)});
+        return new InputStream(){byte[] part=new byte[0];int at;long position,total;boolean ended;
+            public int read()throws IOException{byte[] one=new byte[1];return read(one,0,1)<0?-1:one[0]&255;}
+            public int read(byte[] buffer,int start,int count)throws IOException{
+                if(count==0)return 0;if(ended)return -1;
+                while(at==part.length){if(!rows.moveToNext()){ended=true;if(total!=bytes)throw new IOException("表格内容分段不完整。");return -1;}
+                    if(rows.getLong(0)!=position++||rows.getLong(1)!=total)throw new IOException("表格内容分段乱序。");part=rows.getBlob(2);at=0;if(part.length==0||part.length>LogbookLimits.TRANSFER_CHUNK_BYTES||part.length>bytes-total)throw new IOException("表格内容分段无效。");}
+                int copied=Math.min(count,part.length-at);System.arraycopy(part,at,buffer,start,copied);at+=copied;total+=copied;return copied;
+            }
+            public void close(){rows.close();}
+        };
+    }
+    private String contentText(long ref)throws Exception{
+        try(Reader input=new InputStreamReader(content(ref),StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT))){StringBuilder text=new StringBuilder();char[] part=new char[32768];int n;while((n=input.read(part))!=-1)text.append(part,0,n);return text.toString();}
     }
     private static byte[] blob(SQLiteDatabase db,String table,String column,String where,String[] args)throws Exception{
         long size;try(Cursor row=db.rawQuery("SELECT length("+column+") FROM "+table+" WHERE "+where,args)){if(!row.moveToFirst()||row.isNull(0))return null;size=row.getLong(0);}
-        if(size>LogbookLimits.ENTITY_REQUEST_BYTES+4096)throw new IOException("独立表格字段超过处理上限。");ByteArrayOutputStream output=new ByteArrayOutputStream();
+        ByteArrayOutputStream output=new ByteArrayOutputStream();
         for(long offset=0;offset<size;){String[] query=new String[args.length+2];query[0]=Long.toString(offset+1);query[1]=Integer.toString(LogbookLimits.TRANSFER_CHUNK_BYTES);System.arraycopy(args,0,query,2,args.length);
             try(Cursor row=db.rawQuery("SELECT substr("+column+",?,?) FROM "+table+" WHERE "+where,query)){if(!row.moveToFirst())throw new IOException("表格暂存条目缺失。");byte[] part=row.getBlob(0);if(part.length==0)throw new IOException("表格暂存条目不完整。");output.write(part);offset+=part.length;}}
         return output.toByteArray();
     }
-    private JSONObject value(String table,String id)throws Exception{byte[] bytes=blob(stage,table,"value","id=?",new String[]{id});if(bytes==null)throw new IOException("表格暂存实体缺失。");return new JSONObject(new String(bytes,StandardCharsets.UTF_8));}
+    private JSONObject value(String table,String id)throws Exception{Long ref=reference(table,"value","id=?",new String[]{id});if(ref==null)throw new IOException("表格暂存实体缺失。");return new JSONObject(contentText(ref));}
     private void seed(LogbookDatabase database,JSONObject defaultSettings)throws Exception{
         SQLiteDatabase business=database.getReadableDatabase();Map<String,String> root=new IndexedSnapshot(business).rootFields();
         if(root.isEmpty()){BackupValidation.settings(defaultSettings);initialSettings=new JSONObject(defaultSettings.toString());}
         JSONArray modules=new JSONArray(root.containsKey("modules")?root.get("modules"):"[]"),characters=new JSONArray(root.containsKey("characters")?root.get("characters"):"[]");
-        for(int i=0;i<modules.length();i++){JSONObject row=modules.getJSONObject(i);stage.execSQL("INSERT INTO modules(id,name,ordinal,value) VALUES(?,?,?,?)",new Object[]{row.getString("id"),row.getString("name"),i,row.toString().getBytes(StandardCharsets.UTF_8)});}
-        for(int i=0;i<characters.length();i++){JSONObject row=characters.getJSONObject(i);stage.execSQL("INSERT INTO characters VALUES(?,?,?)",new Object[]{row.getString("id"),i,row.toString().getBytes(StandardCharsets.UTF_8)});}
+        for(int i=0;i<modules.length();i++){JSONObject row=modules.getJSONObject(i);stage.execSQL("INSERT INTO modules(id,name,ordinal,value) VALUES(?,?,?,?)",new Object[]{row.getString("id"),row.getString("name"),i,storeText(row.toString())});}
+        for(int i=0;i<characters.length();i++){JSONObject row=characters.getJSONObject(i);stage.execSQL("INSERT INTO characters VALUES(?,?,?)",new Object[]{row.getString("id"),i,storeText(row.toString())});}
         try(Cursor rows=business.rawQuery("SELECT id,ordinal,COALESCE((SELECT SUM(bytes) FROM indexed_bodies WHERE record_key=indexed_records.row_key AND kind='rawContent'),0) FROM indexed_records ORDER BY ordinal,row_key",null)){
             while(rows.moveToNext()){JSONObject row=new JSONObject(new String(blob(business,"indexed_records","CAST(metadata AS BLOB)","id=?",new String[]{rows.getString(0)}),StandardCharsets.UTF_8));insertRecord(row,rows.getLong(1),null,true,false);if(rows.getLong(2)>0)stage.execSQL("UPDATE records SET raw_bytes=? WHERE id=?",new Object[]{rows.getLong(2),rows.getString(0)});}
         }
         stage.execSQL("UPDATE modules SET count=(SELECT COUNT(*) FROM records WHERE module_id=modules.id)");
     }
     private long scalar(String sql,String...args)throws Exception{try(Cursor row=stage.rawQuery(sql,args)){if(!row.moveToFirst())throw new IOException("表格索引读取失败。");return row.getLong(0);}}
-    private void notice(String type,String text)throws Exception{long index=type.equals("names")?namesCount++:warningsCount++;stage.execSQL("INSERT INTO preview VALUES(?,?,?)",new Object[]{type,index,text});}
+    private void notice(String type,String text)throws Exception{long index=type.equals("names")?namesCount++:warningsCount++;stage.execSQL("INSERT INTO preview VALUES(?,?,?)",new Object[]{type,index,storeText(text)});}
     private static String text(JSONObject row,String key)throws Exception{Object value=row.get(key);if(!(value instanceof String))throw new IOException("表格文本类型无效。");return (String)value;}
     private static boolean space(char value){return value>=9&&value<=13||value==' '||value=='\u00a0'||value=='\u1680'||value>='\u2000'&&value<='\u200a'||value=='\u2028'||value=='\u2029'||value=='\u202f'||value=='\u205f'||value=='\u3000'||value=='\ufeff';}
     private static String trim(String value){int start=0,end=value.length();while(start<end&&space(value.charAt(start)))start++;while(end>start&&space(value.charAt(end-1)))end--;return value.substring(start,end);}
@@ -149,29 +191,29 @@ final class TableSession implements AutoCloseable {
         // Dates preserve the legacy table text semantics, including Chinese and slash notation.
         String moduleID=null;try(Cursor match=stage.rawQuery("SELECT id FROM modules WHERE name=? ORDER BY ordinal LIMIT 1",new String[]{moduleName})){if(match.moveToFirst())moduleID=match.getString(0);}
         JSONObject module;
-        if(moduleID==null){moduleID=UUID.randomUUID().toString();long order=scalar("SELECT COUNT(*) FROM modules");module=new JSONObject().put("id",moduleID).put("name",moduleName).put("playStatus",input.optString("playStatus","not_started")).put("kps",new JSONArray()).put("pairs",new JSONArray()).put("order",order).put("collapsed",false).put("createdAt",now).put("updatedAt",now);stage.execSQL("INSERT INTO modules(id,name,ordinal,value) VALUES(?,?,?,?)",new Object[]{moduleID,moduleName,order,module.toString().getBytes(StandardCharsets.UTF_8)});}else module=value("modules",moduleID);
-        module.put("kps",mergeNames(module.getJSONArray("kps"),input.getJSONArray("kps")));module.put("pairs",mergePairs(module.getJSONArray("pairs"),input.getJSONArray("pairs")));stage.execSQL("UPDATE modules SET value=? WHERE id=?",new Object[]{module.toString().getBytes(StandardCharsets.UTF_8),moduleID});
+        if(moduleID==null){moduleID=UUID.randomUUID().toString();long order=scalar("SELECT COUNT(*) FROM modules");module=new JSONObject().put("id",moduleID).put("name",moduleName).put("playStatus",input.optString("playStatus","not_started")).put("kps",new JSONArray()).put("pairs",new JSONArray()).put("order",order).put("collapsed",false).put("createdAt",now).put("updatedAt",now);stage.execSQL("INSERT INTO modules(id,name,ordinal,value) VALUES(?,?,?,?)",new Object[]{moduleID,moduleName,order,storeText(module.toString())});}else module=value("modules",moduleID);
+        module.put("kps",mergeNames(module.getJSONArray("kps"),input.getJSONArray("kps")));module.put("pairs",mergePairs(module.getJSONArray("pairs"),input.getJSONArray("pairs")));replaceText("modules",moduleID,"value",module.toString());
         String manual=input.optString("manualContent","");boolean hasManual=!trim(manual).isEmpty();List<String> matches=new ArrayList<>();
         if(hasManual){String sql="SELECT id FROM records WHERE module_id=? AND source='manual' AND name=?"+(link.isEmpty()?"":" AND link=?")+" LIMIT 2";try(Cursor found=stage.rawQuery(sql,link.isEmpty()?new String[]{moduleID,session}:new String[]{moduleID,session,link})){while(found.moveToNext())matches.add(found.getString(0));}}
-        if(matches.size()==1){String id=matches.get(0);JSONObject record=value("records",id);record.put("updatedAt",now);if(input.has("playDate")&&!input.getString("playDate").isEmpty()){record.put("playDate",input.getString("playDate"));record.put("dateSource","manual");}validateCombined(record,manual);stage.execSQL("UPDATE records SET value=?,manual=?,changed=1 WHERE id=?",new Object[]{record.toString().getBytes(StandardCharsets.UTF_8),JSONObject.quote(manual).getBytes(StandardCharsets.UTF_8),id});updated++;notice("names",moduleName+" / "+record.getString("name"));notice("warnings",record.getString("name")+"：将更新已有同名手动场次正文，确认后生效。");return;}
+        if(matches.size()==1){String id=matches.get(0);JSONObject record=value("records",id);record.put("updatedAt",now);if(input.has("playDate")&&!input.getString("playDate").isEmpty()){record.put("playDate",input.getString("playDate"));record.put("dateSource","manual");}validateCombined(record,manual);replaceText("records",id,"value",record.toString());replaceText("records",id,"manual",JSONObject.quote(manual));stage.execSQL("UPDATE records SET changed=1 WHERE id=?",new Object[]{id});updated++;notice("names",moduleName+" / "+record.getString("name"));notice("warnings",record.getString("name")+"：将更新已有同名手动场次正文，确认后生效。");return;}
         if(!link.isEmpty()&&scalar("SELECT COUNT(*) FROM records WHERE module_id=? AND link=?",moduleID,link)>0){skipped++;notice("warnings",session+"：来源已存在，已跳过。");return;}
         long count=scalar("SELECT count FROM modules WHERE id=?",moduleID),ordinal=scalar("SELECT COALESCE(MAX(ordinal),-1)+1 FROM records");
         JSONObject record=new JSONObject().put("id",UUID.randomUUID().toString()).put("moduleId",moduleID).put("name",session.isEmpty()?"第"+(count+1)+"场":session).put("sequenceNo",count+1).put("sourceType",!link.isEmpty()&&!hasManual?"online":"manual").put("status",!link.isEmpty()&&!hasManual?"pending":"manual").put("dateSource",input.has("playDate")&&!input.getString("playDate").isEmpty()?"manual":"none").put("order",count).put("createdAt",now).put("updatedAt",now);
         if(!link.isEmpty())record.put("link",link);if(input.has("playDate")&&!input.getString("playDate").isEmpty())record.put("playDate",input.getString("playDate"));String body=hasManual?manual:link.isEmpty()?"":null;
         validateCombined(record,body);insertRecord(record,ordinal,body,false,true);stage.execSQL("UPDATE modules SET count=count+1 WHERE id=?",new Object[]{moduleID});added++;notice("names",moduleName+" / "+record.getString("name"));
     }
-    private void validateCombined(JSONObject record,String manual)throws Exception{BackupValidation.record(record);long bytes=JsonFields.bytes(record.toString())+(manual==null?0:17+JsonFields.bytes(JSONObject.quote(manual)));try(Cursor row=stage.rawQuery("SELECT raw_bytes FROM records WHERE id=?",new String[]{record.getString("id")})){if(row.moveToFirst()&&row.getLong(0)>0)bytes+=14+row.getLong(0);}if(bytes>LogbookLimits.ENTITY_REQUEST_BYTES)throw new IOException("单场完整记录超过64MiB。");StorageBudget.require(available,StorageBudget.estimate(bytes,4));}
-    private void insertRecord(JSONObject row,long ordinal,String manual,boolean original,boolean changed)throws Exception{stage.execSQL("INSERT INTO records(id,module_id,name,link,source,ordinal,value,manual,original,changed) VALUES(?,?,?,?,?,?,?,?,?,?)",new Object[]{row.getString("id"),row.getString("moduleId"),row.getString("name"),row.optString("link"),row.getString("sourceType"),ordinal,row.toString().getBytes(StandardCharsets.UTF_8),manual==null?null:JSONObject.quote(manual).getBytes(StandardCharsets.UTF_8),original?1:0,changed?1:0});}
-    private void character(JSONObject value)throws Exception{Set<String> modules=new HashSet<>();try(Cursor rows=stage.rawQuery("SELECT id FROM modules",null)){while(rows.moveToNext())modules.add(rows.getString(0));}BackupValidation.character(value,modules);String id=value.getString("id");if(id.isEmpty()||scalar("SELECT COUNT(*) FROM characters WHERE id=?",id)!=0||JsonFields.bytes(value.toString())>LogbookLimits.ENTITY_REQUEST_BYTES)throw new IOException("角色标识重复、缺失或字段过大。");stage.execSQL("INSERT INTO characters VALUES(?,?,?)",new Object[]{id,scalar("SELECT COUNT(*) FROM characters"),value.toString().getBytes(StandardCharsets.UTF_8)});added++;notice("names",value.getJSONObject("basic").getString("name"));}
+    private void validateCombined(JSONObject record,String manual)throws Exception{BackupValidation.record(record);long bytes=JsonFields.bytes(record.toString())+(manual==null?0:17+JsonFields.bytes(JSONObject.quote(manual)));try(Cursor row=stage.rawQuery("SELECT raw_bytes FROM records WHERE id=?",new String[]{record.getString("id")})){if(row.moveToFirst()&&row.getLong(0)>0)bytes=Math.addExact(bytes,14+row.getLong(0));}StorageBudget.require(available,StorageBudget.estimate(bytes,4));}
+    private void insertRecord(JSONObject row,long ordinal,String manual,boolean original,boolean changed)throws Exception{stage.execSQL("INSERT INTO records(id,module_id,name,link,source,ordinal,value,manual,original,changed) VALUES(?,?,?,?,?,?,?,?,?,?)",new Object[]{row.getString("id"),row.getString("moduleId"),row.getString("name"),row.optString("link"),row.getString("sourceType"),ordinal,storeText(row.toString()),manual==null?null:storeText(JSONObject.quote(manual)),original?1:0,changed?1:0});}
+    private void character(JSONObject value)throws Exception{Set<String> modules=new HashSet<>();try(Cursor rows=stage.rawQuery("SELECT id FROM modules",null)){while(rows.moveToNext())modules.add(rows.getString(0));}BackupValidation.character(value,modules);String id=value.getString("id");if(id.isEmpty()||scalar("SELECT COUNT(*) FROM characters WHERE id=?",id)!=0)throw new IOException("角色标识重复或缺失。");StorageBudget.require(available,StorageBudget.estimate(JsonFields.bytes(value.toString()),4));stage.execSQL("INSERT INTO characters VALUES(?,?,?)",new Object[]{id,scalar("SELECT COUNT(*) FROM characters"),storeText(value.toString())});added++;notice("names",value.getJSONObject("basic").getString("name"));}
     JSONObject preview(LogbookDatabase database,BackupSession.Proof proof,JSONObject defaultSettings)throws Exception{
         if(ready||closed||database.revision()!=revision)throw new IOException("表格预览版本已变化。");stringLines.finish();for(Spool value:spools.values())value.seal();Spool candidate=spools.get("candidate");if(candidate==null)throw new IOException("没有可新增的有效数据。");
         BackupSession.fileProof(source,sourceProof.bytes).matches(sourceProof.bytes,sourceProof.sha256);BackupSession.fileProof(candidate.file,proof.bytes).matches(proof.bytes,proof.sha256);candidateProof=proof;
         stage.beginTransaction();try{
             seed(database,defaultSettings);Lines lines=new Lines();try(InputStream input=new FileInputStream(candidate.file)){byte[] buffer=new byte[65536];int n;while((n=input.read(buffer))!=-1)lines.append(buffer,0,n,value->{
-                if(value.length()<2||value.charAt(0)!=(kind.equals("record-table")?'T':'C'))throw new IOException("表格候选用途不符。");String json=value.substring(1);StrictBackupJson.validate(json);JSONObject wrapper=new JSONObject(json);BackupValidation.shape(wrapper,"sheetOrder,rowOrder,value",kind.equals("character-table")?"warnings":"");long sheet=integer(wrapper.get("sheetOrder")),row=integer(wrapper.get("rowOrder"));wrapper.getJSONObject("value");if(wrapper.has("warnings")){JSONArray warnings=wrapper.getJSONArray("warnings");for(int i=0;i<warnings.length();i++)if(!(warnings.get(i) instanceof String))throw new IOException("角色提醒类型无效。");}StorageBudget.require(available,StorageBudget.estimate(JsonFields.bytes(json),4));stage.execSQL("INSERT INTO incoming VALUES(?,?,?,?)",new Object[]{sheet,row,value.substring(0,1),json.getBytes(StandardCharsets.UTF_8)});
+                if(value.length()<2||value.charAt(0)!=(kind.equals("record-table")?'T':'C'))throw new IOException("表格候选用途不符。");String json=value.substring(1);StrictBackupJson.validate(json);JSONObject wrapper=new JSONObject(json);BackupValidation.shape(wrapper,"sheetOrder,rowOrder,value",kind.equals("character-table")?"warnings":"");long sheet=integer(wrapper.get("sheetOrder")),row=integer(wrapper.get("rowOrder"));wrapper.getJSONObject("value");if(wrapper.has("warnings")){JSONArray warnings=wrapper.getJSONArray("warnings");for(int i=0;i<warnings.length();i++)if(!(warnings.get(i) instanceof String))throw new IOException("角色提醒类型无效。");}StorageBudget.require(available,StorageBudget.estimate(JsonFields.bytes(json),4));stage.execSQL("INSERT INTO incoming VALUES(?,?,?,?)",new Object[]{sheet,row,value.substring(0,1),storeText(json)});
             });}lines.finish();
-            try(Cursor rows=stage.rawQuery("SELECT sheet,row,kind FROM incoming ORDER BY sheet,row",null)){
-                while(rows.moveToNext()){byte[] bytes=blob(stage,"incoming","value","sheet=? AND row=?",new String[]{Long.toString(rows.getLong(0)),Long.toString(rows.getLong(1))});JSONObject wrapper=new JSONObject(new String(bytes,StandardCharsets.UTF_8)),entry=wrapper.getJSONObject("value");if(rows.getString(2).equals("T"))row(entry);else{character(entry);JSONArray warnings=wrapper.optJSONArray("warnings");if(warnings!=null)for(int i=0;i<warnings.length();i++)notice("warnings",warnings.getString(i));}}
+            try(Cursor rows=stage.rawQuery("SELECT value,kind FROM incoming ORDER BY sheet,row",null)){
+                while(rows.moveToNext()){JSONObject wrapper=new JSONObject(contentText(rows.getLong(0))),entry=wrapper.getJSONObject("value");if(rows.getString(1).equals("T"))row(entry);else{character(entry);JSONArray warnings=wrapper.optJSONArray("warnings");if(warnings!=null)for(int i=0;i<warnings.length();i++)notice("warnings",warnings.getString(i));}}
             }
             if(namesCount==0)throw new IOException("没有可新增的有效数据。");if(database.revision()!=revision)throw new IOException("表格预览版本已变化。");stage.setTransactionSuccessful();ready=true;
         }finally{stage.endTransaction();}
@@ -179,7 +221,7 @@ final class TableSession implements AutoCloseable {
         stage=SQLiteDatabase.openDatabase(frozen.getAbsolutePath(),null,SQLiteDatabase.OPEN_READONLY|SQLiteDatabase.NO_LOCALIZED_COLLATORS);
         return new JSONObject().put("id",id).put("revision",revision).put("added",added).put("updated",updated).put("skipped",skipped).put("namesCount",namesCount).put("warningsCount",warningsCount).put("names",page("names",0,100).getJSONArray("values")).put("warnings",page("warnings",0,100).getJSONArray("values"));
     }
-    JSONObject page(String kind,long offset,int limit)throws Exception{if(!ready||closed||!Arrays.asList("names","warnings").contains(kind)||offset<0)throw new IOException("表格预览页无效。");JSONArray values=new JSONArray();try(Cursor rows=stage.rawQuery("SELECT value FROM preview WHERE kind=? AND position>=? ORDER BY position LIMIT ?",new String[]{kind,Long.toString(offset),Integer.toString(Math.max(1,Math.min(100,limit)))})){while(rows.moveToNext())values.put(rows.getString(0));}return new JSONObject().put("values",values).put("total",kind.equals("names")?namesCount:warningsCount);}
+    JSONObject page(String kind,long offset,int limit)throws Exception{if(!ready||closed||!Arrays.asList("names","warnings").contains(kind)||offset<0)throw new IOException("表格预览页无效。");JSONArray values=new JSONArray();try(Cursor rows=stage.rawQuery("SELECT value FROM preview WHERE kind=? AND position>=? ORDER BY position LIMIT ?",new String[]{kind,Long.toString(offset),Integer.toString(Math.max(1,Math.min(100,limit)))})){while(rows.moveToNext())values.put(contentText(rows.getLong(0)));}return new JSONObject().put("values",values).put("total",kind.equals("names")?namesCount:warningsCount);}
     void prepareCommit()throws Exception{
         if(!ready||closed||detached)throw new IOException("表格尚未预览或已提交。");
         BackupSession.fileProof(source,sourceProof.bytes).matches(sourceProof.bytes,sourceProof.sha256);File candidate=spools.get("candidate").file;BackupSession.fileProof(candidate,candidateProof.bytes).matches(candidateProof.bytes,candidateProof.sha256);
@@ -192,7 +234,8 @@ final class TableSession implements AutoCloseable {
         if(!ready||!detached||closed)throw new IOException("表格候选未封存。");
         if(initialSettings!=null){destination.tableField("schemaVersion","2");destination.tableField("settings",initialSettings.toString());}
         try(Cursor rows=stage.rawQuery("SELECT id,ordinal,original FROM records WHERE changed=1 ORDER BY ordinal",null)){
-            while(rows.moveToNext()){String id=rows.getString(0);JSONObject metadata=value("records",id);byte[] body=blob(stage,"records","manual","id=?",new String[]{id});destination.tableRecord(metadata,rows.getLong(1),rows.getInt(2)==0,body==null?null:new InputStreamReader(new ByteArrayInputStream(body),StandardCharsets.UTF_8));}
+            while(rows.moveToNext()){String id=rows.getString(0);JSONObject metadata=value("records",id);Long body=reference("records","manual","id=?",new String[]{id});
+                try(Reader reader=body==null?null:new InputStreamReader(content(body),StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT))){destination.tableRecord(metadata,rows.getLong(1),rows.getInt(2)==0,reader);}}
         }
         for(String table:new String[]{"modules","characters"}){
             JSONArray values=new JSONArray();try(Cursor rows=stage.rawQuery("SELECT id FROM "+table+" ORDER BY ordinal",null)){while(rows.moveToNext())values.put(value(table,rows.getString(0)));}destination.tableField(table,values.toString());

@@ -75,8 +75,8 @@ final class IndexedSnapshot {
     private void refreshSize(long key,String metadata)throws Exception{
         long bytes=JsonFields.bytes(metadata);int count=0;
         try(Cursor bodies=db.rawQuery("SELECT kind,SUM(bytes) FROM indexed_bodies WHERE record_key=? GROUP BY kind",new String[]{Long.toString(key)})){
-            while(bodies.moveToNext()){bytes+=1+JsonFields.bytes(JSONObject.quote(bodies.getString(0)))+1+bodies.getLong(1);count++;}
-        }if(bytes>LogbookLimits.ENTITY_REQUEST_BYTES)throw new IllegalArgumentException("单场完整raw/manual合计超过64MiB；原数据保留。");
+            while(bodies.moveToNext()){bytes=Math.addExact(bytes,Math.addExact(2+JsonFields.bytes(JSONObject.quote(bodies.getString(0))),bodies.getLong(1)));count++;}
+        }
         db.execSQL("UPDATE indexed_records SET metadata=?,bytes=?,body_count=? WHERE row_key=?",new Object[]{metadata,bytes,count,key});
     }
     void record(RawJson cursor,String expectedId,boolean keepBody)throws Exception{record(cursor,expectedId,keepBody,null);}
@@ -234,15 +234,13 @@ final class IndexedSnapshot {
         for(int start=0;start<ids.size();start+=400){
             List<String> group=ids.subList(start,Math.min(start+400,ids.size()));
             String placeholders=String.join(",",Collections.nCopies(group.size(),"?"));
-            try(Cursor row=db.rawQuery("SELECT COUNT(*),COALESCE(SUM(bytes),0) FROM indexed_records WHERE id IN ("+placeholders+")",group.toArray(new String[0]))){if(!row.moveToFirst())throw new IOException("场次计量读取失败。");count+=row.getLong(0);bytes+=row.getLong(1);}
+            try(Cursor row=db.rawQuery("SELECT COUNT(*),COALESCE(SUM(bytes),0) FROM indexed_records WHERE id IN ("+placeholders+")",group.toArray(new String[0]))){if(!row.moveToFirst())throw new IOException("场次计量读取失败。");count=Math.addExact(count,row.getLong(0));bytes=Math.addExact(bytes,row.getLong(1));}
         }
         if(count!=selected.size())throw new IOException("场次已变化，请重新读取。");return bytes+Math.max(0,count-1);
     }
     long metadataBytes(){Map<String,String> root=rootFields();root.put("records","[]");try(Cursor rows=db.rawQuery("SELECT COUNT(*),COALESCE(SUM(length(CAST(metadata AS BLOB))),0) FROM indexed_records",null)){rows.moveToFirst();return JsonFields.objectBytes(root)+rows.getLong(1)+Math.max(0,rows.getLong(0)-1);}}
     void checkSize(){
-        if(!deviceSpace){if(bytes()>LogbookLimits.LIBRARY_BYTES)throw new IllegalArgumentException("数据超过 64 MiB；原数据未改变。");return;}
         try{
-            try(Cursor row=db.rawQuery("SELECT COALESCE(MAX(bytes),0) FROM indexed_records",null)){row.moveToFirst();if(row.getLong(0)>LogbookLimits.ENTITY_REQUEST_BYTES)throw new IllegalArgumentException("单场完整raw/manual合计超过64MiB；原数据未改变。");}
             StorageBudget.require(available,0);
         }catch(RuntimeException error){throw error;}catch(Exception error){throw new IllegalStateException("保存空间不足或无法核对；原数据未改变。",error);}
     }

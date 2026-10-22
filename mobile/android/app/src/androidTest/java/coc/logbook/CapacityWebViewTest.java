@@ -43,7 +43,7 @@ public final class CapacityWebViewTest {
             }
             BackupSession.Proof proof=BackupSession.fileProof(candidate,candidate.length());RestoreCandidate.Preview preview;
             try(InputStream input=new FileInputStream(candidate)){preview=RestoreCandidate.inspect(input,proof.bytes,proof.sha256,null);}
-            try(LogbookDatabase database=new LogbookDatabase(context);InputStream input=new FileInputStream(candidate)){assertEquals(1,database.restoreCandidate(input,preview,0,true,"{}"));}
+            try(LogbookDatabase database=new LogbookDatabase(context);InputStream input=new FileInputStream(candidate)){assertEquals(1,database.restoreCandidate(input,preview,0,true,"{}",()->{}));}
             try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
                 long deadline=System.currentTimeMillis()+90000;
                 while(!"true".equals(evaluate(scenario,"!!window.Capacitor && typeof window.Capacitor.nativePromise==='function'"))){assertTrue("Native bridge readiness timeout",System.currentTimeMillis()<deadline);Thread.sleep(250);}

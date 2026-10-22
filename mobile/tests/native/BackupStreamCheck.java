@@ -64,6 +64,16 @@ public final class BackupStreamCheck {
                 rejects("wrong lease token",()->session.require("other"));
             }
             require(keep.exists(),"cleanup preserves unrelated file");
+            try(BackupSession empty=new BackupSession(directory,"public-tree",7,true,false,()->free[0])){
+                empty.capture("source",new ByteArrayInputStream(original),-1,null);empty.beginOutput();
+                for(int at=0,index=0;at<original.length;at+=65536,index++)empty.append("candidate",index,Arrays.copyOfRange(original,at,Math.min(original.length,at+65536)));
+                rejects("missing nonempty attachment",()->empty.verify("zip:archives/missing.txt",1,hash(new byte[]{1})));
+                rejects("false empty attachment proof",()->empty.verify("zip:archives/false.txt",0,"0".repeat(64)));
+                JSONArray selected=new JSONArray().put(new JSONObject().put("zipPath","archives/empty.txt").put("name","empty.txt").put("mime","text/plain").put("bytes",0).put("sha256",hash(new byte[0])));
+                empty.previewRestore(new BackupSession.Proof(original.length,hash(original)),selected);empty.requireReady();
+                require(empty.attachments.size()==1&&empty.file("zip:archives/empty.txt").length()==0&&empty.proof("zip:archives/empty.txt").sha256.equals(hash(new byte[0])),"empty attachment independently sealed in real preview");
+                rejects("sealed preview cannot invent another empty attachment",()->empty.verify("zip:archives/late.txt",0,hash(new byte[0])));
+            }
             try(BackupSession session=new BackupSession(directory,"public-tree",7,true,false,()->free[0])){
                 session.capture("source",new ByteArrayInputStream(new byte[]{1}),-1,null);session.beginOutput();
                 rejects("caller cannot mutate captured source",()->session.append("source",0,new byte[]{1}));

@@ -1,7 +1,6 @@
 import { readLocalSourceStream } from './local-source-stream'
 import { prepareRestoreStream } from './restore-stream'
 import { writeCanonicalBackupZipStream } from './backup-zip-stream'
-import { capacity } from './capacity'
 import { searchBodyStream } from './body-search-stream'
 import type { FilterPreset } from '../../../src/shared/types'
 import type { LocalStreamSource } from './local-source-stream'
@@ -25,9 +24,9 @@ export async function performBackupStreamJob(
   write: (key: string, chunk: Uint8Array) => Promise<void>,
   signal?: AbortSignal
 ) {
-  const source = readLocalSourceStream(job.source, { maximumBytes: job.source.bytes, signal })
+  const source = () => readLocalSourceStream(job.source, { maximumBytes: job.source.bytes, signal })
   if (job.type === 'search')
-    return searchBodyStream(source, {
+    return searchBodyStream(source(), {
       expectedSource: job.source,
       ids: job.ids,
       query: job.query,
@@ -44,14 +43,14 @@ export async function performBackupStreamJob(
     })
   if (job.canonicalVersion !== 1) throw new Error('本机备份来源格式不兼容，不能打包。')
   return writeCanonicalBackupZipStream(
-    source,
+    source(),
     job.source,
     job.files.map((file) => ({
       name: file.name,
       bytes: file.bytes,
       sha256: file.sha256,
       chunks: readLocalSourceStream(file, {
-        maximumBytes: capacity.archiveFileBytes,
+        maximumBytes: Math.max(1, file.bytes),
         allowEmpty: true,
         signal
       })

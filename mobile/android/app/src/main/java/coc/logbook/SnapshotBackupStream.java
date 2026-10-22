@@ -10,16 +10,9 @@ import org.json.*;
  * metadata are materialized. No authorization or database mutation here.
  */
 final class SnapshotBackupStream {
-    private static String take(RawJson input)throws Exception{return take(input,false);}
-    private static String take(RawJson input,boolean metadataCollection)throws Exception{
-        StringWriter text=new StringWriter();
-        input.copy(new Writer(){long count;
-            public void write(char[] value,int offset,int length)throws IOException{
-                count+=length;if(!metadataCollection&&count>LogbookLimits.ENTITY_REQUEST_BYTES)throw new IOException("备份单场或字段超过64MiB。");text.write(value,offset,length);
-            }
-            public void flush(){}public void close(){}
-        });
-        String result=text.toString();if(!metadataCollection&&JsonFields.bytes(result)>LogbookLimits.ENTITY_REQUEST_BYTES)throw new IOException("备份单场或字段超过64MiB。");StrictBackupJson.validate(result);return result;
+    private static String take(RawJson input)throws Exception{
+        StringWriter text=new StringWriter();input.copy(text);
+        String result=text.toString();StrictBackupJson.validate(result);return result;
     }
     static int validate(File file)throws Exception{
         try(Reader input=new InputStreamReader(new FileInputStream(file),StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT))){
@@ -44,7 +37,7 @@ final class SnapshotBackupStream {
             });
             else{
                 if(!Arrays.asList("schemaVersion","exportedAt","modules","characters","settings").contains(name))throw new IOException("备份字段不属于手机范围。");
-                String json=take(value,name.equals("modules")||name.equals("characters"));
+                String json=take(value);
                 root.put(name,new JSONArray("["+json+"]").get(0));
             }
         });

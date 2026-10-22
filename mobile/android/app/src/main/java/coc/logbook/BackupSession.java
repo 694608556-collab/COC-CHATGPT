@@ -58,7 +58,6 @@ final class BackupSession implements AutoCloseable {
     void require(String token)throws IOException{if(closed||!id.equals(token))throw new IOException("备份暂存租约已失效。");}
     private Entry create(String key)throws Exception{
         if(entries.containsKey(key))return entries.get(key);
-        if(entries.size()>=2002)throw new IOException("备份暂存条目过多。");
         Entry value=new Entry(new File(directory,"coc-backup-"+id+"-"+entries.size()+".part"));entries.put(key,value);return value;
     }
     Proof capture(String key,InputStream source,long expectedBytes,String expectedHash)throws Exception{
@@ -99,13 +98,15 @@ final class BackupSession implements AutoCloseable {
         if(chunk.length==0||chunk.length>LogbookLimits.TRANSFER_CHUNK_BYTES||outputBytes+chunk.length>maximumOutputBytes)throw new IOException("备份暂存分段或可用空间不足。");
         Entry entry=create(key);
         if(entry.output==null||entry.index!=index)throw new IOException("备份暂存已封存或分段乱序。");
-        if(key.startsWith("zip:")&&entry.bytes+chunk.length>LogbookLimits.ARCHIVE_FILE_BYTES)throw new IOException("单个归档附件超过64MiB。");
         StorageBudget.require(available,chunk.length);
         entry.output.write(chunk);entry.bytes+=chunk.length;entry.index++;outputBytes+=chunk.length;
     }
     Proof verify(String key,long bytes,String hash)throws Exception{
+        if(closed||key==null||key.length()>4096||key.indexOf('\0')>=0)throw new IOException("备份暂存条目标识无效。");
         Entry entry=entries.get(key);
-        if(entry==null&&key.startsWith("zip:")&&bytes==0&&"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".equals(hash))entry=create(key);
+        if(entry==null&&restoring&&!ready&&maximumOutputBytes>0&&key.startsWith("zip:")&&bytes==0&&"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".equals(hash)){
+            StorageBudget.require(available,0);entry=create(key);
+        }
         if(entry==null)throw new IOException("备份暂存条目缺失。");
         entry.seal();entry.proof.matches(bytes,hash);return entry.proof;
     }
@@ -133,7 +134,7 @@ final class BackupSession implements AutoCloseable {
         return new Proof((long)bytes,(String)hash);
     }
     void previewRestore(Proof candidate,JSONArray selected)throws Exception{
-        if(!restoring||ready||closed||selected.length()>1999)throw new IOException("恢复预览状态或附件数无效。");
+        if(!restoring||ready||closed)throw new IOException("恢复预览状态无效。");
         verify("candidate",candidate.bytes,candidate.sha256);
         RestoreCandidate.Preview preview;
         try(InputStream input=new FileInputStream(file("candidate"))){preview=RestoreCandidate.inspect(input,candidate.bytes,candidate.sha256,null);}
@@ -142,8 +143,8 @@ final class BackupSession implements AutoCloseable {
             JSONObject value=selected.getJSONObject(i);BackupValidation.shape(value,"zipPath,name,mime,bytes,sha256","");
             if(!(value.get("zipPath") instanceof String)||!(value.get("name") instanceof String)||!(value.get("mime") instanceof String))throw new IOException("恢复附件类型无效。");
             String key="zip:"+value.getString("zipPath"),name=value.getString("name"),mime=value.getString("mime");Proof proof=requestProof(value);
-            if(key.length()>4096||name.isEmpty()||name.length()>255||name.equals(".")||name.equals("..")||name.matches(".*[/\\\\\u0000-\u001f].*")||mime.isEmpty()||mime.length()>128||proof.bytes>LogbookLimits.ARCHIVE_FILE_BYTES||!keep.add(key))throw new IOException("恢复附件名称、大小或重复引用无效。");
-            total+=proof.bytes;if(total>128L*1024*1024)throw new IOException("恢复附件合计超过128MiB。");
+            if(key.length()>4096||name.isEmpty()||name.length()>255||name.equals(".")||name.equals("..")||name.matches(".*[/\\\\\u0000-\u001f].*")||mime.isEmpty()||mime.length()>128||!keep.add(key))throw new IOException("恢复附件名称或重复引用无效。");
+            total=Math.addExact(total,proof.bytes);StorageBudget.require(available,StorageBudget.estimate(proof.bytes,2));
             verify(key,proof.bytes,proof.sha256);checked.add(new Attachment(key,name,mime,proof));
         }
         finish(keep);restorePreview=preview;attachments.addAll(checked);
@@ -154,7 +155,7 @@ final class BackupSession implements AutoCloseable {
     static Proof streamProof(InputStream input,long maximumBytes)throws Exception{
         if(input==null||maximumBytes<0||maximumBytes>StorageBudget.JS_SAFE_INTEGER)throw new IOException("备份读取证明无效。");
         long total=0;MessageDigest hash=MessageDigest.getInstance("SHA-256");byte[] buffer=new byte[65536];
-        int count;while((count=input.read(buffer))!=-1){total+=count;if(total>maximumBytes)throw new IOException("备份文件长度已变化。");hash.update(buffer,0,count);}
+        int count;while((count=input.read(buffer))!=-1){total=Math.addExact(total,count);if(total>maximumBytes)throw new IOException("备份文件长度已变化。");hash.update(buffer,0,count);}
         StringBuilder digest=new StringBuilder();for(byte b:hash.digest())digest.append(String.format("%02x",b&255));return new Proof(total,digest.toString());
     }
     private static void delete(File file)throws IOException{

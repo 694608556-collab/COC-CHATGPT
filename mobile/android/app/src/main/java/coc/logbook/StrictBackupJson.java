@@ -5,7 +5,7 @@ import org.json.JSONArray;
 
 /** Strict JSON grammar and decoded duplicate-key checks before org.json, whose
  * Android implementation otherwise accepts several non-JSON spellings.
- * Receives only one bounded native candidate line, never the complete library.
+ * Receives one native candidate line, never the complete library.
  */
 final class StrictBackupJson {
     private final String text;
@@ -41,7 +41,7 @@ final class StrictBackupJson {
         if(c=='"'){string(false);return;}
         if(c=='{'){
             offset++;space();Set<String> keys=new HashSet<>();
-            if(peek()!='}')for(;;){space();String key=string(true);if(keys.size()>=100000||!keys.add(key))fail();expect(':');value(depth+1);space();if(peek()!=',')break;offset++;}
+            if(peek()!='}')for(;;){space();String key=string(true);if(!keys.add(key))fail();expect(':');value(depth+1);space();if(peek()!=',')break;offset++;}
             expect('}');return;
         }
         if(c=='['){offset++;space();if(peek()!=']')for(;;){value(depth+1);space();if(peek()!=',')break;offset++;}expect(']');return;}

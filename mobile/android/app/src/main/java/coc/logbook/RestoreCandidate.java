@@ -20,7 +20,6 @@ final class RestoreCandidate {
     }
     interface Record {void accept(String json,JSONObject value,int index)throws Exception;}
     private static final class Line extends ByteArrayOutputStream {
-        void checkSize()throws IOException{if(size()>0&&buf[0]!='M'&&size()>LogbookLimits.ENTITY_REQUEST_BYTES+1)throw new IOException("单场完整数据超过64MiB。");}
         String decode() throws Exception {
             return StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
                 .decode(ByteBuffer.wrap(buf,0,count)).toString();
@@ -31,12 +30,11 @@ final class RestoreCandidate {
         long total=0;int count=0,offline=0;JSONObject metadata=null;JSONArray rows=new JSONArray();
         int length;
         while((length=input.read(buffer))!=-1){
-            total+=length;if(total>expectedBytes)throw new IOException("恢复候选长度已变化。");hash.update(buffer,0,length);
+            total=Math.addExact(total,length);if(total>expectedBytes)throw new IOException("恢复候选长度已变化。");hash.update(buffer,0,length);
             int start=0;
             for(int i=0;i<length;i++){
                 if(buffer[i]!=10)continue;
                 line.write(buffer,start,i-start);start=i+1;
-                line.checkSize();
                 String value=line.decode();line.reset();
                 if(value.length()<2||metadata!=null)throw new IOException("恢复候选顺序或结束标记无效。");
                 char kind=value.charAt(0);String json=value.substring(1);
@@ -47,7 +45,7 @@ final class RestoreCandidate {
                     rows.put(row);count++;
                     if(object.has("rawContent")||("manual".equals(object.getString("sourceType"))&&!object.optString("manualContent").isEmpty()))offline++;
                     if(each!=null)each.accept(json,object,count-1);
-                    // Keep only independently bounded metadata, never body values.
+                    // Keep metadata after visiting this complete record; body memory is released.
                 }else if(kind=='M'){
                     BackupValidation.metadata(object);
                     if(!BackupValidation.same(rows,object.getJSONArray("records")))throw new IOException("恢复场次未取齐、重复或元数据不符。");
@@ -55,7 +53,6 @@ final class RestoreCandidate {
                 }else throw new IOException("恢复候选协议版本无效。");
             }
             line.write(buffer,start,length-start);
-            line.checkSize();
         }
         StringBuilder digest=new StringBuilder();for(byte b:hash.digest())digest.append(String.format("%02x",b&255));
         if(line.size()!=0||metadata==null||total!=expectedBytes||!digest.toString().equals(expectedHash))throw new IOException("恢复候选不完整或完整摘要不符。");

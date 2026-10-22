@@ -60,7 +60,7 @@ export interface LogbookPort extends BackupStreamPort, TableStreamPort {
   stageFetchResult?(options: { batchId: string; id: string }): Promise<void>
   finishFetchBatch?(options: { id: string }): Promise<{ revision: number; exportedAt: string }>
   cancelFetchBatch?(options: { id: string }): Promise<void>
-  /** @param options - 当前版本及完整 UTF-8 总长/摘要。 @returns 单次私有上传标识，至多 64 MiB，不写业务。 */
+  /** @param options - 当前版本及完整 UTF-8 总长/摘要。 @returns 单次私有上传标识，使用实际可用空间，不写业务。 */
   beginSnapshotEdit?(options: {
     expectedRevision: number
     bytes: number
@@ -79,7 +79,7 @@ export interface LogbookPort extends BackupStreamPort, TableStreamPort {
     id: string
     /** 本应用私有只读文件 URI；类型为 string，由 Capacitor 本地服务器映射给 Worker。 */
     fileUri: string
-    /** 完整文件 UTF-8 字节数；类型为 number，不超过 64 MiB。 */
+    /** 完整文件 UTF-8 字节数；类型为 number，必须可精确计量。 */
     bytes: number
     /** 完整私有字节 SHA-256；类型为 string，后台重读后必须匹配。 */
     sha256: string
@@ -103,7 +103,7 @@ export interface LogbookPort extends BackupStreamPort, TableStreamPort {
   }>
   /** @returns 新的私有 PDF 暂存标识；不创建外部文件、不修改业务数据。最多同时一份。 */
   beginPdfArchive(): Promise<{ id: string }>
-  /** @param options - 暂存标识和至多 256 KiB 的顺序 Base64 字节。 @returns 写入确认，累计不超过 64 MB。 */
+  /** @param options - 暂存标识和至多 256 KiB 的顺序 Base64 字节。 @returns 写入确认，累计按本次实际可用空间计量。 */
   appendPdfArchive(options: { id: string; base64: string }): Promise<void>
   /** @param options - 完整暂存标识和安全文件名。 @returns 新建且回读校验的文件；失败删除本次新文件，不覆盖旧文件。 */
   finishPdfArchive(options: { id: string; name: string }): Promise<SavedDocument>
