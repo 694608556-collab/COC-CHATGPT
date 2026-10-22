@@ -831,22 +831,26 @@ public final class LogbookPlugin extends Plugin {
             if (!prefs().edit().putString("automatic-documents", registry.toString()).putLong("last-auto-backup", savedAt).putLong("last-auto-backup-revision",expected).commit())
                 throw new IllegalStateException("自动备份已写入，但轮换登记失败。");
             JSONArray retained = new JSONArray(); String warning = "";
+            Set<Integer> obsolete=AutomaticRetention.candidates(registry,tree,10);
             for (int i = 0; i < registry.length(); i++) {
                 JSONObject item = registry.getJSONObject(i);
-                if (i >= registry.length() - 10 || !item.getString("tree").equals(tree)) { retained.put(item); continue; }
+                if (!obsolete.contains(i)) { retained.put(item); continue; }
                 try {
                     Uri uri = Uri.parse(item.getString("uri"));
                     long maximumOld=item.has("bytes")?item.getLong("bytes"):LogbookLimits.ARCHIVE_FILE_BYTES;
                     BackupSession.Proof proof;
                     try(InputStream input=getContext().getContentResolver().openInputStream(uri)){proof=BackupSession.streamProof(input,maximumOld);}
-                    if ((item.has("bytes")&&proof.bytes!=maximumOld)||!proof.sha256.equals(item.getString("sha256"))) { warning = "部分旧备份被修改，已保留。"; continue; }
+                    if ((item.has("bytes")&&proof.bytes!=maximumOld)||!proof.sha256.equals(item.getString("sha256"))) { retained.put(item); warning = "部分旧备份被修改，已保留。"; continue; }
                     if (!DocumentsContract.deleteDocument(getContext().getContentResolver(), uri)) { retained.put(item); warning = "部分旧备份无法删除，已保留。"; }
                 } catch (Exception error) { retained.put(item); warning = "部分旧备份不可访问，已保留。"; }
             }
             if (!prefs().edit().putString("automatic-documents", retained.toString()).commit()) warning = "自动备份已保存，但轮换登记未更新。";
+            try{lease.close();}catch(Exception cleanup){warning += " 自动备份已完整保存，但私有暂存清理失败，请重开后重试。";}
             JSObject reply = new JSObject(); reply.put("document", saved); reply.put("savedAt", savedAt); reply.put("revision",expected); reply.put("warning", warning); call.resolve(reply);
-        } catch (Exception error) { call.reject("自动备份未完成：" + error.getMessage(), error); }
-        finally { try {lease.close();} catch(Exception ignored){} backupRunning.set(false); }
+        } catch (Exception error) {
+            String cleanup="";try{lease.close();}catch(Exception failure){error.addSuppressed(failure);cleanup=" 私有暂存清理失败，请重开后重试。";}
+            call.reject("自动备份未完成：" + error.getMessage()+cleanup, error);
+        } finally { backupRunning.set(false); }
     }
     private Set<String> entityIds(JSONArray rows) throws Exception {
         Set<String> ids = new HashSet<>();

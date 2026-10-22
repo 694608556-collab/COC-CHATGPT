@@ -151,6 +151,7 @@ process.stdout.write(uploadResult.stdout)
 if (uploadResult.status) throw new Error(uploadResult.stderr)
 
 const backupSources = [
+  'AutomaticRetention',
   'StorageBudget',
   'BackupValidation',
   'StrictBackupJson',

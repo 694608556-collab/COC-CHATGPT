@@ -20,6 +20,13 @@ public final class BackupStreamCheck {
     static String hash(byte[] bytes)throws Exception{StringBuilder result=new StringBuilder();for(byte b:MessageDigest.getInstance("SHA-256").digest(bytes))result.append(String.format("%02x",b&255));return result.toString();}
     static RestoreCandidate.Preview inspect(byte[] bytes)throws Exception{return RestoreCandidate.inspect(new ByteArrayInputStream(bytes),bytes.length,hash(bytes),null);}
     public static void main(String[] args)throws Exception{
+        JSONArray rotation=new JSONArray();
+        for(int index=0;index<11;index++)rotation.put(new JSONObject().put("tree","public-A").put("id",index));
+        for(int index=0;index<20;index++)rotation.put(new JSONObject().put("tree","public-B").put("id",index));
+        rotation.put(new JSONObject().put("tree","public-A").put("id",11));String unchanged=rotation.toString();
+        require(AutomaticRetention.candidates(rotation,"public-A",10).equals(new HashSet<>(Arrays.asList(0,1))),"ten backups are retained per location after switching");
+        require(AutomaticRetention.candidates(rotation,"public-C",10).isEmpty(),"unrelated locations are never rotation candidates");
+        require(rotation.toString().equals(unchanged),"retention selection never mutates the registry");
         File directory=Files.createTempDirectory("coc-native-backup-check-").toFile();
         try{
             JSONObject fixture=new JSONObject(Files.readString(new File(args[0]).toPath(),StandardCharsets.UTF_8));
