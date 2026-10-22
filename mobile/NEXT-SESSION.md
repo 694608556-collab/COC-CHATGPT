@@ -1,10 +1,10 @@
-## 2026-10-22 家中接续：Android53完整CI通过并核验交付；iOS51仍待最终界面结果
+## 2026-10-22 家中接续：Android53与iOS51完整CI均通过，原产物核验交付完成
 
 Android构建源码`7389023ec5d5ec9858f0692ce853371b877f6631`，完整任务[39760537670](https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39760537670)的mobile和native-capacity均成功；177单元与29项真实Android模拟器原生测试通过，覆盖96/192/512MiB大库、68MiB单场SQLite快照往返、低空间/SQL回滚和原生WebView表格。68MiB完整恢复候选语义校验另在宿主JVM通过，不冒充模拟器全链恢复或手机验收。共享云端512MiB正文XLSX和70MiB单场CSV/JSON/ZIP64/编辑上传通过。
 
 原证书APK53位于`mobile/releases/1.0.8-53/coc-logbook-1.0.8-53-capacity-7389023.apk`，32,829,937字节，SHA-256 `b1d9e1aa3db07f1fa156093021581c0aed6110004483b1c2a416dd447b321ffa`。包名`coc.logbook`、版本1.0.8/53、非调试、v3原签名、4字节/16KiB对齐、7份网页/Worker对应源码重建逐字节一致、8份原字体及ZIP完整性均通过。公开核验与分项边界见同目录README、package-verification.json和acceptance.json。本次只交付新包和记录，未修改应用源码或重跑CI，无手机安装/清库/新正式界面计时。
 
-iOS构建源码仍为`33e9f2843a27b870d23aa927389b7326417ceae5`，任务[39760569182](https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39760569182)在本记录生成时仍运行系统UI/WKWebView验收；171单元、原生事务/正文阶段及arm64 IPA构建已通过，尚不能宣称完整CI或IPA51最终交付。家中已核对IPA51身份、arm64未签名、7网页/Worker、8字体与云端摘要，最终状态以iOS分支后续交付和远端实际结果为准，不重跑当前任务。
+iOS构建源码`33e9f2843a27b870d23aa927389b7326417ceae5`，完整任务[39760569182](https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39760569182)现已全部成功：171单元、390项macOS原生核心断言（96/192/512MiB完整大库、约65MiB单场全文及迁移/恢复回滚）、3次冷启动、7项系统UI，WKWebView 3020公开结果/4次CAS/0旧正文整读和96MiB容量备份/搜索/表格通过；178次503为故意注入，非测试失败。IPA51由iOS分支提交`6acc8e18690617e2aae90376c78d1f3404f58a8c`交付，路径`mobile/releases/ios-1.0.8-51/coc-logbook-1.0.8-51-capacity-33e9f28-ios-arm64-unsigned.ipa`，26,212,481字节，SHA-256 `1ddf3e9c18eae9389c4ef342ea3b4fa51aa53c88edee4d06df76404fe2176aa3`。arm64未签名、包标识/版本、7网页/Worker对应源码重建、8字体和云端摘要均通过，没有重跑CI；依然需要用户现有有效Apple签名和后续手机覆盖升级验收。
 
 当前整库、单场完整正文、Excel/CSV及附件固定容量配额均已移除，单场64MiB不得恢复；实际容量依赖运行内存、存储及临时空间，保留格式、全文、关联、授权、CAS、事务回滚及自动备份。此前“单场仍64MiB”等段落为历史状态。Android手势关闭、iOS全能签外部目录暂缓不变。
 

@@ -13,4 +13,4 @@
 
 本包未安装到用户手机，没有新增S9正式界面计时或覆盖升级验收。不卸载或清空生产应用；升级前核对完整摘要，保留应用数据及完整外部备份。内部Android SQLite v5，不能强行用旧适配器降级打开。Android手势优化关闭、iOS外部目录问题暂缓的决定保持。
 
-同目录`package-verification.json`和`acceptance.json`仅含公开核验摘要，无私人数据、原始日志或签名材料。iOS51对应任务39760569182在本Android交付记录生成时仍在界面/WKWebView验收，不据此宣称iOS完整CI通过。
+同目录`package-verification.json`和`acceptance.json`仅含公开核验摘要，无私人数据、原始日志或签名材料。iOS51对应任务39760569182随后全部通过，原始arm64未签名IPA已由iOS分支提交6acc8e18690617e2aae90376c78d1f3404f58a8c交付；两端都没有新增手机验收。

@@ -71,6 +71,10 @@
   "physicalPhoneAcceptance": "pending; no install, launch or production data operation at home",
   "iosWorkflow": {
     "run": 39760569182,
-    "statusAtAndroidDelivery": "in_progress; native and arm64 package steps succeeded, system UI and WKWebView pending"
+    "conclusion": "success",
+    "deliveryCommit": "6acc8e18690617e2aae90376c78d1f3404f58a8c",
+    "build": 51,
+    "sha256": "1ddf3e9c18eae9389c4ef342ea3b4fa51aa53c88edee4d06df76404fe2176aa3",
+    "phoneAcceptance": false
   }
 }
