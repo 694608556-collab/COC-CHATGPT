@@ -115,7 +115,7 @@ jobs:
             adb install tests/app-debug-androidTest.apk
             adb shell df -k /data > native-capacity-environment.txt
             adb shell getprop dalvik.vm.heapsize >> native-capacity-environment.txt
-            adb shell am instrument -w -e class coc.logbook.CapacityDatabaseTest,coc.logbook.IndexedPressureTest,coc.logbook.CapacityWebViewTest,coc.logbook.TableStreamTest coc.logbook.debug53.test/androidx.test.runner.AndroidJUnitRunner | tee native-capacity.txt
+            adb shell am instrument -w -e class coc.logbook.CapacityDatabaseTest,coc.logbook.IndexedPressureTest,coc.logbook.CapacityWebViewTest,coc.logbook.TableStreamTest coc.logbook.debug54.test/androidx.test.runner.AndroidJUnitRunner | tee native-capacity.txt
             adb logcat -d -s System.out:I > native-capacity-public.log
             ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|Process crashed|shortMsg=' native-capacity.txt
             grep -E 'OK \([0-9]+ tests?\)' native-capacity.txt
