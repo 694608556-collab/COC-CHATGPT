@@ -3,7 +3,7 @@ import Foundation
 enum IOSScaleChecks {
     static func run(root: URL, fixture: LogbookJSON) throws {
         let start = Date()
-        let store = try LogbookStore(url: root.appendingPathComponent("scale.sqlite"))
+        let store = try LogbookStore(url: root.appendingPathComponent("scale.sqlite"), deviceSpace: false)
         let sample = (fixture["records"] as! [LogbookJSON]).first { $0["rawContent"] != nil }!
         var data = LogbookStore.empty()
         let module = (fixture["modules"] as! [LogbookJSON])[0]
@@ -84,7 +84,7 @@ enum IOSScaleChecks {
         try IOSNativeChecks.require(proof.0 > 48_000_000 && proof.0 < LogbookLimits.backupFileBytes, "stream backup captures existing large bodies")
         let restored = try logbookObject(String(contentsOf: source, encoding: .utf8))["snapshot"] as! LogbookJSON
         try IOSNativeChecks.require((restored["records"] as! [LogbookJSON]).count == 1050, "streamed backup roundtrip complete")
-        let reopened = try LogbookStore(url: root.appendingPathComponent("scale.sqlite"))
+        let reopened = try LogbookStore(url: root.appendingPathComponent("scale.sqlite"), deviceSpace: false)
         try IOSNativeChecks.require(try reopened.revision() == 6 && reopened.deferredIDs().count == 1050, "restart retains all bodies and revision")
         try IOSNativeChecks.require(try reopened.rows("PRAGMA integrity_check")[0][0] == "ok", "large database integrity")
         print("iOS public scale: 50 campaigns / 1000 online + 50 manual; three atomic rounds, failure preservation, last target, CAS, hash, capacity rollback, streaming backup and restart passed in \(Date().timeIntervalSince(start)) seconds")

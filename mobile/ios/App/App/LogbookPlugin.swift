@@ -22,6 +22,21 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
     private var activePicker: UIDocumentPickerViewController?
     private var choosingFolder = false
     private var previewURL: URL?
+    private var cleanedShareDirectory = false
+    private func shareDirectory() throws -> URL {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("coc-share-staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        if !cleanedShareDirectory {
+            for entry in try FileManager.default.contentsOfDirectory(at: base, includingPropertiesForKeys: [.isSymbolicLinkKey])
+                where entry.lastPathComponent.range(of: "^share-[a-f0-9-]+$", options: .regularExpression) != nil {
+                guard entry.resolvingSymlinksInPath().deletingLastPathComponent() == base.resolvingSymlinksInPath(),
+                      try entry.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { throw LogbookFailure("私有展示暂存引用异常，未清理原文件。") }
+                try FileManager.default.removeItem(at: entry)
+            }
+            cleanedShareDirectory = true
+        }
+        return base.appendingPathComponent("share-" + UUID().uuidString.lowercased(), isDirectory: true)
+    }
     public override func load() {
         monitor.pathUpdateHandler = { [weak self] path in self?.work.async { self?.connected = path.status == .satisfied } }
         monitor.start(queue: DispatchQueue(label: "coc.logbook.network"))
@@ -44,7 +59,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         return value.intValue
     }
     private func state(_ store: LogbookStore, _ archive: LogbookArchive) throws -> LogbookJSON {
-        var result: LogbookJSON = ["storageUsage": try store.storageUsage(), "tableDeltaVersion": 1, "revision": try store.revision(), "archive": archive.location(), "networkConnected": connected, "lastAutoBackupAt": 0]
+        var result: LogbookJSON = ["backupStreamVersion": 1, "storageUsage": try store.storageUsage(), "tableDeltaVersion": 1, "revision": try store.revision(), "archive": archive.location(), "networkConnected": connected, "lastAutoBackupAt": 0]
         if let saved = archive.preferences.dictionary(forKey: "coc.automatic-backup") { result["lastAutoBackupAt"] = saved["savedAt"]; result["lastAutoBackupRevision"] = saved["revision"] }
         return result
     }
@@ -462,7 +477,21 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
             }
         }
     }
-    @objc func openBackup(_ call: CAPPluginCall) { presentPicker(call, folder: false) }
+    @objc func openBackup(_ call: CAPPluginCall) {
+        #if DEBUG && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--coc-ios-scale"), let uri = call.getString("publicRestoreDocument") {
+            run(call) { store, archive in
+                try archive.withDocument(uri) { url, document, _ in
+                    guard call.getBool("stream") == true, call.getString("kind") == "backup", document["purpose"] as? String == "backup",
+                          (document["name"] as? String ?? "").hasPrefix("public-capacity-") else { throw LogbookFailure("仅限隔离模拟器的公开容量夹具。") }
+                    return try self.openRestoreStream(call, url, store, archive)
+                }
+            }
+            return
+        }
+        #endif
+        presentPicker(call, folder: false)
+    }
     public func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
         guard controller === activePicker else { return }
         let call = pickerCall; pickerCall = nil; activePicker = nil
@@ -508,7 +537,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         work.async {
             do {
                 let (_, archive) = try self.resources()
-                let directory = FileManager.default.temporaryDirectory.appendingPathComponent("coc-share-" + UUID().uuidString, isDirectory: true)
+                let directory = try self.shareDirectory()
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 let file: URL
                 do { file = try archive.copyForPresentation(call.getString("uri") ?? "", directory: directory) }

@@ -169,6 +169,28 @@ def main():
         print(json.dumps(scale), flush=True)
         if not scale.get('passed'):
             raise RuntimeError('Public WKWebView scale failed: ' + str(scale))
+        phase = 'public-capacity-fixture'
+        command('xcrun', 'simctl', 'terminate', udid, 'coc.logbook', timeout=60)
+        for suffix in ['', '-wal', '-shm']:
+            existing = pathlib.Path(str(database) + suffix)
+            if existing.exists():
+                existing.rename(pathlib.Path(str(existing) + '.pre-capacity'))
+        command('python3', 'scripts/ios-capacity-fixture.py', str(database), timeout=120)
+        command('node', 'scripts/ios-capacity-webview.mjs', timeout=60)
+        (container / 'tmp/ios-scale-webview.js').write_text(pathlib.Path('ios/build/ios-capacity-webview.js').read_text())
+        scale_report.unlink(missing_ok=True)
+        phase = 'public-capacity-wkwebview'
+        command('xcrun', 'simctl', 'launch', udid, 'coc.logbook', '--coc-ios-scale', timeout=120)
+        deadline = time.monotonic() + 950
+        while not scale_report.exists() and time.monotonic() < deadline:
+            time.sleep(1)
+        if not scale_report.exists():
+            raise TimeoutError('Public native capacity WKWebView report not produced')
+        capacity = json.loads(scale_report.read_text())
+        (OUTPUT / 'ios-capacity-result.json').write_text(json.dumps(capacity, ensure_ascii=False))
+        print(json.dumps(capacity), flush=True)
+        if not capacity.get('passed'):
+            raise RuntimeError('Public native capacity WKWebView failed: ' + str(capacity))
         if capture_errors:
             raise RuntimeError('Required screenshot capture failed after startup/UI checks: ' + '; '.join(capture_errors))
     except Exception as error:

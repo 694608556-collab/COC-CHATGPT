@@ -26,7 +26,7 @@ struct LogbookFailure: LocalizedError {
 /// Independent native budgets. Keep current values/accounting until streaming
 /// backup and restore plus device scale/rollback validation are complete.
 enum LogbookLimits {
-    static let deviceSpaceLibrary = false
+    static let deviceSpaceLibrary = true
     static let libraryBytes = 64 * 1024 * 1024
     static let snapshotRequestBytes = 64 * 1024 * 1024
     static let snapshotUploadBytes = 64 * 1024 * 1024

@@ -70,6 +70,7 @@ jobs:
           name: ios-simulator-startup-evidence
           path: |
             mobile/ios/build/ios-initial-screen.png
+            mobile/ios/build/ios-capacity-result.json
             mobile/ios/build/ios-smoke-result.json
             mobile/ios/build/simulator-environment.json
             mobile/ios/build/screenshot-error.json

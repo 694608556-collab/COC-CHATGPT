@@ -65,6 +65,24 @@ extension IOSNativeChecks {
                 let backup = try store.backupFile(expected: 2, directory: directory)
                 let fullProof = try LogbookArchive.fileProof(backup, maximumBytes: proof.bytes + MiB)
                 try require(fullProof.0 > count * MiB, "native complete automatic/manual JSON \(count)MiB")
+                if count == 96 && LogbookLimits.deviceSpaceLibrary {
+                    let suite = "coc-capacity-archive-" + UUID().uuidString
+                    let preferences = UserDefaults(suiteName: suite)!
+                    defer { preferences.removePersistentDomain(forName: suite) }
+                    let archive = try LogbookArchive(directory: directory.appendingPathComponent("registry"), preferences: preferences, documentsDirectory: { directory.appendingPathComponent("documents") })
+                    _ = try archive.chooseLocalDirectory()
+                    let saved = try archive.writeFile(name: "complete-public.json", mime: "application/json", source: backup, purpose: "backup", bookmark: archive.bookmark())
+                    try require(saved["sha256"] as? String == fullProof.1 && (saved["bytes"] as? NSNumber)?.intValue == fullProof.0, "large archive publication readback")
+                    let share = directory.appendingPathComponent("share"); try FileManager.default.createDirectory(at: share, withIntermediateDirectories: true)
+                    let presented = try archive.copyForPresentation(saved["uri"] as! String, directory: share)
+                    try require(try LogbookArchive.fileProof(presented, maximumBytes: fullProof.0).1 == fullProof.1, "large registered preview/share copy")
+                    for index in 0..<11 { _ = try archive.write(name: "auto-\(index).json", mime: "application/json", bytes: Data("public-\(index)".utf8), purpose: "auto") }
+                    let bookmark = try archive.bookmark()
+                    try require(archive.rotateAutomatic(bookmark: bookmark).isEmpty, "automatic retention rotation")
+                    try require(try archive.documents(all: true).filter { $0["purpose"] as? String == "auto" }.count == 10, "ten previous complete auto backups retained")
+                    try archive.removeOwned(saved["uri"] as! String)
+                    print("PUBLIC_IOS_CAPACITY_ARCHIVE bytes=\(fullProof.0) readback=true presentation=true automaticRetention=10")
+                }
                 let reopened = try LogbookStore(url: database, deviceSpace: true, available: { free })
                 try require(try reopened.revision() == 2 && reopened.deferredIDs().count == count, "large library restart")
                 try require(try reopened.rows("PRAGMA integrity_check")[0][0] == "ok", "large SQLite integrity")
