@@ -2,6 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import type { FilterPreset, SessionRecord } from '../../../../../src/shared/types'
 import { hasMatch, matchRanges, recordMessages, searchExcerpt } from '../../../data/search'
 import { SystemMessage } from '../SystemMessage'
+import { SearchInput } from '../SearchInput'
 
 function Highlight({ text, query }: { text: string; query: string }) {
   const ranges = matchRanges(text, query)
@@ -40,14 +41,14 @@ export function LogReader(props: {
 }) {
   const filters = props.preset
   const [query, setQuery] = useState(props.initialQuery ?? '')
-  const initialJump = useRef(false)
+  const [submittedQuery, setSubmittedQuery] = useState(props.initialQuery ?? '')
+  const initialJump = useRef(!!props.initialQuery)
   const [page, setPage] = useState(0)
   const [selectedHit, setSelectedHit] = useState<number | null>(null)
   const [resultPage, setResultPage] = useState(0)
   const [jumpRequest, setJumpRequest] = useState<{ index: number; serial: number }>()
   const messageNodes = useRef(new Map<number, HTMLElement>())
-  const searchInput = useRef<HTMLInputElement>(null)
-  const needle = query.trim()
+  const needle = submittedQuery.trim()
   const messages = useMemo(() => recordMessages(props.record, filters), [props.record, filters])
   const hits = useMemo(
     () =>
@@ -73,6 +74,24 @@ export function LogReader(props: {
     setResultPage(0)
     setJumpRequest(undefined)
   }
+  /** @param value 新输入文本。 @returns 无返回值；取消已提交搜索及定位，等待下一次主动提交。 */
+  function editSearch(value: string) {
+    setQuery(value)
+    setSubmittedQuery('')
+    initialJump.current = false
+    resetSearchPosition()
+  }
+  /** @returns 无返回值；提交完整词后由命中更新定位首条，重复提交则回到当前首条。 */
+  function submitSearch() {
+    if (!query.trim()) return
+    if (query.trim() === needle) {
+      jump(0)
+      return
+    }
+    initialJump.current = true
+    resetSearchPosition()
+    setSubmittedQuery(query)
+  }
   function jump(hit: number) {
     const index = hits[hit]
     if (index === undefined) return
@@ -82,11 +101,11 @@ export function LogReader(props: {
     setJumpRequest((previous) => ({ index, serial: (previous?.serial ?? 0) + 1 }))
   }
   useEffect(() => {
-    if (props.initialQuery && hits.length && !initialJump.current) {
-      initialJump.current = true
+    if (initialJump.current) {
+      initialJump.current = false
       jump(0)
     }
-  }, [props.initialQuery, hits])
+  }, [hits, needle])
   useEffect(() => {
     if (!jumpRequest) return
     const node = messageNodes.current.get(jumpRequest.index)
@@ -143,49 +162,20 @@ export function LogReader(props: {
             className="reader-search"
             onSubmit={(e) => {
               e.preventDefault()
-              jump(0)
+              submitSearch()
             }}
           >
             <label className="field">
               搜索整场正文
-              <span className="search-input-wrap">
-                <input
-                  type="search"
-                  ref={searchInput}
-                  enterKeyHint="search"
-                  value={query}
-                  onChange={(e) => {
-                    setQuery(e.target.value)
-                    resetSearchPosition()
-                  }}
-                  placeholder="发言者或正文文字"
-                />
-                {query && (
-                  <button
-                    type="button"
-                    className="search-clear"
-                    aria-label="清空正文搜索"
-                    onClick={() => {
-                      setQuery('')
-                      resetSearchPosition()
-                      searchInput.current?.focus()
-                    }}
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      aria-hidden="true"
-                    >
-                      <path d="m6 6 12 12M18 6 6 18" />
-                    </svg>
-                  </button>
-                )}
-              </span>
+              <SearchInput
+                value={query}
+                submitted={!!needle}
+                label="搜索整场正文"
+                searchLabel="搜索整场正文"
+                clearLabel="清空正文搜索"
+                placeholder="发言者或正文文字"
+                onChange={editSearch}
+              />
             </label>
           </form>
           {needle && (

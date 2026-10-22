@@ -182,8 +182,10 @@ test('缺失、陈旧和失败的正文都不冒充无结果，重试后搜索�
     await page.evaluate((mode) => {
       ;(window as unknown as { __startupProbe: Probe }).__startupProbe.fail = mode
     }, mode)
-    if (mode === 'partial') await first.getByRole('searchbox').fill('铜钥匙')
-    else await first.getByRole('button', { name: '重试正文搜索' }).click()
+    if (mode === 'partial') {
+      await first.getByRole('searchbox').fill('铜钥匙')
+      await first.getByRole('searchbox').press('Enter')
+    } else await first.getByRole('button', { name: '重试正文搜索' }).click()
     await expect(first.getByRole('button', { name: '重试正文搜索' })).toBeVisible()
     await expect(first.getByText('没有找到匹配正文', { exact: false })).toHaveCount(0)
     await expect(first.getByText('正文已保存', { exact: true })).toHaveCount(2)

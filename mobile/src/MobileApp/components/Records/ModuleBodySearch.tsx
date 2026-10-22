@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { FilterPreset, SessionRecord } from '../../../../../src/shared/types'
 import { countMatches, recordMessages, searchExcerpt } from '../../../data/search'
+import { SearchInput } from '../SearchInput'
 
 /** 只搜索此模组的已保存正文，不更改列表选择、排序或业务数据。 */
 export function ModuleBodySearch(props: {
@@ -14,12 +15,13 @@ export function ModuleBodySearch(props: {
   records: SessionRecord[]
   preset: FilterPreset
   query: string
+  submittedQuery: string
   onQuery(query: string): void
+  onSearch(query: string): void
   onRead(record: SessionRecord, query: string): void
 }) {
-  const input = useRef<HTMLInputElement>(null)
   const [page, setPage] = useState(0)
-  const needle = props.query.trim()
+  const needle = props.submittedQuery.trim()
   const streamed = props.result?.query === needle ? props.result : undefined
   const ready = props.streaming ? !!streamed : props.ready
   const busy = props.streaming ? !!props.searching : props.busy
@@ -70,55 +72,29 @@ export function ModuleBodySearch(props: {
         className="reader-search"
         onSubmit={(event) => {
           event.preventDefault()
-          if (!ready && !busy && needle) props.onQuery(props.query)
-          if (hits[0]) props.onRead(hits[0].record, needle)
+          if (props.query.trim()) props.onSearch(props.query)
         }}
       >
         <label className="field module-search-field">
-          <span className="search-input-wrap">
-            <input
-              ref={input}
-              type="search"
-              aria-label="搜索该模组所有场次正文"
-              enterKeyHint="search"
-              placeholder="搜索该模组所有场次正文"
-              value={props.query}
-              onChange={(event) => {
-                props.onQuery(event.target.value)
-                setPage(0)
-              }}
-            />
-            <button
-              type="button"
-              className="search-clear"
-              aria-label="清空模组正文搜索"
-              onClick={() => {
-                props.onQuery('')
-                setPage(0)
-                input.current?.focus()
-              }}
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                aria-hidden="true"
-              >
-                <path d="m6 6 12 12M18 6 6 18" />
-              </svg>
-            </button>
-          </span>
+          <SearchInput
+            label="搜索该模组所有场次正文"
+            searchLabel="搜索模组正文"
+            clearLabel="清空模组正文搜索"
+            submitted={!!needle}
+            placeholder="搜索该模组所有场次正文"
+            value={props.query}
+            onChange={(value) => {
+              props.onQuery(value)
+              setPage(0)
+            }}
+          />
         </label>
       </form>
       {!!needle && !ready && (
         <section className="search-results" aria-label="模组正文搜索结果">
           <p role="status">{busy ? '正在逐场搜索已保存正文…' : '正文尚未读取，重试后显示完整搜索结果。'}</p>
           {!busy && (
-            <button type="button" onClick={() => props.onQuery(props.query)}>
+            <button type="button" onClick={() => props.onSearch(props.query)}>
               重试正文搜索
             </button>
           )}

@@ -32,6 +32,7 @@ test('手动正文跳过空白卡片，分页搜索一致且备份保留原换�
   await expect(page.locator('.messages .message')).toHaveCount(1)
   await expect(page.locator('.messages')).toHaveText('公开正文101')
   await page.getByRole('searchbox', { name: '搜索整场正文' }).fill('公开正文101')
+  await page.getByRole('searchbox', { name: '搜索整场正文' }).press('Enter')
   await page.getByRole('button', { name: /结果 1 · 正文第 2 页/ }).click()
   await expect(page.locator('.search-target')).toHaveText('公开正文101')
   await page.getByRole('button', { name: '数据与设置', exact: true }).click()
