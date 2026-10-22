@@ -28,6 +28,7 @@ import Darwin
         try require(try LogbookCapacity.remaining(20 * 1024 * MiB) == 19 * 1024 * MiB, "proportional reserve")
         try require(try LogbookCapacity.maximum(available: { 1024 * MiB }, copies: 6) == (1024 * MiB - 64 * MiB) / 6, "native operation budget")
         try LogbookCapacity.require(available: {128 * MiB}, additional: 64 * MiB)
+        try rejects("zero-byte final check rejects exhausted reserve") { try LogbookCapacity.require(available: {64 * MiB}, additional: 0) }
         try rejects("space boundary plus one") { try LogbookCapacity.require(available: {128 * MiB}, additional: 64 * MiB + 1) }
         try rejects("unavailable capacity") { _ = try LogbookCapacity.maximum(available: {0}, copies: 1) }
         try rejects("capacity query failure") { _ = try LogbookCapacity.maximum(available: {throw LogbookFailure("unavailable")}, copies: 1) }
@@ -42,6 +43,18 @@ import Darwin
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let fixture = try logbookObject(String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8))
+        var finalCheckFree = 1024 * MiB
+        let finalCheck = try LogbookStore(url: root.appendingPathComponent("late-space-check.sqlite"), available: { finalCheckFree })
+        _ = try finalCheck.replace(fixture, expected: 0)
+        let beforeFinalCheck = try logbookData(finalCheck.fullSnapshot()!)
+        try rejects("space exhausted while edit is in flight rolls back final commit") {
+            _ = try finalCheck.mutate(expected: 1) { data in
+                data["exportedAt"] = "2099-01-01T00:00:00Z"
+                finalCheckFree = LogbookCapacity.minimumReserve
+            }
+        }
+        finalCheckFree = 1024 * MiB
+        try require(try finalCheck.revision() == 1 && logbookData(finalCheck.fullSnapshot()!) == beforeFinalCheck, "late capacity rejection preserves state bodies and revision")
         try autoreleasepool { try chunkStorageChecks(root: root, fixture: fixture) }
         try backupStreamChecks(root: root, fixture: fixture)
         try capacityDatabaseChecks(root: root, fixture: fixture)

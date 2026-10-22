@@ -2,11 +2,17 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { previewNativeBackup } from './backup-stream-client'
 import type { BackupStreamPort, NativeRestoreSource } from './backup-stream-native'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
 
 it.each(['resolve', 'reject'] as const)(
   'backup worker failure waits for an already dispatched native write to %s before releasing its owner',
   async (outcome) => {
+    vi.spyOn(Promise, 'allSettled').mockImplementation(() => {
+      throw new Error('allSettled is unavailable in an older system WebView')
+    })
     let instance: FakeWorker | undefined
     class FakeWorker {
       onmessage?: (event: { data: Record<string, unknown> }) => void

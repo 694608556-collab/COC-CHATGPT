@@ -55,7 +55,8 @@ enum LogbookCapacity {
         return maximum
     }
     static func require(available: () throws -> Int, additional: Int) throws {
-        guard additional >= 0, additional <= (try remaining(available())) else {
+        let budget = try remaining(available())
+        guard budget > 0, additional >= 0, additional <= budget else {
             throw LogbookFailure("本机可用空间不足，操作未完成；原数据保留。")
         }
     }
