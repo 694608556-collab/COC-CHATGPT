@@ -105,6 +105,21 @@ test('真实Worker流式预览分100项、取消无写入、确认一次CAS并�
   })
 })
 
+test('确认表格提交时只显示预览内进度，后台不重复显示第二处进度', async ({ page }) => {
+  await start(page)
+  await page.evaluate(() => {
+    window.__publicTableStreamFixture!.options.commitDelayMs = 1500
+  })
+  await page.getByRole('button', { name: '导入场次表格', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '表格导入预览' })
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: '确认添加表格数据', exact: true }).click()
+  await expect(dialog.getByRole('progressbar')).toHaveCount(1)
+  expect(await page.getByRole('progressbar').count()).toBe(1)
+  await expect(dialog).toHaveCount(0)
+  expect((await evidence(page)).stats.commits).toBe(1)
+})
+
 for (const mode of ['badSourceHash', 'badCandidateHash'] as const) {
   test(`真实Worker ${mode} 失败清理且无生产写入`, async ({ page }) => {
     await start(page)
@@ -142,7 +157,7 @@ test('真实Worker读取过程中取消会释放租约且不创建预览或写�
   try {
     await page.getByRole('button', { name: '导入场次表格', exact: true }).click()
     await requested
-    await page.getByRole('button', { name: '取消导入', exact: true }).click()
+    await page.getByRole('button', { name: '返回上一页', exact: true }).click()
     await expect.poll(async () => (await evidence(page)).stats.cancellations).toBe(1)
     await expect(page.getByRole('dialog', { name: '表格导入预览' })).toHaveCount(0)
     const after = await evidence(page)
