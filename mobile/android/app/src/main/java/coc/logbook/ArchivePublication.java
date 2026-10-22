@@ -36,7 +36,7 @@ final class ArchivePublication {
     JSONObject begin(File source, String uri, String location, long bytes, String hash) throws Exception {
         synchronized (active) {
             if (store.pending().length() >= 4) throw new IOException("请先处理未完成的归档发布，再重新导出。");
-            if (bytes < 0 || bytes > PdfSpool.MAX_BYTES || source.length() != bytes || !hash.matches("[a-f0-9]{64}"))
+            if (bytes < 0 || bytes > LogbookLimits.ARCHIVE_FILE_BYTES || source.length() != bytes || !hash.matches("[a-f0-9]{64}"))
                 throw new IOException("发布文件证明不完整。");
             if (documents.registered(uri)) throw new IOException("文件已登记，拒绝覆盖。");
             String id = UUID.randomUUID().toString(); File proof = proof(id);
@@ -90,7 +90,7 @@ final class ArchivePublication {
         if (documents.registered(uri)) { forget(value); return; }
         if (!documents.exists(value)) { forget(value); return; }
         File proof = proof(value.getString("id")); long bytes = value.getLong("bytes");
-        if (bytes < 0 || bytes > PdfSpool.MAX_BYTES || !proof.isFile() || proof.length() != bytes || !hash(proof).equals(value.getString("sha256")))
+        if (bytes < 0 || bytes > LogbookLimits.ARCHIVE_FILE_BYTES || !proof.isFile() || proof.length() != bytes || !hash(proof).equals(value.getString("sha256")))
             throw new IOException("上次未完成的文件暂时无法核对，已保留；请检查归档目录后重试。");
         try (InputStream expected = new FileInputStream(proof); InputStream actual = documents.open(uri)) {
             if (actual == null) throw new IOException("无法核对上次未完成文件。");

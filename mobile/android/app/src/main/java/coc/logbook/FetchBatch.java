@@ -53,7 +53,7 @@ final class FetchBatch implements AutoCloseable {
             String status=stringValue(metadata.get("status"));boolean success="valid".equals(status);
             if(!Arrays.asList("valid","invalid","fetch_failed").contains(status)||metadata.containsKey("manualContent"))throw new IllegalArgumentException("检测结果无效。");
             if(success&&(!body[0]||!sameString(before.get("link"),metadata.get("cacheSourceUrl"))))throw new IllegalArgumentException("检测正文或来源不完整。");
-            if(file.length()>PdfSpool.MAX_BYTES)throw new IllegalArgumentException("检测正文超过 64 MiB；整批未保存。");
+            if(file.length()>LogbookLimits.BATCH_STAGING_BYTES)throw new IllegalArgumentException("检测正文超过 64 MiB；整批未保存。");
             Part part=new Part();part.start=start;part.length=file.length()-start;part.hash=digest.digest();part.keepBody=!success;parts.put(key,part);
         }catch(Exception error){try(RandomAccessFile output=new RandomAccessFile(file,"rw")){output.setLength(start);}throw error;}
     }

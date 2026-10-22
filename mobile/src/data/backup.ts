@@ -1,3 +1,4 @@
+import { capacity } from './capacity'
 import { z } from 'zod'
 import { unzipSync, zipSync } from 'fflate'
 import { DEFAULT_FILTER_PRESET } from '../../../src/shared/types'
@@ -142,8 +143,19 @@ const payloadSchema = z.object({
  * @returns 已剔除电脑专属数据的预览及正文数量。
  * @throws 版本、实体结构或 JSON 不合法时拒绝导入。
  */
-export async function previewBackup(bytes: Uint8Array): Promise<ImportPreview> {
-  if (!bytes.length || bytes.length > 64 * 1024 * 1024) throw new Error('备份大小无效，首阶段上限为 64 MB。')
+export function previewBackup(bytes: Uint8Array): Promise<ImportPreview> {
+  return previewBounded(bytes, capacity.backupInputBytes)
+}
+
+/** Validate an internal complete candidate using its request budget, with the
+ * same format, body, attachment and association checks as backup preview.
+ */
+export function validateSnapshotBytes(bytes: Uint8Array): Promise<ImportPreview> {
+  return previewBounded(bytes, capacity.snapshotRequestBytes)
+}
+
+async function previewBounded(bytes: Uint8Array, maximumBytes: number): Promise<ImportPreview> {
+  if (!bytes.length || bytes.length > maximumBytes) throw new Error('备份大小无效，首阶段上限为 64 MB。')
   let input: unknown
   let zipFiles: Record<string, Uint8Array> | undefined
   if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
@@ -163,7 +175,8 @@ export async function previewBackup(bytes: Uint8Array): Promise<ImportPreview> {
         if (seen.has(info.name)) throw new Error('ZIP 条目重复，校验失败。')
         seen.add(info.name)
         total += info.originalSize
-        if (total > 128 * 1024 * 1024 || seen.size > 2000) throw new Error('ZIP 解压大小校验失败。')
+        if (total > capacity.zipExpandedBytes || seen.size > capacity.zipEntries)
+          throw new Error('ZIP 解压大小校验失败。')
         return !info.name.endsWith('/')
       }
     })
@@ -336,7 +349,7 @@ export async function encodeArchiveBackup(
   let total = 0
   for (const [index, file] of files.entries()) {
     total += file.bytes.length
-    if (total > 128 * 1024 * 1024 || files.length > 1999)
+    if (total > capacity.attachmentTotalBytes || files.length > capacity.archiveAttachments)
       throw new Error('归档附件过大或超过 1999 份，请分批导出。')
     const path = index + '-' + file.name.replace(/[\\/]/g, '_')
     const zipPath = 'archives/' + path
@@ -359,9 +372,9 @@ export async function encodeArchiveBackup(
     })
   )
   // 恢复器统计所有解压条目；正文、清单和 envelope 也必须纳入同一个 128 MiB 上限。
-  if (total + entries['backup.json'].length > 128 * 1024 * 1024)
+  if (total + entries['backup.json'].length > capacity.zipExpandedBytes)
     throw new Error('完整正文与归档附件合计超过 128 MB，无法打包。原文件保留。')
   const zipped = zipSync(entries)
-  if (zipped.length > 64 * 1024 * 1024) throw new Error('ZIP 备份超过 64 MB，请先分批导出归档文件。')
+  if (zipped.length > capacity.backupFileBytes) throw new Error('ZIP 备份超过 64 MB，请先分批导出归档文件。')
   return zipped
 }

@@ -1,4 +1,5 @@
-import { previewBackup, encodeBackup, encodeArchiveBackup } from './backup'
+import { capacity } from './capacity'
+import { previewBackup, validateSnapshotBytes, encodeBackup, encodeArchiveBackup } from './backup'
 import { decodeBase64, encodeBase64, encodeUtf8 } from './bytes'
 import type { MobileSnapshot } from './types'
 import { readSource } from './local-source'
@@ -147,7 +148,8 @@ export async function performSnapshotJob(job: SnapshotJob) {
     const started = performance.now()
     const delta = createTableDelta(lease.baseline, prepared.snapshot)
     const json = JSON.stringify(delta)
-    if (new TextEncoder().encode(json).length > 64 * 1024 * 1024) throw new Error('表格差量超过 64 MiB。')
+    if (new TextEncoder().encode(json).length > capacity.tableRequestBytes)
+      throw new Error('表格差量超过 64 MiB。')
     if (tableLease !== lease) throw new Error('表格预览已失效。')
     if (prepared.timing) {
       const elapsed = performance.now() - started
@@ -166,25 +168,30 @@ export async function performSnapshotJob(job: SnapshotJob) {
       upload.id !== job.id ||
       !Number.isSafeInteger(job.index) ||
       job.index < 0 ||
-      job.index * 256 * 1024 >= upload.bytes.length
+      job.index * capacity.transferChunkBytes >= upload.bytes.length
     )
       throw new Error('上传分段已失效。')
-    return encodeBase64(upload.bytes.subarray(job.index * 256 * 1024, (job.index + 1) * 256 * 1024))
+    return encodeBase64(
+      upload.bytes.subarray(
+        job.index * capacity.transferChunkBytes,
+        (job.index + 1) * capacity.transferChunkBytes
+      )
+    )
   }
   const token = job.type === 'prepare-upload' ? {} : undefined
   if (token) {
     preparing = token
     upload = undefined
   }
-  if (job.type === 'read-local') return (await previewBackup(await readSource(job.source))).snapshot
+  if (job.type === 'read-local') return (await validateSnapshotBytes(await readSource(job.source))).snapshot
   if (job.type === 'backup-export')
     return job.files ? encodeArchiveBackup(job.snapshot, job.files) : encodeBackup(job.snapshot)
   if (job.type === 'sea-response') return decodeSeaResponse(job.text, job.sourceUrl)
   if (job.type === 'preview') return previewBackup(job.bytes)
   if (job.type === 'preview-base64') return previewBackup(decodeBase64(job.base64))
-  if (job.type === 'read') return previewBackup(new TextEncoder().encode(job.json))
+  if (job.type === 'read') return validateSnapshotBytes(new TextEncoder().encode(job.json))
   if (job.type === 'checked-json') {
-    const checked = await previewBackup(new TextEncoder().encode(job.json))
+    const checked = await validateSnapshotBytes(new TextEncoder().encode(job.json))
     return JSON.stringify(checked.snapshot)
   }
   if (job.type === 'encode') return encodeBase64(job.bytes)
@@ -203,20 +210,26 @@ export async function performSnapshotJob(job: SnapshotJob) {
   mark('inputJson')
   const inputBytes = encodeUtf8(input)
   mark('utf8Encode')
-  const snapshot = (await previewBackup(inputBytes)).snapshot
+  const snapshot = (await validateSnapshotBytes(inputBytes)).snapshot
   mark('decodeParseValidate')
   const json = JSON.stringify(snapshot)
   mark('outputJson')
   if (job.type === 'prepare-upload') {
     const bytes = encodeUtf8(json)
-    if (bytes.length > 64 * 1024 * 1024) throw new Error('待保存数据超过 64 MiB。')
+    if (bytes.length > capacity.snapshotUploadBytes) throw new Error('待保存数据超过 64 MiB。')
     const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (b) =>
       b.toString(16).padStart(2, '0')
     ).join('')
     if (preparing !== token) throw new Error('上传准备已失效。')
     const id = String(++uploadSequence)
     upload = { id, bytes }
-    return { snapshot, bytes: bytes.length, sha256, id, count: Math.ceil(bytes.length / (256 * 1024)) }
+    return {
+      snapshot,
+      bytes: bytes.length,
+      sha256,
+      id,
+      count: Math.ceil(bytes.length / capacity.transferChunkBytes)
+    }
   }
   const timing: TablePhaseTiming | undefined =
     started === undefined

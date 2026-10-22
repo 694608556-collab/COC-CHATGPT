@@ -22,6 +22,23 @@ public final class ReadLeaseCheck {
             if (!value.file.exists()) throw new AssertionError("Foreign token deleted active lease");
             leases.release(value.id); leases.release(value.id);
             if (directory.list().length != 0) throw new AssertionError("Read lease leaked private body");
+            // Exercise the real streaming boundary without allocating a library-sized String.
+            String block = "x".repeat(8192);
+            ReadLease.Value boundary = leases.create(writer -> {
+                for (int i = 0; i < 8192; i++) writer.write(block);
+            }, 20);
+            if (boundary.bytes != 64L * 1024 * 1024 || boundary.revision != 20)
+                throw new AssertionError("Exact old read boundary was changed");
+            leases.release(boundary.id);
+            boolean rejected = false;
+            try {
+                leases.create(writer -> {
+                    for (int i = 0; i < 8192; i++) writer.write(block);
+                    writer.write('x');
+                }, 21);
+            } catch (IOException expectedFailure) { rejected = true; }
+            if (!rejected || directory.list().length != 0)
+                throw new AssertionError("Overflow created a lease or leaked private body");
         }
         System.out.println("Read lease: complete bytes/version/hash, token-scoped idempotent cleanup passed");
     }

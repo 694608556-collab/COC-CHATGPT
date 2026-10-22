@@ -10,7 +10,7 @@ import java.util.UUID;
 
 /** One private, bounded PDF spool. Call on the bridge's serial queue; never accepts caller paths. */
 final class PdfSpool implements AutoCloseable {
-    static final long MAX_BYTES = 64L * 1024 * 1024;
+    private final long maximumBytes;
     private final File directory;
     private File file;
     private FileOutputStream output;
@@ -19,6 +19,12 @@ final class PdfSpool implements AutoCloseable {
 
     /** Creates/cleans only our dedicated cache directory; never scans shared user storage. */
     PdfSpool(File directory) throws Exception {
+        this(directory, LogbookLimits.ARCHIVE_FILE_BYTES);
+    }
+
+    /** Budget chosen by the native operation, never by a bridge argument. */
+    PdfSpool(File directory, long maximumBytes) throws Exception {
+        this.maximumBytes = maximumBytes;
         this.directory = directory;
         if (!directory.isDirectory() && !directory.mkdirs()) throw new IllegalStateException("无法创建 PDF 临时目录。");
         File[] stale = directory.listFiles((dir, name) -> name.matches("coc-pdf-[a-f0-9-]+\\.part"));
@@ -40,7 +46,7 @@ final class PdfSpool implements AutoCloseable {
     void append(String token, byte[] bytes) throws Exception {
         require(token);
         try {
-            if (output == null || bytes.length > 256 * 1024 || size + bytes.length > MAX_BYTES)
+            if (output == null || bytes.length > LogbookLimits.TRANSFER_CHUNK_BYTES || size + bytes.length > maximumBytes)
                 throw new IllegalArgumentException("PDF 文件或分段超过大小限制。");
             output.write(bytes); size += bytes.length;
         } catch (Exception error) { close(); throw error; }
@@ -77,16 +83,20 @@ final class PdfSpool implements AutoCloseable {
         try {
             output.flush(); output.getFD().sync(); output.close(); output = null;
             if (file.length() != size) throw new IllegalStateException("导出临时文件不完整。");
-            return publish(file, tree, name, pdf, publisher);
+            return publish(file, tree, name, pdf, maximumBytes, publisher);
         } finally { close(); }
     }
 
     /** Shared verification/commit boundary for both browser raster and native text PDF files. */
     static <T> T publish(File file, String tree, String name, boolean pdf, Publisher<T> publisher) throws Exception {
+            return publish(file, tree, name, pdf, LogbookLimits.ARCHIVE_FILE_BYTES, publisher);
+    }
+
+    private static <T> T publish(File file, String tree, String name, boolean pdf, long maximumBytes, Publisher<T> publisher) throws Exception {
             long size = file.length();
             if (name == null || name.isEmpty() || name.equals(".") || name.equals("..") || name.length() > 255 || (pdf && !name.endsWith(".pdf")) || name.matches(".*[/\\\\\u0000-\u001f].*"))
                 throw new IllegalArgumentException("导出文件名不合法。");
-            if ((pdf && size < 16) || size > MAX_BYTES) throw new IllegalStateException("导出临时文件不完整或超过大小限制。");
+            if ((pdf && size < 16) || size > maximumBytes) throw new IllegalStateException("导出临时文件不完整或超过大小限制。");
             if (pdf) try (RandomAccessFile input = new RandomAccessFile(file, "r")) {
                 byte[] header = new byte[5]; input.readFully(header);
                 byte[] tail = new byte[(int)Math.min(32, size)]; input.seek(size - tail.length); input.readFully(tail);

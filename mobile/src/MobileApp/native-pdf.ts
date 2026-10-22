@@ -1,3 +1,4 @@
+import { capacity } from '../data/capacity'
 import type { ModuleRecord, SessionRecord, FilterPreset } from '../../../src/shared/types'
 import { combinedExportName, recordExportName } from '../../../src/shared/export-filenames'
 import { exportInBackground } from '../data/background'
@@ -36,11 +37,11 @@ export async function generateNativePdf(
   checkPdfCancellation(signal)
   const file = preparedText ?? (await exportInBackground(module, records, filters, 'txt', combined))
   checkPdfCancellation(signal)
-  for (let offset = 0; offset < file.bytes.length; offset += 256 * 1024) {
+  for (let offset = 0; offset < file.bytes.length; offset += capacity.transferChunkBytes) {
     checkPdfCancellation(signal)
     await port.appendPdfArchive({
       id,
-      base64: await encodeFileBase64(file.bytes.subarray(offset, offset + 256 * 1024))
+      base64: await encodeFileBase64(file.bytes.subarray(offset, offset + capacity.transferChunkBytes))
     })
   }
   checkPdfCancellation(signal)

@@ -1,3 +1,4 @@
+import { capacity } from './capacity'
 import type { ExportSource } from './export-source'
 
 /**
@@ -19,7 +20,7 @@ export async function readSource(
   if (
     !Number.isSafeInteger(source.bytes) ||
     source.bytes < (attachment ? 0 : 1) ||
-    source.bytes > 64 * 1024 * 1024
+    source.bytes > (attachment ? capacity.archiveFileBytes : capacity.readSourceBytes)
   )
     throw new Error('导出正文大小无效。')
   const response = await fetch(url.href, { cache: 'no-store', redirect: 'error' })

@@ -183,7 +183,7 @@ final class IndexedSnapshot {
         TableTiming.mark(timing,"recordCompareAndWrite");
     }
     long bytes(){Map<String,String> root=rootFields();root.put("records","[]");try(Cursor rows=db.rawQuery("SELECT COUNT(*),COALESCE(SUM(bytes),0) FROM indexed_records",null)){rows.moveToFirst();return JsonFields.objectBytes(root)+rows.getLong(1)+Math.max(0,rows.getLong(0)-1);}}
-    void checkSize(){if(bytes()>PdfSpool.MAX_BYTES)throw new IllegalArgumentException("数据超过 64 MiB；原数据未改变。");}
+    void checkSize(){if(bytes()>LogbookLimits.LIBRARY_BYTES)throw new IllegalArgumentException("数据超过 64 MiB；原数据未改变。");}
     void write(Writer out,Set<String> selected)throws Exception{
         Map<String,String> root=rootFields();out.write('{');boolean comma=false;
         for(Map.Entry<String,String> field:root.entrySet()){if(comma)out.write(',');comma=true;out.write(JSONObject.quote(field.getKey()));out.write(':');JsonFields.writeText(out,field.getValue());}

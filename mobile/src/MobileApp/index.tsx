@@ -1,3 +1,4 @@
+import { capacity } from '../data/capacity'
 import { BatchCheck } from './components/BatchCheck'
 import { buildTableImportTemplateCsv, buildTableImportTemplateXlsx } from '../../../src/shared/table-import'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -1007,7 +1008,8 @@ export function MobileApp({
       let total = 0
       for (const file of exported) {
         total += file.bytes
-        if (total > 128 * 1024 * 1024) throw new Error('归档附件超过 128 MB，无法打包。原文件保留。')
+        if (total > capacity.attachmentTotalBytes)
+          throw new Error('归档附件超过 128 MB，无法打包。原文件保留。')
       }
       if (exported.length > 1999) throw new Error('归档附件超过 1999 份，无法打包。原文件保留。')
     }

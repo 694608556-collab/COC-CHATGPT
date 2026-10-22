@@ -34,7 +34,6 @@ import org.json.JSONObject;
 /** Local app bridge. Uses SAF grants and private SQLite, never root or broad storage permissions. */
 @CapacitorPlugin(name = "Logbook")
 public final class LogbookPlugin extends Plugin {
-    private static final int MAX_BYTES = 64 * 1024 * 1024;
     private static final Set<String> ACTIVE_PUBLICATIONS = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private LogbookDatabase database;
     private ArchiveRegistry archives;
@@ -134,7 +133,7 @@ public final class LogbookPlugin extends Plugin {
             if (input == null) throw new IllegalStateException("无法读取文件。");
             byte[] chunk = new byte[8192]; int count;
             while ((count = input.read(chunk)) != -1) {
-                if (output.size() + count > MAX_BYTES) throw new IllegalStateException("首阶段文件上限为 64 MB。");
+                if (output.size() + count > LogbookLimits.PICKED_FILE_BYTES) throw new IllegalStateException("首阶段文件上限为 64 MB。");
                 output.write(chunk, 0, count);
             }
             return output.toByteArray();
@@ -343,7 +342,7 @@ public final class LogbookPlugin extends Plugin {
         return write(name,mime,bytes,purpose,prefs().getString("tree", ""));
     }
     private JSObject write(String name, String mime, byte[] bytes, String purpose, String location) throws Exception {
-        if (bytes.length > MAX_BYTES || name.length() > 255 || name.isEmpty() || name.equals(".") || name.equals("..") || name.matches(".*[/\\\\\u0000-\u001f].*")) throw new IllegalArgumentException("文件名或文件大小不合法。");
+        if (bytes.length > LogbookLimits.ARCHIVE_FILE_BYTES || name.length() > 255 || name.isEmpty() || name.equals(".") || name.equals("..") || name.matches(".*[/\\\\\u0000-\u001f].*")) throw new IllegalArgumentException("文件名或文件大小不合法。");
         if (location.isEmpty()) throw new IllegalStateException("请先选择并确认归档文件夹。");
         publications().recoverFor(location);
         java.io.File source = java.io.File.createTempFile("coc-direct-", ".part", directInputs());
@@ -372,7 +371,7 @@ public final class LogbookPlugin extends Plugin {
             try (InputStream input = getContext().getContentResolver().openInputStream(destination)) {
                 if (input == null) throw new IllegalStateException("无法回读归档。");
                 byte[] chunk = new byte[32768]; int n;
-                while ((n = input.read(chunk)) != -1) { readSize += n; if (readSize > MAX_BYTES) throw new IllegalStateException("归档回读大小超限。"); digest.update(chunk,0,n); }
+                while ((n = input.read(chunk)) != -1) { readSize += n; if (readSize > LogbookLimits.ARCHIVE_FILE_BYTES) throw new IllegalStateException("归档回读大小超限。"); digest.update(chunk,0,n); }
             }
             StringBuilder backHash = new StringBuilder(); for (byte b : digest.digest()) backHash.append(String.format("%02x",b&255));
             if (readSize != size || !hash.equals(backHash.toString())) throw new IllegalStateException("归档保存回读校验失败。");
@@ -598,7 +597,7 @@ public final class LogbookPlugin extends Plugin {
                             if (input != null) {
                                 byte[] chunk = new byte[8192]; int count;
                                 while ((count = input.read(chunk)) != -1) {
-                                    if (output.size() + count > MAX_BYTES) throw new IllegalStateException("日志超过 64 MB。");
+                                    if (output.size() + count > LogbookLimits.RECORD_RESPONSE_BYTES) throw new IllegalStateException("日志超过 64 MB。");
                                     output.write(chunk, 0, count);
                                 }
                             }
@@ -777,7 +776,7 @@ public final class LogbookPlugin extends Plugin {
             String tree=prefs().getString("tree","");requireArchivePermission(tree);
             TableTiming.mark(timing,"authorization");
             String json=call.getString("json");
-            if(json==null||JsonFields.bytes(json)>PdfSpool.MAX_BYTES)throw new IllegalArgumentException("表格差量缺失或超过 64 MiB。");
+            if(json==null||JsonFields.bytes(json)>LogbookLimits.TABLE_REQUEST_BYTES)throw new IllegalArgumentException("表格差量缺失或超过 64 MiB。");
             TableTiming.mark(timing,"inputSize");
             JSONObject delta=new JSONObject(json);
             TableTiming.mark(timing,"candidateParse");
@@ -798,7 +797,7 @@ public final class LogbookPlugin extends Plugin {
             String tree=prefs().getString("tree","");requireArchivePermission(tree);
             TableTiming.mark(timing,"authorization");
             String json=call.getString("json");
-            if(json==null||JsonFields.bytes(json)>PdfSpool.MAX_BYTES)throw new IllegalArgumentException("表格数据缺失或超过 64 MiB。");
+            if(json==null||JsonFields.bytes(json)>LogbookLimits.TABLE_REQUEST_BYTES)throw new IllegalArgumentException("表格数据缺失或超过 64 MiB。");
             TableTiming.mark(timing,"inputSize");
             SnapshotStream.validate(new java.io.StringReader(json));
             TableTiming.mark(timing,"candidateValidation");
@@ -941,7 +940,7 @@ public final class LogbookPlugin extends Plugin {
                 if (expected == null || expected != database.revision()) throw new IllegalStateException("数据已变化，请重新读取。");
                 requireArchivePermission(prefs().getString("tree", ""));
                 JSONObject edit = call.getObject("edit");
-                if (edit == null || edit.length() != 2 || edit.toString().getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) throw new IllegalArgumentException("实体请求不完整或过大。");
+                if (edit == null || edit.length() != 2 || edit.toString().getBytes(StandardCharsets.UTF_8).length > LogbookLimits.ENTITY_REQUEST_BYTES) throw new IllegalArgumentException("实体请求不完整或过大。");
                 String kind = edit.getString("kind"); JSONObject value = edit.getJSONObject("value");
                 java.util.Map<String,String> fields = database.fields(); boolean empty = fields == null;
                 if (empty) fields = JsonFields.split(emptySnapshot().toString());
@@ -1077,7 +1076,7 @@ public final class LogbookPlugin extends Plugin {
                 Long expected = call.getData().has("expectedRevision") ? call.getData().getLong("expectedRevision") : null;
                 if (expected == null || expected != database.revision()) throw new IllegalStateException("数据已变化，请重新预览。");
                 String json = call.getString("json", "");
-                if (json.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) throw new IllegalArgumentException("数据超过首阶段大小上限。");
+                if (json.getBytes(StandardCharsets.UTF_8).length > LogbookLimits.SNAPSHOT_REQUEST_BYTES) throw new IllegalArgumentException("数据超过首阶段大小上限。");
                 validateJsonText(json);
                 SnapshotStream.validate(new java.io.StringReader(json));
                 String tree = prefs().getString("tree", "");

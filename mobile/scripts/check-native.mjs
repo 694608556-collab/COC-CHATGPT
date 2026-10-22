@@ -84,6 +84,7 @@ const pdfCompiled = spawnSync(
     'UTF-8',
     '-d',
     work,
+    join(source, 'LogbookLimits.java'),
     join(source, 'PdfSpool.java'),
     join(source, 'TextPdfJobs.java'),
     join(source, 'ReadLease.java'),
@@ -112,6 +113,7 @@ const publicationCompiled = spawnSync(
     process.env.JSON_JAR,
     '-d',
     work,
+    join(source, 'LogbookLimits.java'),
     join(source, 'PdfSpool.java'),
     join(source, 'ArchivePublication.java'),
     resolve('tests/native/ArchivePublicationCheck.java')
@@ -134,6 +136,7 @@ const uploadCompiled = spawnSync(
     'UTF-8',
     '-d',
     work,
+    join(source, 'LogbookLimits.java'),
     join(source, 'PdfSpool.java'),
     join(source, 'SnapshotUpload.java'),
     resolve('tests/native/SnapshotUploadCheck.java')

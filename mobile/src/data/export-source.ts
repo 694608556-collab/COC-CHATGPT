@@ -1,3 +1,4 @@
+import { capacity } from './capacity'
 import { readSource } from './local-source'
 import { previewBackup, encodeBackup, encodeArchiveBackup } from './backup'
 import { createExport } from './export'
@@ -90,7 +91,7 @@ export async function performExportSourceJob(job: ExportSourceJob) {
     let bytes: Uint8Array
     if (job.files) {
       const total = job.files.reduce((sum, file) => sum + file.bytes, 0)
-      if (job.files.length > 1999 || total > 128 * 1024 * 1024)
+      if (job.files.length > capacity.archiveAttachments || total > capacity.attachmentTotalBytes)
         throw new Error('归档附件过大或超过 1999 份，请分批导出。')
       const files = []
       for (const file of job.files) files.push({ name: file.name, bytes: await readSource(file, true) })

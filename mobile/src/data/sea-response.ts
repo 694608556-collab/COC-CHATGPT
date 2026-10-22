@@ -1,3 +1,4 @@
+import { capacity } from './capacity'
 import { Unzlib } from 'fflate'
 import { decodeBase64, encodeUtf8 } from './bytes'
 import { normalizeSeaResponse } from './sea-parser'
@@ -20,7 +21,7 @@ export async function decodeSeaResponse(text: string, sourceUrl?: string): Promi
     let length = 0
     const inflater = new Unzlib((chunk) => {
       length += chunk.length
-      if (length > 64 * 1024 * 1024) throw new Error('解压后的正文超过 64 MB。')
+      if (length > capacity.recordResponseBytes) throw new Error('解压后的正文超过 64 MB。')
       chunks.push(chunk)
     })
     const zipped = decodeBase64((payload as { data: string }).data)

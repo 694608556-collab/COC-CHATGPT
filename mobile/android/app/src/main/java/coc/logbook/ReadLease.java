@@ -43,11 +43,11 @@ final class ReadLease implements AutoCloseable {
                  Writer writer = new BufferedWriter(new OutputStreamWriter(new DigestOutputStream(new FilterOutputStream(output) {
                      long count;
                      @Override public void write(byte[] bytes, int offset, int length) throws IOException {
-                         if (count + length > PdfSpool.MAX_BYTES) throw new IOException("正文超过 64 MB，未创建导出文件。");
+                         if (count + length > LogbookLimits.READ_LEASE_BYTES) throw new IOException("正文超过 64 MB，未创建导出文件。");
                          out.write(bytes, offset, length); count += length;
                      }
                      @Override public void write(int value) throws IOException {
-                         if (++count > PdfSpool.MAX_BYTES) throw new IOException("正文超过 64 MB，未创建导出文件。");
+                         if (++count > LogbookLimits.READ_LEASE_BYTES) throw new IOException("正文超过 64 MB，未创建导出文件。");
                          out.write(value);
                      }
                  },digest), StandardCharsets.UTF_8))) {
