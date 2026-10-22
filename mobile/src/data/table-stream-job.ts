@@ -42,6 +42,32 @@ export async function performTableStreamJob(
     strings: new Uint8Array(capacity.transferChunkBytes)
   }
   const used = { candidate: 0, strings: 0 }
+  // These are cache budgets, never import limits. Larger inputs and evicted
+  // strings keep using the same fully validated native disk staging path.
+  const cacheBudget = 2 * 1024 * 1024
+  const stringCache = new Map<number, string>()
+  let cachedStringBytes = 0
+  let cachedSource: Uint8Array[] | undefined
+  /** Retains recent decoded values within a conservative UTF-16/entry budget.
+   * @param index Private append-only string index. @param value Complete decoded value.
+   * @returns No value; oversized values remain available from native staging.
+   */
+  function rememberString(index: number, value: string) {
+    const bytes = value.length * 2 + 64
+    if (bytes > cacheBudget) return
+    const previous = stringCache.get(index)
+    if (previous !== undefined) {
+      cachedStringBytes -= previous.length * 2 + 64
+      stringCache.delete(index)
+    }
+    while (cachedStringBytes + bytes > cacheBudget) {
+      const oldest = stringCache.keys().next().value!
+      cachedStringBytes -= stringCache.get(oldest)!.length * 2 + 64
+      stringCache.delete(oldest)
+    }
+    stringCache.set(index, value)
+    cachedStringBytes += bytes
+  }
   async function flush(key: 'candidate' | 'strings') {
     if (!used[key]) return
     checkStreamCancelled(signal)
@@ -121,7 +147,24 @@ export async function performTableStreamJob(
     sheet = undefined
     parser = undefined
   }
-  const source = () => readLocalSourceStream(job.source, { maximumBytes: job.source.bytes, signal })
+  /** Replays a small proven private source without repeated WKURLSchemeHandler requests.
+   * @returns Complete bounded chunks; EOF and SHA-256 must succeed before reuse.
+   */
+  async function* source(): AsyncGenerator<Uint8Array> {
+    if (cachedSource) {
+      for (const chunk of cachedSource) {
+        checkStreamCancelled(signal)
+        yield chunk
+      }
+      return
+    }
+    const cache: Uint8Array[] | undefined = job.source.bytes <= cacheBudget ? [] : undefined
+    for await (const chunk of readLocalSourceStream(job.source, { maximumBytes: job.source.bytes, signal })) {
+      cache?.push(chunk.slice())
+      yield chunk
+    }
+    cachedSource = cache
+  }
   if (job.format === 'xls') {
     // Legacy BIFF/content-detected formats keep the existing parser compatibility.
     // No product file-size cap; allocation is limited by the actual JS/OS memory.
@@ -154,10 +197,20 @@ export async function performTableStreamJob(
       expectedSource: { bytes: job.source.bytes, sha256: job.source.sha256 },
       maximumExpandedBytes: job.maximumStageBytes,
       signal,
-      writeString: async (index, value) => send('strings', JSON.stringify([index, value]) + '\n'),
+      writeString: async (index, value) => {
+        rememberString(index, value)
+        await send('strings', JSON.stringify([index, value]) + '\n')
+      },
       readString: async (index) => {
+        const cached = stringCache.get(index)
+        if (cached !== undefined) {
+          rememberString(index, cached)
+          return cached
+        }
         await flush('strings')
-        return readString(index)
+        const value = await readString(index)
+        rememberString(index, value)
+        return value
       },
       onCell: async (cell) => {
         // The existing single-character template reads only rows 1–95. Keep
@@ -176,6 +229,7 @@ export async function performTableStreamJob(
   }
   if (job.kind === 'coc7') {
     if (!draft) throw new Error('文件中没有“人物卡”工作表。')
+    await flush('strings')
     checkStreamCancelled(signal)
     return { draft }
   }
