@@ -15,6 +15,9 @@ import Foundation
             return
         }
         let MiB = 1024 * 1024
+        for json in [#"{"x":1,}"#, #"{"x":[1,]}"#, #"{"x":01}"#, #"{"x":+1}"#, #"{"x":true}tail"#, #"{"x":NaN}"#, #"{"x":1,"\u0078":2}"#] {
+            try rejects("strict native candidate JSON grammar") { _ = try LogbookBackupJSON.object(Data(json.utf8)) }
+        }
         try require(try LogbookCapacity.remaining(64 * MiB) == 0, "minimum free-space reserve")
         try require(try LogbookCapacity.remaining(128 * MiB) == 64 * MiB, "available bytes after reserve")
         try require(try LogbookCapacity.remaining(20 * 1024 * MiB) == 19 * 1024 * MiB, "proportional reserve")
