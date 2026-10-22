@@ -534,10 +534,14 @@ public final class LogbookPlugin extends Plugin {
                 writer.write("{\"format\":\"coc.logbook.android\",\"formatVersion\":1,\"exportedAt\":"+JSONObject.quote(java.time.Instant.now().toString())+",\"restoreScope\":[\"modules\",\"records\",\"characters\"],\"snapshot\":");
                 database.writeSnapshot(writer,ids);writer.write('}');
             });
-            if(SnapshotBackupStream.validate(owner.file("source"))!=ids.size()||database.revision()!=revision)throw new IllegalStateException("搜索来源场次或版本已变化。");
             android.app.ActivityManager.MemoryInfo memory=new android.app.ActivityManager.MemoryInfo();((android.app.ActivityManager)getContext().getSystemService(android.content.Context.ACTIVITY_SERVICE)).getMemoryInfo(memory);
             long cacheMemory=memory.lowMemory?0:Math.max(0,Math.min(memory.availMem/8,Runtime.getRuntime().maxMemory()/4));
-            JSObject result=new JSObject();result.put("id",owner.id);result.put("revision",revision);result.put("source",backupFileReply(owner,"source"));result.put("cacheMemoryBytes",cacheMemory);call.resolve(result);
+            long maximumRead=memory.lowMemory?0:Math.max(0,Math.min(memory.availMem/16,Runtime.getRuntime().maxMemory()/8));
+            // The immutable search source is not an export or restore candidate.
+            // The Worker validates every record, graph, duplicate key and complete
+            // source proof before publishing hits; avoid doing that semantic pass twice.
+            if(database.revision()!=revision)throw new IllegalStateException("搜索来源版本已变化。");
+            JSObject result=new JSObject();result.put("id",owner.id);result.put("revision",revision);result.put("source",backupFileReply(owner,"source"));result.put("cacheMemoryBytes",cacheMemory);result.put("maximumReadBytes",maximumRead);call.resolve(result);
         }catch(Exception|OutOfMemoryError error){rejectBackup(call,owner,error);}});
     }
     @PluginMethod public void createBackupStream(PluginCall call){

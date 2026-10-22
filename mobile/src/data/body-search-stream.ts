@@ -23,6 +23,8 @@ export interface NativeSearchSource {
   source: NativeBackupFile
   /** Disposable cache budget only; larger inputs continue through the disk path. */
   cacheMemoryBytes?: number
+  /** Native fast-read budget, never a content-size limit. */
+  maximumReadBytes?: number
 }
 export async function searchBodyStream(
   source: AsyncIterable<Uint8Array>,

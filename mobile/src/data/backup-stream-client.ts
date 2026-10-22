@@ -275,6 +275,7 @@ export async function searchNativeBodies(
         ids,
         query: trimmed,
         preset,
+        maximumReadBytes: lease.maximumReadBytes,
         cache: { generation, signature, maximumMemoryBytes: lease.cacheMemoryBytes }
       },
       required(port),

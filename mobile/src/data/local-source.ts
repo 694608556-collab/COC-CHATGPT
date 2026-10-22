@@ -11,8 +11,9 @@ export async function readSource(
   attachment = false
 ): Promise<Uint8Array> {
   const url = new URL(source.url)
+  const current = new URL(location.href)
   if (
-    url.origin !== location.origin ||
+    url.protocol !== current.protocol || url.hostname !== current.hostname || url.port !== current.port || url.username || url.password ||
     !url.pathname.startsWith(attachment ? '/_capacitor_content_/' : '/_capacitor_file_/')
   )
     throw new Error('只允许读取本应用的本地导出正文。')

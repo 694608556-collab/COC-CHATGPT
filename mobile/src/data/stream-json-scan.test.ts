@@ -30,3 +30,43 @@ it('长正文字符串按引号和转义边界扫描，完整保留内容而不�
     reads.mockRestore()
   }
 })
+
+it('来源已按字节限制时不重复编码计量每个词元，更小的独立值预算仍严格生效', async () => {
+  const text = JSON.stringify({ body: '公开正文😀'.repeat(1000) })
+  const bytes = new TextEncoder().encode(text)
+  async function* source() {
+    yield bytes
+  }
+  const replace = vi.spyOn(String.prototype, 'replace')
+  try {
+    const reader = new StreamJson(source(), bytes.length, bytes.length)
+    expect((await reader.readRawValue()).json).toBe(text)
+    expect((await reader.finish()).bytes).toBe(bytes.length)
+    expect(replace).not.toHaveBeenCalled()
+  } finally {
+    replace.mockRestore()
+  }
+  await expect(new StreamJson(source(), bytes.length, 100).readRawValue()).rejects.toThrow('超过')
+  await expect(new StreamJson(source(), bytes.length - 1, bytes.length - 1).readRawValue()).rejects.toThrow(
+    '超过'
+  )
+})
+
+it('常见同段对象键直接取原始区间，不为每个键分配分段收集器', async () => {
+  const text = JSON.stringify(Array.from({ length: 1000 }, (_, id) => ({ id, text: '公开正文', images: [] })))
+  const bytes = new TextEncoder().encode(text)
+  async function* source() {
+    yield bytes
+  }
+  const join = vi.spyOn(Array.prototype, 'join')
+  let joins = 0
+  try {
+    const reader = new StreamJson(source(), bytes.length, bytes.length)
+    await reader.readRawValue()
+    await reader.finish()
+    joins = join.mock.calls.length
+  } finally {
+    join.mockRestore()
+  }
+  expect(joins).toBeLessThan(30)
+})
