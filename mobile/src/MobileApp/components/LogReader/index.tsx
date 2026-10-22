@@ -55,7 +55,7 @@ export function LogReader(props: {
     () =>
       needle
         ? messages.reduce<number[]>((found, message, index) => {
-            if (matcher.count(message.header) > 0 || matcher.count(message.text) > 0) found.push(index)
+            if (matcher.has(message.header) || matcher.has(message.text)) found.push(index)
             return found
           }, [])
         : [],

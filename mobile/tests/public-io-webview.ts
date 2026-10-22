@@ -276,6 +276,19 @@ async function completeMatrix() {
   )
   first.click()
   await waitFor(() => button('更多导出格式'), 'reader ready')
+  await timed('reader-submitted-search', async () => {
+    const field = document.querySelector<HTMLInputElement>('input[aria-label="搜索整场正文"]')!
+    input(field, 'PUBLIC_IO_NEEDLE')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    check(!document.querySelector('.search-results'), 'Typing must not search the saved reader body')
+    document.querySelector<HTMLButtonElement>('button[aria-label="搜索整场正文"]')!.click()
+    await waitFor(
+      () => document.querySelector('.search-results')?.textContent?.includes('匹配 650 条'),
+      'complete submitted reader search'
+    )
+    document.querySelector<HTMLButtonElement>('button[aria-label="清空正文搜索"]')!.click()
+    await waitFor(() => !document.querySelector('.search-results'), 'clear cancels reader results')
+  })
   for (const label of ['原始 JSON', 'TXT', '带图 DOC', '纯对话 DOC', 'DOCX', 'PDF']) {
     await saved('single-export-' + label, async () => {
       await click('更多导出格式')

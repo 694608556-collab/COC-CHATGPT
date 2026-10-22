@@ -2,7 +2,7 @@ name: iOS IPA development
 on:
   push:
     branches: [codex/ios-ipa-adaptation]
-    paths: ['mobile/**', 'src/shared/**', '.github/workflows/ios-check.yml']
+    paths: ['mobile/**', '!mobile/*.md', '!mobile/releases/**', 'src/shared/**', '.github/workflows/ios-check.yml']
   workflow_dispatch:
 permissions:
   contents: read
