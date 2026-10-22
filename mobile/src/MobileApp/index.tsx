@@ -1,7 +1,7 @@
 import { backupExportName } from '../../../src/shared/export-filenames'
 import { retainBodySelection } from '../data/body-cache'
 import { BodySearchCleanupError } from '../data/body-search-stream'
-import { searchNativeBodies } from '../data/backup-stream-client'
+import { searchNativeBodies, warmBodySearchWorker } from '../data/backup-stream-client'
 import type { BodySearchResult } from '../data/body-search-stream'
 import { BatchCheck } from './components/BatchCheck'
 import { buildTableImportTemplateCsv, buildTableImportTemplateXlsx } from '../../../src/shared/table-import'
@@ -115,6 +115,13 @@ export function MobileApp({
   const [bodySearchResults, setBodySearchResults] = useState<Record<string, BodySearchResult>>({})
   const [searchingModule, setSearchingModule] = useState('')
   const streamedSearch = native?.bodySearchStreamVersion === 1
+  useEffect(() => {
+    if (!streamedSearch) return
+    // Compile off the UI thread after the native overview is visible. This
+    // prepares code only; typing still never reads or searches saved bodies.
+    const timer = window.setTimeout(warmBodySearchWorker, 0)
+    return () => window.clearTimeout(timer)
+  }, [streamedSearch])
   function replaceDeferred(ids: Set<string>) {
     deferredRef.current = ids
     setDeferredRecords(ids)

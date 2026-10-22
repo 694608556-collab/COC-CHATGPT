@@ -94,6 +94,13 @@ test('逐场搜索只返回摘要，取消旧查询不覆盖新结果，连续�
   await expect(page.locator('.module-body-search [role="status"]')).toContainText('匹配 3 个场次')
   expect(await page.evaluate(() => (window as any).__bodyStreamProbe.startDelay)).toBeLessThan(200)
   expect(await page.evaluate(() => (window as any).__bodyStreamProbe.reads)).toEqual([])
+  await search.fill('完整结尾')
+  await search.press('Enter')
+  await expect(page.locator('.module-body-search [role="status"]')).toContainText('匹配 3 个场次')
+  expect(await page.evaluate(() => (window as any).__bodyStreamProbe.searches.length)).toBe(1)
+  await search.fill('needle')
+  await search.press('Enter')
+  await expect(page.locator('.module-body-search [role="status"]')).toContainText('匹配 3 个场次')
   await page.locator('.search-result').first().click()
   await expect(page.locator('.messages')).toContainText('完整结尾0')
   await page.getByRole('button', { name: '返回上一页', exact: true }).click()
@@ -108,6 +115,10 @@ test('逐场搜索只返回摘要，取消旧查询不覆盖新结果，连续�
     ['public-stream-1'],
     ['public-stream-0']
   ])
+  // Restart discards admitted in-memory tokens. Exercise cancellation during a
+  // real fresh native source open, in addition to checking cached queries above.
+  await page.reload()
+  await expandModules(page)
   await page.evaluate(() => {
     ;(window as any).__bodyStreamProbe.hold = true
   })

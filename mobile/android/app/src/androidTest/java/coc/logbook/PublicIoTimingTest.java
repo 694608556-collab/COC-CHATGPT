@@ -43,6 +43,12 @@ public final class PublicIoTimingTest {
         return false;
     }
     private boolean containsPublicFolder(android.view.accessibility.AccessibilityNodeInfo node,String name){if(node==null)return false;if(String.valueOf(node.getText()).contains(name)||String.valueOf(node.getContentDescription()).contains(name))return true;for(int i=0;i<node.getChildCount();i++)if(containsPublicFolder(node.getChild(i),name))return true;return false;}
+    /** Fresh emulator contains fictional fixtures only; never dump a phone's document UI. */
+    private void publicPickerState(android.view.accessibility.AccessibilityNodeInfo node,StringBuilder output){
+        if(node==null||output.length()>8000)return;
+        output.append('[').append(node.getViewIdResourceName()).append('|').append(node.getClassName()).append('|').append(node.getText()).append('|').append(node.getContentDescription()).append('|').append(node.isEnabled()).append(']');
+        for(int i=0;i<node.getChildCount();i++)publicPickerState(node.getChild(i),output);
+    }
     private String asset(Context tests,String name)throws Exception{try(InputStream input=tests.getAssets().open(name);ByteArrayOutputStream output=new ByteArrayOutputStream()){byte[] buffer=new byte[65536];int count;while((count=input.read(buffer))!=-1)output.write(buffer,0,count);return output.toString("UTF-8");}}
     private String evaluate(ActivityScenario<MainActivity> scenario,String script)throws Exception{CountDownLatch done=new CountDownLatch(1);AtomicReference<String> result=new AtomicReference<>();scenario.onActivity(activity->activity.getBridge().getWebView().evaluateJavascript(script,value->{result.set(value);done.countDown();}));assertTrue("Public UI evaluation timeout",done.await(15,TimeUnit.SECONDS));return result.get();}
     private void sameJson(Object expected,Object actual)throws Exception{
@@ -107,7 +113,7 @@ public final class PublicIoTimingTest {
                     // AOSP DocumentsUI ellipsizes long UUID folder labels in its
                     // breadcrumb. The unique public prefix admits the UI click;
                     // the persisted grant below must still equal this exact UUID.
-                    while("null".equals(evaluate(scenario,"window.__publicArchiveResult"))){android.view.accessibility.AccessibilityNodeInfo root=instrumentation.getUiAutomation().getRootInActiveWindow();if(containsPublicFolder(root,"COC-PublicIO-"))selectPublicFolder(root);assertTrue("Public system folder authorization timeout",System.currentTimeMillis()<deadline);Thread.sleep(250);}
+                    while("null".equals(evaluate(scenario,"window.__publicArchiveResult"))){android.view.accessibility.AccessibilityNodeInfo root=instrumentation.getUiAutomation().getRootInActiveWindow();if(containsPublicFolder(root,"COC-PublicIO-"))selectPublicFolder(root);if(System.currentTimeMillis()>=deadline){String model=android.os.Build.MODEL.toLowerCase(java.util.Locale.ROOT);if(model.contains("sdk")||model.contains("gphone")||android.os.Build.FINGERPRINT.startsWith("generic")){StringBuilder description=new StringBuilder();publicPickerState(root,description);System.out.println("PUBLIC_PICKER_STATE "+description);}fail("Public system folder authorization timeout");}Thread.sleep(250);}
                     assertEquals(outputTree.toString(),prefs.getString("tree",""));outputGranted=true;
                     Thread.sleep(300);
                 }

@@ -24,8 +24,23 @@ let searchWorker: { worker: Worker; busy: boolean } | undefined
 /** @returns A reusable computation worker; no body read starts until an explicit job is submitted. */
 function prepareSearchWorker() {
   if (typeof document === 'undefined' || typeof Worker === 'undefined') return
-  if (!searchWorker) searchWorker = { worker: new Worker('backup-stream-worker.js'), busy: false }
+  if (!searchWorker) {
+    const entry = { worker: new Worker('backup-stream-worker.js'), busy: false }
+    searchWorker = entry
+    entry.worker.onerror = () => {
+      if (searchWorker === entry) searchWorker = undefined
+      entry.worker.terminate()
+    }
+  }
   return searchWorker
+}
+/** @returns Compiles the local computation code only; no source read or query is dispatched. */
+export function warmBodySearchWorker() {
+  try {
+    prepareSearchWorker()
+  } catch {
+    /* Explicit submission reports any actual startup failure. */
+  }
 }
 function required(port: BackupStreamPort): Port {
   for (const method of [
