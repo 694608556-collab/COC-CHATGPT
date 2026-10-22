@@ -27,6 +27,41 @@ function mock(response: Response) {
   vi.stubGlobal('fetch', fetch)
   return fetch
 }
+it('iOS逐个256KiB Range核对完整证明，拒绝忽略Range及错误区间，不退回整份读取', async () => {
+  vi.stubGlobal('location', new URL('https://localhost/'))
+  let requests = 0
+  const fetch = vi.fn(async (_url: string, options: RequestInit) => {
+    const range = (options.headers as Record<string, string>).Range!
+    const [, start, end] = /bytes=(\d+)-(\d+)/.exec(range)!.map(Number)
+    expect(end! - start! + 1).toBeLessThanOrEqual(262144)
+    requests++
+    return new Response(bytes.slice(start!, end! + 1).buffer, {
+      status: 206,
+      headers: {
+        'Content-Length': String(end! - start! + 1),
+        'Content-Range': `bytes ${start}-${end}/${bytes.length}`
+      }
+    })
+  })
+  vi.stubGlobal('fetch', fetch)
+  expect(await consume(readLocalSourceStream({ ...source(), ranged: true }, options))).toEqual({
+    bytes: bytes.length,
+    sha256: sha(bytes)
+  })
+  expect(requests).toBe(Math.ceil(bytes.length / 262144))
+  for (const response of [
+    new Response(bytes),
+    new Response(bytes.slice(0, 262144).buffer, {
+      status: 206,
+      headers: { 'Content-Range': `bytes 1-262144/${bytes.length}` }
+    })
+  ]) {
+    mock(response)
+    await expect(consume(readLocalSourceStream({ ...source(), ranged: true }, options))).rejects.toThrow(
+      '片段'
+    )
+  }
+})
 it('本地完整分块长度/摘要一致，不调用整份arrayBuffer，附件允许空文件', async () => {
   const response = new Response(bytes, { headers: { 'Content-Length': String(bytes.length) } })
   response.arrayBuffer = () => {

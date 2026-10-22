@@ -5,7 +5,7 @@ package coc.logbook;
  */
 final class LogbookLimits {
     private LogbookLimits() {}
-    static final boolean DEVICE_SPACE_LIBRARY = false;
+    static final boolean DEVICE_SPACE_LIBRARY = true;
     static final long LIBRARY_BYTES = 64L * 1024 * 1024;
     static final long SNAPSHOT_UPLOAD_BYTES = 64L * 1024 * 1024;
     static final long SNAPSHOT_REQUEST_BYTES = 64L * 1024 * 1024;

@@ -193,7 +193,7 @@ public final class LogbookPlugin extends Plugin {
             try {
                 if(database.logicalBytes()>LogbookLimits.SNAPSHOT_REQUEST_BYTES)throw new IllegalStateException("整库超过单次内存读取预算，请使用概览或完整分块备份。");
                 JSObject out = new JSObject(); String json = database.snapshot();
-                out.put("json", json == null ? JSONObject.NULL : json); out.put("revision", database.revision());
+                out.put("backupStreamVersion",1);out.put("json", json == null ? JSONObject.NULL : json); out.put("revision", database.revision());
                 ConnectivityManager connectivity = (ConnectivityManager)getContext().getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
                 out.put("networkConnected", connectivity.getActiveNetwork() != null);
                 out.put("lastAutoBackupAt", prefs().getLong("last-auto-backup", 0));
@@ -218,7 +218,7 @@ public final class LogbookPlugin extends Plugin {
                 out.put("revision",revision);
                 ConnectivityManager connectivity = (ConnectivityManager)getContext().getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
                 out.put("networkConnected",connectivity.getActiveNetwork() != null);
-                out.put("tableDeltaVersion",1);out.put("storageUsage",storageUsage());
+                out.put("backupStreamVersion",1);out.put("tableDeltaVersion",1);out.put("storageUsage",storageUsage());
                 out.put("lastAutoBackupAt",prefs().getLong("last-auto-backup",0));
                 if (prefs().contains("last-auto-backup-revision")) out.put("lastAutoBackupRevision",prefs().getLong("last-auto-backup-revision",-1));
                 JSObject archive = location(false);
@@ -286,7 +286,7 @@ public final class LogbookPlugin extends Plugin {
     @PluginMethod public void getStatus(PluginCall call) {
         execute(() -> {
             try {
-                JSObject out = new JSObject(); out.put("revision", database.revision());out.put("storageUsage",storageUsage());
+                JSObject out = new JSObject(); out.put("revision", database.revision());out.put("storageUsage",storageUsage());out.put("backupStreamVersion",1);
                 JSObject archive = location(false);
                 try { requireArchivePermission(prefs().getString("tree", "")); }
                 catch (Exception error) { archive.put("valid", false); }
@@ -412,7 +412,7 @@ public final class LogbookPlugin extends Plugin {
         execute(()->{try{
             if(backupSession!=null&&backupSession.id.equals(call.getString("id",""))){backupSession.close();backupSession=null;}
             call.resolve();
-        }catch(Exception|OutOfMemoryError error){call.reject("私有备份暂存清理失败；原数据未改变。",error);}});
+        }catch(Exception|OutOfMemoryError error){call.reject("私有备份暂存清理失败；原数据未改变。",error instanceof Exception?(Exception)error:new IllegalStateException("私有暂存清理内存不足。",error));}});
     }
     private void removeNewImport(JSObject saved)throws Exception{
         String uri=saved.getString("uri"),hash=saved.getString("sha256");long bytes=saved.getLong("bytes");
@@ -445,8 +445,8 @@ public final class LogbookPlugin extends Plugin {
         }catch(Exception|OutOfMemoryError error){
             String cleanup="";
             if(!committed)for(JSObject file:imported)try{removeNewImport(file);}catch(Exception failure){error.addSuppressed(failure);cleanup=" 部分本次新附件无法清理或已变化，已保留；原业务库未覆盖。";}
-            if(!cleanup.isEmpty())error=new IllegalStateException(error.getMessage()+cleanup,error);
-            rejectBackup(call,owner,error);
+            Throwable failure=cleanup.isEmpty()?error:new IllegalStateException(error.getMessage()+cleanup,error);
+            rejectBackup(call,owner,failure);
         }});
     }
     @PluginMethod public void createBackupStream(PluginCall call){

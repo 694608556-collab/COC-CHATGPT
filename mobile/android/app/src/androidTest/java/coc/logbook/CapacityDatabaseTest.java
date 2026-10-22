@@ -22,7 +22,8 @@ public final class CapacityDatabaseTest {
     @Test public void complete512MiB()throws Exception{check(512);}
     private JSONObject fixture()throws Exception{
         try(InputStream input=InstrumentationRegistry.getInstrumentation().getContext().getAssets().open("public-capacity.json")){
-            ByteArrayOutputStream output=new ByteArrayOutputStream();input.transferTo(output);return new JSONObject(output.toString("UTF-8"));
+            ByteArrayOutputStream output=new ByteArrayOutputStream();byte[] chunk=new byte[65536];int count;
+            while((count=input.read(chunk))!=-1)output.write(chunk,0,count);return new JSONObject(output.toString("UTF-8"));
         }
     }
     @Test public void completeBatchAbove64MiBAndV4Migration()throws Exception{
@@ -99,6 +100,8 @@ public final class CapacityDatabaseTest {
             try(InputStream input=new FileInputStream(candidate)){preview=RestoreCandidate.inspect(input,proof.bytes,proof.sha256,null);}
             try(LogbookDatabase db=new LogbookDatabase(context,name,true,()->free[0])){
                 assertEquals(1,restore(db,candidate,preview,0));assertTrue(db.logicalBytes()>count*1024L*1024);assertEquals(count,db.deferred().length());
+                StringWriter selected=new StringWriter();db.writeSnapshot(selected,Collections.singleton("capacity-0"));
+                assertEquals(body,new JSONObject(selected.toString()).getJSONArray("records").getJSONObject(0).getString("manualContent"));
                 String hash=recordHash(db,"capacity-0");
                 SQLiteAssertions.assertBodyUntouched(db,()->{Map<String,String> patch=new LinkedHashMap<>();patch.put("exportedAt",JSONObject.quote("2026-10-22T00:00:00Z"));db.replaceFields(patch,1);});
                 assertEquals(hash,recordHash(db,"capacity-0"));

@@ -108,7 +108,7 @@ jobs:
           script: |
             adb install app/app-debug.apk
             adb install tests/app-debug-androidTest.apk
-            adb shell am instrument -w -e class coc.logbook.CapacityDatabaseTest,coc.logbook.IndexedPressureTest coc.logbook.debug51.test/androidx.test.runner.AndroidJUnitRunner | tee native-capacity.txt
+            adb shell am instrument -w -e class coc.logbook.CapacityDatabaseTest,coc.logbook.IndexedPressureTest coc.logbook.debug52.test/androidx.test.runner.AndroidJUnitRunner | tee native-capacity.txt
             ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|Process crashed|shortMsg=' native-capacity.txt
             grep -E 'OK \([0-9]+ tests?\)' native-capacity.txt
       - uses: actions/upload-artifact@v4

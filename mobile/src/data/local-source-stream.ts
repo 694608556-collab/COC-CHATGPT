@@ -5,6 +5,8 @@ import type { StreamProof } from './backup-stream'
 
 export interface LocalStreamSource extends StreamProof {
   url: string
+  /** iOS WKURLSchemeHandler otherwise materializes the complete local file. */
+  ranged?: boolean
 }
 
 /** Proven same-origin private/registered file only. No arrayBuffer fallback:
@@ -31,40 +33,65 @@ export async function* readLocalSourceStream(
     !/^[0-9a-f]{64}$/.test(source.sha256)
   )
     throw new Error('本地文件长度或摘要证明无效。')
-  const response = await fetch(url.href, { cache: 'no-store', redirect: 'error', signal: options.signal })
-  const reader = response.body?.getReader()
-  if (!reader) throw new Error('此环境不支持分块读取本地文件，未尝试整库载入。')
   const digest = new StreamSha256()
-  let complete = false
-  try {
-    if (!response.ok) throw new Error('读取本地文件失败。')
-    const length = response.headers.get('content-length')
-    if (length !== null && (!/^\d+$/.test(length) || Number(length) !== source.bytes))
-      throw new Error('本地文件声明长度已变化。')
-    for (;;) {
-      checkStreamCancelled(options.signal)
-      const next = await reader.read()
-      checkStreamCancelled(options.signal)
-      if (next.done) break
-      if (digest.bytes + next.value.length > source.bytes) throw new Error('本地文件实际长度超过证明。')
-      for (let offset = 0; offset < next.value.length; offset += capacity.transferChunkBytes) {
+  let offset = 0
+  do {
+    checkStreamCancelled(options.signal)
+    if (source.ranged && source.bytes === 0) break
+    const expected = source.ranged
+      ? Math.min(capacity.transferChunkBytes, source.bytes - offset)
+      : source.bytes
+    const range = source.ranged ? { Range: `bytes=${offset}-${offset + expected - 1}` } : undefined
+    const response = await fetch(url.href, {
+      cache: 'no-store',
+      redirect: 'error',
+      signal: options.signal,
+      headers: range
+    })
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error('此环境不支持分块读取本地文件，未尝试整库载入。')
+    let complete = false,
+      received = 0
+    try {
+      if (!response.ok) throw new Error('读取本地文件失败。')
+      if (
+        source.ranged &&
+        (response.status !== 206 ||
+          response.headers.get('content-range') !==
+            `bytes ${offset}-${offset + expected - 1}/${source.bytes}`)
+      )
+        throw new Error('本机文件适配器未按有界片段读取，未尝试整库载入。')
+      const length = response.headers.get('content-length')
+      if (length !== null && (!/^\d+$/.test(length) || Number(length) !== expected))
+        throw new Error('本地文件声明长度已变化。')
+      for (;;) {
         checkStreamCancelled(options.signal)
-        const bytes = next.value.subarray(offset, offset + capacity.transferChunkBytes)
-        digest.update(bytes)
-        yield bytes
+        const next = await reader.read()
+        checkStreamCancelled(options.signal)
+        if (next.done) break
+        received += next.value.length
+        if (received > expected) throw new Error('本地文件实际长度超过证明。')
+        for (let start = 0; start < next.value.length; start += capacity.transferChunkBytes) {
+          checkStreamCancelled(options.signal)
+          const bytes = next.value.subarray(start, start + capacity.transferChunkBytes)
+          digest.update(bytes)
+          yield bytes
+        }
       }
-    }
-    if (digest.bytes !== source.bytes || digest.digest() !== source.sha256)
-      throw new Error('本地文件完整长度或摘要已变化。')
-    complete = true
-  } finally {
-    if (!complete) {
-      try {
-        await reader.cancel()
-      } catch {
-        /* Preserve the original validation/I/O error. */
+      if (received !== expected) throw new Error('本地文件完整长度或摘要已变化。')
+      complete = true
+      offset += received
+    } finally {
+      if (!complete) {
+        try {
+          await reader.cancel()
+        } catch {
+          /* Keep original validation/I/O failure. */
+        }
       }
+      reader.releaseLock()
     }
-    reader.releaseLock()
-  }
+  } while (source.ranged && offset < source.bytes)
+  if (digest.bytes !== source.bytes || digest.digest() !== source.sha256)
+    throw new Error('本地文件完整长度或摘要已变化。')
 }

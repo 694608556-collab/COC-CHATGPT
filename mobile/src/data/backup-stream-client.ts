@@ -27,7 +27,8 @@ function required(port: BackupStreamPort): Port {
 const local = (file: NativeBackupFile) => ({
   bytes: file.bytes,
   sha256: file.sha256,
-  url: Capacitor.convertFileSrc(file.fileUri)
+  url: Capacitor.convertFileSrc(file.fileUri),
+  ranged: Capacitor.getPlatform() === 'ios'
 })
 function mime(name: string) {
   const extension = name.split('.').pop()?.toLowerCase() ?? ''
