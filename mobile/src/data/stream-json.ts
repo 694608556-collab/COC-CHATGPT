@@ -1,8 +1,21 @@
 import { capacity } from './capacity'
 import { StreamSha256 } from './stream-sha256'
 
-const utf8 = new TextEncoder()
-export const utf8Size = (text: string) => (/[^\x00-\x7f]/.test(text) ? utf8.encode(text).length : text.length)
+/** UTF-8 accounting preserves standard surrogate/newline handling
+ * without allocating an encoded byte array for every raw token segment.
+ * @param text One raw token segment. @returns Exact UTF-8 byte length.
+ */
+export function utf8Size(text: string): number {
+  if (!/[^\x00-\x7f]/.test(text)) return text.length
+  // Add one byte for every non-ASCII unit and another for each unit >= 0x800.
+  // A surrogate pair encodes as four bytes, so remove its two extra units.
+  // Native regex/string operations avoid both per-character JS and byte arrays.
+  return (
+    text.replace(/[\x00-\x7f]/g, '').length +
+    text.replace(/[\x00-\u07ff]/g, '').length +
+    text.replace(/[\ud800-\udbff][\udc00-\udfff]/g, '').length
+  )
+}
 export function checkStreamBudget(value: number) {
   if (!Number.isSafeInteger(value) || value < 1) throw new Error('文件处理预算无效。')
 }
@@ -183,6 +196,7 @@ export class StreamJson {
    */
   private async container(out: TextValue): Promise<void> {
     const frames: Array<{ keys?: Set<string>; expectingKey: boolean; weight: number }> = []
+    const stringBoundary = /["\\]/g
     let quoted = false,
       escaped = false,
       key: TextValue | undefined,
@@ -192,13 +206,24 @@ export class StreamJson {
       const start = this.offset
       let keyStart = key ? start : -1
       while (this.offset < this.buffer.length) {
-        const at = this.offset++,
-          code = this.buffer.charCodeAt(at)
+        const at = this.offset++
+        let code = this.buffer.charCodeAt(at)
         if (quoted) {
           if (escaped) {
             escaped = false
             continue
           }
+          // Native regex scanning skips ordinary body text in one engine call.
+          // Escape state and key boundaries still carry across input chunks;
+          // JSON.parse below checks every string's complete grammar.
+          stringBoundary.lastIndex = at
+          const boundary = stringBoundary.exec(this.buffer)
+          if (!boundary) {
+            this.offset = this.buffer.length
+            break
+          }
+          this.offset = boundary.index + 1
+          code = this.buffer.charCodeAt(boundary.index)
           if (code === 92) {
             escaped = true
             continue

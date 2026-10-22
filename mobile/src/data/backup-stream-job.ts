@@ -2,11 +2,20 @@ import { readLocalSourceStream } from './local-source-stream'
 import { prepareRestoreStream } from './restore-stream'
 import { writeCanonicalBackupZipStream } from './backup-zip-stream'
 import { searchBodyStream } from './body-search-stream'
+import { searchBodyCache } from './body-search-cache'
 import type { FilterPreset } from '../../../src/shared/types'
 import type { LocalStreamSource } from './local-source-stream'
 
 export type BackupStreamJob =
-  | { type: 'search'; source: LocalStreamSource; ids: string[]; query: string; preset: FilterPreset }
+  | {
+      type: 'search'
+      source: LocalStreamSource
+      ids: string[]
+      query: string
+      preset: FilterPreset
+      cache?: { generation: string; signature: string; maximumMemoryBytes?: number }
+    }
+  | { type: 'search-cached'; generation: string; signature: string; ids: string[]; query: string }
   | { type: 'restore'; source: LocalStreamSource; format: 'json' | 'zip'; maximumStageBytes: number }
   | {
       type: 'zip'
@@ -24,6 +33,8 @@ export async function performBackupStreamJob(
   write: (key: string, chunk: Uint8Array) => Promise<void>,
   signal?: AbortSignal
 ) {
+  if (job.type === 'search-cached')
+    return searchBodyCache(job.generation, job.ids, job.signature, job.query, signal)
   const source = () => readLocalSourceStream(job.source, { maximumBytes: job.source.bytes, signal })
   if (job.type === 'search')
     return searchBodyStream(source(), {
@@ -31,7 +42,8 @@ export async function performBackupStreamJob(
       ids: job.ids,
       query: job.query,
       preset: job.preset,
-      signal
+      signal,
+      cache: job.cache
     })
   if (job.type === 'restore')
     return prepareRestoreStream(source, {

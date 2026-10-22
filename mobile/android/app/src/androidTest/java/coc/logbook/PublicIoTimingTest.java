@@ -42,7 +42,7 @@ public final class PublicIoTimingTest {
         for(int i=0;i<node.getChildCount();i++)if(selectPublicFolder(node.getChild(i)))return true;
         return false;
     }
-    private boolean containsPublicFolder(android.view.accessibility.AccessibilityNodeInfo node,String name){if(node==null)return false;if(String.valueOf(node.getText()).contains(name))return true;for(int i=0;i<node.getChildCount();i++)if(containsPublicFolder(node.getChild(i),name))return true;return false;}
+    private boolean containsPublicFolder(android.view.accessibility.AccessibilityNodeInfo node,String name){if(node==null)return false;if(String.valueOf(node.getText()).contains(name)||String.valueOf(node.getContentDescription()).contains(name))return true;for(int i=0;i<node.getChildCount();i++)if(containsPublicFolder(node.getChild(i),name))return true;return false;}
     private String asset(Context tests,String name)throws Exception{try(InputStream input=tests.getAssets().open(name);ByteArrayOutputStream output=new ByteArrayOutputStream()){byte[] buffer=new byte[65536];int count;while((count=input.read(buffer))!=-1)output.write(buffer,0,count);return output.toString("UTF-8");}}
     private String evaluate(ActivityScenario<MainActivity> scenario,String script)throws Exception{CountDownLatch done=new CountDownLatch(1);AtomicReference<String> result=new AtomicReference<>();scenario.onActivity(activity->activity.getBridge().getWebView().evaluateJavascript(script,value->{result.set(value);done.countDown();}));assertTrue("Public UI evaluation timeout",done.await(15,TimeUnit.SECONDS));return result.get();}
     private void sameJson(Object expected,Object actual)throws Exception{
@@ -100,11 +100,14 @@ public final class PublicIoTimingTest {
                 while(!"true".equals(evaluate(scenario,"!!window.Capacitor && typeof window.Capacitor.nativePromise==='function' && !!document.querySelector('.module-body-search input') && typeof PublicIoChoice !== 'undefined'"))){assertTrue("Public UI readiness timeout",System.currentTimeMillis()<deadline);Thread.sleep(100);}
                 String mode=InstrumentationRegistry.getArguments().getString("publicIoMode","baseline");assertTrue(mode.equals("baseline")||mode.equals("complete")||mode.equals("imports")||mode.equals("matrix"));
                 if(mode.equals("complete")||mode.equals("matrix")){
-                    try(android.os.ParcelFileDescriptor shell=instrumentation.getUiAutomation().executeShellCommand("mkdir /sdcard/Download/COC-PublicIO-"+id);InputStream input=new android.os.ParcelFileDescriptor.AutoCloseInputStream(shell)){while(input.read()!=-1){}}
+                    try(android.os.ParcelFileDescriptor shell=instrumentation.getUiAutomation().executeShellCommand("mkdir -p /sdcard/Download/COC-PublicIO-"+id);InputStream input=new android.os.ParcelFileDescriptor.AutoCloseInputStream(shell);ByteArrayOutputStream output=new ByteArrayOutputStream()){byte[] bytes=new byte[1024];int count;while((count=input.read(bytes))!=-1)output.write(bytes,0,count);assertEquals("Public output folder creation must succeed","",output.toString("UTF-8").trim());}
                     assertTrue(prefs.edit().putString("created-documents","[]").commit());
                     evaluate(scenario,"window.__publicArchiveResult=null;window.Capacitor.nativePromise('Logbook','selectArchive',{}).then(function(value){window.__publicArchiveResult=value;document.dispatchEvent(new Event('visibilitychange'));window.dispatchEvent(new Event('focus'));},function(error){window.__publicArchiveResult={error:String(error)}});");
                     deadline=System.currentTimeMillis()+45000;
-                    while("null".equals(evaluate(scenario,"window.__publicArchiveResult"))){android.view.accessibility.AccessibilityNodeInfo root=instrumentation.getUiAutomation().getRootInActiveWindow();if(containsPublicFolder(root,"COC-PublicIO-"+id))selectPublicFolder(root);assertTrue("Public system folder authorization timeout",System.currentTimeMillis()<deadline);Thread.sleep(250);}
+                    // AOSP DocumentsUI ellipsizes long UUID folder labels in its
+                    // breadcrumb. The unique public prefix admits the UI click;
+                    // the persisted grant below must still equal this exact UUID.
+                    while("null".equals(evaluate(scenario,"window.__publicArchiveResult"))){android.view.accessibility.AccessibilityNodeInfo root=instrumentation.getUiAutomation().getRootInActiveWindow();if(containsPublicFolder(root,"COC-PublicIO-"))selectPublicFolder(root);assertTrue("Public system folder authorization timeout",System.currentTimeMillis()<deadline);Thread.sleep(250);}
                     assertEquals(outputTree.toString(),prefs.getString("tree",""));outputGranted=true;
                     Thread.sleep(300);
                 }

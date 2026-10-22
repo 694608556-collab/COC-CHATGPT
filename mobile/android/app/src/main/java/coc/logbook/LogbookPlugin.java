@@ -535,7 +535,9 @@ public final class LogbookPlugin extends Plugin {
                 database.writeSnapshot(writer,ids);writer.write('}');
             });
             if(SnapshotBackupStream.validate(owner.file("source"))!=ids.size()||database.revision()!=revision)throw new IllegalStateException("搜索来源场次或版本已变化。");
-            JSObject result=new JSObject();result.put("id",owner.id);result.put("revision",revision);result.put("source",backupFileReply(owner,"source"));call.resolve(result);
+            android.app.ActivityManager.MemoryInfo memory=new android.app.ActivityManager.MemoryInfo();((android.app.ActivityManager)getContext().getSystemService(android.content.Context.ACTIVITY_SERVICE)).getMemoryInfo(memory);
+            long cacheMemory=memory.lowMemory?0:Math.max(0,Math.min(memory.availMem/8,Runtime.getRuntime().maxMemory()/4));
+            JSObject result=new JSObject();result.put("id",owner.id);result.put("revision",revision);result.put("source",backupFileReply(owner,"source"));result.put("cacheMemoryBytes",cacheMemory);call.resolve(result);
         }catch(Exception|OutOfMemoryError error){rejectBackup(call,owner,error);}});
     }
     @PluginMethod public void createBackupStream(PluginCall call){

@@ -8,19 +8,32 @@ import org.json.*;
  * all validated fields exactly. Bodies are validated one record at a time.
  */
 final class BackupValidation {
+    private static final java.util.concurrent.ConcurrentMap<String,String[]> FIELD_LISTS=new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.concurrent.ConcurrentMap<String,java.util.concurrent.ConcurrentMap<String,Set<String>>> SHAPES=new java.util.concurrent.ConcurrentHashMap<>();
+    /** Definitions are internal constants. Reuse their immutable fields across messages. */
+    private static String[] fields(String names){
+        String[] found=FIELD_LISTS.get(names);if(found!=null)return found;
+        String[] created=names.split(",");String[] prior=FIELD_LISTS.putIfAbsent(names,created);return prior==null?created:prior;
+    }
+    private static Set<String> allowed(String required,String optional){
+        java.util.concurrent.ConcurrentMap<String,Set<String>> variants=SHAPES.get(required);
+        if(variants==null){java.util.concurrent.ConcurrentMap<String,Set<String>> created=new java.util.concurrent.ConcurrentHashMap<>();java.util.concurrent.ConcurrentMap<String,Set<String>> prior=SHAPES.putIfAbsent(required,created);variants=prior==null?created:prior;}
+        Set<String> found=variants.get(optional);if(found!=null)return found;
+        Set<String> created=new HashSet<>(Arrays.asList(fields(required)));created.addAll(Arrays.asList(fields(optional)));created.remove("");
+        created=Collections.unmodifiableSet(created);Set<String> prior=variants.putIfAbsent(optional,created);return prior==null?created:prior;
+    }
     private static void fail() { throw new IllegalArgumentException("备份字段不完整或类型不合法。"); }
     static void shape(JSONObject value, String required, String optional) throws Exception {
-        Set<String> allowed = new HashSet<>(Arrays.asList((required + "," + optional).split(",")));
-        allowed.remove("");
+        Set<String> allowed = allowed(required,optional);
         Iterator<String> keys = value.keys();
         while (keys.hasNext()) if (!allowed.contains(keys.next())) fail();
-        for (String key : required.split(",")) if (!key.isEmpty() && !value.has(key)) fail();
+        for (String key : fields(required)) if (!key.isEmpty() && !value.has(key)) fail();
     }
     private static void text(JSONObject value, String fields) throws Exception {
-        for (String key : fields.split(",")) if (value.has(key) && !(value.get(key) instanceof String)) fail();
+        for (String key : fields(fields)) if (value.has(key) && !(value.get(key) instanceof String)) fail();
     }
     private static void numbers(JSONObject value, String fields) throws Exception {
-        for (String key : fields.split(",")) if (value.has(key) && !number(value.get(key))) fail();
+        for (String key : fields(fields)) if (value.has(key) && !number(value.get(key))) fail();
     }
     private static boolean number(Object value) { return value instanceof Number && Double.isFinite(((Number)value).doubleValue()); }
     private static void choice(JSONObject value, String field, String... allowed) throws Exception {

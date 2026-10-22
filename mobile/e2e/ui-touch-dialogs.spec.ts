@@ -16,6 +16,13 @@ test('恢复原控件尺寸且不覆盖正文，新增与多选工具栏切换�
   await ready(page)
   await expandModules(page)
   const group = page.locator('.module-group').filter({ hasText: '雾港调查' })
+  await expect(group.getByRole('button', { name: '清空模组正文搜索', exact: true })).toHaveCount(0)
+  const search = group.getByRole('searchbox')
+  await search.fill('公开')
+  const magnifier = (await group.getByRole('button', { name: '搜索模组正文', exact: true }).boundingBox())!
+  expect(magnifier.width).toBe(30)
+  expect(magnifier.height).toBeGreaterThanOrEqual(30)
+  await search.press('Enter')
   for (const [target, width, minHeight] of [
     [page.getByRole('button', { name: '返回上一页', exact: true }), 44, 44],
     [group.locator('.drag-handle').first(), 30, 44],
@@ -25,6 +32,7 @@ test('恢复原控件尺寸且不覆盖正文，新增与多选工具栏切换�
     expect(box.width).toBe(width)
     expect(box.height).toBeGreaterThanOrEqual(minHeight)
   }
+  await group.getByRole('button', { name: '清空模组正文搜索', exact: true }).click()
   const row = group.locator('.record-list .gesture-row').first()
   const text = (await row.locator('.record-card').boundingBox())!
   const handle = (await row.locator('.drag-handle').boundingBox())!
