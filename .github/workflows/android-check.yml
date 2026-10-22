@@ -47,6 +47,11 @@ jobs:
         run: |
           curl -fsSL --retry 3 https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar -o "$RUNNER_TEMP/coc-org-json.jar"
           JSON_JAR="$RUNNER_TEMP/coc-org-json.jar" node scripts/check-native.mjs
+      - name: Generate complete public native capacity fixture
+        run: |
+          node scripts/ios-native-fixture.mjs
+          mkdir -p android/app/src/androidTest/assets
+          cp ios/build/native-sample.json android/app/src/androidTest/assets/public-capacity.json
       - run: pnpm exec cap sync android
       - run: chmod +x android/gradlew && cd android && ./gradlew :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest --no-daemon --console=plain
       - name: Prepare unsigned release for local signing
@@ -70,3 +75,45 @@ jobs:
           name: coc-logbook-unsigned-release-for-local-signing
           path: mobile/android/app/build/outputs/local-signing/*
           retention-days: 7
+
+  native-capacity:
+    needs: mobile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: coc-logbook-debug-apk
+          path: app
+      - uses: actions/download-artifact@v4
+        with:
+          name: coc-logbook-native-instrumentation-tests
+          path: tests
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run actual Android SQLite capacity and transaction tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          arch: x86_64
+          target: default
+          disk-size: 12G
+          heap-size: 256M
+          ram-size: 2048M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -partition-size 12288
+          script: |
+            adb install app/app-debug.apk
+            adb install tests/app-debug-androidTest.apk
+            adb shell am instrument -w -e class coc.logbook.CapacityDatabaseTest,coc.logbook.IndexedPressureTest coc.logbook.debug51.test/androidx.test.runner.AndroidJUnitRunner | tee native-capacity.txt
+            ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|Process crashed|shortMsg=' native-capacity.txt
+            grep -E 'OK \([0-9]+ tests?\)' native-capacity.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-public-native-capacity-evidence
+          path: native-capacity.txt
+          if-no-files-found: ignore
