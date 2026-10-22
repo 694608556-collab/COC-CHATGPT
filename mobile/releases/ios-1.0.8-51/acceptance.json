@@ -1,0 +1,112 @@
+{
+  "sourceCommit": "33e9f2843a27b870d23aa927389b7326417ceae5",
+  "workflowRun": 39760569182,
+  "workflowUrl": "https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39760569182",
+  "workflowConclusion": "success",
+  "coldStarts": 3,
+  "systemUITests": 7,
+  "environment": {
+    "device": "iPhone 14 Pro cloud simulator",
+    "runtime": "27.0",
+    "physicalPhone": false
+  },
+  "logSummary": {
+    "cloudUnitTests": 171,
+    "nativeCoreChecks": 390,
+    "nativeCoreEnvironment": "macOS test folders and SQLite; no phone/system picker",
+    "nativeLibraryBodyMiB": [
+      96,
+      192,
+      512
+    ],
+    "singleBodyBytes": 68157462,
+    "singleBodyChunkBytes": 262144,
+    "singleBodyMigrationRollback": true,
+    "singleBodyFullContent": true,
+    "singleBodyRestoreRollback": true,
+    "nativeTableCandidateMiB": 65,
+    "nativeTableMetadataMiB": 65,
+    "nativeTableEntities": 50001,
+    "physicalPhone": false
+  },
+  "wkWebViewScale": {
+    "campaigns": 50,
+    "manual": 50,
+    "online": 1000,
+    "passed": true,
+    "profileManualReadbacks": 1,
+    "scrollEdgeEffectsHidden": true,
+    "counts": {
+      "commits": 4,
+      "failed": 178,
+      "fetch": 3020,
+      "staged": 3020,
+      "wholeReads": 0
+    },
+    "injectedFailedFetches": 178,
+    "injectedFailuresMeaning": "intentional public 503 responses; old bodies must survive; not test failures"
+  },
+  "wkWebViewCapacity": {
+    "automaticBytes": 100702109,
+    "jsonBytes": 100702109,
+    "largestRange": 262144,
+    "logicalBytes": 100701949,
+    "moduleBridgeBytes": 2097170,
+    "nativeSQLite": true,
+    "packagedWorker": true,
+    "passed": true,
+    "physicalPhone": false,
+    "rangedRequests": 390,
+    "rangeProbeBytes": 100702109,
+    "records": 96,
+    "recordsAfterTable": 301,
+    "revision": 2,
+    "scrollEdgeEffectsHidden": true,
+    "searchHits": 96,
+    "tableAdded": 205,
+    "tableRangeBytes": 1066131,
+    "tableRevision": 3,
+    "tableSourceBytes": 1066131,
+    "zipBytes": 100702425
+  },
+  "sharedCloud": {
+    "jsonAndZipLibraryBodyMiB": [
+      96,
+      192,
+      512
+    ],
+    "xlsxBodyMiB": 512,
+    "singleCompleteBodyMiB": 70,
+    "nativeCASOrPhoneAcceptance": false
+  },
+  "completeBrowserTestsReportedInHandoff": 136,
+  "browserTestsRerunAtHome": false,
+  "package": {
+    "webAssetsMatch": 7,
+    "originalFontsMatch": 8,
+    "arm64Unsigned": true,
+    "sha256": "1ddf3e9c18eae9389c4ef342ea3b4fa51aa53c88edee4d06df76404fe2176aa3"
+  },
+  "fixedContentQuotas": "removed including single-record 64MiB; actual capacity depends on runtime memory, storage and temporary space",
+  "physicalPhoneAcceptance": "pending; no install, launch or production data operation at home",
+  "enterpriseSignedExternalDirectoryIssue": "deferred by user, unresolved; preserve existing ESign configuration",
+  "systemUI": {
+    "testCount": 7,
+    "groups": 3,
+    "failures": 0,
+    "tests": [
+      "testCoc7ImportPickerCancelSaveAndRestart",
+      "testExplicitLocalFolderReturnsAndSurvivesRestart",
+      "testFolderOpenReturnsAndSurvivesRestart",
+      "testPublicNameCandidatesSecondLaunchWithNativeKeyboard",
+      "testPublicNameCandidatesThirdLaunchWithNativeKeyboard",
+      "testPublicNameCandidatesWithNativeKeyboard",
+      "testPublicNameCandidateRepeatedSwitchFocusAndKeyboard"
+    ],
+    "nativeKeyboardRepeatedLaunchAndFocusStress": true
+  },
+  "evidenceArtifacts": {
+    "startup": 12420171651,
+    "pickerSystemUI": 12419533564
+  }
+}
