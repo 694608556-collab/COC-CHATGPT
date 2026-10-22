@@ -3,7 +3,56 @@ import { createHash } from 'node:crypto'
 import { performBackupStreamJob } from './backup-stream-job'
 import { exampleBackup } from './fixtures'
 import { previewBackup } from './backup'
+import { StreamSha256 } from './stream-sha256'
 afterEach(() => vi.unstubAllGlobals())
+
+it('普通搜索对同一份完整输入只做一次来源摘要，正文结构和命中仍完整验证', async () => {
+  const bytes = new TextEncoder().encode(JSON.stringify(exampleBackup()))
+  const preset = (await previewBackup(bytes)).snapshot.settings.filterPreset
+  vi.stubGlobal('location', new URL('https://localhost/'))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(bytes.slice().buffer))
+  )
+  const update = StreamSha256.prototype.update
+  let hashedBytes = 0
+  const streamed = vi.spyOn(StreamSha256.prototype, 'update').mockImplementation(function (
+    this: StreamSha256,
+    chunk
+  ) {
+    hashedBytes += chunk.length
+    return update.call(this, chunk)
+  })
+  const digest = crypto.subtle.digest.bind(crypto.subtle)
+  const native = vi.spyOn(crypto.subtle, 'digest').mockImplementation(async (algorithm, input) => {
+    hashedBytes += input.byteLength
+    return digest(algorithm, input)
+  })
+  try {
+    const result = await performBackupStreamJob(
+      {
+        type: 'search',
+        source: {
+          url: 'https://localhost/_capacitor_file_/public',
+          bytes: bytes.length,
+          sha256: createHash('sha256').update(bytes).digest('hex')
+        },
+        maximumReadBytes: bytes.length,
+        ids: ['r1'],
+        query: '离线',
+        preset
+      },
+      async () => {
+        throw Error('Read-only search')
+      }
+    )
+    expect(result).toMatchObject({ records: 1, hits: [{ id: 'r1' }] })
+    expect(hashedBytes).toBe(bytes.length)
+  } finally {
+    streamed.mockRestore()
+    native.mockRestore()
+  }
+})
 
 it('资源预算允许时使用旧版快速读取，同时保留严格JSON和完整SHA校验；超预算继续分块搜索', async () => {
   const bytes = new TextEncoder().encode(JSON.stringify(exampleBackup()))

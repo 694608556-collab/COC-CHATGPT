@@ -1,5 +1,6 @@
 import { capacity } from './capacity'
 import { StreamSha256 } from './stream-sha256'
+import { claimVerifiedLocalProof } from './verified-local-source'
 
 /** UTF-8 accounting preserves standard surrogate/newline handling
  * without allocating an encoded byte array for every raw token segment.
@@ -59,6 +60,8 @@ export class StreamJson {
   private iterator: AsyncIterator<Uint8Array>
   private decoder = new TextDecoder('utf-8', { fatal: true })
   private digest = new StreamSha256()
+  private inputBytes = 0
+  private verifiedProof?: { bytes: number; sha256: string }
   private buffer = ''
   private offset = 0
   private ended = false
@@ -76,6 +79,7 @@ export class StreamJson {
     // needs a second UTF-8 accounting pass.
     this.valueLimit = valueBytes < maximumBytes ? valueBytes : undefined
     this.iterator = source[Symbol.asyncIterator]()
+    this.verifiedProof = claimVerifiedLocalProof(source)
   }
   private async fill(): Promise<boolean> {
     checkStreamCancelled(this.signal)
@@ -88,9 +92,9 @@ export class StreamJson {
         break
       }
       if (next.value.length > capacity.transferChunkBytes) throw new Error('输入分段超过处理上限。')
-      if (this.digest.bytes + next.value.length > this.maximumBytes)
-        throw new Error('文件超过本次可用处理空间。')
-      this.digest.update(next.value)
+      this.inputBytes = addStreamBytes(this.inputBytes, next.value.length)
+      if (this.inputBytes > this.maximumBytes) throw new Error('文件超过本次可用处理空间。')
+      if (!this.verifiedProof) this.digest.update(next.value)
       this.buffer = this.decoder.decode(next.value, { stream: true })
     }
     return this.offset < this.buffer.length
@@ -313,6 +317,10 @@ export class StreamJson {
   async finish() {
     await this.whitespace()
     if (await this.peek()) throw new Error('JSON 尾部包含多余内容。')
+    if (this.verifiedProof) {
+      if (this.inputBytes !== this.verifiedProof.bytes) throw new Error('完整来源长度不符。')
+      return { bytes: this.inputBytes, sha256: this.verifiedProof.sha256 }
+    }
     return { bytes: this.digest.bytes, sha256: this.digest.digest() }
   }
   async close() {
