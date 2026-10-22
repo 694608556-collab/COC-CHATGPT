@@ -1,0 +1,395 @@
+{
+  "fixture": "fictional 78 records x 650 messages, approximately 22.26MB source; 682849-byte XLSX card; table 114 links plus one manual row",
+  "clock": "application end-to-end elapsed milliseconds; excludes human picker dwell; includes actual Workers, SQLite, copies and readback",
+  "android": {
+    "sourceCommit": "49b184620a8361621c6e7defdf90a0efe0de4fc0",
+    "physicalPhone": true,
+    "device": "Samsung S9 SM-G9600",
+    "androidApi": 28,
+    "webView": "78.0.3904.108",
+    "results": [
+      {
+        "operation": "module-search-0",
+        "totalMs": 3271.8000000022585
+      },
+      {
+        "operation": "module-search-1",
+        "totalMs": 240.39999999513384
+      },
+      {
+        "operation": "module-search-2",
+        "totalMs": 287.400000001071
+      },
+      {
+        "operation": "character-import-back-cancel-with-delayed-stage",
+        "totalMs": 3165.3000000005704
+      },
+      {
+        "operation": "character-import-xlsx-0",
+        "totalMs": 1576.9000000000233
+      },
+      {
+        "operation": "character-import-xlsx-1",
+        "totalMs": 1483.5999999995693
+      },
+      {
+        "operation": "character-import-xlsx-2",
+        "totalMs": 1522.3999999943771
+      },
+      {
+        "operation": "character-import-xls-explicit-rejection-0",
+        "totalMs": 715.7999999981257
+      },
+      {
+        "operation": "character-import-xls-explicit-rejection-1",
+        "totalMs": 769.5999999996275
+      },
+      {
+        "operation": "character-import-xls-explicit-rejection-2",
+        "totalMs": 801.6999999963446
+      },
+      {
+        "operation": "record-table-import-preview-csv",
+        "totalMs": 1516.4000000004307
+      },
+      {
+        "operation": "record-table-import-commit-csv",
+        "totalMs": 445.09999999718275
+      },
+      {
+        "operation": "record-table-import-preview-xlsx",
+        "totalMs": 1746.2999999988824
+      },
+      {
+        "operation": "record-table-import-commit-xlsx",
+        "totalMs": 394.5000000021537
+      },
+      {
+        "operation": "record-table-import-preview-xls",
+        "totalMs": 1573.6999999935506
+      },
+      {
+        "operation": "record-table-import-commit-xls",
+        "totalMs": 379.89999999990687
+      },
+      {
+        "operation": "record-table-export-csv",
+        "totalMs": 488.1999999997788
+      },
+      {
+        "operation": "record-table-export-xlsx",
+        "totalMs": 290.10000000562286
+      },
+      {
+        "operation": "blank-template-csv",
+        "totalMs": 108.79999999451684
+      },
+      {
+        "operation": "blank-template-xlsx",
+        "totalMs": 142.2999999995227
+      },
+      {
+        "operation": "backup-export-json",
+        "totalMs": 5167.099999998754
+      },
+      {
+        "operation": "backup-export-zip-with-attachments",
+        "totalMs": 22031.899999994494
+      },
+      {
+        "operation": "backup-import-preview-json",
+        "totalMs": 22755.4999999993
+      },
+      {
+        "operation": "backup-import-commit-json",
+        "totalMs": 9377.500000002328
+      },
+      {
+        "operation": "backup-import-preview-zip",
+        "totalMs": 38242.79999999999
+      },
+      {
+        "operation": "backup-import-commit-zip",
+        "totalMs": 9265.200000001641
+      },
+      {
+        "operation": "automatic-backup-json",
+        "totalMs": 5325.700000001234
+      },
+      {
+        "operation": "reader-submitted-search",
+        "totalMs": 341.6999999972177
+      },
+      {
+        "operation": "single-export-原始 JSON",
+        "totalMs": 881.0999999986961
+      },
+      {
+        "operation": "single-export-TXT",
+        "totalMs": 319.100000000617
+      },
+      {
+        "operation": "single-export-带图 DOC",
+        "totalMs": 432.0000000006985
+      },
+      {
+        "operation": "single-export-纯对话 DOC",
+        "totalMs": 395.40000000124564
+      },
+      {
+        "operation": "single-export-DOCX",
+        "totalMs": 701.6999999977998
+      },
+      {
+        "operation": "single-export-PDF",
+        "totalMs": 1586.4999999976135
+      },
+      {
+        "operation": "batch-export-原始 JSON",
+        "totalMs": 1034.6999999965192
+      },
+      {
+        "operation": "batch-export-TXT",
+        "totalMs": 751.2999999962631
+      },
+      {
+        "operation": "batch-export-带图 DOC",
+        "totalMs": 1000
+      },
+      {
+        "operation": "batch-export-纯对话 DOC",
+        "totalMs": 873.5999999989872
+      },
+      {
+        "operation": "batch-export-DOCX",
+        "totalMs": 913.300000000163
+      },
+      {
+        "operation": "batch-export-PDF",
+        "totalMs": 2682.8999999997905
+      },
+      {
+        "operation": "combined-export-原始 JSON",
+        "totalMs": 1037.899999995716
+      },
+      {
+        "operation": "combined-export-TXT",
+        "totalMs": 786.999999996624
+      },
+      {
+        "operation": "combined-export-带图 DOC",
+        "totalMs": 696.6000000029453
+      },
+      {
+        "operation": "combined-export-纯对话 DOC",
+        "totalMs": 702.6000000041677
+      },
+      {
+        "operation": "combined-export-DOCX",
+        "totalMs": 545.4000000027008
+      },
+      {
+        "operation": "combined-export-PDF",
+        "totalMs": 2239.399999998568
+      }
+    ]
+  },
+  "ios": {
+    "sourceCommit": "6468332f5acebfa122662bdaf9208f4df051bfec",
+    "physicalPhone": false,
+    "environment": "fresh cloud iOS simulator WKWebView, deterministic picker; not iPhone timings",
+    "workflowRun": 39839362521,
+    "results": [
+      {
+        "operation": "module-search-0",
+        "totalMs": 7019
+      },
+      {
+        "operation": "module-search-1",
+        "totalMs": 3072
+      },
+      {
+        "operation": "module-search-2",
+        "totalMs": 1920
+      },
+      {
+        "operation": "character-import-back-cancel-with-delayed-stage",
+        "totalMs": 2422
+      },
+      {
+        "operation": "character-import-xlsx-0",
+        "totalMs": 543
+      },
+      {
+        "operation": "character-import-xlsx-1",
+        "totalMs": 485
+      },
+      {
+        "operation": "character-import-xlsx-2",
+        "totalMs": 628
+      },
+      {
+        "operation": "character-import-xls-explicit-rejection-0",
+        "totalMs": 193
+      },
+      {
+        "operation": "character-import-xls-explicit-rejection-1",
+        "totalMs": 148
+      },
+      {
+        "operation": "character-import-xls-explicit-rejection-2",
+        "totalMs": 154
+      },
+      {
+        "operation": "record-table-import-preview-csv",
+        "totalMs": 522
+      },
+      {
+        "operation": "record-table-import-commit-csv",
+        "totalMs": 2306
+      },
+      {
+        "operation": "record-table-import-preview-xlsx",
+        "totalMs": 3570
+      },
+      {
+        "operation": "record-table-import-commit-xlsx",
+        "totalMs": 811
+      },
+      {
+        "operation": "record-table-import-preview-xls",
+        "totalMs": 2245
+      },
+      {
+        "operation": "record-table-import-commit-xls",
+        "totalMs": 585
+      },
+      {
+        "operation": "record-table-export-csv",
+        "totalMs": 198
+      },
+      {
+        "operation": "record-table-export-xlsx",
+        "totalMs": 46
+      },
+      {
+        "operation": "blank-template-csv",
+        "totalMs": 30
+      },
+      {
+        "operation": "blank-template-xlsx",
+        "totalMs": 60
+      },
+      {
+        "operation": "backup-export-json",
+        "totalMs": 12295
+      },
+      {
+        "operation": "backup-export-zip-with-attachments",
+        "totalMs": 17475
+      },
+      {
+        "operation": "backup-import-preview-json",
+        "totalMs": 14447
+      },
+      {
+        "operation": "backup-import-commit-json",
+        "totalMs": 20002
+      },
+      {
+        "operation": "backup-import-preview-zip",
+        "totalMs": 35349
+      },
+      {
+        "operation": "backup-import-commit-zip",
+        "totalMs": 12111
+      },
+      {
+        "operation": "automatic-backup-json",
+        "totalMs": 43901
+      },
+      {
+        "operation": "reader-submitted-search",
+        "totalMs": 104
+      },
+      {
+        "operation": "single-export-原始 JSON",
+        "totalMs": 607
+      },
+      {
+        "operation": "single-export-TXT",
+        "totalMs": 97
+      },
+      {
+        "operation": "single-export-带图 DOC",
+        "totalMs": 96
+      },
+      {
+        "operation": "single-export-纯对话 DOC",
+        "totalMs": 95
+      },
+      {
+        "operation": "single-export-DOCX",
+        "totalMs": 168
+      },
+      {
+        "operation": "single-export-PDF",
+        "totalMs": 21875
+      },
+      {
+        "operation": "batch-export-原始 JSON",
+        "totalMs": 216
+      },
+      {
+        "operation": "batch-export-TXT",
+        "totalMs": 131
+      },
+      {
+        "operation": "batch-export-带图 DOC",
+        "totalMs": 141
+      },
+      {
+        "operation": "batch-export-纯对话 DOC",
+        "totalMs": 161
+      },
+      {
+        "operation": "batch-export-DOCX",
+        "totalMs": 140
+      },
+      {
+        "operation": "batch-export-PDF",
+        "totalMs": 43472
+      },
+      {
+        "operation": "combined-export-原始 JSON",
+        "totalMs": 214
+      },
+      {
+        "operation": "combined-export-TXT",
+        "totalMs": 107
+      },
+      {
+        "operation": "combined-export-带图 DOC",
+        "totalMs": 130
+      },
+      {
+        "operation": "combined-export-纯对话 DOC",
+        "totalMs": 126
+      },
+      {
+        "operation": "combined-export-DOCX",
+        "totalMs": 125
+      },
+      {
+        "operation": "combined-export-PDF",
+        "totalMs": 54604
+      }
+    ]
+  },
+  "interpretation": [
+    "Card import ends at fully populated editable draft, then cancels without write; not save timing.",
+    "Old BIFF XLS card is explicit unsupported-format rejection, not successful import.",
+    "Delayed cancellation deliberately injects 1500ms and is not normal import timing.",
+    "Full main workflow I/O, not the earlier additional diagnostic run, supplies the iOS column."
+  ]
+}

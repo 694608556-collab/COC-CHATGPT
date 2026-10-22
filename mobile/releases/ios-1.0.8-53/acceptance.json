@@ -1,0 +1,38 @@
+{
+  "sourceCommit": "6468332f5acebfa122662bdaf9208f4df051bfec",
+  "packageSha256": "4aeff5042057b05936f0d3ef588ae0bc10accdc605a0e2d2e682b3940fd00cec",
+  "unitTests": 224,
+  "browserTests": 144,
+  "nativePhoneTests": null,
+  "workflowRun": 39839362521,
+  "cloudAndroidOmittedByUser": false,
+  "coldStarts": 3,
+  "systemUITests": [
+    "testCoc7ImportPickerCancelSaveAndRestart",
+    "testExplicitLocalFolderReturnsAndSurvivesRestart",
+    "testFolderOpenReturnsAndSurvivesRestart",
+    "testPublicNameCandidatesSecondLaunchWithNativeKeyboard",
+    "testPublicNameCandidatesThirdLaunchWithNativeKeyboard",
+    "testPublicNameCandidatesWithNativeKeyboard",
+    "testPublicNameCandidateRepeatedSwitchFocusAndKeyboard"
+  ],
+  "independentOutputProofs": 31,
+  "completeOriginalBodiesVerified": 78,
+  "fullTimingOperations": 46,
+  "sourceType": "fictional public data only",
+  "physicalPhone": false,
+  "productionInstalledWithoutLaunch": false,
+  "privateInputsAndRawLogsNotPublished": true,
+  "sharedScaleMiB": [
+    96,
+    192,
+    512
+  ],
+  "sharedSingleRecordMiB": 70,
+  "dataIntegrity": "full bodies, graph, authorization, CAS, rollback and automatic backups preserved; no fixed content quota",
+  "macOSNativeCoreChecks": 398,
+  "sharedSingleRecordScope": "Desktop host full CSV, ZIP64, restore candidate and edit-upload proofs; not a 70MiB physical-phone restore commit",
+  "androidSingle68MiBScope": null,
+  "physicalIPhoneTested": false,
+  "productionUpgradeLaunchTested": false
+}

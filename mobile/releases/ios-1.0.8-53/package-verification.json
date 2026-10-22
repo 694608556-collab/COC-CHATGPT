@@ -1,0 +1,41 @@
+{
+  "file": "coc-logbook-1.0.8-53-search-6468332-ios-arm64-unsigned.ipa",
+  "bytes": 26224658,
+  "sha256": "4aeff5042057b05936f0d3ef588ae0bc10accdc605a0e2d2e682b3940fd00cec",
+  "sourceCommit": "6468332f5acebfa122662bdaf9208f4df051bfec",
+  "workflowRun": 39839362521,
+  "artifactId": 12453671185,
+  "version": "1.0.8",
+  "build": 53,
+  "applicationId": "coc.logbook",
+  "physicalPhoneAcceptance": "No physical iPhone acceptance; complete native and simulator workflow only",
+  "fixedContentQuota": "removed; capacity depends on available runtime memory, storage and temporary space",
+  "webAssets": {
+    "app.js": "1f732cc6d07c433772b88c0bcd16d0ea05e663b1b633280c1c78779248e6f92b",
+    "app.css": "2078d93a95c8364fc833d4f2c155d9f61056ff2d2ce9ff1319836843ba8d3167",
+    "index.html": "9014e503177333b218f7965bf04dbed84a16c20a150bac53c53b3726d1b23f9d",
+    "snapshot-worker.js": "433686a012ac1361e79694158dafa3c4cb63ee910602d3cc234439167b14f2ed",
+    "export-worker.js": "17545407e52ee96d66f3b51d9dca3f763e8eafde00ab5b4283e776503eb29552",
+    "backup-stream-worker.js": "098ef111619135ee7e8a46165b01644d7b1413781cd91d77335f4854385b6aec",
+    "table-stream-worker.js": "b42c500a2402eb21955a4e80abc5f644c1ab77f6489a340400521fb94c1309a3"
+  },
+  "webAssetCount": 7,
+  "originalFonts": {
+    "PingFangSC-Bold.ttf": "96ec2276d8e77453e0e44f1e9633ee513396f2eeabb3d330f9e9306343b25fd9",
+    "SF-Pro-Text-Semibold.otf": "874d3cf27683cd5f039c4e271642aa1feb2a550a02d17ef6807d6d9caeb74a2b",
+    "PingFangSC-Regular.ttf": "26b017dfb34a8aa0059f47eda6f90d7ffd19a24912dc1129abc24867a1385353",
+    "SF-Pro-Display-Semibold.otf": "53a55ec7e0a90c0e1980b9d95e3cb93851b4e473b575693813a1b150066661ff",
+    "SF-Pro-Text-Regular.otf": "86189a6307187a6943add3596432f72a7cb914fa1c77697736292f5e4d8ea6d8",
+    "SF-Pro-Text-Medium.otf": "5d076c6ce94f8883e9cd33aec39c12222ed7b693b4a9624fe41c411ff2e41818",
+    "SF-Pro-Display-Regular.otf": "71a2162c852e87baa6440c983e406283391646778c8bc74e57b00613a3412f80",
+    "PingFangSC-Medium.ttf": "ddf051a97717d35e90d297eab1fbb75bab48120983586cf2a70be9fd3dfad2c8"
+  },
+  "fontCount": 8,
+  "privateKeysDatabasesSourceMapsAbsent": true,
+  "zipIntegrity": true,
+  "architecture": "arm64",
+  "signing": "unsigned; preserve user existing ESign certificate and application identifier",
+  "noMachOCodeSignature": true,
+  "noAppleProfileOrSignatureFiles": true,
+  "xcode": "Xcode 27.1\nBuild version 27A9275"
+}
