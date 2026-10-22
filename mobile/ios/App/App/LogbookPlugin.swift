@@ -460,13 +460,13 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
     }
     @objc func commitSettings(_ call: CAPPluginCall) {
         mutate(call) { data in
-            guard let settings = call.getObject("settings"), try logbookData(settings).count <= 16384 else { throw LogbookFailure("设置缺失或过大。") }
+            guard let settings = call.getObject("settings") else { throw LogbookFailure("设置缺失。") }
             try LogbookValidation.settings(settings); data["settings"] = settings
         }
     }
     @objc func commitModule(_ call: CAPPluginCall) {
         mutate(call) { data in
-            guard let value = call.getObject("value"), try logbookData(value).count <= 1024 * 1024 else { throw LogbookFailure("模组数据缺失或过大。") }
+            guard let value = call.getObject("value") else { throw LogbookFailure("模组数据缺失。") }
             try LogbookMutations.module(value, data: &data)
         }
     }

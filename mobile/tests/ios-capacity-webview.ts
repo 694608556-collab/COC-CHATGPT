@@ -225,6 +225,21 @@ window.__cocSmokeTask = (async () => {
       )
     }
     check(rangedRequests > 300 && largestRange <= 262144, 'WK native range path not exercised')
+    setStage('native-large-module-bridge')
+    const originalModule = tableData.modules[0]
+    const largeModuleName = 'PUBLIC_MODULE_' + 'M'.repeat(2 * 1024 * 1024) + '_END'
+    const largeModule = await Native.commitModule({
+      value: { ...originalModule, name: largeModuleName },
+      expectedRevision: tableSaved.revision
+    })
+    const moduleOverview = await Native.getOverview!()
+    check(
+      moduleOverview.revision === largeModule.revision &&
+        JSON.parse(moduleOverview.json!).modules.find((item: { id: string }) => item.id === originalModule.id)
+          .name === largeModuleName,
+      'Native module bridge truncated or rejected a valid module above1MiB'
+    )
+    await Native.commitModule({ value: originalModule, expectedRevision: largeModule.revision })
     return {
       passed: true,
       stage: 'complete',
@@ -243,6 +258,7 @@ window.__cocSmokeTask = (async () => {
       tableRangeBytes,
       tableRevision: tableSaved.revision,
       recordsAfterTable: tableData.records.length,
+      moduleBridgeBytes: largeModuleName.length,
       nativeSQLite: true,
       packagedWorker: true,
       physicalPhone: false

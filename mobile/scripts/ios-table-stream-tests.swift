@@ -93,7 +93,7 @@ extension IOSNativeChecks {
         // resource-bound too, rather than inheriting SQLite's cell length cap.
         print("CHUNK_STAGE large metadata root and corruption rejection")
         var modules = metadata["modules"] as! [LogbookJSON]; modules[0]["name"] = large; metadata["modules"] = modules
-        _ = try reopened.mutate(expected: 3) { $0["modules"] = modules }
+        _ = try reopened.mutate(expected: 3) { try LogbookMutations.module(modules[0], data: &$0) }
         let final = try LogbookStore(url: database, available: { free })
         try require(try (final.metadata()!["modules"] as! [LogbookJSON])[0]["name"] as? String == large && final.rows("SELECT length(json) FROM state")[0][0] == String("@chunks:state".utf8.count), "large metadata root uses bounded cells and reopens intact")
         try final.execute("BEGIN"); try final.execute("DELETE FROM value_manifests WHERE key=?", ["body:" + id])
