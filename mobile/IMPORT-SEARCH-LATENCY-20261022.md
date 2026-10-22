@@ -1,3 +1,15 @@
+## 2026-10-22 最新：双端导入/正文搜索回退修复包APK54、IPA52已核验交付
+
+android构建源码`63dabaefbfcb6148148a1b16dcefe0a017e7ad99`，[完整CI 39772912157](https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39772912157)全部成功；204单元和131完整本地Edge浏览器测试通过。包位于对应平台分支`mobile/releases/1.0.8-54/coc-logbook-1.0.8-54-latency-63dabae.apk`，32,834,033字节，SHA-256 `5853b00d85541340781fba183f7d771b7c203d3033f9d8deb39fef818c629747`。
+
+ios构建源码`6a84beaab3cbc423e0c8b0cb95d76dd1f6cfc01e`，[完整CI 39772894877](https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39772894877)全部成功；198单元和136完整本地Edge浏览器测试通过。包位于对应平台分支`mobile/releases/ios-1.0.8-52/coc-logbook-1.0.8-52-latency-6a84bea-ios-arm64-unsigned.ipa`，26,214,421字节，SHA-256 `055c1ab1053bca4f0ceb8951fa4bd53ff3828a013d442501853ba9a7918d3721`。
+
+减少小XLSX逐项串行原生读取、正文JSON逐字段Promise和即时操作等待提示；详见[回退修复证据](IMPORT-SEARCH-LATENCY-20261022.md)。7份网页/Worker、8份字体、身份、完整摘要以及APK原签名/IPA arm64未签名核验通过。云端共享512MiB正文XLSX、70MiB单场全链和各平台原生容量/回滚验收通过。手机实际耗时尚未复验，不把宿主或模拟器结果写成实机恢复。
+
+整库、单场、Excel/CSV与附件固定配额（包括单场64MiB）不能恢复，实际资源检查、完整正文/关联/授权/CAS/事务回滚/自动备份继续保留。原工作区、保护引用和历史安装包有意删除状态保持；Android手势关闭及iOS外部目录暂缓不变，不卸载清空生产应用，不上传私人输入、日志或签名材料。以下旧记录与最新状态冲突时以本节和远端实际结果为准。
+
+正文搜索的逐字段异步解析在IPA50也已存在；本轮公开回归证明其开销可消除，但尚未证明它单独解释用户本次版本回退。原生来源生成的macOS对照未见退化。必须以手机原数据复验确认最终体验，不能将Promise数量改善等同实机秒数。
+
 # 2026-10-22 双端导入和正文搜索回退修复
 
 ## 用户实机反馈与验收范围

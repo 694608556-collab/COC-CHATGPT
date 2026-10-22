@@ -1,0 +1,41 @@
+{
+  "file": "coc-logbook-1.0.8-52-latency-6a84bea-ios-arm64-unsigned.ipa",
+  "bytes": 26214421,
+  "sha256": "055c1ab1053bca4f0ceb8951fa4bd53ff3828a013d442501853ba9a7918d3721",
+  "sourceCommit": "6a84beaab3cbc423e0c8b0cb95d76dd1f6cfc01e",
+  "workflowRun": 39772894877,
+  "artifactId": 12423039325,
+  "version": "1.0.8",
+  "build": 52,
+  "applicationId": "coc.logbook",
+  "physicalPhoneAcceptance": "pending",
+  "fixedContentQuota": "removed; capacity depends on available runtime memory, storage and temporary space",
+  "webAssets": {
+    "app.js": "2e26996791b5cee01005893835d80b51e170c3c071bf692ff089b3dd29659bd5",
+    "app.css": "2078d93a95c8364fc833d4f2c155d9f61056ff2d2ce9ff1319836843ba8d3167",
+    "index.html": "9014e503177333b218f7965bf04dbed84a16c20a150bac53c53b3726d1b23f9d",
+    "snapshot-worker.js": "534f15638e6988fc0f2694df4b6ab23289224538b6461313351963225506ea7e",
+    "export-worker.js": "3931d9005ea2f25b3ca4216e171aeb29e7879a0b52a8829c2939f108f47b3aa4",
+    "backup-stream-worker.js": "2dd10cde38199ce89468c522f5ea796d7119ec5a875727135aaa6c5b3413f085",
+    "table-stream-worker.js": "1d8109a1fd821bdb375b3ef41b84590b12c339e8796875a8826796a786d5a145"
+  },
+  "webAssetCount": 7,
+  "originalFonts": {
+    "PingFangSC-Bold.ttf": "96ec2276d8e77453e0e44f1e9633ee513396f2eeabb3d330f9e9306343b25fd9",
+    "SF-Pro-Text-Semibold.otf": "874d3cf27683cd5f039c4e271642aa1feb2a550a02d17ef6807d6d9caeb74a2b",
+    "PingFangSC-Regular.ttf": "26b017dfb34a8aa0059f47eda6f90d7ffd19a24912dc1129abc24867a1385353",
+    "SF-Pro-Display-Semibold.otf": "53a55ec7e0a90c0e1980b9d95e3cb93851b4e473b575693813a1b150066661ff",
+    "SF-Pro-Text-Regular.otf": "86189a6307187a6943add3596432f72a7cb914fa1c77697736292f5e4d8ea6d8",
+    "SF-Pro-Text-Medium.otf": "5d076c6ce94f8883e9cd33aec39c12222ed7b693b4a9624fe41c411ff2e41818",
+    "SF-Pro-Display-Regular.otf": "71a2162c852e87baa6440c983e406283391646778c8bc74e57b00613a3412f80",
+    "PingFangSC-Medium.ttf": "ddf051a97717d35e90d297eab1fbb75bab48120983586cf2a70be9fd3dfad2c8"
+  },
+  "fontCount": 8,
+  "privateKeysDatabasesSourceMapsAbsent": true,
+  "zipIntegrity": true,
+  "architecture": "arm64",
+  "signing": "unsigned; preserve user existing ESign certificate and application identifier",
+  "noMachOCodeSignature": true,
+  "noAppleProfileOrSignatureFiles": true,
+  "xcode": "27.0 (27A266a)"
+}

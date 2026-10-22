@@ -1,0 +1,82 @@
+{
+  "sourceCommit": "6a84beaab3cbc423e0c8b0cb95d76dd1f6cfc01e",
+  "workflowRun": 39772894877,
+  "workflowUrl": "https://github.com/694608556-collab/COC-CHATGPT/actions/runs/39772894877",
+  "workflowConclusion": "success",
+  "jobs": [
+    {
+      "id": 119804569369,
+      "name": "ios",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "unitTests": 198,
+  "completeLocalEdgeBrowserTests": 136,
+  "sharedCloud": {
+    "completeJsonZipBodyMiB": [
+      96,
+      192,
+      512
+    ],
+    "xlsxBodyMiB": 512,
+    "singleCompleteBodyMiB": 70
+  },
+  "regressionEvidence": "../../IMPORT-SEARCH-LATENCY-20261022.md",
+  "regressionFixtures": "fictional public inputs; deterministic bridge and Promise counts, not physical phone latency",
+  "fixedContentQuotas": "removed including single-record 64MiB; capacity depends on available runtime memory, storage and temporary space",
+  "physicalPhoneLatencyAcceptance": "pending; no production app launch for latency measurement",
+  "package": {
+    "sha256": "055c1ab1053bca4f0ceb8951fa4bd53ff3828a013d442501853ba9a7918d3721",
+    "webAssetsMatch": 7,
+    "originalFontsMatch": 8
+  },
+  "ios-smoke-result": {
+    "darkColorScheme": true,
+    "exportWorker": true,
+    "fontsReady": true,
+    "hasCrypto": true,
+    "hasSubtle": true,
+    "iosViewportPolicy": true,
+    "nativeOverview": true,
+    "packagedWorker": true,
+    "passed": true,
+    "scrollEdgeEffectsHidden": true,
+    "secureContext": true,
+    "webCrypto": true
+  },
+  "ios-scale-result": {
+    "campaigns": 50,
+    "manual": 50,
+    "online": 1000,
+    "passed": true,
+    "profileManualReadbacks": 1,
+    "scrollEdgeEffectsHidden": true
+  },
+  "ios-capacity-result": {
+    "automaticBytes": 100702109,
+    "jsonBytes": 100702109,
+    "largestRange": 262144,
+    "logicalBytes": 100701949,
+    "moduleBridgeBytes": 2097170,
+    "nativeSQLite": true,
+    "packagedWorker": true,
+    "passed": true,
+    "physicalPhone": false,
+    "rangedRequests": 390,
+    "rangeProbeBytes": 100702109,
+    "records": 96,
+    "recordsAfterTable": 301,
+    "revision": 2,
+    "scrollEdgeEffectsHidden": true,
+    "searchHits": 96,
+    "tableAdded": 205,
+    "tableRangeBytes": 1066131,
+    "tableRevision": 3,
+    "tableSourceBytes": 1066131,
+    "zipBytes": 100702425
+  },
+  "coldStarts": 3,
+  "systemUITests": 7,
+  "macOSNativeCoreChecks": 390
+}
