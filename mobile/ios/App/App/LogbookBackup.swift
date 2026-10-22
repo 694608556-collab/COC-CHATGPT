@@ -45,6 +45,53 @@ enum LogbookBackupJSON {
         guard let object = try JSONSerialization.jsonObject(with: data) as? LogbookJSON else { throw LogbookFailure("恢复JSON必须为对象。") }
         return object
     }
+    /// Extract only the two already-validated top-level body values. Their raw
+    /// numeric/escape spelling must survive restoration into the v1 body column.
+    static func body(_ data: Data) throws -> String {
+        try data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) throws -> String in
+            let bytes = raw.bindMemory(to: UInt8.self)
+            func space(_ start: Int) -> Int { var at = start; while at < bytes.count && [9, 10, 13, 32].contains(bytes[at]) { at += 1 }; return at }
+            func stringEnd(_ start: Int) throws -> Int {
+                guard start < bytes.count, bytes[start] == 34 else { throw LogbookFailure("正文词元字段无效。") }
+                var at = start + 1
+                while at < bytes.count { let char = bytes[at]; at += 1; if char == 92 { at += 1 } else if char == 34 { return at } }
+                throw LogbookFailure("正文词元字符串不完整。")
+            }
+            func end(_ start: Int) throws -> Int {
+                var at = space(start)
+                guard at < bytes.count else { throw LogbookFailure("正文词元缺失。") }
+                if bytes[at] == 34 { return try stringEnd(at) }
+                if bytes[at] == 123 || bytes[at] == 91 {
+                    var depth = 0
+                    while at < bytes.count {
+                        let char = bytes[at]
+                        if char == 34 { at = try stringEnd(at); continue }
+                        if char == 123 || char == 91 { depth += 1 }
+                        if char == 125 || char == 93 { depth -= 1; if depth == 0 { return at + 1 } }
+                        at += 1
+                    }
+                    throw LogbookFailure("正文词元结构不完整。")
+                }
+                while at < bytes.count && ![9, 10, 13, 32, 44, 93, 125].contains(bytes[at]) { at += 1 }
+                return at
+            }
+            var at = space(0), fields: [(String, String)] = []
+            guard at < bytes.count, bytes[at] == 123 else { throw LogbookFailure("正文词元对象无效。") }; at += 1
+            while true {
+                at = space(at); guard at < bytes.count else { throw LogbookFailure("正文词元字段不完整。") }
+                if bytes[at] == 125 { break }
+                let keyEnd = try stringEnd(at), keyData = Data(bytes[at..<keyEnd])
+                guard let key = try JSONSerialization.jsonObject(with: keyData, options: [.fragmentsAllowed]) as? String else { throw LogbookFailure("正文词元字段名无效。") }
+                at = space(keyEnd); guard at < bytes.count, bytes[at] == 58 else { throw LogbookFailure("正文词元字段分隔无效。") }; at = space(at + 1)
+                let until = try end(at)
+                if key == "rawContent" || key == "manualContent" { fields.append((key, String(decoding: bytes[at..<until], as: UTF8.self))) }
+                at = space(until); guard at < bytes.count else { throw LogbookFailure("正文词元对象不完整。") }
+                if bytes[at] == 125 { break }
+                guard bytes[at] == 44 else { throw LogbookFailure("正文词元字段分隔无效。") }; at += 1
+            }
+            return "{" + fields.sorted { $0.0 < $1.0 }.map { "\"" + $0.0 + "\":" + $0.1 }.joined(separator: ",") + "}"
+        }
+    }
 }
 
 struct LogbookBackupProof {
@@ -61,13 +108,14 @@ enum LogbookRestoreCandidate {
     /// Callback may only stage privately or write inside a rollback-capable CAS
     /// transaction after a complete first inspection. No partial publication.
     static func inspect(_ input: FileHandle, proof: LogbookBackupProof,
+                        rawEach: ((LogbookJSON, Data, Int) throws -> Void)? = nil,
                         each: ((LogbookJSON, Int) throws -> Void)? = nil) throws -> Preview {
         var hash = SHA256(), total = 0, line = Data(), rows: [LogbookJSON] = []
         var metadata: LogbookJSON?, offline = 0, metadataBytes = 2
         let newline = Data([10])
         func consume() throws {
             guard line.count > 1, line.count <= LogbookLimits.snapshotRequestBytes + 1, metadata == nil else { throw LogbookFailure("恢复候选顺序或长度无效。") }
-            let kind = line.first!, value = try LogbookBackupJSON.object(Data(line.dropFirst()))
+            let kind = line.first!, json = Data(line.dropFirst()), value = try LogbookBackupJSON.object(json)
             if kind == 82 {
                 try LogbookValidation.record(value)
                 var row = value
@@ -76,6 +124,7 @@ enum LogbookRestoreCandidate {
                 guard metadataBytes <= LogbookLimits.snapshotRequestBytes else { throw LogbookFailure("恢复元数据超过处理上限。") }
                 if value["rawContent"] != nil || (value["sourceType"] as? String == "manual" && !(value["manualContent"] as? String ?? "").isEmpty) { offline += 1 }
                 try each?(value, rows.count)
+                try rawEach?(value, json, rows.count)
                 rows.append(row)
             } else if kind == 77 {
                 try LogbookValidation.snapshot(value, metadataOnly: true)
@@ -135,6 +184,9 @@ final class LogbookBackupSession {
     private var inputBytes = 0, outputBytes = 0, maximumOutputBytes = 0
     private var ready = false, closed = false
     private var entries: [String: Entry] = [:]
+    struct Attachment { let key: String; let name: String; let mime: String; let proof: LogbookBackupProof }
+    private(set) var restorePreview: LogbookRestoreCandidate.Preview?
+    private(set) var attachments: [Attachment] = []
     init(directory: URL, expected: Int, bookmark: Data, restoring: Bool, includeArchives: Bool,
          available: (() throws -> Int)? = nil) throws {
         self.directory = directory; self.expected = expected; self.bookmark = bookmark
@@ -173,6 +225,23 @@ final class LogbookBackupSession {
         if maximumOutputBytes == 0 { maximumOutputBytes = try LogbookCapacity.maximum(available: available, copies: restoring ? 4 : 2) }
         return maximumOutputBytes
     }
+    func captureJSON(_ producer: (_ write: (Data) throws -> Void) throws -> Void) throws -> LogbookBackupProof {
+        guard !closed, !ready, maximumOutputBytes == 0, entries["source"] == nil else { throw LogbookFailure("备份来源阶段无效。") }
+        let entry = try create("source")
+        try producer { chunk in
+            guard inputBytes + chunk.count <= maximumInputBytes, let output = entry.output else { throw LogbookFailure("完整备份来源暂存空间不足。") }
+            try LogbookCapacity.require(available: available, additional: chunk.count)
+            try output.write(contentsOf: chunk); entry.bytes += chunk.count; inputBytes += chunk.count
+        }
+        try entry.seal(); return entry.proof!
+    }
+    var sourceBudget: Int { maximumInputBytes }
+    func verifySources() throws {
+        for (key, entry) in entries where key == "source" || key.hasPrefix("archive:") {
+            guard let expected = entry.proof else { throw LogbookFailure("备份来源尚未封存。") }
+            try verify(key, expected: expected)
+        }
+    }
     func append(key: String, index: Int, chunk: Data) throws {
         guard !closed, !ready, maximumOutputBytes > 0, key.utf8.count <= 4096, !key.contains("\0"),
               restoring ? (key == "candidate" || key.hasPrefix("zip:")) : key == "output" else { throw LogbookFailure("备份暂存条目标识无效。") }
@@ -204,6 +273,31 @@ final class LogbookBackupSession {
         entries = entries.filter { keeping.contains($0.key) }; ready = true
     }
     func requireReady() throws { guard !closed, ready else { throw LogbookFailure("备份预览尚未完成。") } }
+    static func requestProof(_ value: LogbookJSON) throws -> LogbookBackupProof {
+        guard LogbookValidation.number(value["bytes"]), let bytes = value["bytes"] as? NSNumber,
+              bytes.doubleValue >= 0, bytes.doubleValue <= 9007199254740991, bytes.doubleValue.rounded(.down) == bytes.doubleValue,
+              let hash = value["sha256"] as? String, hash.count == 64, hash.allSatisfy({ "0123456789abcdef".contains($0) }) else { throw LogbookFailure("备份证明类型、长度或摘要无效。") }
+        return LogbookBackupProof(bytes: bytes.intValue, sha256: hash)
+    }
+    func previewRestore(candidate: LogbookBackupProof, selected: [LogbookJSON]) throws {
+        guard restoring, !ready, !closed, selected.count <= 1999 else { throw LogbookFailure("恢复预览状态或附件数无效。") }
+        try verify("candidate", expected: candidate)
+        let input = try FileHandle(forReadingFrom: file("candidate")); defer { try? input.close() }
+        let preview = try LogbookRestoreCandidate.inspect(input, proof: candidate)
+        var keep: Set<String> = ["source", "candidate"], checked: [Attachment] = [], total = 0
+        for value in selected {
+            try LogbookValidation.shape(value, "zipPath,name,mime,bytes,sha256")
+            guard let path = value["zipPath"] as? String, let name = value["name"] as? String, let mime = value["mime"] as? String else { throw LogbookFailure("恢复附件类型无效。") }
+            let key = "zip:" + path, proof = try Self.requestProof(value)
+            guard key.utf8.count <= 4096, !name.isEmpty, name.count <= 255, name != ".", name != "..", !name.contains("/"), !name.contains("\\"),
+                  !name.unicodeScalars.contains(where: { $0.value < 32 }), !mime.isEmpty, mime.count <= 128, proof.bytes <= LogbookLimits.archiveFileBytes,
+                  keep.insert(key).inserted else { throw LogbookFailure("恢复附件名称、大小或重复引用无效。") }
+            total += proof.bytes
+            guard total <= LogbookLimits.attachmentTotalBytes else { throw LogbookFailure("恢复附件合计超过128MiB。") }
+            try verify(key, expected: proof); checked.append(Attachment(key: key, name: name, mime: mime, proof: proof))
+        }
+        try finish(keeping: keep); restorePreview = preview; attachments = checked
+    }
     static func fileProof(_ url: URL, maximumBytes: Int) throws -> LogbookBackupProof {
         let input = try FileHandle(forReadingFrom: url); defer { try? input.close() }
         var hash = SHA256(), bytes = 0
