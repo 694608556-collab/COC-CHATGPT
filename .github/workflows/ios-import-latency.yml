@@ -1,0 +1,56 @@
+name: iOS import and search latency comparison
+on:
+  push:
+    branches: [codex/ios-import-latency-20261022]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-differential:
+    runs-on: xcode-27
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/mobile/releases/
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.3.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: mobile/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Run public import latency regressions
+        run: pnpm exec vitest run src/data/table-preview-latency.test.ts --reporter=verbose --silent=false
+      - name: Generate fictional native input
+        run: node scripts/ios-native-fixture.mjs
+      - name: Compare v50 and v51 native search source
+        run: |
+          git fetch --no-tags --filter=blob:none --depth=1 origin fe94d1dde4b84e81f5de31e5519f5756bef44737 33e9f2843a27b870d23aa927389b7326417ceae5
+          for entry in v50:fe94d1dde4b84e81f5de31e5519f5756bef44737 v51:33e9f2843a27b870d23aa927389b7326417ceae5; do
+            label=${entry%%:*}
+            revision=${entry#*:}
+            mkdir -p ios/build/latency-$label
+            for source in LogbookStore LogbookValidation LogbookMutations LogbookArchive LogbookBackup; do
+              git show "$revision:mobile/ios/App/App/$source.swift" > "ios/build/latency-$label/$source.swift"
+            done
+            if [ "$label" = v51 ]; then
+              git show "$revision:mobile/ios/App/App/LogbookTable.swift" > "ios/build/latency-$label/LogbookTable.swift"
+            fi
+            swiftc -O -swift-version 5 ios/build/latency-$label/*.swift scripts/ios-search-latency.swift -o ios/build/latency-$label/check
+            ios/build/latency-$label/check ios/build/native-sample.json "$label" | tee ios/build/search-latency-$label.txt
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-ios-search-latency-comparison
+          path: mobile/ios/build/search-latency-*.txt
+          if-no-files-found: ignore
