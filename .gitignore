@@ -11,4 +11,6 @@ work/
 .DS_Store
 Thumbs.db
 mobile/android/app/src/androidTest/assets/public-capacity.json
+# Generated public instrumentation bundles are rebuilt from mobile/tests in CI.
 mobile/android/app/src/androidTest/assets/public-capacity-webview.js
+mobile/android/app/src/androidTest/assets/public-table-webview.js

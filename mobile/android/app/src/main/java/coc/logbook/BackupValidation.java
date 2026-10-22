@@ -61,7 +61,7 @@ final class BackupValidation {
             if(pair.has("characterId")&&!pair.getString("characterId").isEmpty()&&!characters.contains(pair.getString("characterId"))) fail();
         }
     }
-    private static void character(JSONObject value, Set<String> modules) throws Exception {
+    static void character(JSONObject value, Set<String> modules) throws Exception {
         shape(value,"id,moduleIds,edition,basic,attrs,editionSnapshots,derived,occupationFormula,skills,weapons,items,background,story,createdAt,updatedAt","moduleId,occupationPointOverride");
         text(value,"id,moduleId,occupationFormula,story,createdAt,updatedAt"); numbers(value,"edition,occupationPointOverride");
         if(!Arrays.asList(6.0,7.0).contains(value.getDouble("edition")))fail();

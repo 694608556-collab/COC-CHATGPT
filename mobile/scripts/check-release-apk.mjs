@@ -8,7 +8,15 @@ assert(process.argv[2], 'Pass the signed release APK path')
 const root = fileURLToPath(new URL('../', import.meta.url))
 const files = unzipSync(await readFile(process.argv[2]))
 const entries = Object.keys(files)
-for (const file of ['app.js', 'app.css', 'index.html', 'snapshot-worker.js', 'export-worker.js', 'backup-stream-worker.js']) {
+for (const file of [
+  'app.js',
+  'app.css',
+  'index.html',
+  'snapshot-worker.js',
+  'export-worker.js',
+  'backup-stream-worker.js',
+  'table-stream-worker.js'
+]) {
   const actual = files[`assets/public/${file}`]
   assert(actual, `Missing APK web asset: ${file}`)
   assert.deepEqual(Buffer.from(actual), await readFile(resolve(root, 'www', file)))

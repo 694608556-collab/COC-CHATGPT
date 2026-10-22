@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <provider android:name="coc.logbook.PublicTableProvider" android:authorities="coc.logbook.public.tabletest" android:exported="false" android:grantUriPermissions="true" />
+    <activity android:name="coc.logbook.PublicTableGrantActivity" android:exported="true" />
+  </application>
+</manifest>

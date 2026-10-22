@@ -170,17 +170,24 @@ function isNoteRow(values: RawCell[]): boolean {
   return /^#|^填写说明|^说明[：:]/.test(first)
 }
 
-export function parseImportSheet(sheetName: string, rows: RawCell[][]): TableImportRow[] {
-  const headerIndex = findHeaderRow(rows)
-  if (headerIndex < 0) return []
-  const columnMap = mapColumns(rows[headerIndex] ?? [])
-  const result: TableImportRow[] = []
-  for (const values of rows.slice(headerIndex + 1)) {
-    if (isNoteRow(values)) break
+/** One logical row at a time; header, note and multiline-body semantics match workbook import. */
+export function createImportSheetParser(sheetName: string) {
+  let columnMap: SheetColumnMap | undefined
+  let ended = false
+  return (values: RawCell[]): TableImportRow | undefined => {
+    if (ended) return undefined
+    if (!columnMap) {
+      if (findHeaderRow([values]) === 0) columnMap = mapColumns(values)
+      return undefined
+    }
+    if (isNoteRow(values)) {
+      ended = true
+      return undefined
+    }
     const moduleName = columnMap.module >= 0 ? text(values[columnMap.module]) : ''
     const sessionName = columnMap.session >= 0 ? text(values[columnMap.session]) : ''
     const link = columnMap.link >= 0 ? text(values[columnMap.link]) : ''
-    if (!moduleName && !sessionName && !link) continue
+    if (!moduleName && !sessionName && !link) return undefined
     const participants = participantsFromRow(values, columnMap)
     const status = columnMap.status !== undefined ? text(values[columnMap.status]) : ''
     const playStatus =
@@ -197,7 +204,7 @@ export function parseImportSheet(sheetName: string, rows: RawCell[][]): TableImp
             .map(([, column]) => String(values[column] ?? ''))
             .join('')
         : ''
-    result.push({
+    return {
       sheet: sheetName,
       moduleName,
       sessionName,
@@ -209,7 +216,16 @@ export function parseImportSheet(sheetName: string, rows: RawCell[][]): TableImp
       ...(status && validStatuses.has(status) ? { status } : {}),
       ...(playDate ? { playDate } : {}),
       ...(fetchedAt && /^\d{4}-\d{2}-\d{2}T/.test(fetchedAt) ? { fetchedAt } : {})
-    })
+    }
+  }
+}
+
+export function parseImportSheet(sheetName: string, rows: RawCell[][]): TableImportRow[] {
+  const parse = createImportSheetParser(sheetName)
+  const result: TableImportRow[] = []
+  for (const values of rows) {
+    const row = parse(values ?? [])
+    if (row) result.push(row)
   }
   return result
 }

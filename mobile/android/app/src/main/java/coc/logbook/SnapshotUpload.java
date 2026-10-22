@@ -8,6 +8,7 @@ final class SnapshotUpload implements AutoCloseable {
  private long revision, bytes, received;
  private int index;
  SnapshotUpload(File directory) throws Exception { spool=new PdfSpool(directory, LogbookLimits.SNAPSHOT_UPLOAD_BYTES); }
+ boolean active(){return id!=null;}
  String begin(String tree,long revision,long bytes,String hash) throws Exception {
   if(id!=null)throw new IllegalStateException("已有数据正在保存。");
   if(bytes<1||bytes>LogbookLimits.SNAPSHOT_UPLOAD_BYTES||hash==null||!hash.matches("[a-f0-9]{64}"))throw new IllegalArgumentException("快照大小或摘要无效。");

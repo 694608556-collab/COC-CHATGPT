@@ -109,6 +109,10 @@ export function previewBase64InBackground(base64: string): Promise<ImportPreview
 export async function readInBackground(json: string): Promise<MobileSnapshot> {
   return (await runJob<ImportPreview>({ type: 'read', json })).snapshot
 }
+/** Body-free overview validation; entity counts are constrained by available resources. */
+export async function readOverviewInBackground(json: string): Promise<MobileSnapshot> {
+  return (await runJob<ImportPreview>({ type: 'read-overview', json })).snapshot
+}
 /**
  * 模拟原生存储的后台完整校验，不把整份正文对象传回界面。
  * @param json - 浏览器开发存储的候选完整快照。

@@ -63,7 +63,6 @@ final class IndexedSnapshot {
         }if(previous!=null)fields.put(previous,value.toString());return fields;
     }
     Map<String,String> fields(){
-        if(metadataBytes()>LogbookLimits.SNAPSHOT_REQUEST_BYTES)throw new IllegalStateException("整库元数据超过独立处理上限；未载入正文。");
         Map<String,String> fields=rootFields();StringBuilder records=new StringBuilder("[");
         try(Cursor rows=db.rawQuery("SELECT metadata FROM indexed_records ORDER BY ordinal,row_key",null)){
             while(rows.moveToNext()){if(records.length()>1)records.append(',');records.append(rows.getString(0));}
@@ -202,6 +201,31 @@ final class IndexedSnapshot {
         field("exportedAt",JSONObject.quote(now));
         TableTiming.mark(timing,"recordCompareAndWrite");
     }
+    /** Only called for a sealed table session inside its single CAS transaction. */
+    void tableRecord(JSONObject value,long ordinal,boolean added,Reader manual)throws Exception {
+        if(value.has("rawContent")||value.has("manualContent"))throw new IOException("表格元数据不能携带正文。");
+        BackupValidation.record(value);String id=value.getString("id");Long previous=key(id);
+        if(added){if(previous!=null)throw new IOException("新增场次标识已存在。");record(new RawJson(new StringReader(value.toString())),id,false,ordinal);previous=key(id);}
+        else{
+            if(previous==null||manual==null)throw new IOException("待更新手动场次已变化。");
+            JSONObject old=new JSONObject(metadata(previous));
+            if(!old.getString("sourceType").equals("manual"))throw new IOException("表格不能覆盖在线正文。");
+            JSONObject permitted=new JSONObject(value.toString());
+            for(String field:new String[]{"updatedAt","playDate","dateSource"}){old.remove(field);permitted.remove(field);}
+            if(!BackupValidation.same(old,permitted))throw new IOException("表格试图改写已有场次其他字段。");
+        }
+        if(manual!=null){
+            db.execSQL("DELETE FROM indexed_bodies WHERE record_key=? AND kind='manualContent'",new Object[]{previous});
+            try(Reader input=manual;Writer output=new BodyWriter(previous,"manualContent")){
+                RawJson encoded=new RawJson(input);encoded.copy(output);encoded.end();
+            }
+        }
+        refreshSize(previous,value.toString());
+    }
+    void tableField(String name,String value)throws Exception{
+        if(!Arrays.asList("schemaVersion","settings","modules","characters","exportedAt").contains(name))throw new IOException("表格根字段无效。");
+        field(name,value);
+    }
     long bytes(){Map<String,String> root=rootFields();root.put("records","[]");try(Cursor rows=db.rawQuery("SELECT COUNT(*),COALESCE(SUM(bytes),0) FROM indexed_records",null)){rows.moveToFirst();return JsonFields.objectBytes(root)+rows.getLong(1)+Math.max(0,rows.getLong(0)-1);}}
     long projectedBytes(Set<String> selected)throws Exception{
         Map<String,String> root=rootFields();root.put("records","[]");long bytes=JsonFields.objectBytes(root),count=0;
@@ -218,7 +242,6 @@ final class IndexedSnapshot {
     void checkSize(){
         if(!deviceSpace){if(bytes()>LogbookLimits.LIBRARY_BYTES)throw new IllegalArgumentException("数据超过 64 MiB；原数据未改变。");return;}
         try{
-            if(metadataBytes()>LogbookLimits.SNAPSHOT_REQUEST_BYTES)throw new IllegalArgumentException("整库元数据超过独立处理上限；原数据未改变。");
             try(Cursor row=db.rawQuery("SELECT COALESCE(MAX(bytes),0) FROM indexed_records",null)){row.moveToFirst();if(row.getLong(0)>LogbookLimits.ENTITY_REQUEST_BYTES)throw new IllegalArgumentException("单场完整raw/manual合计超过64MiB；原数据未改变。");}
             StorageBudget.require(available,0);
         }catch(RuntimeException error){throw error;}catch(Exception error){throw new IllegalStateException("保存空间不足或无法核对；原数据未改变。",error);}

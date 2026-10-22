@@ -10,15 +10,16 @@ import org.json.*;
  * metadata are materialized. No authorization or database mutation here.
  */
 final class SnapshotBackupStream {
-    private static String take(RawJson input)throws Exception{
+    private static String take(RawJson input)throws Exception{return take(input,false);}
+    private static String take(RawJson input,boolean metadataCollection)throws Exception{
         StringWriter text=new StringWriter();
         input.copy(new Writer(){long count;
             public void write(char[] value,int offset,int length)throws IOException{
-                count+=length;if(count>LogbookLimits.SNAPSHOT_REQUEST_BYTES)throw new IOException("备份单场或字段超过64MiB。");text.write(value,offset,length);
+                count+=length;if(!metadataCollection&&count>LogbookLimits.ENTITY_REQUEST_BYTES)throw new IOException("备份单场或字段超过64MiB。");text.write(value,offset,length);
             }
             public void flush(){}public void close(){}
         });
-        String result=text.toString();if(JsonFields.bytes(result)>LogbookLimits.SNAPSHOT_REQUEST_BYTES)throw new IOException("备份单场或字段超过64MiB。");StrictBackupJson.validate(result);return result;
+        String result=text.toString();if(!metadataCollection&&JsonFields.bytes(result)>LogbookLimits.ENTITY_REQUEST_BYTES)throw new IOException("备份单场或字段超过64MiB。");StrictBackupJson.validate(result);return result;
     }
     static int validate(File file)throws Exception{
         try(Reader input=new InputStreamReader(new FileInputStream(file),StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT))){
@@ -34,18 +35,16 @@ final class SnapshotBackupStream {
         }
     }
     private static int snapshot(RawJson input)throws Exception{
-        JSONObject root=new JSONObject();JSONArray rows=new JSONArray();Set<String> seen=new HashSet<>();long[] metadataBytes={2};
+        JSONObject root=new JSONObject();JSONArray rows=new JSONArray();Set<String> seen=new HashSet<>();
         input.object((name,value)->{
             if(!seen.add(name))throw new IOException("备份字段重复。");
             if(name.equals("records"))value.array(row->{
                 String json=take(row);JSONObject record=new JSONObject(json);BackupValidation.record(record);
-                JSONObject metadata=BackupValidation.metadataOf(record);metadataBytes[0]+=JsonFields.bytes(metadata.toString())+1;
-                if(metadataBytes[0]>LogbookLimits.SNAPSHOT_REQUEST_BYTES)throw new IOException("备份元数据超过处理上限。");rows.put(metadata);
+                rows.put(BackupValidation.metadataOf(record));
             });
             else{
                 if(!Arrays.asList("schemaVersion","exportedAt","modules","characters","settings").contains(name))throw new IOException("备份字段不属于手机范围。");
-                String json=take(value);metadataBytes[0]+=JsonFields.bytes(json)+name.length()+4;
-                if(metadataBytes[0]>LogbookLimits.SNAPSHOT_REQUEST_BYTES)throw new IOException("备份元数据超过处理上限。");
+                String json=take(value,name.equals("modules")||name.equals("characters"));
                 root.put(name,new JSONArray("["+json+"]").get(0));
             }
         });

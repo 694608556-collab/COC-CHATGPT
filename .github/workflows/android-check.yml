@@ -43,6 +43,8 @@ jobs:
       - run: pnpm typecheck && pnpm test && pnpm build
       - name: Check bounded-memory complete JSON and ZIP backups above 64MiB
         run: node scripts/check-backup-stream.mjs
+      - name: Check disk-backed CSV and XLSX streams above 64MiB
+        run: node scripts/check-table-stream.mjs
       - name: Check native staging, strict restore and low-space failures
         run: |
           curl -fsSL --retry 3 https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar -o "$RUNNER_TEMP/coc-org-json.jar"
@@ -111,7 +113,7 @@ jobs:
             adb install tests/app-debug-androidTest.apk
             adb shell df -k /data > native-capacity-environment.txt
             adb shell getprop dalvik.vm.heapsize >> native-capacity-environment.txt
-            adb shell am instrument -w -e class coc.logbook.CapacityDatabaseTest,coc.logbook.IndexedPressureTest,coc.logbook.CapacityWebViewTest coc.logbook.debug52.test/androidx.test.runner.AndroidJUnitRunner | tee native-capacity.txt
+            adb shell am instrument -w -e class coc.logbook.CapacityDatabaseTest,coc.logbook.IndexedPressureTest,coc.logbook.CapacityWebViewTest,coc.logbook.TableStreamTest coc.logbook.debug53.test/androidx.test.runner.AndroidJUnitRunner | tee native-capacity.txt
             adb logcat -d -s System.out:I > native-capacity-public.log
             ! grep -E 'FAILURES|INSTRUMENTATION_FAILED|Process crashed|shortMsg=' native-capacity.txt
             grep -E 'OK \([0-9]+ tests?\)' native-capacity.txt

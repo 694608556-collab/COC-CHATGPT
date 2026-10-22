@@ -43,6 +43,8 @@ public final class LogbookPlugin extends Plugin {
     private volatile TextPdfJobs textPdfJobs;
     private ReadLease readLease;
     private BackupSession backupSession;
+    private TableSession tableSession;
+    private boolean importPickerPending;
     private ArchivePublication publication;
     private java.io.File directInputDirectory;
     // Burst-local naming snapshot only; document creation, never an existing URI, remains the publication primitive.
@@ -56,7 +58,7 @@ public final class LogbookPlugin extends Plugin {
     @Override public void load() { database = new LogbookDatabase(getContext()); archives = new ArchiveRegistry(getContext()); }
     @Override protected void handleOnDestroy() {
         networkQueue.close(); backupWriter.shutdown();
-        execute(() -> { try { if (backupSession != null) backupSession.close(); if (fetchBatch != null) fetchBatch.close(); if (snapshotUpload != null) snapshotUpload.close(); if (readLease != null) readLease.close(); if (textPdfJobs != null) textPdfJobs.close(); if (pdfSpool != null) pdfSpool.close(); } catch (Exception ignored) { } finally { if (archives != null) archives.close(); } });
+        execute(() -> { try { if (tableSession != null) tableSession.close(); if (backupSession != null) backupSession.close(); if (fetchBatch != null) fetchBatch.close(); if (snapshotUpload != null) snapshotUpload.close(); if (readLease != null) readLease.close(); if (textPdfJobs != null) textPdfJobs.close(); if (pdfSpool != null) pdfSpool.close(); } catch (Exception ignored) { } finally { if (archives != null) archives.close(); } });
         if (database != null) database.close();
     }
     private SharedPreferences prefs() { return getContext().getSharedPreferences("archive-location", 0); }
@@ -193,7 +195,7 @@ public final class LogbookPlugin extends Plugin {
             try {
                 if(database.logicalBytes()>LogbookLimits.SNAPSHOT_REQUEST_BYTES)throw new IllegalStateException("整库超过单次内存读取预算，请使用概览或完整分块备份。");
                 JSObject out = new JSObject(); String json = database.snapshot();
-                out.put("bodySearchStreamVersion",1);out.put("backupStreamVersion",1);out.put("json", json == null ? JSONObject.NULL : json); out.put("revision", database.revision());
+                out.put("bodySearchStreamVersion",1);out.put("backupStreamVersion",1);out.put("tableStreamVersion",1);out.put("json", json == null ? JSONObject.NULL : json); out.put("revision", database.revision());
                 ConnectivityManager connectivity = (ConnectivityManager)getContext().getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
                 out.put("networkConnected", connectivity.getActiveNetwork() != null);
                 out.put("lastAutoBackupAt", prefs().getLong("last-auto-backup", 0));
@@ -218,7 +220,7 @@ public final class LogbookPlugin extends Plugin {
                 out.put("revision",revision);
                 ConnectivityManager connectivity = (ConnectivityManager)getContext().getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
                 out.put("networkConnected",connectivity.getActiveNetwork() != null);
-                out.put("bodySearchStreamVersion",1);out.put("backupStreamVersion",1);out.put("tableDeltaVersion",1);out.put("storageUsage",storageUsage());
+                out.put("bodySearchStreamVersion",1);out.put("backupStreamVersion",1);out.put("tableDeltaVersion",1);out.put("tableStreamVersion",1);out.put("storageUsage",storageUsage());
                 out.put("lastAutoBackupAt",prefs().getLong("last-auto-backup",0));
                 if (prefs().contains("last-auto-backup-revision")) out.put("lastAutoBackupRevision",prefs().getLong("last-auto-backup-revision",-1));
                 JSObject archive = location(false);
@@ -226,7 +228,8 @@ public final class LogbookPlugin extends Plugin {
                 catch (Exception error) { archive.put("valid",false); }
                 out.put("archive",archive); call.resolve(out);
                 if (archive.optBoolean("valid")) warmArchiveNames();
-            } catch (Exception error) { call.reject("读取列表失败；原数据未清空。",error); }
+            } catch (OutOfMemoryError error) { call.reject("列表所需内存不足；原数据未改变，请关闭其他应用后重试。"); }
+              catch (Exception error) { call.reject("读取列表失败；原数据未清空。",error); }
         });
     }
     /** Read selected committed bodies at an exact revision; no writes or external file access. */
@@ -330,9 +333,13 @@ public final class LogbookPlugin extends Plugin {
         return intent;
     }
     @PluginMethod public void openBackup(PluginCall call) {
-        startActivityForResult(call, importDocumentIntent(call.getString("kind", "backup")), "backupChosen");
+        if(importPickerPending||backupSession!=null||tableSession!=null||fetchBatch!=null||snapshotUpload!=null&&snapshotUpload.active()){call.reject("已有文件或批量任务，请先结束当前任务。");return;}
+        importPickerPending=true;
+        try{startActivityForResult(call, importDocumentIntent(call.getString("kind", "backup")), "backupChosen");}
+        catch(RuntimeException error){importPickerPending=false;call.reject("无法打开文件选择器。",error);}
     }
     @ActivityCallback private void backupChosen(PluginCall call, ActivityResult result) {
+        importPickerPending=false;
         if (call == null) return;
         if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null || result.getData().getData() == null) {
             JSObject out = new JSObject(); out.put("cancelled", true); call.resolve(out); return;
@@ -343,11 +350,76 @@ public final class LogbookPlugin extends Plugin {
                 if(Boolean.TRUE.equals(call.getBoolean("stream",false))&&"backup".equals(call.getString("kind","backup"))){
                     openRestoreStream(call,document);return;
                 }
+                if(Boolean.TRUE.equals(call.getBoolean("stream",false))&&Arrays.asList("record-table","character-table").contains(call.getString("kind",""))){
+                    openTableStream(call,document);return;
+                }
                 byte[] bytes = read(document);
                 JSObject out = new JSObject(); out.put("cancelled", false); out.put("name", displayName(document));
                 out.put("base64", Base64.encodeToString(bytes, Base64.NO_WRAP)); call.resolve(out);
             } catch (Exception error) { call.reject("备份读取失败；未写入数据。", error); }
         });
+    }
+    private TableSession tableOwner(PluginCall call)throws Exception{
+        TableSession owner=tableSession;if(owner==null)throw new IllegalStateException("表格预览已失效，请重新选择。");owner.require(call.getString("id",""));return owner;
+    }
+    private void checkTableLocation(TableSession owner)throws Exception{
+        if(!owner.tree.equals(prefs().getString("tree","")))throw new IllegalStateException("保存位置已变化，请重新选择表格。");
+        requireArchivePermission(owner.tree);
+        if(database.revision()!=owner.revision)throw new IllegalStateException("数据已变化，请重新预览；原数据保留。");
+    }
+    private void rejectTable(PluginCall call,TableSession owner,Throwable error){
+        String cleanup="";
+        if(owner!=null&&tableSession==owner)try{owner.close();tableSession=null;}catch(Exception failure){error.addSuppressed(failure);cleanup=" 私有暂存清理失败，请重开应用后重试。";}
+        call.reject("表格操作未完成："+(error instanceof OutOfMemoryError?"手机可用内存不足；原数据未改变。":error.getMessage())+cleanup,error instanceof Exception?(Exception)error:new IllegalStateException("表格处理内存不足。",error));
+    }
+    private void openTableStream(PluginCall call,Uri document){
+        TableSession owner=null;try{
+            if(tableSession!=null||backupSession!=null||fetchBatch!=null||snapshotUpload!=null&&snapshotUpload.active())throw new IllegalStateException("已有文件或批量任务，请先结束当前任务。");
+            long revision=backupExpected(call);if(revision!=database.revision())throw new IllegalStateException("数据已变化，请重新选择。");
+            String tree=prefs().getString("tree","");requireArchivePermission(tree);
+            owner=new TableSession(new java.io.File(getContext().getCacheDir(),"table-stream-staging"),tree,revision,call.getString("kind",""),displayName(document),null);tableSession=owner;
+            BackupSession.Proof proof;try(InputStream input=getContext().getContentResolver().openInputStream(document)){proof=owner.capture(input);}
+            checkTableLocation(owner);JSObject source=new JSObject();source.put("id",owner.id);source.put("revision",revision);source.put("fileUri",Uri.fromFile(owner.source).toString());source.put("name",owner.name);source.put("format",owner.format);source.put("bytes",proof.bytes);source.put("sha256",proof.sha256);source.put("maximumStageBytes",owner.maximumStageBytes);
+            JSObject out=new JSObject();out.put("cancelled",false);out.put("tableSource",source);call.resolve(out);
+        }catch(Exception|OutOfMemoryError error){rejectTable(call,owner,error);}
+    }
+    @PluginMethod public void appendTableStage(PluginCall call){
+        execute(()->{TableSession owner=null;try{
+            owner=tableOwner(call);checkTableLocation(owner);String encoded=call.getString("base64","");
+            if(encoded.length()>349528)throw new IllegalArgumentException("表格分段参数无效。");
+            owner.append(call.getString("key",""),TableSession.integer(call.getData().opt("index")),Base64.decode(encoded,Base64.DEFAULT));call.resolve();
+        }catch(Exception|OutOfMemoryError error){rejectTable(call,owner,error);}});
+    }
+    @PluginMethod public void readTableString(PluginCall call){
+        execute(()->{TableSession owner=null;try{
+            owner=tableOwner(call);checkTableLocation(owner);call.resolve(new JSObject(owner.string(TableSession.integer(call.getData().opt("stringIndex")),TableSession.integer(call.getData().opt("offset"))).toString()));
+        }catch(Exception|OutOfMemoryError error){rejectTable(call,owner,error);}});
+    }
+    @PluginMethod public void finishTablePreview(PluginCall call){
+        execute(()->{TableSession owner=null;try{
+            owner=tableOwner(call);checkTableLocation(owner);JSONObject proof=call.getObject("candidate");if(proof==null)throw new IllegalArgumentException("表格候选证明缺失。");
+            JSONObject preview=owner.preview(database,BackupSession.requestProof(proof),emptySnapshot().getJSONObject("settings"));checkTableLocation(owner);call.resolve(new JSObject(preview.toString()));
+        }catch(Exception|OutOfMemoryError error){rejectTable(call,owner,error);}});
+    }
+    @PluginMethod public void readTablePreview(PluginCall call){
+        execute(()->{TableSession owner=null;try{
+            owner=tableOwner(call);checkTableLocation(owner);long limit=TableSession.integer(call.getData().opt("limit"));
+            call.resolve(new JSObject(owner.page(call.getString("kind",""),TableSession.integer(call.getData().opt("offset")),(int)Math.min(limit,100)).toString()));
+        }catch(Exception|OutOfMemoryError error){rejectTable(call,owner,error);}});
+    }
+    @PluginMethod public void commitTableStream(PluginCall call){
+        execute(()->{TableSession owner=null;boolean committed=false;try{
+            owner=tableOwner(call);if(!Boolean.TRUE.equals(call.getBoolean("confirmed",false)))throw new IllegalStateException("请确认表格导入预览。");
+            checkTableLocation(owner);owner.prepareCommit();checkTableLocation(owner);final TableSession candidate=owner;
+            long revision=database.edit(owner.revision,store->{checkTableLocation(candidate);candidate.apply(store);checkTableLocation(candidate);});committed=true;
+            JSObject out=new JSObject();out.put("revision",revision);
+            try{owner.close();tableSession=null;}catch(Exception cleanup){out.put("warning","表格已导入，但私有暂存关闭失败；请重开应用，勿重复导入。");}
+            call.resolve(out);
+        }catch(Exception|OutOfMemoryError error){if(committed)call.reject("表格已导入，但返回确认失败；请重新读取数据，勿重复导入。");else rejectTable(call,owner,error);}});
+    }
+    @PluginMethod public void cancelTableStage(PluginCall call){
+        execute(()->{try{if(tableSession!=null&&tableSession.id.equals(call.getString("id",""))){tableSession.close();tableSession=null;}call.resolve();}
+        catch(Exception|OutOfMemoryError error){call.reject("表格私有暂存清理失败；原数据未改变。",error instanceof Exception?(Exception)error:new IllegalStateException(error));}});
     }
     private long backupExpected(PluginCall call)throws Exception{
         Object raw=call.getData().opt("expectedRevision");
@@ -376,7 +448,7 @@ public final class LogbookPlugin extends Plugin {
     private void openRestoreStream(PluginCall call,Uri document)throws Exception{
         BackupSession owner=null;
         try{
-            if(backupSession!=null)throw new IllegalStateException("已有备份任务，请先关闭预览。");
+            if(backupSession!=null||tableSession!=null||importPickerPending)throw new IllegalStateException("已有文件任务，请先关闭预览。");
             long revision=backupExpected(call);if(revision!=database.revision())throw new IllegalStateException("数据已变化，请重新选择。");
             String tree=prefs().getString("tree","");requireArchivePermission(tree);
             owner=new BackupSession(new java.io.File(getContext().getCacheDir(),"backup-stream-staging"),tree,revision,true,false);
@@ -452,10 +524,10 @@ public final class LogbookPlugin extends Plugin {
     }
     @PluginMethod public void createSearchSource(PluginCall call){
         execute(()->{BackupSession owner=null;try{
-            if(backupSession!=null)throw new IllegalStateException("已有文件读取任务，请稍候。");
+            if(backupSession!=null||tableSession!=null||importPickerPending)throw new IllegalStateException("已有文件读取任务，请稍候。");
             long revision=backupExpected(call);if(revision!=database.revision())throw new IllegalStateException("数据已变化，请重新读取。");
             JSONArray requested=call.getArray("ids");Set<String> ids=new java.util.LinkedHashSet<>();
-            if(requested==null||requested.length()==0||requested.length()>50000)throw new IllegalArgumentException("搜索场次无效。");
+            if(requested==null||requested.length()==0)throw new IllegalArgumentException("搜索场次无效。");
             for(int index=0;index<requested.length();index++){Object id=requested.get(index);if(!(id instanceof String)||!ids.add((String)id))throw new IllegalArgumentException("搜索场次重复或类型无效。");}
             database.projectedBytes(ids);
             owner=new BackupSession(new java.io.File(getContext().getCacheDir(),"backup-stream-staging"),"",revision,false,false,true,null);backupSession=owner;
@@ -469,7 +541,7 @@ public final class LogbookPlugin extends Plugin {
     }
     @PluginMethod public void createBackupStream(PluginCall call){
         execute(()->{BackupSession owner=null;try{
-            if(backupSession!=null)throw new IllegalStateException("已有备份任务，请先关闭预览。");
+            if(backupSession!=null||tableSession!=null||importPickerPending)throw new IllegalStateException("已有文件任务，请先关闭预览。");
             long revision=backupExpected(call);if(revision!=database.revision())throw new IllegalStateException("数据已变化，请重新读取。");
             String tree=prefs().getString("tree","");requireArchivePermission(tree);
             boolean include=Boolean.TRUE.equals(call.getBoolean("includeArchives",false));
@@ -901,6 +973,7 @@ public final class LogbookPlugin extends Plugin {
     /** Snapshot chunks share no state or cleanup with export files. Begin never writes business data. */
     @PluginMethod public void beginSnapshotEdit(PluginCall call) {
         execute(() -> { try {
+            if(tableSession!=null||importPickerPending)throw new IllegalStateException("已有表格或文件选择任务。");
             Long expected=call.getData().has("expectedRevision")?call.getData().getLong("expectedRevision"):null;
             if(expected==null||expected!=database.revision())throw new IllegalStateException("数据已变化，请重新读取。");
             String tree=prefs().getString("tree","");requireArchivePermission(tree);
@@ -942,7 +1015,7 @@ public final class LogbookPlugin extends Plugin {
     }
     @PluginMethod public void beginFetchBatch(PluginCall call) {
         execute(()->{try{
-            if(fetchBatch!=null)throw new IllegalStateException("已有批量检测正在进行。");
+            if(fetchBatch!=null||tableSession!=null||importPickerPending)throw new IllegalStateException("已有批量检测或文件任务正在进行。");
             long expected=call.getData().getLong("expectedRevision");
             if(database.revision()!=expected)throw new IllegalStateException("数据已变化，请重新读取。");
             String tree=prefs().getString("tree","");requireArchivePermission(tree);
