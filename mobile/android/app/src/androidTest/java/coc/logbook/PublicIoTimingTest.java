@@ -38,7 +38,7 @@ public final class PublicIoTimingTest {
     private boolean selectPublicFolder(android.view.accessibility.AccessibilityNodeInfo node){
         if(node==null)return false;
         String id=node.getViewIdResourceName(),text=String.valueOf(node.getText());
-        if(node.isEnabled()&&((id!=null&&id.endsWith(":id/action_menu_select"))||text.equals("选择")||text.equals("SELECT")||text.equals("使用此文件夹")||text.equals("USE THIS FOLDER")||text.equals("允许")||text.equals("ALLOW")))return node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
+        if(node.isEnabled()&&PublicFolderAction.matches(id,text))return node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK);
         for(int i=0;i<node.getChildCount();i++)if(selectPublicFolder(node.getChild(i)))return true;
         return false;
     }

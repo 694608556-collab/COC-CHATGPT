@@ -38,6 +38,24 @@ const sources = ['JsonFields', 'RecordOverlay', 'EntityEdits', 'LogbookActions',
 )
 const javac = join(process.env.JAVA_HOME, 'bin', process.platform === 'win32' ? 'javac.exe' : 'javac')
 const java = join(process.env.JAVA_HOME, 'bin', process.platform === 'win32' ? 'java.exe' : 'java')
+const pickerCompiled = spawnSync(
+  javac,
+  [
+    '-encoding',
+    'UTF-8',
+    '-d',
+    work,
+    resolve('android/app/src/androidTest/java/coc/logbook/PublicFolderAction.java'),
+    resolve('tests/native/PublicFolderActionCheck.java')
+  ],
+  { encoding: 'utf8' }
+)
+if (pickerCompiled.status !== 0) throw new Error(pickerCompiled.stderr || String(pickerCompiled.error))
+const pickerResult = spawnSync(java, ['-cp', work, 'coc.logbook.PublicFolderActionCheck'], {
+  encoding: 'utf8'
+})
+process.stdout.write(pickerResult.stdout)
+if (pickerResult.status !== 0) throw new Error(pickerResult.stderr || String(pickerResult.error))
 const compiled = spawnSync(
   javac,
   [
