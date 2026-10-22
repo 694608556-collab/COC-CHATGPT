@@ -2,9 +2,12 @@ import { readLocalSourceStream } from './local-source-stream'
 import { prepareRestoreStream } from './restore-stream'
 import { writeCanonicalBackupZipStream } from './backup-zip-stream'
 import { capacity } from './capacity'
+import { searchBodyStream } from './body-search-stream'
+import type { FilterPreset } from '../../../src/shared/types'
 import type { LocalStreamSource } from './local-source-stream'
 
 export type BackupStreamJob =
+  | { type: 'search'; source: LocalStreamSource; ids: string[]; query: string; preset: FilterPreset }
   | { type: 'restore'; source: LocalStreamSource; format: 'json' | 'zip'; maximumStageBytes: number }
   | {
       type: 'zip'
@@ -23,6 +26,14 @@ export async function performBackupStreamJob(
   signal?: AbortSignal
 ) {
   const source = readLocalSourceStream(job.source, { maximumBytes: job.source.bytes, signal })
+  if (job.type === 'search')
+    return searchBodyStream(source, {
+      expectedSource: job.source,
+      ids: job.ids,
+      query: job.query,
+      preset: job.preset,
+      signal
+    })
   if (job.type === 'restore')
     return prepareRestoreStream(source, {
       format: job.format,

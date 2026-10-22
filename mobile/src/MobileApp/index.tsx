@@ -1,3 +1,7 @@
+import { retainBodySelection } from '../data/body-cache'
+import { BodySearchCleanupError } from '../data/body-search-stream'
+import { searchNativeBodies } from '../data/backup-stream-client'
+import type { BodySearchResult } from '../data/body-search-stream'
 import { capacity } from '../data/capacity'
 import { BatchCheck } from './components/BatchCheck'
 import { buildTableImportTemplateCsv, buildTableImportTemplateXlsx } from '../../../src/shared/table-import'
@@ -100,6 +104,13 @@ export function MobileApp({
   const [snapshot, setSnapshot] = useState<MobileSnapshot>(emptySnapshot)
   const [deferredRecords, setDeferredRecords] = useState(new Set<string>())
   const deferredRef = useRef(deferredRecords)
+  const searchQueue = useRef<Promise<void>>(Promise.resolve())
+  const searchCleanupFailure = useRef<Error | undefined>(undefined)
+  const searchAbort = useRef<AbortController | undefined>(undefined)
+  const [searchRequest, setSearchRequest] = useState<{ moduleId: string; query: string }>()
+  const [bodySearchResults, setBodySearchResults] = useState<Record<string, BodySearchResult>>({})
+  const [searchingModule, setSearchingModule] = useState('')
+  const streamedSearch = native?.bodySearchStreamVersion === 1
   function replaceDeferred(ids: Set<string>) {
     deferredRef.current = ids
     setDeferredRecords(ids)
@@ -111,6 +122,16 @@ export function MobileApp({
    * @returns 包含所选正文的新快照；无待取正文时返回原对象。
    */
   async function loadContent(ids: string[], current = snapshot): Promise<MobileSnapshot> {
+    if (native?.backupStreamVersion === 1) {
+      const keep = new Set(ids)
+      if (record) keep.add(record.id)
+      const retained = retainBodySelection(current, deferredRef.current, keep)
+      if (retained.changed) {
+        current = retained.snapshot
+        replaceDeferred(retained.deferred)
+        setSnapshot(current)
+      }
+    }
     const existing = new Set(current.records.map((record) => record.id))
     const wanted = [...new Set(ids)].filter((id) => deferredRef.current.has(id) && existing.has(id))
     if (!wanted.length) return current
@@ -153,6 +174,13 @@ export function MobileApp({
   /** 仅真正退出正文时产生一次定位提示；后续点击由外层捕获并清除。@returns 无返回值。 */
   function closeReader() {
     setLastReadRecordId(record?.id)
+    if (native?.backupStreamVersion === 1) {
+      const retained = retainBodySelection(snapshot, deferredRef.current, new Set())
+      if (retained.changed) {
+        replaceDeferred(retained.deferred)
+        setSnapshot(retained.snapshot)
+      }
+    }
     setRecord(undefined)
   }
   const [readerQuery, setReaderQuery] = useState('')
@@ -229,6 +257,80 @@ export function MobileApp({
       if (id) void releaseTableInBackground(id).catch(() => {})
     }
   }, [tablePreview?.data.lease])
+  useEffect(() => {
+    if (
+      searchCleanupFailure.current ||
+      !streamedSearch ||
+      !native ||
+      !searchRequest?.query.trim() ||
+      busy ||
+      record ||
+      editing ||
+      batchCheck ||
+      preview ||
+      page !== 'records'
+    )
+      return
+    const controller = new AbortController(),
+      { moduleId, query } = searchRequest,
+      revision = native.revision
+    const preset = snapshot.settings.filterPreset
+    const ids = snapshot.records.filter((row) => row.moduleId === moduleId).map((row) => row.id)
+    const old = bodySearchResults[moduleId]
+    if (old?.revision === revision && old.query === query.trim() && old.presetKey === JSON.stringify(preset))
+      return
+    searchAbort.current = controller
+    setSearchingModule(moduleId)
+    const timer = setTimeout(() => {
+      const task = searchQueue.current
+        .catch(() => {})
+        .then(async () => {
+          if (controller.signal.aborted) return
+          try {
+            if (searchCleanupFailure.current) throw searchCleanupFailure.current
+            const result = await searchNativeBodies(port, ids, revision, query, preset, controller.signal)
+            if (!controller.signal.aborted) setBodySearchResults({ [moduleId]: result })
+          } catch (error) {
+            if (error instanceof BodySearchCleanupError) {
+              searchCleanupFailure.current = error
+              setError(error.message)
+              throw error
+            }
+            if (!controller.signal.aborted)
+              setError(error instanceof Error ? error.message : '正文搜索失败，请重试。')
+          } finally {
+            if (!controller.signal.aborted) setSearchingModule('')
+          }
+        })
+      searchQueue.current = task
+      void task.catch(() => {})
+    }, 250)
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+      if (searchAbort.current === controller) searchAbort.current = undefined
+      setSearchingModule((current) => (current === moduleId ? '' : current))
+    }
+  }, [
+    streamedSearch,
+    native?.revision,
+    searchRequest,
+    busy,
+    record,
+    editing,
+    batchCheck,
+    preview,
+    page,
+    snapshot.settings.filterPreset,
+    snapshot.records
+  ])
+  const availableBodySearch = Object.fromEntries(
+    Object.entries(bodySearchResults).filter(
+      ([, result]) =>
+        result.revision === native?.revision &&
+        result.presetKey === JSON.stringify(snapshot.settings.filterPreset)
+    )
+  )
   async function commit(next: MobileSnapshot) {
     if (!native) throw new Error('本机数据尚未读取。')
     if (snapshot.records.some((r) => deferredRef.current.has(r.id)))
@@ -920,6 +1022,9 @@ export function MobileApp({
     setQuietSaving(!!quiet)
     setSaveStatus(quiet === true ? '保存中…' : '')
     try {
+      searchAbort.current?.abort()
+      await searchQueue.current
+      if (searchCleanupFailure.current) throw searchCleanupFailure.current
       await action()
       if (quiet) {
         setNotice('')
@@ -1309,6 +1414,9 @@ export function MobileApp({
                     />
                   ) : (
                     <Records
+                      streamedSearch={streamedSearch}
+                      bodySearchResults={availableBodySearch}
+                      searchingModule={searchingModule}
                       returnRecordId={lastReadRecordId}
                       deferredRecords={deferredRecords}
                       snapshot={snapshot}
@@ -1326,6 +1434,10 @@ export function MobileApp({
                       queries={moduleQueries}
                       onQuery={(id, query) => {
                         setModuleQueries((current) => ({ ...current, [id]: query }))
+                        if (streamedSearch) {
+                          setSearchRequest({ moduleId: id, query })
+                          return
+                        }
                         if (
                           query.trim() &&
                           snapshot.records.some((r) => r.moduleId === id && deferredRef.current.has(r.id))

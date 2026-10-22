@@ -81,6 +81,19 @@ extension IOSNativeChecks {
                 let fullProof = try LogbookArchive.fileProof(backup, maximumBytes: proof.bytes + MiB)
                 try require(fullProof.0 > count * MiB, "native complete automatic/manual JSON \(count)MiB")
                 if count == 96 {
+                    let selected = directory.appendingPathComponent("selected-search.json")
+                    try Data().write(to: selected, options: [.withoutOverwriting])
+                    let output = try FileHandle(forWritingTo: selected)
+                    try store.writeBackup(expected: 2, maximumBytes: 4 * MiB, selected: ["capacity-0","capacity-95"]) { try output.write(contentsOf: $0) }
+                    try output.synchronize(); try output.close()
+                    let projected = try logbookObject(String(contentsOf: selected, encoding: .utf8))["snapshot"] as! LogbookJSON
+                    try require((projected["records"] as! [LogbookJSON]).map { $0["id"] as! String } == ["capacity-0","capacity-95"], "read-only search source contains only selected complete records")
+                    let owner = try LogbookBackupSession(directory: directory.appendingPathComponent("read-only-source"), expected: 2, bookmark: Data(), restoring: false, includeArchives: false, searching: true, available: { free })
+                    _ = try owner.captureJSON { sink in try store.writeBackup(expected: 2, maximumBytes: owner.sourceBudget, selected: ["capacity-0"], sink: sink) }
+                    try rejects("search source cannot enable staging or publication") { _ = try owner.beginOutput() }
+                    try owner.close()
+                }
+                if count == 96 {
                     let process = Process(); process.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
                     process.arguments = ["--public-capacity-crash", database.path, candidate.path]
                     try process.run(); process.waitUntilExit()

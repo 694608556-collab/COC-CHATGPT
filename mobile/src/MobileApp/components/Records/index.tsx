@@ -20,6 +20,9 @@ const STATUS_LABELS = {
  * @returns 手机记录汇总页面。
  */
 export function Records(props: {
+  streamedSearch?: boolean
+  bodySearchResults?: Record<string, import('../../../data/body-search-stream').BodySearchResult>
+  searchingModule?: string
   /** 正文返回后的临时场次 ID；下一次点击清除展开定位及高亮目标。 */
   returnRecordId?: string
   deferredRecords: ReadonlySet<string>
@@ -166,6 +169,9 @@ export function Records(props: {
                   </p>
                 )}
                 <ModuleBodySearch
+                  streaming={props.streamedSearch}
+                  result={props.bodySearchResults?.[m.id]}
+                  searching={props.searchingModule === m.id}
                   ready={!allRecords.some((r) => props.deferredRecords.has(r.id))}
                   busy={props.busy}
                   moduleId={m.id}

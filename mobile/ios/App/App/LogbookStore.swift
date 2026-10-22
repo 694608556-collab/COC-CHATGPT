@@ -221,10 +221,13 @@ final class LogbookStore {
     }
     /// Canonical envelope v1, fully validated without reserializing body tokens.
     /// The trusted native caller chooses the operation budget, never JavaScript.
-    func writeBackup(expected: Int, maximumBytes: Int, sink: (Data) throws -> Void) throws {
+    func writeBackup(expected: Int, maximumBytes: Int, selected: [String]? = nil, sink: (Data) throws -> Void) throws {
         try check(expected)
         var root = try metadata() ?? Self.empty()
-        let records = root.removeValue(forKey: "records") as! [LogbookJSON]
+        let allRecords = root.removeValue(forKey: "records") as! [LogbookJSON]
+        let wanted = selected.map { Set($0) }
+        let records = allRecords.filter { wanted == nil || wanted!.contains($0["id"] as! String) }
+        if let selected { guard !selected.isEmpty, selected.count <= 50000, wanted!.count == selected.count, records.count == selected.count else { throw LogbookFailure("搜索场次缺失、重复或无效。") } }
         let maximum = deviceSpace ? maximumBytes : min(maximumBytes, LogbookLimits.backupFileBytes)
         guard maximum > 0 else { throw LogbookFailure("备份空间预算无效。") }
         var total = 0
@@ -236,7 +239,10 @@ final class LogbookStore {
         }
         try write("{\"format\":\"coc.logbook.android\",\"formatVersion\":1,\"exportedAt\":" + String(try logbookText([logbookNow()]).dropFirst().dropLast()) + ",\"restoreScope\":[\"modules\",\"records\",\"characters\"],\"snapshot\":")
         try write(String(try logbookText(root).dropLast()) + ",\"records\":[")
-        let statement = try prepare("SELECT metadata,body FROM records ORDER BY position"); defer { sqlite3_finalize(statement) }
+        let statement: OpaquePointer
+        if let selected { statement = try prepare("SELECT metadata,body FROM records WHERE id IN (SELECT value FROM json_each(?)) ORDER BY position", [try logbookText(selected)]) }
+        else { statement = try prepare("SELECT metadata,body FROM records ORDER BY position") }
+        defer { sqlite3_finalize(statement) }
         var status = sqlite3_step(statement), count = 0
         while status == SQLITE_ROW {
             try autoreleasepool {

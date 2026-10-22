@@ -241,6 +241,7 @@ final class LogbookBackupSession {
     let bookmark: Data
     let restoring: Bool
     let includeArchives: Bool
+    let searching: Bool
     let available: () throws -> Int
     private let directory: URL
     private let maximumInputBytes: Int
@@ -250,17 +251,17 @@ final class LogbookBackupSession {
     struct Attachment { let key: String; let name: String; let mime: String; let proof: LogbookBackupProof }
     private(set) var restorePreview: LogbookRestoreCandidate.Preview?
     private(set) var attachments: [Attachment] = []
-    init(directory: URL, expected: Int, bookmark: Data, restoring: Bool, includeArchives: Bool,
+    init(directory: URL, expected: Int, bookmark: Data, restoring: Bool, includeArchives: Bool, searching: Bool = false,
          available: (() throws -> Int)? = nil) throws {
         self.directory = directory; self.expected = expected; self.bookmark = bookmark
-        self.restoring = restoring; self.includeArchives = includeArchives
+        self.restoring = restoring; self.includeArchives = includeArchives; self.searching = searching
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         self.available = available ?? { try LogbookCapacity.available(directory) }
         for file in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
             where file.lastPathComponent.range(of: "^coc-backup-[a-f0-9-]+-[0-9]+\\.part$", options: .regularExpression) != nil {
             try Self.delete(file)
         }
-        maximumInputBytes = try LogbookCapacity.maximum(available: self.available, copies: restoring ? 6 : 3)
+        maximumInputBytes = try LogbookCapacity.maximum(available: self.available, copies: restoring ? 6 : searching ? 2 : 3)
     }
     deinit { try? close() }
     func require(_ token: String?) throws { guard !closed, token == id else { throw LogbookFailure("备份暂存租约已失效。") } }
@@ -284,6 +285,7 @@ final class LogbookBackupSession {
         return proof
     }
     func beginOutput() throws -> Int {
+        guard !searching else { throw LogbookFailure("正文搜索来源只读，不能暂存输出或发布文件。") }
         guard !closed, !ready, entries["source"]?.proof != nil else { throw LogbookFailure("备份来源未封存。") }
         if maximumOutputBytes == 0 { maximumOutputBytes = try LogbookCapacity.maximum(available: available, copies: restoring ? 4 : 2) }
         return maximumOutputBytes

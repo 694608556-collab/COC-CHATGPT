@@ -9,7 +9,7 @@ import Network
 public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate, QLPreviewControllerDataSource, QLPreviewControllerDelegate {
     public let identifier = "LogbookPlugin"
     public let jsName = "Logbook"
-    public let pluginMethods: [CAPPluginMethod] = ["appendBackupStage", "finishBackupPreview", "commitBackupRestore", "cancelBackupStage", "createBackupStream", "finishBackupExport", "beginFetchBatch", "stageFetchResult", "finishFetchBatch", "cancelFetchBatch", "beginSnapshotEdit", "appendSnapshotEdit", "cancelSnapshotEdit", "claimFirstLaunchIntro", "getOverview", "getState", "getStatus", "getRecordContent", "commitSettings", "commitModule", "commitEntity", "commitAction", "commitTable", "commitTableDelta", "commitEdit", "commitRestore", "selectArchive", "openBackup", "writeArchive", "readDocument", "listDocuments", "openDocument", "shareDocument", "fetchLog", "automaticBackup"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise)! }
+    public let pluginMethods: [CAPPluginMethod] = ["createSearchSource", "appendBackupStage", "finishBackupPreview", "commitBackupRestore", "cancelBackupStage", "createBackupStream", "finishBackupExport", "beginFetchBatch", "stageFetchResult", "finishFetchBatch", "cancelFetchBatch", "beginSnapshotEdit", "appendSnapshotEdit", "cancelSnapshotEdit", "claimFirstLaunchIntro", "getOverview", "getState", "getStatus", "getRecordContent", "commitSettings", "commitModule", "commitEntity", "commitAction", "commitTable", "commitTableDelta", "commitEdit", "commitRestore", "selectArchive", "openBackup", "writeArchive", "readDocument", "listDocuments", "openDocument", "shareDocument", "fetchLog", "automaticBackup"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise)! }
     private let work = DispatchQueue(label: "coc.logbook.storage", qos: .userInitiated)
     private let backupWriter = DispatchQueue(label: "coc.logbook.automatic-backup", qos: .utility)
     private let logFetch = LogbookFetch()
@@ -59,7 +59,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         return value.intValue
     }
     private func state(_ store: LogbookStore, _ archive: LogbookArchive) throws -> LogbookJSON {
-        var result: LogbookJSON = ["backupStreamVersion": 1, "storageUsage": try store.storageUsage(), "tableDeltaVersion": 1, "revision": try store.revision(), "archive": archive.location(), "networkConnected": connected, "lastAutoBackupAt": 0]
+        var result: LogbookJSON = ["bodySearchStreamVersion": 1, "backupStreamVersion": 1, "storageUsage": try store.storageUsage(), "tableDeltaVersion": 1, "revision": try store.revision(), "archive": archive.location(), "networkConnected": connected, "lastAutoBackupAt": 0]
         if let saved = archive.preferences.dictionary(forKey: "coc.automatic-backup") { result["lastAutoBackupAt"] = saved["savedAt"]; result["lastAutoBackupRevision"] = saved["revision"] }
         return result
     }
@@ -185,6 +185,23 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
             }
         }
     }
+    @objc func createSearchSource(_ call: CAPPluginCall) {
+        run(call) { store, _ in
+            guard self.backupSession == nil, let ids = call.options["ids"] as? [String], !ids.isEmpty, ids.count <= 50000, Set(ids).count == ids.count else { throw LogbookFailure("搜索场次无效或已有文件任务。") }
+            let revision = try self.expected(call); try store.check(revision)
+            let owner = try LogbookBackupSession(directory: self.backupDirectory(), expected: revision, bookmark: Data(), restoring: false, includeArchives: false, searching: true)
+            self.backupSession = owner
+            do {
+                _ = try owner.captureJSON { write in try store.writeBackup(expected: revision, maximumBytes: owner.sourceBudget, selected: ids, sink: write) }
+                try store.check(revision)
+                return ["id": owner.id, "revision": revision, "source": try self.backupFile(owner, "source")]
+            } catch {
+                do { try owner.close(); self.backupSession = nil }
+                catch { throw LogbookFailure("搜索未完成，私有读取暂存清理失败，请重开后重试。") }
+                throw error
+            }
+        }
+    }
     @objc func createBackupStream(_ call: CAPPluginCall) {
         run(call) { store, archive in
             guard self.backupSession == nil else { throw LogbookFailure("已有备份任务，请先关闭预览。") }
@@ -223,7 +240,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
     @objc func finishBackupExport(_ call: CAPPluginCall) {
         backupRun(call) { store, archive in
             let owner = try self.backupOwner(call)
-            guard !owner.restoring, let name = call.getString("name") else { throw LogbookFailure("备份任务用途或文件名无效。") }
+            guard !owner.restoring, !owner.searching, let name = call.getString("name") else { throw LogbookFailure("备份任务用途或文件名无效。") }
             try self.checkBackup(owner, store, archive, revision: false)
             let key = owner.includeArchives ? "output" : "source"
             if owner.includeArchives {

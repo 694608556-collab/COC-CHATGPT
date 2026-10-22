@@ -1,6 +1,6 @@
 // Bundled only into CI's temporary directory and injected into DEBUG simulator.
 import { Native } from '../src/data/native'
-import { exportNativeBackup, previewNativeBackup } from '../src/data/backup-stream-client'
+import { exportNativeBackup, previewNativeBackup, searchNativeBodies } from '../src/data/backup-stream-client'
 import type { NativeRestoreSource } from '../src/data/backup-stream-native'
 import { readLocalSourceStream } from '../src/data/local-source-stream'
 import { Capacitor } from '@capacitor/core'
@@ -47,6 +47,23 @@ window.__cocSmokeTask = (async () => {
       'Refuse any non-public library'
     )
     check(initial.storageUsage!.logicalBytes > 96 * 1024 * 1024, 'Library must exceed old cap')
+    setStage('native-read-only-stream-search')
+    const searched = await searchNativeBodies(
+      Native,
+      data.records.map((row: { id: string }) => row.id),
+      initial.revision,
+      'PUBLIC_CAPACITY_END',
+      data.settings.filterPreset,
+      new AbortController().signal
+    )
+    check(
+      searched.hits.length === 96 && searched.hits.every((hit) => hit.matches === 1),
+      'Large module search incomplete'
+    )
+    check(
+      (await Native.getOverview!()).revision === initial.revision,
+      'Read-only search must not change SQLite'
+    )
     await Native.selectArchive({ localFolder: true })
     setStage('native-complete-json')
     const json = await exportNativeBackup(Native, initial.revision, false, 'public-capacity-complete.json')
@@ -109,6 +126,7 @@ window.__cocSmokeTask = (async () => {
       passed: true,
       stage: 'complete',
       records: 96,
+      searchHits: searched.hits.length,
       logicalBytes: initial.storageUsage!.logicalBytes,
       jsonBytes: json.bytes,
       zipBytes: zip.bytes,
