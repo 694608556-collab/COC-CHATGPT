@@ -1,8 +1,16 @@
 import { Native } from '../src/data/native'
 import inputs from '../ios/build/public-io/inputs.json'
+import { iosPublicIoConfig } from './ios-public-io-config'
+
+declare global {
+  interface Window {
+    __cocPublicTableFirst?: unknown
+  }
+}
 
 // Injected into a second fresh DEBUG simulator only; never included in IPA assets.
 window.__cocSmokeTask = (async () => {
+  const config = iosPublicIoConfig(window.__cocPublicTableFirst)
   // Public fixture diagnostics only: retain PNG header fields, never page pixels.
   const pngHeaders: Array<Record<string, number | string>> = []
   // Observe the existing completed read; do not delay/replace canvas callbacks.
@@ -49,7 +57,7 @@ window.__cocSmokeTask = (async () => {
       purpose: 'export'
     })
   }
-  window.__publicIoConfig = { mode: 'complete' }
+  window.__publicIoConfig = config
   await import('./public-io-webview')
   const deadline = performance.now() + 850000
   while (!window.__publicIoResult) {
@@ -59,6 +67,7 @@ window.__cocSmokeTask = (async () => {
   }
   return {
     ...(window.__publicIoResult as object),
+    ...(config.mode === 'tables' ? { coldTableFirst: config.publicIoTableFirst } : {}),
     pngHeaders,
     physicalPhone: false,
     environment:

@@ -78,6 +78,8 @@ def required_public_io_is_delegated(job, environment, workflow, reusable):
         'python3 scripts/ios-public-io-check.py',
         'python3 scripts/test-character-import-acceptance.py',
         'python3 scripts/test-table-import-acceptance.py',
+        'python3 scripts/ios-cold-table-check.py',
+        'python3 scripts/test-ios-cold-tables.py',
     ]
     steps = re.split(r'^      - ', io, flags=re.MULTILINE)[1:]
     for command_text in required_commands:

@@ -25,15 +25,19 @@ jobs:
       - run: pnpm typecheck && pnpm ios:sync && node scripts/check-release-web.mjs
       - run: python3 scripts/test-character-import-acceptance.py && python3 scripts/test-table-import-acceptance.py
       - run: python3 scripts/test-ios-ci-scheduling.py
+      - name: Verify cold table completeness and failure propagation
+        run: python3 scripts/test-ios-cold-tables.py
       # Required by ios-check.yml on the same source revision. Standalone manual
       # execution remains available for feedback and never replaces full CI.
       - name: Exercise every complete public I/O assertion in a fresh simulator
         run: python3 scripts/ios-public-io-check.py
+      - name: Verify each first table format in its own fresh simulator
+        run: python3 scripts/ios-cold-table-check.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ios-additional-complete-io-evidence
           path: |
             mobile/ios/build/ios-public-io-diagnostic-*.json
-            mobile/ios/build/public-io-diagnostic-build.log
+            mobile/ios/build/public-io-diagnostic*-build.log
           if-no-files-found: ignore

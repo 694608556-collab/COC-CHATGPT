@@ -93,6 +93,17 @@ class RequiredIOScheduleTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.delegated(job='not-the-full-io-job')
 
+    def test_cold_format_matrix_and_its_proof_tests_are_mandatory(self):
+        for command in ('python3 scripts/ios-cold-table-check.py',
+                        'python3 scripts/test-ios-cold-tables.py'):
+            self.assertIn('        run: ' + command, self.reusable)
+            for replacement in ('        run: true',
+                                '        if: false\n        run: ' + command,
+                                '        continue-on-error: true\n        run: ' + command):
+                changed = self.reusable.replace('        run: ' + command, replacement)
+                with self.subTest(command=command, replacement=replacement), self.assertRaises(RuntimeError):
+                    self.delegated(reusable=changed)
+
     def execute_schedule(self, delegated=False, fail_ui=False, fail_capacity=False):
         """Exercise the real coordinator with public synthetic simulator reports."""
         calls = []
@@ -187,7 +198,7 @@ class CompleteIOPreparationTests(unittest.TestCase):
     BOOT_OUTPUT = 'Waiting for SpringBoard\n' + ('public boot detail\n' * 5000) + 'Finished\n'
 
     def execute(self, fail=None, content_passed=True, health_failure=False,
-                diagnostic_write_failure=False, device_id=DEVICE, runtime_version='27.0'):
+                diagnostic_write_failure=False, device_id=DEVICE, runtime_version='27.0', table_first=None):
         calls = []
         self.failure = None
         self.error = None
@@ -238,12 +249,14 @@ class CompleteIOPreparationTests(unittest.TestCase):
                     mock.patch.dict(os.environ, {'ImageOS': 'public-image', 'ImageVersion': 'public-version', 'PUBLIC_TEST_SECRET': 'never-collect-this'}):
                 if fail or not content_passed or device_id != self.DEVICE or runtime_version != '27.0':
                     with self.assertRaises((subprocess.CalledProcessError, subprocess.TimeoutExpired, RuntimeError, ValueError)) as caught:
-                        PUBLIC_IO.main()
+                        PUBLIC_IO.main(table_first)
                     self.error = caught.exception
                     self.failure = json.loads((base / 'ios/build/ios-public-io-diagnostic-failure.json').read_text(encoding='utf-8'))
                     self.assertIs(self.failure['passed'], False)
                 else:
-                    PUBLIC_IO.main()
+                    PUBLIC_IO.main(table_first)
+                script = container / 'tmp/ios-scale-webview.js'
+                self.injected_script = script.read_text(encoding='utf-8') if script.exists() else None
                 self.diagnostics = {path.name: json.loads(path.read_text(encoding='utf-8')) for path in (base / 'ios/build').glob('ios-public-io-diagnostic-*.json')}
         return calls
 
@@ -282,6 +295,25 @@ class CompleteIOPreparationTests(unittest.TestCase):
         self.assertEqual(sum(args[:2] == ('python3', 'scripts/check-public-io.py') for args, _ in calls), 1)
         self.assertEqual(sum(args[:2] == ('node', 'scripts/public-io-fixtures.mjs') for args, _ in calls), 1)
         self.assertEqual(sum(args[:2] == ('python3', 'scripts/ios-public-io-fixture.py') for args, _ in calls), 1)
+
+    def test_cold_entry_injects_only_requested_format_and_uses_independent_table_gate(self):
+        for first in ('csv', 'xlsx', 'xls'):
+            with self.subTest(first=first):
+                calls = self.execute(table_first=first)
+                self.assertTrue(self.injected_script.startswith('window.__cocPublicTableFirst=' + json.dumps(first) + ';\n'))
+                checks = [args for args, _ in calls if args[:2] == ('python3', 'scripts/check-ios-table-io.py')]
+                self.assertEqual(len(checks), 1)
+                self.assertEqual(checks[0][-1], first)
+                self.assertIn('ios-public-io-diagnostic-table-' + first + '-result.json', checks[0][-2])
+                self.assertEqual(sum(args[:3] == ('xcrun', 'simctl', 'create') for args, _ in calls), 1)
+                self.assertEqual(sum(args[:2] == ('python3', 'scripts/ios-public-io-fixture.py') for args, _ in calls), 1)
+
+    def test_invalid_cold_entry_cannot_create_or_touch_a_simulator(self):
+        with mock.patch.object(PUBLIC_IO, 'command') as command:
+            for value in ('CSV', '', 'ods', True):
+                with self.subTest(value=value), self.assertRaises(ValueError):
+                    PUBLIC_IO.main(value)
+            command.assert_not_called()
 
     def test_build_failure_cleans_up_owned_device_without_install_or_test_execution(self):
         calls = self.execute(fail=('xcodebuild', '-project'))

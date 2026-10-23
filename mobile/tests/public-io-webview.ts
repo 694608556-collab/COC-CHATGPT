@@ -11,6 +11,7 @@ import { mergeImportedParticipants } from '../../src/shared/table-import'
 import type { TableImportRow } from '../../src/shared/table-import'
 import type { ModuleRecord, SessionRecord } from '../../src/shared/types'
 import { cancelImportFromBack } from './public-io-navigation'
+import { publicIoTableOrder } from './public-io-table-order'
 
 declare global {
   interface Window {
@@ -22,6 +23,7 @@ declare global {
       localPrivateCard?: boolean
       localPrivateTable?: boolean
       expectedTableProof?: unknown
+      publicIoTableFirst?: unknown
     }
     __publicIoSource: string
     __publicIoResult: unknown
@@ -47,6 +49,7 @@ let privateWorkerTiming: Record<string, number> | undefined
 let actionStarted = 0
 let receivedTablePreview: NativeTablePreview | undefined
 let tableSourceTiming: Record<string, number> | undefined
+let tableWorkerTiming: Record<string, number> | undefined
 let tableCandidateParts: Uint8Array[] = []
 let tableCandidateProof: { bytes: number; sha256: string } | undefined
 let tableSourceProof: { bytes: number; sha256: string } | undefined
@@ -85,6 +88,35 @@ if (window.__publicIoConfig.localPrivateCard) {
             (value) => value.toString(16).padStart(2, '0')
           ).join('')
         }
+      }
+      this.addEventListener('message', observe)
+    }
+    return (post as any).call(this, message, ...rest)
+  }
+}
+if (['tables', 'private-table'].includes(window.__publicIoConfig.mode)) {
+  const post = Worker.prototype.postMessage
+  /** Request numeric records diagnostics through the actual Worker boundary.
+   * @param message Existing worker request, with measure enabled only for records.
+   * @param rest Original transfer/options arguments, forwarded unchanged.
+   * @returns The original postMessage result; all observer work remains timed.
+   */
+  Worker.prototype.postMessage = function (message: any, ...rest: any[]) {
+    if (message?.type === 'start' && message.job?.kind === 'records') {
+      message = { ...message, job: { ...message.job, measure: true } }
+      tableWorkerTiming = undefined
+      /** Capture numbers only; release this observer on both success and failure.
+       * @param event Existing Worker completion event. @returns No value.
+       */
+      const observe = (event: MessageEvent) => {
+        if (!['done', 'failed'].includes(event.data?.type)) return
+        this.removeEventListener('message', observe)
+        if (event.data.type === 'done' && event.data.result?.timing)
+          tableWorkerTiming = Object.fromEntries(
+            Object.entries(event.data.result.timing as Record<string, number>).filter(
+              ([key, value]) => key.startsWith('js') && Number.isFinite(value) && value >= 0
+            )
+          )
       }
       this.addEventListener('message', observe)
     }
@@ -311,14 +343,17 @@ async function chooseExport(label: string) {
  * and the entire last manual body. Existing complete matrix stays intact. */
 async function measureRecordTables(commit = true) {
   const privateMode = !!expectedPrivateTable
+  const publicFormats = publicIoTableOrder(window.__publicIoConfig.publicIoTableFirst)
+  const formats = privateMode ? ['xlsx'] : publicFormats
   const before = privateMode ? await Native.getOverview() : undefined
   let privateRows: TableImportRow[] | undefined
   await click('数据与设置')
-  for (const extension of privateMode ? ['xlsx'] : ['csv', 'xlsx', 'xls']) {
+  for (const extension of formats) {
     window.__publicIoSource = 'public-io-table.' + extension
     for (let repeat = 0; repeat < 3; repeat++) {
       receivedTablePreview = undefined
       tableSourceTiming = undefined
+      tableWorkerTiming = undefined
       tableCandidateParts = []
       tableCandidateProof = undefined
       tableSourceProof = undefined
@@ -341,7 +376,8 @@ async function measureRecordTables(commit = true) {
       results[results.length - 1]!.workerTiming = {
         ...(tableSourceTiming as Record<string, number> | undefined),
         ...(receivedTablePreview as (NativeTablePreview & { timing?: Record<string, number> }) | undefined)
-          ?.timing
+          ?.timing,
+        ...tableWorkerTiming
       }
       const bytes = new Uint8Array(tableCandidateParts.reduce((size, part) => size + part.length, 0))
       let offset = 0
@@ -420,7 +456,7 @@ async function measureRecordTables(commit = true) {
           'Native preview includes the last page and complete final row'
         )
       }
-      if (!commit || extension !== (privateMode ? 'xlsx' : 'xls') || repeat !== 2) {
+      if (!commit || extension !== formats[formats.length - 1] || repeat !== 2) {
         const dialog = document.querySelector('[role="dialog"][aria-label="表格导入预览"]')!
         check(button('取消', dialog), 'Table preview cancel is available')
         button('取消', dialog)!.click()

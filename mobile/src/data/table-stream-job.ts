@@ -16,6 +16,11 @@ import { createVerifiedTableReplay } from './verified-table-source'
 import type { Coc7WorksheetRequest, WorksheetCell } from './table-dom-worksheet'
 import { readKernelRecordsGrid } from './table-kernel-records'
 import type { RecordsKernelSource } from './table-kernel-records'
+import { encodeUtf8 } from './bytes'
+
+// An encoding crossover in UTF-16 code units, never a content or staging limit.
+// Small records avoid per-row Blob/reader setup; larger rows keep every byte.
+const candidateBlobThreshold = 16 * 1024
 
 export interface TableStreamJob {
   source: LocalStreamSource
@@ -23,18 +28,34 @@ export interface TableStreamJob {
   format: 'csv' | 'xlsx' | 'xls'
   kind: 'records' | 'characters' | 'coc7'
   maximumStageBytes: number
+  /** Opt-in numeric milliseconds only; diagnostics remain inside measured work. */
   measure?: boolean
   recordsKernel?: RecordsKernelSource
 }
-/** Writes only a native-owned private candidate. No production write capability. */
+/** Mutually exclusive complete draft/candidate results with optional numeric diagnostics. */
+type TableStreamResult = (
+  | { draft: Coc7ImportPreview; candidate?: never; candidates?: never }
+  | { draft?: never; candidate: { bytes: number; sha256: string }; candidates: number }
+) & { timing?: Record<string, number> }
+
+/** Writes only a native-owned private candidate; never writes production data.
+ * @param job Complete source credentials, parsing mode and optional diagnostics.
+ * @param write Acknowledged private staging writer; its wait remains inside timing.
+ * @param readString Complete spilled shared-string reader.
+ * @param signal Cancellation signal; cancellation never returns a successful result.
+ * @param projectWorksheet Optional existing character worksheet projection.
+ * @returns A complete draft or candidate proof, plus numeric milliseconds only when requested.
+ */
 export async function performTableStreamJob(
   job: TableStreamJob,
   write: (key: 'candidate' | 'strings', chunk: Uint8Array) => Promise<void>,
   readString: (index: number) => Promise<string>,
   signal?: AbortSignal,
   projectWorksheet?: (request: Coc7WorksheetRequest) => Promise<WorksheetCell[] | undefined>
-) {
-  const jobStart = performance.now(), timing: Record<string, number> = {}
+): Promise<TableStreamResult> {
+  const jobStart = performance.now(),
+    timing: Record<string, number> = {}
+  const measureRecords = job.measure === true && job.kind === 'records'
   checkStreamBudget(job.maximumStageBytes)
   const digest = new StreamSha256(),
     encoder = new TextEncoder()
@@ -56,7 +77,8 @@ export async function performTableStreamJob(
   const stringCache = new Map<number, string>()
   let cachedStringBytes = 0
   let cachedSource: Uint8Array[] | undefined
-  let stringsOnDisk = false, nextStringIndex = 0
+  let stringsOnDisk = false,
+    nextStringIndex = 0
   /** Retains recent decoded values within a conservative UTF-16/entry budget.
    * @param index Private append-only string index. @param value Complete decoded value.
    * @returns No value; oversized values remain available from native staging.
@@ -77,17 +99,45 @@ export async function performTableStreamJob(
     stringCache.set(index, value)
     cachedStringBytes += bytes
   }
+  /** Hash the exact borrowed buffer before it can be reused by a later row.
+   * @param chunk Complete current candidate segment. @returns No value.
+   */
+  function updateCandidateDigest(chunk: Uint8Array) {
+    const digestStart = measureRecords ? performance.now() : 0
+    digest.update(chunk)
+    if (measureRecords)
+      timing.jsDigestUpdateMs = (timing.jsDigestUpdateMs ?? 0) + performance.now() - digestStart
+  }
   async function flush(key: 'candidate' | 'strings') {
     if (!used[key]) return
     checkStreamCancelled(signal)
     const chunk = buffers[key].subarray(0, used[key])
-    await write(key, chunk)
-    if (key === 'candidate') digest.update(chunk)
+    const writeStart = measureRecords ? performance.now() : 0
+    if (key === 'candidate' && job.kind === 'records') {
+      // The buffer remains owned until the append ACK settles. Compute the
+      // independent full proof during that wait, and still propagate any write
+      // failure before a digest failure. No successful result can precede ACK.
+      const append = write(key, chunk)
+      let digestFailure: { error: unknown } | undefined
+      try { updateCandidateDigest(chunk) } catch (error) { digestFailure = { error } }
+      await append
+      if (digestFailure) throw digestFailure.error
+    } else {
+      await write(key, chunk)
+      if (key === 'candidate') updateCandidateDigest(chunk)
+    }
+    if (measureRecords) timing.jsAwaitWriteMs = (timing.jsAwaitWriteMs ?? 0) + performance.now() - writeStart
     used[key] = 0
   }
   async function send(key: 'candidate' | 'strings', text: string) {
     checkStreamCancelled(signal)
-    const bytes = encoder.encode(text)
+    const encodeStart = measureRecords && key === 'candidate' ? performance.now() : 0
+    const bytes =
+      job.kind === 'records' && key === 'candidate' && text.length >= candidateBlobThreshold
+        ? encodeUtf8(text)
+        : encoder.encode(text)
+    if (measureRecords && key === 'candidate')
+      timing.jsCandidateUtf8Ms = (timing.jsCandidateUtf8Ms ?? 0) + performance.now() - encodeStart
     if (addStreamBytes(staged, bytes.length) > job.maximumStageBytes)
       throw new Error('表格暂存所需空间超过手机本次可用空间。')
     staged = addStreamBytes(staged, bytes.length)
@@ -120,10 +170,13 @@ export async function performTableStreamJob(
     if (!parsed) return
     if (!parsed.moduleName) throw new Error(parsed.sheet + ' 缺少模组名，请补齐后重新导入。')
     if (parsed.link) parseSeaLogUrl(parsed.link)
-    return send(
-      'candidate',
-      'T' + JSON.stringify({ sheetOrder: order, rowOrder: value.index, value: parsed }) + '\n'
-    ).then(() => { candidates++ })
+    const jsonStart = measureRecords ? performance.now() : 0
+    const text = 'T' + JSON.stringify({ sheetOrder: order, rowOrder: value.index, value: parsed }) + '\n'
+    if (measureRecords)
+      timing.jsCandidateJsonMs = (timing.jsCandidateJsonMs ?? 0) + performance.now() - jsonStart
+    return send('candidate', text).then(() => {
+      candidates++
+    })
   }
   const end = async () => {
     if (cardSheet) draft = previewCoc7Sheet(cardSheet)
@@ -173,11 +226,20 @@ export async function performTableStreamJob(
     }
     cachedSource = cache
   }
-  const kernelRead = job.kind === 'records' && job.format === 'xlsx' && job.recordsKernel
-    ? await readKernelRecordsGrid(job.recordsKernel, job.source, { onSheetStart: start, onRow: row, onSheetEnd: end }, signal)
-    : false
+  const replayStart = measureRecords ? performance.now() : 0
+  const kernelRead =
+    job.kind === 'records' && job.format === 'xlsx' && job.recordsKernel
+      ? await readKernelRecordsGrid(
+          job.recordsKernel,
+          job.source,
+          { onSheetStart: start, onRow: row, onSheetEnd: end },
+          signal
+        )
+      : false
   if (kernelRead) {
-    if (job.measure) timing.recordsKernel = performance.now() - jobStart
+    // Inclusive replay time includes candidate encoding and any writes it awaits;
+    // diagnostics must not be summed or subtracted from end-to-end latency.
+    if (measureRecords) timing.jsRecordsReplayMs = performance.now() - replayStart
   } else if (job.format === 'xls') {
     // Legacy BIFF/content-detected formats keep the existing parser compatibility.
     // No product file-size cap; allocation is limited by the actual JS/OS memory.
@@ -203,9 +265,8 @@ export async function performTableStreamJob(
       await end()
     }
   } else {
-    const replay = job.source.bytes <= cacheBudget
-      ? await createVerifiedTableReplay(job.source, signal)
-      : source
+    const replay =
+      job.source.bytes <= cacheBudget ? await createVerifiedTableReplay(job.source, signal) : source
     if (job.measure) timing.sourceReadAndProof = performance.now() - jobStart
     await readTableGridStream({
       name: job.name,
@@ -214,21 +275,32 @@ export async function performTableStreamJob(
       expectedSource: { bytes: job.source.bytes, sha256: job.source.sha256 },
       maximumExpandedBytes: job.maximumStageBytes,
       collectMergedRanges: job.kind !== 'coc7',
-      coc7Projection: job.kind === 'coc7' && projectWorksheet ? {
-        canUse: () => !stringsOnDisk,
-        async run(request) {
-          const start = performance.now()
-          const result = await projectWorksheet(request)
-          if (job.measure) {
-            timing.domCalls = (timing.domCalls ?? 0) + 1
-            timing.domFallbacks = (timing.domFallbacks ?? 0) + (result ? 0 : 1)
-            timing.domMilliseconds = (timing.domMilliseconds ?? 0) + performance.now() - start
+      coc7Projection:
+        job.kind === 'coc7' && projectWorksheet
+          ? {
+              canUse: () => !stringsOnDisk,
+              async run(request) {
+                const start = performance.now()
+                const result = await projectWorksheet(request)
+                if (job.measure) {
+                  timing.domCalls = (timing.domCalls ?? 0) + 1
+                  timing.domFallbacks = (timing.domFallbacks ?? 0) + (result ? 0 : 1)
+                  timing.domMilliseconds = (timing.domMilliseconds ?? 0) + performance.now() - start
+                }
+                return result
+              }
+            }
+          : undefined,
+      measurePhase: job.measure
+        ? (name, milliseconds) => {
+            timing[name] = milliseconds
           }
-          return result
-        }
-      } : undefined,
-      measurePhase: job.measure ? (name, milliseconds) => { timing[name] = milliseconds } : undefined,
-      measureWork: job.measure ? (name, milliseconds) => { timing[name] = (timing[name] ?? 0) + milliseconds } : undefined,
+        : undefined,
+      measureWork: job.measure
+        ? (name, milliseconds) => {
+            timing[name] = (timing[name] ?? 0) + milliseconds
+          }
+        : undefined,
       wantsCellDetails: (sheet) => job.kind === 'coc7' && sheet === '人物卡',
       signal,
       writeString: async (index, value) => {
@@ -283,5 +355,10 @@ export async function performTableStreamJob(
   await flush('strings')
   await flush('candidate')
   checkStreamCancelled(signal)
-  return { candidate: { bytes: digest.bytes, sha256: digest.digest() }, candidates }
+  const candidate = { bytes: digest.bytes, sha256: digest.digest() }
+  return {
+    candidate,
+    candidates,
+    ...(measureRecords ? { timing: { ...timing, jsTotalMs: performance.now() - jobStart } } : {})
+  }
 }
