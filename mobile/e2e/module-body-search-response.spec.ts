@@ -57,12 +57,26 @@ test('模组搜索先绘制本地反馈再开始父级工作，首次和后续�
   await page.goto('/body-search-response-test')
   await page.addScriptTag({ content: code.outputFiles[0]!.text })
   const search = page.getByRole('searchbox', { name: '搜索该模组所有场次正文' })
-  for (const query of ['first', 'second']) {
+  await page.bringToFront()
+  for (const [index, query] of ['first', 'second'].entries()) {
     await search.fill(query)
+    // The visible, focused input must finish its previous render before the
+    // timed submit. This performs no search/body read and does not move any
+    // feedback or parent work outside the existing submit-event measurement.
+    const ready = await page.evaluate(async () => {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      const input = document.querySelector('input')!, bounds = input.getBoundingClientRect()
+      return { visibility: document.visibilityState, focused: document.activeElement === input,
+        width: bounds.width, height: bounds.height, submissions: (window as any).__responseProbe.submissions.length }
+    })
+    expect(ready.visibility).toBe('visible'); expect(ready.focused).toBe(true)
+    expect(ready.width).toBeGreaterThan(0); expect(ready.height).toBeGreaterThan(0)
+    expect(ready.submissions).toBe(index)
     await search.press('Enter')
     await expect(page.locator('.search-result')).toContainText('完整结果 ' + query)
   }
   const submissions = await page.evaluate(() => (window as any).__responseProbe.submissions)
+  console.log(JSON.stringify({ environment: 'Desktop Edge isolated component; not phone timing', submissions }))
   expect(submissions).toHaveLength(2)
   for (const submission of submissions) {
     expect(submission.statusAtDispatch).toContain('正在逐场搜索已保存正文')
