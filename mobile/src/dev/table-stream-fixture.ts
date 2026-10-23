@@ -5,12 +5,22 @@ import type { TableImportRow } from '../../../src/shared/table-import'
 import { DEFAULT_FILTER_PRESET } from '../../../src/shared/types'
 import { decodeBase64, encodeBase64 } from '../data/bytes'
 import { importTable } from '../data/tables'
+import { publicCoc7Workbook } from '../../test-fixtures/coc7'
+import * as XLSX from 'xlsx'
 import type { TablePreview } from '../data/tables'
 
 /** Public browser fixture only. The real Worker/parser runs; native SQLite is
  * simulated with the existing small-file import oracle and IndexedDB port.
  * It must never be reported as native capacity, authorization or phone timing. */
 export const publicTableStreamPath = '/_capacitor_file_/public-table-stream.csv'
+export const publicTableStreamCardPath = '/_capacitor_file_/public-table-stream-card.xlsx'
+export function publicTableStreamCardBytes() {
+  const book = publicCoc7Workbook()
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(
+    Array.from({ length: 65 }, (_, i) => [`public-auxiliary-${i}-`.padEnd(10000, 'x')])
+  ), '公开辅助说明')
+  return new Uint8Array(XLSX.write(book, { type: 'array', bookType: 'xlsx', bookSST: true }))
+}
 const encoder = new TextEncoder()
 function csvCell(value: string) {
   return '"' + value.replace(/"/g, '""') + '"'
@@ -152,12 +162,13 @@ export function createTableStreamFixture(base: LogbookPort): LogbookPort {
       return { ...(await base.getOverview()), tableStreamVersion: 1 }
     },
     async openBackup(request) {
-      if (!request?.stream || request.kind !== 'record-table') return base.openBackup(request)
+      if (!request?.stream || !['record-table', 'character-table'].includes(request.kind ?? '')) return base.openBackup(request)
       await new Promise((resolve) => setTimeout(resolve, options.pickerDelayMs))
       const state = await base.getState()
       if (lease || !state.archive.valid || state.revision !== request.expectedRevision)
         throw new Error('公开测试表格状态无效。')
-      const bytes = encoder.encode(publicTableStreamCSV(options.rows)),
+      const card = request.kind === 'character-table'
+      const bytes = card ? publicTableStreamCardBytes() : encoder.encode(publicTableStreamCSV(options.rows)),
         id = crypto.randomUUID()
       lease = {
         id,
@@ -172,11 +183,11 @@ export function createTableStreamFixture(base: LogbookPort): LogbookPort {
         tableSource: {
           id,
           revision: state.revision,
-          name: '公开流式.csv',
-          format: 'csv',
+          name: card ? '公开七版角色卡.xlsx' : '公开流式.csv',
+          format: card ? 'xlsx' : 'csv',
           bytes: bytes.length,
           sha256: options.badSourceHash ? '0'.repeat(64) : await digest(bytes),
-          fileUri: new URL(publicTableStreamPath + '?rows=' + options.rows, location.href).href,
+          fileUri: new URL(card ? publicTableStreamCardPath : publicTableStreamPath + '?rows=' + options.rows, location.href).href,
           maximumStageBytes: 128 * 1024 * 1024
         }
       }

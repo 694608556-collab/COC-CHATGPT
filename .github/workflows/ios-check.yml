@@ -27,17 +27,19 @@ jobs:
           cache-dependency-path: mobile/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck && pnpm test
+      - name: Check iOS native transactions, bodies and local archive protection
+        run: |
+          node scripts/ios-native-fixture.mjs
+          bash scripts/build-table-kernel.sh
+          node scripts/check-table-kernel.mjs ios/build/table-kernel-host/coc-table-kernel-probe
+          swiftc -swift-version 5 -import-objc-header native/table-kernel/table-kernel.h ios/App/App/LogbookStore.swift ios/App/App/LogbookValidation.swift ios/App/App/LogbookMutations.swift ios/App/App/LogbookArchive.swift ios/App/App/LogbookBackup.swift ios/App/App/LogbookTable.swift scripts/ios-native-tests.swift scripts/ios-scale-tests.swift scripts/ios-backup-tests.swift scripts/ios-capacity-tests.swift scripts/ios-capacity-fetch-tests.swift scripts/ios-table-stream-tests.swift ios/build/table-kernel-host/libcoc_table_kernel.a -Xlinker -lc++ -lz -o ios/build/native-checks
+          ios/build/native-checks ios/build/native-sample.json
       - name: Check bounded-memory complete JSON and ZIP backups above 64MiB
         run: node scripts/check-backup-stream.mjs
       - name: Check disk-backed CSV and XLSX streams above 64MiB
         run: node scripts/check-table-stream.mjs
       - name: Check one complete 70MiB record through CSV, ZIP64, restore and editing
         run: node scripts/check-single-record-stream.mjs
-      - name: Check iOS native transactions, bodies and local archive protection
-        run: |
-          node scripts/ios-native-fixture.mjs
-          swiftc -swift-version 5 ios/App/App/LogbookStore.swift ios/App/App/LogbookValidation.swift ios/App/App/LogbookMutations.swift ios/App/App/LogbookArchive.swift ios/App/App/LogbookBackup.swift ios/App/App/LogbookTable.swift scripts/ios-native-tests.swift scripts/ios-scale-tests.swift scripts/ios-backup-tests.swift scripts/ios-capacity-tests.swift scripts/ios-capacity-fetch-tests.swift scripts/ios-table-stream-tests.swift -o ios/build/native-checks
-          ios/build/native-checks ios/build/native-sample.json
       - run: pnpm ios:sync && node scripts/check-release-web.mjs
       - name: Build device arm64 IPA without Apple credentials
         run: bash scripts/package-ios.sh

@@ -25,11 +25,13 @@ for (const text of [
   'first-launch-preview',
   'coc-logbook-first-welcome-shown',
   '重新构建安装包'
+  , '__publicIoObserveDraft', '__publicIoObserveEditor'
 ])
   assert(!source.includes(text), `Development-only content in production bundle: ${text}`)
 assert(source.includes(version), `Release version missing: ${version}`)
 assert(source.includes('亦如长风万里沙'), 'Creator credit missing')
 const assets = await readdir(webDirectory, { recursive: true })
+assert.equal(await readFile(resolve(webDirectory, 'licenses/expat.txt'), 'utf8'), await readFile(new URL('../native/table-kernel/vendor/expat/COPYING', import.meta.url), 'utf8'), 'Complete Expat license must be packaged')
 for (const file of [
   'app.js',
   'snapshot-worker.js',

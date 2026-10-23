@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import * as XLSX from 'xlsx'
-import { zipSync, unzipSync, deflateSync, strToU8 } from 'fflate'
+import { zipSync, unzipSync, deflateSync, strToU8, Inflate } from 'fflate'
 import { readTableGridStream, type TableGridStreamOptions } from './table-grid-stream'
 import { StreamCrc32 } from './stream-zip-proof'
 
@@ -78,6 +78,17 @@ const main = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
 const office = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 const relns = 'http://schemas.openxmlformats.org/package/2006/relationships'
 const xml = (body: string) => '<?xml version="1.0" encoding="UTF-8"?>' + body
+
+it('完整标量标签快速路径与通用词法路径输出一致，坐标、数值、实体和SST错误仍拒绝', async () => {
+  const body = '<sheetData><row r="1"><c r="A1" s="1"/><c r="B1"/><c r="C1" s="2" t="s"><v>0</v></c><c r="D1" t="n"><v>42</v></c><c r="E1" t="b"><v>1</v></c><c r="F1" t="str"><v>完整正文</v></c><c r="G1" t="e"><v>#VALUE!</v></c></row></sheetData>'
+  const pack = (text: string) => workbook({ 'xl/worksheets/s.xml': worksheet(text) }, [{ name: '公开', target: 'worksheets/s.xml' }], '<si><t>完整字符串</t></si>')
+  const fast = pack(body), generic = pack(body.replace(/<c /g, "<c extra='compatible' "))
+  expect(await read(fast, 'xlsx')).toEqual(await read(generic, 'xlsx'))
+  for (const changed of [body.replace('r="D1"', 'r="B1"'), body.replace('<v>42</v>', '<v>NaN</v>'), body.replace('<v>0</v>', '<v>999</v>'), body.replace('完整正文', '&invalid;'), body.replace('s="2" t="s"', 's="2" t="s" t="n"')]) {
+    await expect(read(pack(changed), 'xlsx')).rejects.toThrow()
+  }
+  expect((await read(fast, 'xlsx', { source: factory(fast, 1) }))[0]!.rows[0]!.values).toEqual([null, null, '完整字符串', 42, true, '完整正文', 15])
+})
 function workbook(
   parts: Record<string, string>,
   sheets: Array<{ name: string; target: string }>,
@@ -160,6 +171,25 @@ function workbook(
 }
 const worksheet = (body: string, tail = '') =>
   xml('<worksheet xmlns="' + main + '">' + body + tail + '</worksheet>')
+
+it('同一工作簿完整CRC证明的解压内容仅解压一次，后续来源变化仍拒绝', async () => {
+  const bytes = workbook({ 'xl/worksheets/s.xml': worksheet('<sheetData>' + Array.from({ length: 600 }, (_, row) => '<row r="'+(row+1)+'"><c r="A'+(row+1)+'" t="str"><v>完整公开正文'+row+'</v></c></row>').join('') + '</sheetData>') }, [{ name: '公开', target: 'worksheets/s.xml' }])
+  let compressedBytes = 0
+  const original = Inflate.prototype.push
+  const spy = vi.spyOn(Inflate.prototype, 'push').mockImplementation(function (this: Inflate, chunk, final) { compressedBytes += chunk.length; original.call(this, chunk, final) })
+  try {
+    const result = await read(bytes, 'xlsx')
+    expect(result[0]!.rows).toHaveLength(600)
+    expect(result[0]!.rows[599]!.values[0]).toBe('完整公开正文599')
+    expect(compressedBytes).toBeLessThan(bytes.length)
+    let calls = 0
+    await expect(read(bytes, 'xlsx', { source: async function* () {
+      const next = bytes.slice()
+      if (++calls >= 5) next[50] = next[50]! ^ 1
+      yield next
+    } })).rejects.toThrow()
+  } finally { spy.mockRestore() }
+})
 
 it('decodes BOM-marked UTF-16 CSV across individual byte boundaries without losing Unicode or quoted newlines', async () => {
   const text = 'sep=;\r\n模组名;场次名;手动保存内容\r\n公开团;第一场;"正文😀\r\n下一行"\r\n'

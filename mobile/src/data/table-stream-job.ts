@@ -12,6 +12,8 @@ import { parseSeaLogUrl } from './sea-parser'
 import { previewCoc7Sheet } from './coc7-import'
 import type { Coc7ImportPreview } from './coc7-import'
 import type { WorkSheet, CellObject } from 'xlsx'
+import { createVerifiedTableReplay } from './verified-table-source'
+import type { Coc7WorksheetRequest, WorksheetCell } from './table-dom-worksheet'
 
 export interface TableStreamJob {
   source: LocalStreamSource
@@ -19,14 +21,17 @@ export interface TableStreamJob {
   format: 'csv' | 'xlsx' | 'xls'
   kind: 'records' | 'characters' | 'coc7'
   maximumStageBytes: number
+  measure?: boolean
 }
 /** Writes only a native-owned private candidate. No production write capability. */
 export async function performTableStreamJob(
   job: TableStreamJob,
   write: (key: 'candidate' | 'strings', chunk: Uint8Array) => Promise<void>,
   readString: (index: number) => Promise<string>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  projectWorksheet?: (request: Coc7WorksheetRequest) => Promise<WorksheetCell[] | undefined>
 ) {
+  const jobStart = performance.now(), timing: Record<string, number> = {}
   checkStreamBudget(job.maximumStageBytes)
   const digest = new StreamSha256(),
     encoder = new TextEncoder()
@@ -48,6 +53,7 @@ export async function performTableStreamJob(
   const stringCache = new Map<number, string>()
   let cachedStringBytes = 0
   let cachedSource: Uint8Array[] | undefined
+  let stringsOnDisk = false, nextStringIndex = 0
   /** Retains recent decoded values within a conservative UTF-16/entry budget.
    * @param index Private append-only string index. @param value Complete decoded value.
    * @returns No value; oversized values remain available from native staging.
@@ -91,14 +97,14 @@ export async function performTableStreamJob(
       if (used[key] === capacity.transferChunkBytes) await flush(key)
     }
   }
-  const start = async (info: { name: string; order: number; mergedRanges?: string[] }) => {
+  const start = (info: { name: string; order: number; mergedRanges?: string[] }) => {
     checkStreamCancelled(signal)
     order = info.order
     parser = createImportSheetParser(info.name)
     sheet = { name: info.name, rows: [], mergedRanges: info.mergedRanges ?? [] }
     cardSheet = job.kind === 'coc7' && info.name === '人物卡' ? {} : undefined
   }
-  const row = async (value: { index: number; values: Array<string | number | boolean | null> }) => {
+  const row = (value: { index: number; values: Array<string | number | boolean | null> }) => {
     checkStreamCancelled(signal)
     if (!sheet || !parser || !Number.isSafeInteger(value.index) || value.index < 0)
       throw new Error('表格行坐标无效。')
@@ -111,11 +117,10 @@ export async function performTableStreamJob(
     if (!parsed) return
     if (!parsed.moduleName) throw new Error(parsed.sheet + ' 缺少模组名，请补齐后重新导入。')
     if (parsed.link) parseSeaLogUrl(parsed.link)
-    await send(
+    return send(
       'candidate',
       'T' + JSON.stringify({ sheetOrder: order, rowOrder: value.index, value: parsed }) + '\n'
-    )
-    candidates++
+    ).then(() => { candidates++ })
   }
   const end = async () => {
     if (cardSheet) draft = previewCoc7Sheet(cardSheet)
@@ -190,29 +195,62 @@ export async function performTableStreamJob(
       await end()
     }
   } else {
+    const replay = job.source.bytes <= cacheBudget
+      ? await createVerifiedTableReplay(job.source, signal)
+      : source
+    if (job.measure) timing.sourceReadAndProof = performance.now() - jobStart
     await readTableGridStream({
       name: job.name,
       format: job.format,
-      source,
+      source: replay,
       expectedSource: { bytes: job.source.bytes, sha256: job.source.sha256 },
       maximumExpandedBytes: job.maximumStageBytes,
+      collectMergedRanges: job.kind !== 'coc7',
+      coc7Projection: job.kind === 'coc7' && projectWorksheet ? {
+        canUse: () => !stringsOnDisk,
+        async run(request) {
+          const start = performance.now()
+          const result = await projectWorksheet(request)
+          if (job.measure) {
+            timing.domCalls = (timing.domCalls ?? 0) + 1
+            timing.domFallbacks = (timing.domFallbacks ?? 0) + (result ? 0 : 1)
+            timing.domMilliseconds = (timing.domMilliseconds ?? 0) + performance.now() - start
+          }
+          return result
+        }
+      } : undefined,
+      measurePhase: job.measure ? (name, milliseconds) => { timing[name] = milliseconds } : undefined,
+      measureWork: job.measure ? (name, milliseconds) => { timing[name] = (timing[name] ?? 0) + milliseconds } : undefined,
+      wantsCellDetails: (sheet) => job.kind === 'coc7' && sheet === '人物卡',
       signal,
       writeString: async (index, value) => {
+        if (index !== nextStringIndex++) throw new Error('共享字符串索引乱序。')
+        if (!stringsOnDisk && cachedStringBytes + value.length * 2 + 64 > cacheBudget) {
+          // Until the first eviction, every complete value is still resident.
+          // Persist that exact prefix in index order before enabling eviction;
+          // larger workbooks retain the existing complete disk-backed path.
+          stringsOnDisk = true
+          for (const [previous, text] of [...stringCache].sort((a, b) => a[0] - b[0]))
+            await send('strings', JSON.stringify([previous, text]) + '\n')
+        }
         rememberString(index, value)
-        await send('strings', JSON.stringify([index, value]) + '\n')
+        if (stringsOnDisk) await send('strings', JSON.stringify([index, value]) + '\n')
       },
-      readString: async (index) => {
+      readString: (index) => {
         const cached = stringCache.get(index)
         if (cached !== undefined) {
           rememberString(index, cached)
           return cached
         }
-        await flush('strings')
-        const value = await readString(index)
-        rememberString(index, value)
-        return value
+        if (!stringsOnDisk) throw new Error('共享字符串索引缺失。')
+        return (async () => {
+          await flush('strings')
+          const value = await readString(index)
+          rememberString(index, value)
+          return value
+        })()
       },
-      onCell: async (cell) => {
+      onCell: (cell) => {
         // The existing single-character template reads only rows 1–95. Keep
         // saved error/formula metadata so validation matches the old importer.
         if (!cardSheet || Number(cell.address.match(/\d+$/)?.[0]) > 95) return
@@ -231,7 +269,7 @@ export async function performTableStreamJob(
     if (!draft) throw new Error('文件中没有“人物卡”工作表。')
     await flush('strings')
     checkStreamCancelled(signal)
-    return { draft }
+    return { draft, ...(job.measure ? { timing: { ...timing, total: performance.now() - jobStart } } : {}) }
   }
   if (!candidates) throw new Error('没有可新增的有效数据。')
   await flush('strings')

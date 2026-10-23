@@ -1,8 +1,11 @@
 import { build } from 'esbuild'
 import { mkdir, copyFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import './check-table-kernel-vendor.mjs'
 
 await mkdir('www', { recursive: true })
+await mkdir('www/licenses', { recursive: true })
+await copyFile('native/table-kernel/vendor/expat/COPYING', 'www/licenses/expat.txt')
 const ios = process.env.COC_PLATFORM === 'ios'
 // Bound iPhone focus zoom without changing the shared input font or control sizes.
 const viewport = ios
@@ -27,7 +30,10 @@ await build({
   format: 'iife',
   jsx: 'automatic',
   minify: true,
-  define: { 'process.env.NODE_ENV': '"production"' }
+  define: {
+    'process.env.NODE_ENV': '"production"',
+    '__COC_IMPORT_TEST_OBSERVER__': process.env.COC_PUBLIC_IO_TEST === '1' ? 'true' : 'false'
+  }
 })
 // Android uses Capacitor insets; iOS paints its own full-screen safe-area header.
 // Generated HTML only loads packaged local assets: there is no remote dev server or sample embedded in the APK.

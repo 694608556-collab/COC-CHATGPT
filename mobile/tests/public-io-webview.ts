@@ -1,19 +1,25 @@
 import { Capacitor } from '@capacitor/core'
 import { Native } from '../src/data/native'
 import type { SavedDocument } from '../src/data/native'
+import { characterDraftProofText } from './character-draft-proof'
+import type { Coc7ImportPreview } from '../src/data/coc7-import'
 
 declare global {
   interface Window {
     __publicIoDocuments?: Record<string, SavedDocument>
-    __publicIoConfig: { mode: string }
+    __publicIoConfig: { mode: string; expectedCardName?: string; expectedCardProof?: string; localPrivateCard?: boolean }
     __publicIoSource: string
     __publicIoResult: unknown
     __publicIoStage: string
+    __publicIoObserveDraft?: (draft: Coc7ImportPreview, timing?: Record<string,number>) => void
+    __publicIoObserveEditor?: (milliseconds: number) => void
   }
 }
 const results: Array<{
   operation: string
   totalMs: number
+  responseMs?: number
+  workerTiming?: Record<string, number>
   nativeCalls: Array<{ method: string; milliseconds: number }>
 }> = []
 const published: SavedDocument[] = []
@@ -21,6 +27,41 @@ let confirmations: ReturnType<typeof setInterval> | undefined
 let delayNextStageForCancellation = false
 let delayedCancellationStage: Promise<void> | undefined
 let calls: Array<{ method: string; milliseconds: number }> = []
+let privateDraftProof: string | undefined
+let privateWorkerTiming: Record<string, number> | undefined
+let actionStarted = 0
+if (window.__publicIoConfig.localPrivateCard) {
+  window.__publicIoObserveEditor = milliseconds => {
+    privateWorkerTiming = { ...privateWorkerTiming, editorCommits: (privateWorkerTiming?.editorCommits ?? 0) + 1,
+      editorCommitMs: (privateWorkerTiming?.editorCommitMs ?? 0) + milliseconds }
+  }
+  window.__publicIoObserveDraft = (draft, timing) => {
+    privateWorkerTiming = { ...privateWorkerTiming, nativeKernel: 1, ...timing }
+    const bytes = new TextEncoder().encode(characterDraftProofText(draft))
+    void crypto.subtle.digest('SHA-256', bytes).then(result => {
+      privateDraftProof = Array.from(new Uint8Array(result), value => value.toString(16).padStart(2, '0')).join('')
+    })
+  }
+  const post = Worker.prototype.postMessage
+  Worker.prototype.postMessage = function (message: any, ...rest: any[]) {
+    if (message?.type === 'start' && message.job?.kind === 'coc7') {
+      message = { ...message, job: { ...message.job, measure: true } }
+      privateDraftProof = undefined
+      privateWorkerTiming = undefined
+      const observe = async (event: MessageEvent) => {
+        if (!['done', 'failed'].includes(event.data?.type)) return
+        this.removeEventListener('message', observe)
+        if (event.data.type === 'done' && event.data.result?.draft) {
+          privateWorkerTiming = event.data.result.timing
+          const bytes = new TextEncoder().encode(characterDraftProofText(event.data.result.draft))
+          privateDraftProof = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), value => value.toString(16).padStart(2, '0')).join('')
+        }
+      }
+      this.addEventListener('message', observe)
+    }
+    return (post as any).call(this, message, ...rest)
+  }
+}
 const cap = (
   window as unknown as {
     Capacitor: { nativePromise(plugin: string, method: string, options: unknown): Promise<unknown> }
@@ -29,6 +70,7 @@ const cap = (
 const nativePromise = cap.nativePromise.bind(cap)
 cap.nativePromise = async (plugin, method, options) => {
   if (plugin === 'Logbook' && method === 'openBackup') {
+    if (window.__publicIoConfig.localPrivateCard) { privateDraftProof = undefined; privateWorkerTiming = undefined; options = { ...(options as object), measureImport: true } }
     const selected =
       published.find((file) => file.name === window.__publicIoSource) ??
       window.__publicIoDocuments?.[window.__publicIoSource]
@@ -42,8 +84,13 @@ cap.nativePromise = async (plugin, method, options) => {
     }
   }
   const start = performance.now()
+  const enteredAt = start - actionStarted
   try {
     const result = await nativePromise(plugin, method, options)
+    if (plugin === 'Logbook' && method === 'openBackup' && window.__publicIoConfig.localPrivateCard) {
+      const timing = (result as { tableSource?: { importTiming?: Record<string,number> } }).tableSource?.importTiming
+      if (timing) privateWorkerTiming = { ...timing, beforeNativeCallMs: enteredAt }
+    }
     if (plugin === 'Logbook' && method === 'appendTableStage' && delayNextStageForCancellation) {
       delayNextStageForCancellation = false
       delayedCancellationStage = new Promise((resolve) => setTimeout(resolve, 1500))
@@ -101,8 +148,16 @@ async function timed(operation: string, task: () => Promise<void>) {
     progress = 0,
     redundantCancel = 0
   const importing = operation.includes('import-')
-  const observer = new MutationObserver(() => {
+  let responseMs: number | undefined, responseQueued = false
+  const observer = new MutationObserver((mutations) => {
     if (!importing) return
+    if (!responseQueued && mutations.some((mutation) =>
+      (mutation.type === 'attributes' && mutation.target instanceof HTMLButtonElement && mutation.target.disabled) ||
+      (mutation.type === 'childList' && !!document.querySelector('.editor'))
+    )) {
+      responseQueued = true
+      requestAnimationFrame(() => { responseMs = performance.now() - start })
+    }
     blocking += document.querySelectorAll('[role="dialog"][aria-label="正在导入表格"]').length
     redundantCancel = Math.max(
       redundantCancel,
@@ -112,14 +167,16 @@ async function timed(operation: string, task: () => Promise<void>) {
     )
     progress = Math.max(progress, document.querySelectorAll('[role="progressbar"]').length)
   })
-  observer.observe(document.body, { childList: true, subtree: true })
+  observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled'] })
   const start = performance.now()
+  actionStarted = start
   try {
     await task()
     check(!blocking, 'Import must not flash a blocking validation dialog')
     check(progress <= 1, 'Import must not duplicate progress')
     check(redundantCancel === 0, 'Import must not add the removed trailing cancel button')
-    results.push({ operation, totalMs: performance.now() - start, nativeCalls: [...calls] })
+    const totalMs = performance.now() - start
+    results.push({ operation, totalMs, ...(importing ? { responseMs: responseMs ?? totalMs } : {}), ...(operation.startsWith('character-import-xlsx') && privateWorkerTiming ? { workerTiming: privateWorkerTiming } : {}), nativeCalls: [...calls] })
   } finally {
     observer.disconnect()
   }
@@ -365,8 +422,8 @@ void (async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     }
     await click('角色卡')
-    if (window.__publicIoConfig.mode === 'complete') {
-      window.__publicIoSource = 'public-io-card.xlsx'
+    if (['complete', 'cards'].includes(window.__publicIoConfig.mode)) {
+      window.__publicIoSource = 'public-io-card-spill.xlsx'
       delayNextStageForCancellation = true
       await timed('character-import-back-cancel-with-delayed-stage', async () => {
         await click('导入七版角色卡')
@@ -430,9 +487,11 @@ void (async () => {
           await waitFor(
             () =>
               document.querySelector<HTMLInputElement>('.editor input[role="combobox"]')?.value ===
-              '公开七版调查员',
+              (window.__publicIoConfig.expectedCardName ?? '公开七版调查员'),
             'complete character draft'
           )
+          if (window.__publicIoConfig.localPrivateCard)
+            await waitFor(() => privateDraftProof === window.__publicIoConfig.expectedCardProof, 'complete character fields equal independent original importer')
         })
         await click('取消编辑')
         if (button('确认')) await click('确认')
@@ -444,13 +503,16 @@ void (async () => {
       passed: true,
       results,
       documents: published,
-      source:
-        'fictional public fixtures; actual WebView, Worker, SQLite and bounded native file copy; OS picker response is deterministic',
+      source: window.__publicIoConfig.localPrivateCard
+        ? 'user-selected private card supplied locally at runtime; no private data packaged or uploaded; actual WebView, Worker, SQLite and native copy'
+        : 'fictional public fixtures; actual WebView, Worker, SQLite and bounded native file copy; OS picker response is deterministic',
       physicalPhone: undefined
     }
   } catch (error) {
     window.__publicIoResult = { passed: false, stage: window.__publicIoStage, error: String(error), results }
   } finally {
+    delete window.__publicIoObserveDraft
+    delete window.__publicIoObserveEditor
     cap.nativePromise = nativePromise
     clearInterval(confirmations)
   }

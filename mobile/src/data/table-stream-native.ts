@@ -7,6 +7,8 @@ export interface NativeTableSource extends NativeBackupFile {
   name: string
   format: 'csv' | 'xlsx' | 'xls'
   maximumStageBytes: number
+  /** Native-validated immutable source snapshot; never business write authority. */
+  coc7Kernel?: { source: StreamProof; payload: unknown }
 }
 export interface NativeTablePreview {
   id: string
@@ -42,5 +44,5 @@ export interface TableStreamPort {
     id: string
     confirmed: true
   }): Promise<{ revision: number; warning?: string }>
-  cancelTableStage?(options: { id: string }): Promise<void>
+  cancelTableStage?(options: { id: string; requireCurrent?: boolean }): Promise<void>
 }

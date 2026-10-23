@@ -16,7 +16,7 @@ export interface LocalStreamSource extends StreamProof {
  */
 export async function* readLocalSourceStream(
   source: LocalStreamSource,
-  options: { maximumBytes: number; attachment?: boolean; allowEmpty?: boolean; signal?: AbortSignal }
+  options: { maximumBytes: number; attachment?: boolean; allowEmpty?: boolean; signal?: AbortSignal; nativeDigest?: boolean }
 ): AsyncGenerator<Uint8Array> {
   checkStreamBudget(options.maximumBytes)
   checkStreamCancelled(options.signal)
@@ -39,6 +39,9 @@ export async function* readLocalSourceStream(
   )
     throw new Error('本地文件长度或摘要证明无效。')
   const digest = new StreamSha256()
+  // Resource-bounded SHA acceleration only; larger inputs retain complete
+  // streaming SHA. Copies are private so consumers cannot mutate the proof.
+  const nativeChunks: Uint8Array[] | undefined = options.nativeDigest && source.bytes <= 2 * 1024 * 1024 && globalThis.crypto?.subtle ? [] : undefined
   let offset = 0
   do {
     checkStreamCancelled(options.signal)
@@ -79,7 +82,8 @@ export async function* readLocalSourceStream(
         for (let start = 0; start < next.value.length; start += capacity.transferChunkBytes) {
           checkStreamCancelled(options.signal)
           const bytes = next.value.subarray(start, start + capacity.transferChunkBytes)
-          digest.update(bytes)
+          if (nativeChunks) nativeChunks.push(bytes.slice())
+          else digest.update(bytes)
           yield bytes
         }
       }
@@ -97,6 +101,19 @@ export async function* readLocalSourceStream(
       reader.releaseLock()
     }
   } while (source.ranged && offset < source.bytes)
-  if (digest.bytes !== source.bytes || digest.digest() !== source.sha256)
+  let hash: string
+  if (nativeChunks) {
+    const bytes = new Uint8Array(offset)
+    let at = 0
+    for (const chunk of nativeChunks) { bytes.set(chunk, at); at += chunk.length }
+    try {
+      hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('')
+    } catch {
+      for (const chunk of nativeChunks) digest.update(chunk)
+      hash = digest.digest()
+    }
+  } else hash = digest.digest()
+  checkStreamCancelled(options.signal)
+  if (offset !== source.bytes || hash !== source.sha256)
     throw new Error('本地文件完整长度或摘要已变化。')
 }

@@ -191,6 +191,7 @@ export interface LogbookPort extends BackupStreamPort, TableStreamPort {
   openBackup(options?: {
     kind?: 'backup' | 'record-table' | 'character-table'
     stream?: boolean
+    coc7Template?: boolean
     expectedRevision?: number
   }): Promise<{
     cancelled: boolean

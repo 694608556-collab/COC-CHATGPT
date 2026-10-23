@@ -2,6 +2,47 @@ import Foundation
 import CryptoKit
 
 extension IOSNativeChecks {
+    static func tableKernelChecks(root: URL) throws {
+        let directory = root.appendingPathComponent("native-kernel-public")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let corpus = URL(fileURLWithPath: "ios/build/table-kernel-corpus", isDirectory: true)
+        let manifest = try JSONSerialization.jsonObject(with: Data(contentsOf: corpus.appendingPathComponent("manifest.json"))) as! [LogbookJSON]
+        try require(manifest.count >= 33, "complete native kernel public corpus retained")
+        LogbookTableKernel.warmCode()
+        for item in manifest {
+            let name = item["name"] as! String, bytes = try Data(contentsOf: corpus.appendingPathComponent(name + ".xlsx"))
+            let owner = try LogbookTableSession(directory: directory, expected: 7, bookmark: Data(), kind: "character-table", available: { 1024 * 1024 * 1024 }, deferStorage: true)
+            try require(!FileManager.default.fileExists(atPath: owner.directory.path), "read-only owner creates no SQL/files before capture")
+            let source = directory.appendingPathComponent("public-input.xlsx")
+            try bytes.write(to: source)
+            let input = try FileHandle(forReadingFrom: source)
+            let captured = try owner.capture(input, name: "public.xlsx"); try input.close()
+            try require(captured["bytes"] as? Int == bytes.count && captured["sha256"] as? String == LogbookArchive.digest(bytes), "capture proves every complete source byte")
+            // A caller changing the picked file cannot alter the private EOF
+            // snapshot. No application/source permission is cached or reused.
+            try Data("replaced outside private owner".utf8).write(to: source)
+            let kernel = try owner.inspectCoc7Kernel()
+            try require((kernel != nil) == (item["native"] as! Bool), "native complete compatibility decision: " + name)
+            if let kernel {
+                let proof = kernel["source"] as! LogbookJSON
+                try require(proof["sha256"] as? String == captured["sha256"] as? String && proof["bytes"] as? Int == bytes.count, "kernel bound to captured source")
+                try require(!FileManager.default.fileExists(atPath: owner.directory.path), "supported snapshot remains read-only without disk index")
+                try rejects("memory snapshot cannot append candidates") { try owner.append(key: "candidate", chunkIndex: 0, bytes: Data("T{}\n".utf8)) }
+            } else {
+                try require(try Data(contentsOf: owner.sourceURL) == bytes, "unsupported/oversize fallback preserves exact prefix and complete tail")
+                try require(FileManager.default.fileExists(atPath: owner.directory.appendingPathComponent("index.sqlite").path), "fallback retains durable private index")
+                let line = try logbookData([0, "完整共享字符串😀\r\n末尾"]) + Data([10])
+                try owner.append(key: "strings", chunkIndex: 0, bytes: line)
+                let value = try owner.readString(0, offset: 0)
+                try require(Data(base64Encoded: value["base64"] as! String) == Data("完整共享字符串😀\r\n末尾".utf8), "full fallback staging remains usable")
+            }
+            try owner.close(); try rejects("closed read-only owner cannot replay") { try owner.require(owner.id) }
+            try require(!FileManager.default.fileExists(atPath: owner.directory.path), "close removes only this owned stage")
+            try FileManager.default.removeItem(at: source)
+        }
+    }
+
     static func chunkStorageChecks(root: URL, fixture: LogbookJSON) throws {
         let MiB = 1024 * 1024, directory = root.appendingPathComponent("single-large-public")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

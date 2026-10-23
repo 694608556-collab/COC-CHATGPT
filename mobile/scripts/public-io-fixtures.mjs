@@ -28,6 +28,7 @@ if (ios) {
   const inputs = {}
   for (const name of [
     'public-io-card.xlsx',
+    'public-io-card-spill.xlsx',
     'public-io-card.xls',
     'public-io-table.csv',
     'public-io-table.xlsx',

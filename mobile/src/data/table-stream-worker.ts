@@ -8,7 +8,7 @@ let started = false,
   sequence = 0
 const pending = new Map<number, { resolve(value: any): void; reject(error: Error): void }>()
 const indexes = { candidate: 0, strings: 0 }
-const controller = new AbortController()
+let controller = new AbortController()
 function request(type: string, value: object): Promise<any> {
   return new Promise((resolve, reject) => {
     const id = ++sequence
@@ -73,6 +73,7 @@ self.onmessage = ({ data }) => {
   }
   if (data.type !== 'start' || started) return
   started = true
+  controller = new AbortController()
   void performTableStreamJob(
     data.job as TableStreamJob,
     async (key, chunk) => {
@@ -81,7 +82,16 @@ self.onmessage = ({ data }) => {
     readString,
     controller.signal
   ).then(
-    (result) => self.postMessage({ type: 'done', result }),
+    (result) => {
+      // Keep compiled code only. Each job has fresh indexes, buffers, cache,
+      // cancellation state and native owner; no file capability survives.
+      cache.clear()
+      cacheBytes = 0
+      pending.clear()
+      indexes.candidate = indexes.strings = 0
+      started = false
+      self.postMessage({ type: 'done', result })
+    },
     (error) => {
       controller.abort()
       self.postMessage({

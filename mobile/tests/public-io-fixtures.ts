@@ -4,8 +4,12 @@ import { join } from 'node:path'
 import { searchSample } from '../src/dev/sample'
 import { previewBackup } from '../src/data/backup'
 import { publicCoc7Workbook } from '../test-fixtures/coc7'
+import { nativeTableKernelCorpus } from './native-table-kernel-corpus'
 
 const output = process.argv[2]!
+const nativeKernelCorpus = nativeTableKernelCorpus()
+for (const item of nativeKernelCorpus) writeFileSync(join(output, 'public-io-kernel-' + item.name + '.xlsx'), item.bytes)
+writeFileSync(join(output, 'public-io-kernel-manifest.json'), JSON.stringify(nativeKernelCorpus.map(({ name, native, full }) => ({ name, native, full }))))
 const snapshot = (await previewBackup(new TextEncoder().encode(JSON.stringify(searchSample())))).snapshot
 const template = snapshot.records[0]!
 snapshot.modules = [{ ...snapshot.modules[0]!, name: '公开计时模组' }]
@@ -43,6 +47,15 @@ XLSX.utils.book_append_sheet(
   '场次'
 )
 const card = publicCoc7Workbook()
+// The back/cancel regression must exercise a real asynchronous native stage,
+// including when normal cards fit entirely in the resident accelerator.
+const spillCard = publicCoc7Workbook()
+XLSX.utils.book_append_sheet(spillCard, XLSX.utils.aoa_to_sheet(
+  Array.from({ length: 1600 }, (_, i) => [`PUBLIC-SPILL-${i}-`.padEnd(1500, 'x')])
+), '公开溢出暂存说明')
+writeFileSync(join(output, 'public-io-card-spill.xlsx'), XLSX.write(spillCard, {
+  type: 'buffer', bookType: 'xlsx', bookSST: true, compression: true
+}))
 XLSX.utils.book_append_sheet(
   card,
   XLSX.utils.aoa_to_sheet(

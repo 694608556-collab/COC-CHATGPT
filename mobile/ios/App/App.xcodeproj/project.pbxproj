@@ -7,6 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C0C720000000000000000001 /* table-kernel.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0C710000000000000000001 /* table-kernel.cpp */; settings = {COMPILER_FLAGS = "-O3 -DHAVE_EXPAT_CONFIG_H=1 -DXML_STATIC=1"; }; };
+		C0C720000000000000000002 /* xcs.c in Sources */ = {isa = PBXBuildFile; fileRef = C0C710000000000000000002 /* xcs.c */; settings = {COMPILER_FLAGS = "-O3 -DHAVE_EXPAT_CONFIG_H=1 -DXML_STATIC=1"; }; };
+		C0C720000000000000000003 /* xmlparse.c in Sources */ = {isa = PBXBuildFile; fileRef = C0C710000000000000000003 /* xmlparse.c */; settings = {COMPILER_FLAGS = "-O3 -DHAVE_EXPAT_CONFIG_H=1 -DXML_STATIC=1"; }; };
+		C0C720000000000000000004 /* xmlrole.c in Sources */ = {isa = PBXBuildFile; fileRef = C0C710000000000000000004 /* xmlrole.c */; settings = {COMPILER_FLAGS = "-O3 -DHAVE_EXPAT_CONFIG_H=1 -DXML_STATIC=1"; }; };
+		C0C720000000000000000005 /* xmltok.c in Sources */ = {isa = PBXBuildFile; fileRef = C0C710000000000000000005 /* xmltok.c */; settings = {COMPILER_FLAGS = "-O3 -DHAVE_EXPAT_CONFIG_H=1 -DXML_STATIC=1"; }; };
+		C0C720000000000000000006 /* random_dev_urandom.c in Sources */ = {isa = PBXBuildFile; fileRef = C0C710000000000000000006 /* random_dev_urandom.c */; settings = {COMPILER_FLAGS = "-O3 -DHAVE_EXPAT_CONFIG_H=1 -DXML_STATIC=1"; }; };
 		C0C200000000000000000009 /* LogbookBackup.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0C100000000000000000009 /* LogbookBackup.swift */; };
 		C0C20000000000000000000A /* LogbookTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0C10000000000000000000A /* LogbookTable.swift */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
@@ -29,6 +35,12 @@ C0C200000000000000000008 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBu
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		C0C710000000000000000001 /* table-kernel.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "table-kernel.cpp"; path = "../../native/table-kernel/table-kernel.cpp"; sourceTree = SOURCE_ROOT; };
+		C0C710000000000000000002 /* xcs.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = "xcs.c"; path = "../../native/table-kernel/vendor/expat/xcs.c"; sourceTree = SOURCE_ROOT; };
+		C0C710000000000000000003 /* xmlparse.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = "xmlparse.c"; path = "../../native/table-kernel/vendor/expat/xmlparse.c"; sourceTree = SOURCE_ROOT; };
+		C0C710000000000000000004 /* xmlrole.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = "xmlrole.c"; path = "../../native/table-kernel/vendor/expat/xmlrole.c"; sourceTree = SOURCE_ROOT; };
+		C0C710000000000000000005 /* xmltok.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = "xmltok.c"; path = "../../native/table-kernel/vendor/expat/xmltok.c"; sourceTree = SOURCE_ROOT; };
+		C0C710000000000000000006 /* random_dev_urandom.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = "random_dev_urandom.c"; path = "../../native/table-kernel/vendor/expat/random_dev_urandom.c"; sourceTree = SOURCE_ROOT; };
 		C0C100000000000000000009 /* LogbookBackup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogbookBackup.swift; sourceTree = "<group>"; };
 		C0C10000000000000000000A /* LogbookTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogbookTable.swift; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
@@ -94,6 +106,12 @@ C0C100000000000000000008 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; 
 				C0C100000000000000000001 /* LogbookStore.swift */,
 				C0C100000000000000000009 /* LogbookBackup.swift */,
 				C0C10000000000000000000A /* LogbookTable.swift */,
+				C0C710000000000000000001 /* table-kernel.cpp */,
+				C0C710000000000000000002 /* xcs.c */,
+				C0C710000000000000000003 /* xmlparse.c */,
+				C0C710000000000000000004 /* xmlrole.c */,
+				C0C710000000000000000005 /* xmltok.c */,
+				C0C710000000000000000006 /* random_dev_urandom.c */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -200,6 +218,12 @@ C0C200000000000000000008 /* PrivacyInfo.xcprivacy in Resources */,
 				C0C200000000000000000001 /* LogbookStore.swift in Sources */,
 				C0C200000000000000000009 /* LogbookBackup.swift in Sources */,
 				C0C20000000000000000000A /* LogbookTable.swift in Sources */,
+				C0C720000000000000000001 /* table-kernel.cpp in Sources */,
+				C0C720000000000000000002 /* xcs.c in Sources */,
+				C0C720000000000000000003 /* xmlparse.c in Sources */,
+				C0C720000000000000000004 /* xmlrole.c in Sources */,
+				C0C720000000000000000005 /* xmltok.c in Sources */,
+				C0C720000000000000000006 /* random_dev_urandom.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -342,6 +366,10 @@ C0C200000000000000000008 /* PrivacyInfo.xcprivacy in Resources */,
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 53;
 				INFOPLIST_FILE = App/Info.plist;
+                CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+                HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/../../native/table-kernel/vendor/expat");
+                SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/../../native/table-kernel/table-kernel.h";
+                OTHER_LDFLAGS = ("$(inherited)", "-lz", "-lc++");
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -364,6 +392,10 @@ C0C200000000000000000008 /* PrivacyInfo.xcprivacy in Resources */,
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 53;
 				INFOPLIST_FILE = App/Info.plist;
+                CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+                HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/../../native/table-kernel/vendor/expat");
+                SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/../../native/table-kernel/table-kernel.h";
+                OTHER_LDFLAGS = ("$(inherited)", "-lz", "-lc++");
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

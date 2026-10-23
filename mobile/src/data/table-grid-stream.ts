@@ -4,6 +4,9 @@ import { StreamSha256 } from './stream-sha256'
 import { StreamCrc32 } from './stream-zip-proof'
 import { addStreamBytes, checkStreamBudget, checkStreamCancelled, utf8Size } from './stream-json'
 import { capacity } from './capacity'
+import { claimVerifiedTableProof } from './verified-table-source'
+import { cellAddress, checkedMergeRange, xstring, createWorksheetEvents, TextValue, safeInteger } from './table-worksheet'
+import type { Coc7WorksheetProjection } from './table-dom-worksheet'
 
 type Cell = string | number | boolean | null
 export interface TableGridStreamOptions {
@@ -13,39 +16,33 @@ export interface TableGridStreamOptions {
   expectedSource: { bytes: number; sha256: string }
   maximumExpandedBytes: number
   signal?: AbortSignal
+  /** Validate merge ranges without collecting them when the consumer does not
+   * use merged-cell layout (the fixed single-character template). */
+  collectMergedRanges?: boolean
+  /** Internal capability for the fixed character template only. */
+  coc7Projection?: Coc7WorksheetProjection
+  measurePhase?(name: string, milliseconds: number): void
+  measureWork?(name: string, milliseconds: number): void
+  /** Only controls emitted detail objects; every cell is still validated. */
+  wantsCellDetails?(sheet: string): boolean
   /** Private append-only native index; also holds small ZIP directory proofs. */
-  writeString(index: number, value: string): Promise<void>
-  readString(index: number): Promise<string>
+  writeString(index: number, value: string): Promise<void> | void
+  readString(index: number): Promise<string> | string
   /** XLSX callbacks follow ZIP order. Consumers must stage/sort by this workbook order. */
-  onSheetStart(info: { name: string; order: number; mergedRanges?: string[] }): Promise<void>
-  onRow(row: { index: number; values: Cell[] }): Promise<void>
+  onSheetStart(info: { name: string; order: number; mergedRanges?: string[] }): Promise<void> | void
+  onRow(row: { index: number; values: Cell[] }): Promise<void> | void
   onCell?(cell: {
     address: string
     type?: string
     formula?: string
     hasFormula: boolean
     value?: Cell
-  }): Promise<void>
-  onSheetEnd(): Promise<void>
+  }): Promise<void> | void
+  onSheetEnd(): Promise<void> | void
 }
 
 function bounded(value: string) {
   addStreamBytes(0, utf8Size(value))
-  return value
-}
-class TextValue {
-  private parts: string[] = []
-  private bytes = 0
-  add(value: string) {
-    this.bytes = addStreamBytes(this.bytes, utf8Size(value))
-    this.parts.push(value)
-  }
-  value() {
-    return this.parts.join('')
-  }
-}
-function safeInteger(value: number, label: string) {
-  if (!Number.isSafeInteger(value) || value < 0) throw new Error('表格' + label + '无效。')
   return value
 }
 function view(bytes: Uint8Array) {
@@ -59,19 +56,25 @@ function uint64(data: DataView, offset: number) {
 
 /** Every pass checks the complete source, including passes interested in one part. */
 async function* proved(options: TableGridStreamOptions) {
-  const hash = new StreamSha256()
-  for await (const chunk of options.source()) {
+  const input = options.source()
+  const proof = claimVerifiedTableProof(input)
+  if (proof && (proof.bytes !== options.expectedSource.bytes || proof.sha256 !== options.expectedSource.sha256))
+    throw new Error('表格来源完整证明不一致。')
+  const hash = proof ? undefined : new StreamSha256()
+  let bytes = 0
+  for await (const chunk of input) {
     checkStreamCancelled(options.signal)
     if (!chunk.length) continue
     if (
       chunk.length > capacity.transferChunkBytes ||
-      hash.bytes + chunk.length > options.expectedSource.bytes
+      bytes + chunk.length > options.expectedSource.bytes
     )
       throw new Error('表格来源长度或分段已变化。')
-    hash.update(chunk)
+    bytes += chunk.length
+    hash?.update(chunk)
     yield chunk
   }
-  if (hash.bytes !== options.expectedSource.bytes || hash.digest() !== options.expectedSource.sha256)
+  if (bytes !== options.expectedSource.bytes || (hash && hash.digest() !== options.expectedSource.sha256))
     throw new Error('表格来源完整长度或SHA-256已变化。')
 }
 
@@ -135,6 +138,8 @@ interface ZipIndex {
   directory: number
   end: number
   nextString: number
+  payloads: Map<string, { entry: string; parts: Uint8Array[] }>
+  payloadBytes: number
 }
 const cp437 =
   'ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ '
@@ -285,7 +290,7 @@ async function directory(options: TableGridStreamOptions): Promise<ZipIndex> {
     order.some((entry, index) => index > 0 && entry.offset === order[index - 1]!.offset)
   )
     throw new Error('ZIP本地条目重叠或含未知前缀。')
-  return { order, paths, directory: offset, end: centralEnd, nextString: count }
+  return { order, paths, directory: offset, end: centralEnd, nextString: count, payloads: new Map(), payloadBytes: 0 }
 }
 
 type PartSink = { push(bytes: Uint8Array): Promise<void>; end(): Promise<void> }
@@ -328,34 +333,54 @@ async function walkZip(
       throw new Error('ZIP条目压缩边界或描述符无效。')
     const sink = await select(entry),
       crc = new StreamCrc32()
+    const previous = zip.payloads.get(entry.name)
+    const cached = previous?.entry === JSON.stringify(entry) ? previous : undefined
+    const capture: Uint8Array[] | undefined = !cached && entry.size <= 8 * 1024 * 1024 - zip.payloadBytes ? [] : undefined
     let produced = 0,
       pending: Uint8Array[] = [],
       pendingBytes = 0
     const inspect = !!sink || verifyAll
     const inflate =
-      inspect && entry.method === 8
+      inspect && !cached && entry.method === 8
         ? new Inflate((bytes) => {
             pendingBytes += bytes.length
             if (pendingBytes > 8 * 1024 * 1024) throw new Error('ZIP单个解压窗口超过独立内存预算。')
             pending.push(bytes)
           })
         : undefined
+    // fflate 0.8.2 discards its output capacity after each push and retains
+    // only the DEFLATE history. Reuse bounded scratch capacity between pushes
+    // instead of allocating/copying a growing buffer for every backreference.
+    // Its normal resizable decoder, length/CRC and final-state checks remain.
+    const inflateScratch = inflate ? new Uint8Array(256 * 1024) : undefined
     let remaining = entry.compressed
     while (remaining) {
       checkStreamCancelled(options.signal)
       const bytes = await source.read(Math.min(4096, remaining))
       remaining -= bytes.length
-      if (!inspect) continue
-      if (inflate) inflate.push(bytes, !remaining)
+      if (!inspect || cached) continue
+      if (inflate) {
+        const started = options.measureWork ? performance.now() : 0
+        const internal = inflate as unknown as { o: Uint8Array }
+        inflateScratch!.set(internal.o)
+        internal.o = inflateScratch!
+        inflate.push(bytes, !remaining)
+        options.measureWork?.('inflateCpu', performance.now() - started)
+      }
       else pending.push(bytes)
       for (const output of pending) {
         produced += output.length
         expanded += output.length
         if (produced > entry.size || expanded > options.maximumExpandedBytes)
           throw new Error('工作簿实际解压内容超过来源或空间预算。')
+        const crcStart = options.measureWork ? performance.now() : 0
         crc.update(output)
+        options.measureWork?.('crcCpu', performance.now() - crcStart)
+        capture?.push(output.slice())
+        const sinkStart = options.measureWork ? performance.now() : 0
         for (let offset = 0; sink && offset < output.length; offset += capacity.transferChunkBytes)
           await sink.push(output.subarray(offset, offset + capacity.transferChunkBytes))
+        if (sink) options.measureWork?.('xmlSink', performance.now() - sinkStart)
       }
       pending = []
       pendingBytes = 0
@@ -368,7 +393,18 @@ async function walkZip(
       if (!state.s.f || state.s.l || state.p.length !== Math.ceil(state.s.p / 8))
         throw new Error('ZIP压缩流未完整结束或包含额外数据。')
     }
-    if (inspect && (produced !== entry.size || crc.value !== entry.crc))
+    if (inspect && cached) {
+      // Private, complete CRC-validated payloads are reusable only for the
+      // exact entry metadata of this one source. Each walk still proves the
+      // entire original source and local headers/descriptors. Cache overflow
+      // keeps the same complete decompression path, without an input limit.
+      expanded = addStreamBytes(expanded, entry.size)
+      if (expanded > options.maximumExpandedBytes) throw new Error('工作簿实际解压内容超过来源或空间预算。')
+      const sinkStart = options.measureWork ? performance.now() : 0
+      for (const output of cached.parts) if (sink) await sink.push(output.slice())
+      if (sink) options.measureWork?.('xmlSink', performance.now() - sinkStart)
+    }
+    if (inspect && !cached && (produced !== entry.size || crc.value !== entry.crc))
       throw new Error('工作簿条目完整长度或CRC校验失败。')
     if (entry.name.endsWith('/') && entry.size) throw new Error('ZIP目录条目包含数据。')
     if (descriptor) {
@@ -384,6 +420,10 @@ async function walkZip(
       )
         throw new Error('ZIP数据描述符与目录不一致。')
     }
+    if (inspect && !cached && capture) {
+      zip.payloads.set(entry.name, { entry: JSON.stringify(entry), parts: capture })
+      zip.payloadBytes += entry.size
+    }
     await sink?.end()
   }
   if (source.offset !== zip.directory) throw new Error('ZIP条目未完整覆盖目录前内容。')
@@ -391,6 +431,7 @@ async function walkZip(
 }
 
 function entities(text: string) {
+  if (!text.includes('&')) return text
   return text.replace(/&([^;]*);/g, (_, token: string) => {
     const named: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
     if (Object.prototype.hasOwnProperty.call(named, token)) return named[token]!
@@ -402,12 +443,12 @@ function entities(text: string) {
   })
 }
 const localName = (name: string) => name.slice(name.lastIndexOf(':') + 1)
-const xstring = (value: string) =>
-  value.replace(/_x([a-f0-9]{4})_/gi, (_, code: string) => String.fromCharCode(parseInt(code, 16)))
 type XmlEvents = {
   start(name: string, attrs: Record<string, string>): Promise<void> | void
   text(value: string): Promise<void> | void
   end(name: string): Promise<void> | void
+  /** Exact syntax specialization for an empty, styled numeric cell. */
+  emptyNumericCell?(address: string): Promise<void> | void
 }
 
 /** Small SAX tokenizer: no DOM, no DTD/external entity expansion, one bounded token. */
@@ -417,6 +458,7 @@ class Xml implements PartSink {
   private buffer = ''
   private stack: string[] = []
   private root = false
+  private tags = new Map<string, { name: string; local: string; closing: boolean; self: boolean; attrs: Record<string, string> }>()
   constructor(private events: XmlEvents) {}
   async push(bytes: Uint8Array) {
     if (!this.decoder) {
@@ -443,6 +485,43 @@ class Xml implements PartSink {
   private async process(final: boolean) {
     for (;;) {
       if (!this.buffer) return
+      if (this.stack.length && this.events.emptyNumericCell) {
+        // This pattern accepts the complete tag, including its only two
+        // distinct quoted attributes. Every other spelling uses the general
+        // XML validator. The cell callback still checks coordinates/order and
+        // emits the same null field; no worksheet content is skipped.
+        const empty = /^(?:<c r="[A-Z]+[1-9]\d*"(?: s="\d+")?\/>)+/.exec(this.buffer)
+        if (empty) {
+          if (this.stack.length >= 256) throw new Error('工作簿XML嵌套深度超出独立处理预算。')
+          const addresses = /r="([A-Z]+[1-9]\d*)"/g
+          let address: RegExpExecArray | null
+          while ((address = addresses.exec(empty[0]))) {
+            const pending = this.events.emptyNumericCell(address[1]!)
+            if (pending) await pending
+          }
+          this.buffer = this.buffer.slice(empty[0].length)
+          continue
+        }
+        // Exact complete scalar cell syntax. All values still pass the SAME
+        // coordinate, string-index, type, numeric and row validators. Other
+        // attributes, entities, formulae and partial chunks use generic XML.
+        const scalar = /^<c r="([A-Z]+[1-9]\d*)"(?: s="\d+")?(?: t="(s|str|n|b|e)")?><v>([^<&]*)<\/v><\/c>/.exec(this.buffer)
+        if (scalar) {
+          if (this.stack.length + 2 > 256) throw new Error('工作簿XML嵌套深度超出独立处理预算。')
+          let pending = this.events.start('c', { r: scalar[1]!, ...(scalar[2] ? { t: scalar[2] } : {}) })
+          if (pending) await pending
+          pending = this.events.start('v', {})
+          if (pending) await pending
+          pending = this.events.text(scalar[3]!)
+          if (pending) await pending
+          pending = this.events.end('v')
+          if (pending) await pending
+          pending = this.events.end('c')
+          if (pending) await pending
+          this.buffer = this.buffer.slice(scalar[0].length)
+          continue
+        }
+      }
       if (this.buffer[0] !== '<') {
         let end = this.buffer.indexOf('<')
         if (end < 0) {
@@ -459,7 +538,8 @@ class Xml implements PartSink {
         if (/&(?!amp;|lt;|gt;|quot;|apos;|#(?:[0-9]+|x[0-9a-f]+);)/i.test(raw))
           throw new Error('工作簿XML实体不完整。')
         if (!this.stack.length && raw.trim()) throw new Error('工作簿XML根节点外包含内容。')
-        await this.events.text(entities(raw))
+        const pending = this.events.text(entities(raw))
+        if (pending) await pending
         this.buffer = this.buffer.slice(end)
         continue
       }
@@ -479,7 +559,8 @@ class Xml implements PartSink {
         }
         if (special[1] === 9) {
           if (!this.stack.length) throw new Error('XML CDATA位置无效。')
-          await this.events.text(this.buffer.slice(9, end))
+          const pending = this.events.text(this.buffer.slice(9, end))
+          if (pending) await pending
         }
         this.buffer = this.buffer.slice(end + (special[0] as string).length)
         continue
@@ -488,9 +569,34 @@ class Xml implements PartSink {
         if (!final && this.buffer.length < 9) return
         throw new Error('不支持包含DTD或声明扩展的工作簿XML。')
       }
+      const token = /^<((?:[^"'<>]|"[^"]*"|'[^']*')*)>/.exec(this.buffer)
+      const known = token && this.tags.get(token[1]!)
+      if (known) {
+        this.buffer = this.buffer.slice(token![0].length)
+        if (known.closing) {
+          if (this.stack.pop() !== known.name) throw new Error('工作簿XML标签不匹配。')
+          const pending = this.events.end(known.local)
+          if (pending) await pending
+        } else {
+          if (!this.stack.length) {
+            if (this.root) throw new Error('工作簿XML有多个根节点。')
+            this.root = true
+          }
+          this.stack.push(known.name)
+          if (this.stack.length > 256) throw new Error('工作簿XML嵌套深度超出独立处理预算。')
+          const pending = this.events.start(known.local, known.attrs)
+          if (pending) await pending
+          if (known.self) {
+            this.stack.pop()
+            const pending = this.events.end(known.local)
+            if (pending) await pending
+          }
+        }
+        continue
+      }
       let quote = '',
-        end = -1
-      for (let i = 1; i < this.buffer.length; i++) {
+        end = token ? token[0].length - 1 : -1
+      for (let i = 1; end < 0 && i < this.buffer.length; i++) {
         const char = this.buffer[i]!
         if (quote) {
           if (char === quote) quote = ''
@@ -516,7 +622,9 @@ class Xml implements PartSink {
       if (closing) {
         if (tag.slice(1 + match[0].length).trim() || this.stack.pop() !== name)
           throw new Error('工作簿XML标签不匹配。')
-        await this.events.end(localName(name))
+        this.rememberTag(tag, { name, local: localName(name), closing, self, attrs })
+        const pending = this.events.end(localName(name))
+        if (pending) await pending
         continue
       }
       let rest = tag.slice(match[0].length).replace(/\/\s*$/, '')
@@ -530,18 +638,28 @@ class Xml implements PartSink {
         attrs[attr[1]!] = entities(raw)
         rest = rest.slice(attr[0].length)
       }
+      this.rememberTag(tag, { name, local: localName(name), closing, self, attrs: Object.freeze(attrs) })
       if (!this.stack.length) {
         if (this.root) throw new Error('工作簿XML有多个根节点。')
         this.root = true
       }
       this.stack.push(name)
       if (this.stack.length > 256) throw new Error('工作簿XML嵌套深度超出独立处理预算。')
-      await this.events.start(localName(name), attrs)
+      const pending = this.events.start(localName(name), attrs)
+      if (pending) await pending
       if (self) {
         this.stack.pop()
-        await this.events.end(localName(name))
+        const pending = this.events.end(localName(name))
+        if (pending) await pending
       }
     }
+  }
+  private rememberTag(tag: string, parsed: { name: string; local: string; closing: boolean; self: boolean; attrs: Record<string, string> }) {
+    // Syntax-only cache scoped to one XML part. Exact byte spelling is the
+    // key; nesting, cell semantics and callbacks always run on every token.
+    if (tag.length > 256) return
+    if (this.tags.size >= 256) this.tags.delete(this.tags.keys().next().value!)
+    this.tags.set(tag, parsed)
   }
   async end() {
     if (!this.decoder) this.decoder = new TextDecoder('utf-8', { fatal: true })
@@ -586,43 +704,18 @@ function relations(parent: string, result: Map<string, { target: string; type: s
     }
   })
 }
-function cellAddress(address: string) {
-  const match = /^([A-Z]+)([1-9]\d*)$/.exec(address)
-  if (!match) throw new Error('工作表单元格地址无效。')
-  let column = 0
-  for (const letter of match[1]!) column = column * 26 + letter.charCodeAt(0) - 64
-  if (column > 16384) throw new Error('单元格列地址超过XLSX格式范围。')
-  return { row: safeInteger(Number(match[2]) - 1, '行号'), column: column - 1 }
-}
-function excelDate(value: string) {
-  const date = new Date(value)
-  date.setTime(date.getTime() + date.getTimezoneOffset() * 60000)
-  const base = new Date(1899, 11, 30, 0, 0, 0)
-  const result =
-    (date.getTime() - (base.getTime() + (date.getTimezoneOffset() - base.getTimezoneOffset()) * 60000)) /
-    86400000
-  if (!Number.isFinite(result)) throw new Error('工作表日期值无效。')
-  return result
-}
-const errors: Record<string, number> = {
-  '#NULL!': 0,
-  '#DIV/0!': 7,
-  '#VALUE!': 15,
-  '#REF!': 23,
-  '#NAME?': 29,
-  '#NUM!': 36,
-  '#N/A': 42,
-  '#GETTING_DATA': 43,
-  '#WTF?': 255
-}
-
 async function xlsx(options: TableGridStreamOptions) {
+  let phaseStart = performance.now()
+  const phase = (name: string) => { const now = performance.now(); options.measurePhase?.(name, now - phaseStart); phaseStart = now }
+  const collectMerges = options.collectMergedRanges !== false
   const zip = await directory(options),
     rootRels = new Map<string, { target: string; type: string }>()
+  phase('zipDirectory')
   if (!zip.paths.has('_rels/.rels')) throw new Error('XLSX工作簿根关系缺失。')
   await walkZip(options, zip, async (entry) =>
     entry.name === '_rels/.rels' ? relations('', rootRels) : undefined
   )
+  phase('rootRelationships')
   const office = [...rootRels.values()].filter((rel) => rel.type.endsWith('/officeDocument'))
   if (office.length !== 1 || !zip.paths.has(office[0]!.target)) throw new Error('XLSX工作簿主体缺失或重复。')
   const workbook = office[0]!.target,
@@ -643,6 +736,7 @@ async function xlsx(options: TableGridStreamOptions) {
     })
   })
   if (!sheetRefs.length) throw new Error('XLSX没有可读取的工作表。')
+  phase('workbookRelationships')
   const sheets = new Map<string, { name: string; order: number; cells: boolean }>(),
     sheetNames = new Set<string>()
   sheetRefs.forEach((sheet, order) => {
@@ -667,12 +761,13 @@ async function xlsx(options: TableGridStreamOptions) {
     sstBase = -1,
     strings = 0
   const merges = new Map<string, number>()
+  let projectedStrings: string[] | undefined
   // Validate every ZIP payload once, even unused images/styles. No skipped-corruption success.
   await walkZip(
     options,
     zip,
     async (entry) => {
-      if (sheets.has(entry.name)) {
+      if (sheets.has(entry.name) && collectMerges) {
         const ranges: string[] = []
         let bytes = 0
         const xml = new Xml({
@@ -680,11 +775,7 @@ async function xlsx(options: TableGridStreamOptions) {
           end() {},
           start(name, attrs) {
             if (name !== 'mergeCell') return
-            const range = attrs.ref
-            if (!range) throw new Error('工作表合并范围缺失。')
-            const [first, last] = range.split(':')
-            cellAddress(first!)
-            if (last) cellAddress(last)
+            const range = checkedMergeRange(attrs.ref)
             bytes = addStreamBytes(bytes, utf8Size(range))
             ranges.push(range)
           }
@@ -717,33 +808,35 @@ async function xlsx(options: TableGridStreamOptions) {
         text(value) {
           if (active && insideText && !phonetic) text.add(value)
         },
-        async end(name) {
+        end(name) {
           if (name === 't') insideText--
           if (name === 'rPh') phonetic--
           if (name === 'si') {
-            await options.writeString(nextIndex++, xstring(text.value()))
+            const index = nextIndex++
             strings++
             active = false
+            return options.writeString(index, xstring(text.value()))
           }
         }
       })
     },
     true
   )
+  phase('completeZipPayloadsAndStrings')
   await walkZip(options, zip, async (entry) => {
     const sheet = sheets.get(entry.name)
     if (!sheet) return
     const mergeIndex = merges.get(entry.name)
-    if (mergeIndex === undefined) throw new Error('工作表合并范围预检缺失。')
+    if (collectMerges && mergeIndex === undefined) throw new Error('工作表合并范围预检缺失。')
     await options.onSheetStart({
       name: sheet.name,
       order: sheet.order,
-      mergedRanges: JSON.parse(await options.readString(mergeIndex)) as string[]
+      mergedRanges: collectMerges ? JSON.parse(await options.readString(mergeIndex!)) as string[] : []
     })
     // Chart/dialog/macro sheets have no imported cell grid in the legacy
     // adapter. Validate their XML and ZIP payload without executing content.
     if (!sheet.cells) {
-      const xml = new Xml({ start() {}, text() {}, end() {} })
+      const xml = new Xml({ start(name, attrs) { if (!collectMerges && name === 'mergeCell') checkedMergeRange(attrs.ref) }, text() {}, end() {} })
       return {
         push: (bytes) => xml.push(bytes),
         async end() {
@@ -752,109 +845,39 @@ async function xlsx(options: TableGridStreamOptions) {
         }
       }
     }
-    let row = -1,
-      column = -1,
-      values: Cell[] = [],
-      rowBytes = 0
-    let cell:
-      | {
-          type?: string
-          value: TextValue
-          inline: TextValue
-          column: number
-          formula?: TextValue
-          hasFormula: boolean
-        }
-      | undefined
-    let inFormula = false,
-      inValue = false,
-      inText = false,
-      phonetic = 0
-    const xml = new Xml({
-      start(name, attrs) {
-        if (name === 'row') {
-          row = attrs.r === undefined ? row + 1 : safeInteger(Number(attrs.r) - 1, '行号')
-          column = -1
-          values = []
-          rowBytes = 0
-        } else if (name === 'c') {
-          if (cell || row < 0) throw new Error('工作表单元格位置无效。')
-          if (attrs.r) {
-            const address = cellAddress(attrs.r)
-            if (address.row !== row || address.column <= column)
-              throw new Error('工作表单元格顺序或行号无效。')
-            column = address.column
-          } else column++
-          cell = { type: attrs.t, value: new TextValue(), inline: new TextValue(), column, hasFormula: false }
-        } else if (cell && name === 'v') inValue = true
-        else if (cell && name === 't') inText = true
-        else if (cell && name === 'f') {
-          inFormula = true
-          cell.hasFormula = true
-          if (options.onCell) cell.formula = new TextValue()
-        } else if (name === 'rPh') phonetic++
-      },
-      text(value) {
-        if (!cell) return
-        if (inValue) cell.value.add(value)
-        if (inText && !phonetic) cell.inline.add(value)
-        if (inFormula) cell.formula?.add(value)
-      },
-      async end(name) {
-        if (name === 'v') inValue = false
-        if (name === 't') inText = false
-        if (name === 'f') inFormula = false
-        if (name === 'rPh') phonetic--
-        if (name === 'c') {
-          if (!cell) throw new Error('工作表单元格未开始。')
-          let value: Cell = null
-          const type = cell.type,
-            raw = cell.value.value()
-          if (type === 's' && raw !== '') {
-            if (!/^\d+$/.test(raw) || Number(raw) >= strings) throw new Error('共享字符串索引缺失或无效。')
-            value = await options.readString(sstBase + Number(raw))
-          } else if (type === 'inlineStr') value = xstring(cell.inline.value())
-          else if (type === 'str') value = xstring(raw)
-          else if (type === 'b') value = ['1', 'true', 'TRUE'].includes(raw)
-          else if (type === 'd') value = excelDate(raw)
-          else if (type === 'e') value = errors[raw] ?? null
-          else if (type === undefined || type === 'n') {
-            if (raw !== '') {
-              value = parseFloat(raw)
-              if (!Number.isFinite(value)) throw new Error('工作表数字无效。')
-            }
-            // SheetJS 0.18.5's missing-cache formula stub is omitted by its
-            // numeric blank-cell check. Preserve null rather than inventing 0.
-          } else if (type !== 's') throw new Error('工作表单元格类型不受支持。')
-          rowBytes = addStreamBytes(rowBytes, typeof value === 'string' ? utf8Size(value) : 16)
-          while (values.length < cell.column) values.push(null)
-          values[cell.column] = value
-          if (options.onCell) {
-            const formula = cell.formula
-              ?.value()
-              .replace(/\r\n/g, '\n')
-              .replace(/\b_xlfn\./g, '')
-            await options.onCell({
-              address: XLSX.utils.encode_cell({ r: row, c: cell.column }),
-              type:
-                type === 'inlineStr' || type === 'str' || type === 's'
-                  ? 's'
-                  : type === 'd'
-                    ? 'n'
-                    : (type ?? 'n'),
-              ...(formula ? { formula } : {}),
-              hasFormula: cell.hasFormula,
-              ...(value !== null ? { value } : {})
-            })
+    const xml = new Xml(createWorksheetEvents(options.wantsCellDetails?.(sheet.name) === false
+      ? { ...options, onCell: undefined } : options, strings, sstBase, collectMerges))
+    const projection = options.coc7Projection
+    if (!collectMerges && projection?.canUse() && entry.size <= 512 * 1024 && strings <= 32768) {
+      const parts: Uint8Array[] = []
+      let received = 0
+      return {
+        async push(bytes) {
+          received += bytes.length
+          if (received > entry.size || received > 512 * 1024) throw new Error('工作表展开长度已变化。')
+          parts.push(bytes.slice())
+        },
+        async end() {
+          if (received !== entry.size) throw new Error('工作表未完整读取。')
+          if (!projectedStrings) {
+            projectedStrings = []
+            for (let index = 0; index < strings; index++) projectedStrings.push(await options.readString(sstBase + index))
           }
-          cell = undefined
-        } else if (name === 'row') {
-          if (cell) throw new Error('工作表单元格未结束。')
-          await options.onRow({ index: row, values })
-          values = []
+          const bytes = new Uint8Array(received)
+          let offset = 0
+          for (const part of parts) { bytes.set(part, offset); offset += part.length }
+          const cells = await projection.run({ bytes, name: sheet.name, strings: projectedStrings })
+          checkStreamCancelled(options.signal)
+          if (cells) {
+            for (const cell of cells) await options.onCell?.(cell)
+          } else {
+            for (const part of parts) await xml.push(part)
+            await xml.end()
+          }
+          await options.onSheetEnd()
         }
       }
-    })
+    }
     return {
       push: (bytes) => xml.push(bytes),
       async end() {
@@ -863,6 +886,7 @@ async function xlsx(options: TableGridStreamOptions) {
       }
     }
   })
+  phase('completeWorksheetValidation')
 }
 
 function csvSeparator(sample: string) {

@@ -80,6 +80,34 @@ async function importCard(page: Page, bytes = publicCoc7Bytes()) {
     buffer: Buffer.from(bytes)
   })
 }
+
+test('折叠区首次展开完整技能和武器；再次折叠仍检查已编辑数值，未展开保存也保留完整数据', async ({ page }) => {
+  await ready(page)
+  await importCard(page)
+  await expect(page.getByLabel('七版角色卡导入说明')).toContainText('6项技能')
+  await expect(page.locator('.skill-edit-row')).toHaveCount(0)
+  await page.getByText('技能', { exact: true }).click()
+  await expect(page.locator('.skill-edit-row')).toHaveCount(6)
+  const skill = page.getByLabel('技能1数值', { exact: true })
+  await expect(skill).toHaveValue('15')
+  await skill.fill('')
+  await page.getByText('技能', { exact: true }).click()
+  await expect(skill).toHaveCount(1)
+  expect(await skill.evaluate(input => (input as HTMLInputElement).validity.valueMissing)).toBe(true)
+  await page.getByRole('button', { name: '保存修改', exact: true }).click()
+  await expect(page.locator('.editor')).toBeVisible()
+  await page.getByText('技能', { exact: true }).click()
+  await skill.fill('16')
+  await page.getByText('武器战斗表', { exact: true }).click()
+  await expect(page.getByLabel('武器1名称', { exact: true })).not.toHaveValue('')
+  await page.getByRole('button', { name: '取消编辑', exact: true }).click()
+  await importCard(page)
+  await expect(page.locator('.skill-edit-row')).toHaveCount(0)
+  await page.getByRole('button', { name: '保存修改', exact: true }).click()
+  await page.locator('.record-card').filter({ hasText: '公开职业' }).click()
+  await expect(page.locator('.skills-display-grid .skill-row')).toHaveCount(6)
+  await expect(page.getByText(/公开经历首段/)).toContainText('公开经历尾段')
+})
 test('七版人物卡预览取消不保存；15边界、红框物品、完整经历保存重开且同名旧卡/正文不变', async ({
   page
 }, info) => {

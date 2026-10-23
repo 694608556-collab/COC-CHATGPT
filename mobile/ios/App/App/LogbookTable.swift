@@ -2,6 +2,25 @@ import Foundation
 import SQLite3
 import CryptoKit
 
+/// Shared read-only parser. The C ABI receives one privately owned immutable
+/// EOF/SHA snapshot. Unsupported spellings/cache budgets use the full reader.
+enum LogbookTableKernel {
+    static func warmCode() { coc_table_kernel_warm() }
+    static func inspect(_ bytes: Data, available: Int) throws -> LogbookJSON? {
+        let output = bytes.withUnsafeBytes { buffer in
+            coc_table_kernel_preview(buffer.bindMemory(to: UInt8.self).baseAddress, bytes.count, UInt64(max(0, available)))
+        }
+        guard let output else { return nil }
+        defer { free(output) }
+        guard let text = String(validatingUTF8: output),
+              let value = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? LogbookJSON else {
+            throw LogbookFailure("原生角色卡草稿编码无效。")
+        }
+        guard value["version"] as? Int == 1, value["supported"] as? Bool == true else { return nil }
+        return value
+    }
+}
+
 /// A private disk index. Every query returning multiple values has an explicit
 /// caller-owned page, or is consumed with each() without materializing all rows.
 final class LogbookTableIndex {
@@ -14,6 +33,8 @@ final class LogbookTableIndex {
         guard sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else { throw LogbookFailure("表格私有索引无法创建。") }
         do {
         try execute("PRAGMA journal_mode=DELETE"); try execute("PRAGMA synchronous=FULL")
+        // Retain FULL durability, committing all private schema creation once.
+        try execute("BEGIN IMMEDIATE")
         try chunks.create()
         try execute("CREATE TABLE frames(sheet INTEGER NOT NULL,row INTEGER NOT NULL,kind TEXT NOT NULL,value TEXT NOT NULL,warnings TEXT NOT NULL,PRIMARY KEY(sheet,row))")
         try execute("CREATE TABLE entities(kind TEXT NOT NULL,id TEXT NOT NULL,position INTEGER NOT NULL,value TEXT NOT NULL,manual TEXT,name TEXT NOT NULL,module TEXT NOT NULL,link TEXT NOT NULL,source TEXT NOT NULL,changed INTEGER NOT NULL,PRIMARY KEY(kind,id))")
@@ -22,7 +43,8 @@ final class LogbookTableIndex {
         try execute("CREATE INDEX record_links ON entities(kind,module,link)")
         try execute("CREATE TABLE module_counts(id TEXT PRIMARY KEY,value INTEGER NOT NULL)")
         try execute("CREATE TABLE preview(kind TEXT NOT NULL,position INTEGER NOT NULL,value TEXT NOT NULL,PRIMARY KEY(kind,position))")
-        } catch { sqlite3_close(handle); handle = nil; throw error }
+        try execute("COMMIT")
+        } catch { try? execute("ROLLBACK"); sqlite3_close(handle); handle = nil; throw error }
     }
     deinit { close() }
     func close() { if let handle { sqlite3_close(handle); self.handle = nil } }
@@ -114,9 +136,12 @@ final class LogbookTableSession {
     let kind: String
     let available: () throws -> Int
     let directory: URL
-    let index: LogbookTableIndex
+    private(set) var index: LogbookTableIndex!
     let maximumStageBytes: Int
-    private let source: Output, candidate: Output
+    private var source: Output!, candidate: Output!
+    private let allowMemorySnapshot: Bool
+    private var memorySnapshot: Data?
+    private var ownershipEstablished = false
     private var sourceProof: LogbookBackupProof?
     private var candidateProof: LogbookBackupProof?
     private var indexProof: LogbookBackupProof?
@@ -128,18 +153,25 @@ final class LogbookTableSession {
     private var moduleTotal = 0, recordTotal = 0, characterTotal = 0
     private(set) var added = 0, updated = 0, skipped = 0, namesCount = 0, warningsCount = 0
     private(set) var root: LogbookJSON?
-    var sourceURL: URL { source.url }
-    init(directory base: URL, expected: Int, bookmark: Data, kind: String, available: (() throws -> Int)? = nil) throws {
+    var sourceURL: URL { source?.url ?? directory.appendingPathComponent("source") }
+    init(directory base: URL, expected: Int, bookmark: Data, kind: String, available: (() throws -> Int)? = nil, deferStorage: Bool = false) throws {
         guard ["record-table", "character-table"].contains(kind) else { throw LogbookFailure("表格类型无效。") }
         self.expected = expected; self.bookmark = bookmark; self.kind = kind
+        allowMemorySnapshot = deferStorage && kind == "character-table"
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         directory = base.appendingPathComponent("table-" + id, isDirectory: true)
         self.available = available ?? { try LogbookCapacity.available(base) }
         maximumStageBytes = try LogbookCapacity.maximum(available: self.available, copies: 6)
+        if !deferStorage { try ensureStorage() }
+    }
+    private func ensureStorage() throws {
+        if ownershipEstablished { return }
+        guard !closed else { throw LogbookFailure("表格私有租约已关闭。") }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         let marker = directory.appendingPathComponent("owner.json")
         do { try logbookData(["kind": "coc-table-stream-v1", "id": id]).write(to: marker, options: [.withoutOverwriting]) }
         catch { try FileManager.default.removeItem(at: directory); throw error }
+        ownershipEstablished = true
         do {
             source = try Output(directory.appendingPathComponent("source")); candidate = try Output(directory.appendingPathComponent("candidate"))
             index = try LogbookTableIndex(directory.appendingPathComponent("index.sqlite"))
@@ -152,9 +184,12 @@ final class LogbookTableSession {
     deinit { try? close() }
     func require(_ token: String?) throws { guard token == id, !closed else { throw LogbookFailure("表格导入租约已失效。") } }
     func capture(_ input: FileHandle, name: String) throws -> LogbookJSON {
-        guard sourceProof == nil, !closed, let output = source.handle else { throw LogbookFailure("表格来源已封存。") }
+        guard sourceProof == nil, !closed else { throw LogbookFailure("表格来源已封存。") }
         let format = (name as NSString).pathExtension.lowercased()
         guard ["csv", "xlsx", "xls"].contains(format) else { throw LogbookFailure("仅支持XLSX、XLS或CSV表格。") }
+        if allowMemorySnapshot && format == "xlsx" { return try captureReadonlySnapshot(input, name: name) }
+        try ensureStorage()
+        guard let output = source.handle else { throw LogbookFailure("表格来源已封存。") }
         let maximum = try LogbookCapacity.maximum(available: available, copies: 6)
         while let chunk = try input.read(upToCount: 65536), !chunk.isEmpty {
             guard chunk.count <= maximum - source.bytes else { throw LogbookFailure("表格来源超过本次可用空间。") }
@@ -163,10 +198,52 @@ final class LogbookTableSession {
         }
         guard source.bytes > 0 else { throw LogbookFailure("所选表格为空。") }
         try source.seal(); sourceProof = try LogbookBackupSession.fileProof(source.url, maximumBytes: source.bytes)
-        return ["id": id, "revision": expected, "fileUri": source.url.absoluteString, "bytes": source.bytes, "sha256": sourceProof!.sha256, "name": name, "format": format, "maximumStageBytes": maximumStageBytes]
+        return sourceMetadata(name: name, format: format)
+    }
+    private func sourceMetadata(name: String, format: String) -> LogbookJSON {
+        ["id": id, "revision": expected, "fileUri": sourceURL.absoluteString, "bytes": sourceProof!.bytes, "sha256": sourceProof!.sha256, "name": name, "format": format, "maximumStageBytes": maximumStageBytes]
+    }
+    private func captureReadonlySnapshot(_ input: FileHandle, name: String) throws -> LogbookJSON {
+        var memory = Data(), digest = SHA256(), total = 0, onDisk = false
+        let maximum = try LogbookCapacity.maximum(available: available, copies: 6)
+        while let chunk = try input.read(upToCount: 65536), !chunk.isEmpty {
+            guard chunk.count <= maximum - total else { throw LogbookFailure("表格来源超过本次可用空间。") }
+            try LogbookCapacity.require(available: available, additional: chunk.count)
+            total += chunk.count; digest.update(data: chunk)
+            if !onDisk && total > 2 * 1024 * 1024 {
+                // A cache budget only: materialize the exact prefix, then all
+                // remaining bytes. No content is rejected or omitted here.
+                try ensureStorage(); try source.handle!.write(contentsOf: memory)
+                memory.removeAll(keepingCapacity: false); onDisk = true
+            }
+            if onDisk { try source.handle!.write(contentsOf: chunk) } else { memory.append(chunk) }
+        }
+        guard total > 0 else { throw LogbookFailure("所选表格为空。") }
+        let proof = LogbookBackupProof(bytes: total, sha256: digest.finalize().map { String(format: "%02x", $0) }.joined())
+        if onDisk {
+            source.bytes = total; try source.seal()
+            let copied = try LogbookBackupSession.fileProof(source.url, maximumBytes: total)
+            try proof.matches(bytes: copied.bytes, sha256: copied.sha256)
+        } else { memorySnapshot = memory }
+        sourceProof = proof
+        return sourceMetadata(name: name, format: "xlsx")
+    }
+    func inspectCoc7Kernel() throws -> LogbookJSON? {
+        guard allowMemorySnapshot, !closed, !ready, let bytes = memorySnapshot, let proof = sourceProof else { return nil }
+        guard bytes.count == proof.bytes else { throw LogbookFailure("角色卡完整快照长度已变化。") }
+        if let payload = try LogbookTableKernel.inspect(bytes, available: maximumStageBytes) {
+            return ["source": ["bytes": proof.bytes, "sha256": proof.sha256], "payload": payload]
+        }
+        // Unsupported resident input still gets the durable full source/index
+        // contract before JS is allowed to fetch or stage any byte.
+        try ensureStorage(); try source.handle!.write(contentsOf: bytes); source.bytes = bytes.count; try source.seal()
+        let copied = try LogbookBackupSession.fileProof(source.url, maximumBytes: proof.bytes)
+        try proof.matches(bytes: copied.bytes, sha256: copied.sha256)
+        memorySnapshot = nil
+        return nil
     }
     func append(key: String, chunkIndex: Int, bytes: Data) throws {
-        guard sourceProof != nil, !closed, !ready, !bytes.isEmpty, bytes.count <= LogbookLimits.transferChunkBytes,
+        guard memorySnapshot == nil, sourceProof != nil, !closed, !ready, !bytes.isEmpty, bytes.count <= LogbookLimits.transferChunkBytes,
               bytes.count <= maximumStageBytes - stageBytes else { throw LogbookFailure("表格分段或本次可用空间预算无效。") }
         try LogbookCapacity.require(available: available, additional: LogbookCapacity.estimate(bytes.count, copies: 3))
         if key == "candidate" {
@@ -311,7 +388,7 @@ final class LogbookTableSession {
         for warning in warnings { try note("warnings", warning) }
     }
     func preview(_ proof: LogbookBackupProof, store: LogbookStore) throws -> LogbookJSON {
-        guard !closed, !ready, stringsLine.isEmpty, let sourceProof, proof.bytes == candidate.bytes else { throw LogbookFailure("表格来源或候选尚未完整。") }
+        guard memorySnapshot == nil, !closed, !ready, stringsLine.isEmpty, let sourceProof, candidate != nil, proof.bytes == candidate.bytes else { throw LogbookFailure("表格来源或候选尚未完整。") }
         try store.check(expected); try source.seal(); try candidate.seal(); try verify(source.url, sourceProof); try verify(candidate.url, proof)
         var baseline = try store.metadata() ?? LogbookStore.empty()
         try LogbookValidation.snapshot(baseline, metadataOnly: true)
@@ -429,10 +506,11 @@ final class LogbookTableSession {
     }
     func close() throws {
         if closed { return }
-        try source.seal(); try candidate.seal(); index.close()
+        try source?.seal(); try candidate?.seal(); index?.close()
         try? commitMetadata?.close(); commitMetadata = nil
         try? commitRecords?.close(); commitRecords = nil
-        if !unlinked { try Self.removeOwned(directory, id: id) }
+        if ownershipEstablished && !unlinked { try Self.removeOwned(directory, id: id) }
+        memorySnapshot = nil
         closed = true
     }
     private static func removeOwned(_ directory: URL, id: String) throws {

@@ -41,6 +41,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
     public override func load() {
         monitor.pathUpdateHandler = { [weak self] path in self?.work.async { self?.connected = path.status == .satisfied } }
         monitor.start(queue: DispatchQueue(label: "coc.logbook.network"))
+        DispatchQueue.global(qos: .utility).async { LogbookTableKernel.warmCode() }
     }
     deinit { monitor.cancel(); logFetch.close() }
     private func resources() throws -> (LogbookStore, LogbookArchive) {
@@ -120,10 +121,12 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
     private func openTableStream(_ call: CAPPluginCall, _ url: URL, _ store: LogbookStore, _ archive: LogbookArchive) throws -> LogbookJSON {
         guard tableSession == nil, backupSession == nil, fetchBatch == nil, snapshotUpload == nil, !filePickerPending else { throw LogbookFailure("已有文件或检测任务，请先完成或取消。") }
         let revision = try expected(call); try store.check(revision); try archive.requirePermission()
-        let owner = try LogbookTableSession(directory: tableDirectory(), expected: revision, bookmark: archive.bookmark(), kind: call.getString("kind") ?? "")
+        let coc7 = call.getBool("coc7Template") == true && call.getString("kind") == "character-table" && url.pathExtension.lowercased() == "xlsx"
+        let owner = try LogbookTableSession(directory: tableDirectory(), expected: revision, bookmark: archive.bookmark(), kind: call.getString("kind") ?? "", deferStorage: coc7)
         tableSession = owner
         do {
-            let source = try archive.withPicked(url) { try owner.capture($0, name: url.lastPathComponent) }
+            var source = try archive.withPicked(url) { try owner.capture($0, name: url.lastPathComponent) }
+            if coc7, let kernel = try owner.inspectCoc7Kernel() { source["coc7Kernel"] = kernel }
             try checkTable(owner, store, archive)
             return ["cancelled": false, "tableSource": source]
         } catch {
@@ -172,6 +175,13 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         }
     }
     @objc func cancelTableStage(_ call: CAPPluginCall) {
+        if call.getBool("requireCurrent") == true {
+            tableRun(call) { store, archive in
+                let owner = try self.tableOwner(call); try self.checkTable(owner, store, archive)
+                try owner.close(); self.tableSession = nil; return [:]
+            }
+            return
+        }
         run(call) { _, _ in
             if let owner = self.tableSession, owner.id == call.getString("id") { try owner.close(); self.tableSession = nil }
             return [:]
