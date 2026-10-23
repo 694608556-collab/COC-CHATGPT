@@ -5,14 +5,7 @@ import type { MobileSnapshot } from '../../../data/types'
 import type { DataAction } from '../../../data/actions'
 import { GestureRow } from '../GestureRow'
 import { ModuleBodySearch } from './ModuleBodySearch'
-
-const STATUS_LABELS = {
-  pending: '未检测',
-  valid: '有效',
-  invalid: '失效',
-  fetch_failed: '检测失败',
-  manual: '手动内容'
-}
+import { RecordCards } from './RecordCards'
 
 /**
  * 记录列表、同页模组和已选场次操作；不在组件内直接持久化。
@@ -45,6 +38,16 @@ export function Records(props: {
   busy: boolean
 }) {
   const { snapshot } = props
+  // Stable card callbacks always read the latest committed permissions/data
+  // handlers; an uncommitted concurrent render cannot change click behavior.
+  const committed = useRef({ onRead: props.onRead, onAction: props.onAction })
+  useLayoutEffect(() => {
+    committed.current = { onRead: props.onRead, onAction: props.onAction }
+  })
+  const [cardHandlers] = useState(() => ({
+    onRead: (record: SessionRecord, query?: string) => committed.current.onRead(record, query),
+    onAction: (action: DataAction) => committed.current.onAction(action)
+  }))
   // 正文进度提示不改变records引用；同一份场次只分组和排序一次。
   const recordsByModule = useMemo(() => {
     const groups = new Map<string, SessionRecord[]>()
@@ -256,89 +259,21 @@ export function Records(props: {
                     </>
                   )}
                 </div>
-                <div className="record-list">
-                  {records.map((r) => (
-                    <GestureRow
-                      key={r.id}
-                      id={r.id}
-                      highlighted={r.id === props.returnRecordId}
-                      group={'records:' + m.id}
-                      label={'场次 ' + r.name}
-                      disabled={props.busy}
-                      selected={selected.includes(r.id)}
-                      onDelete={() => props.onAction({ type: 'delete', kind: 'record', id: r.id })}
-                      onHold={() => {
-                        setSelecting(true)
-                        setSelected((current) => (current.includes(r.id) ? current : [...current, r.id]))
-                      }}
-                      onReorder={(targetId) =>
-                        props.onAction({ type: 'reorder', kind: 'record', id: r.id, targetId })
-                      }
-                    >
-                      <div className={'session-row' + (selected.includes(r.id) ? ' selected' : '')}>
-                        {selecting && (
-                          <label className="check selection-check">
-                            <input
-                              type="checkbox"
-                              aria-label={'选择 ' + r.name}
-                              checked={selected.includes(r.id)}
-                              onChange={(e) =>
-                                setSelected(
-                                  e.target.checked
-                                    ? [...selected, r.id]
-                                    : selected.filter((id) => id !== r.id)
-                                )
-                              }
-                            />
-                          </label>
-                        )}
-                        <button
-                          ref={r.id === props.returnRecordId ? returnCard : undefined}
-                          className="record-card"
-                          aria-current={r.id === props.returnRecordId ? 'true' : undefined}
-                          data-record-id={r.id}
-                          onClick={() =>
-                            selecting
-                              ? setSelected(
-                                  selected.includes(r.id)
-                                    ? selected.filter((id) => id !== r.id)
-                                    : [...selected, r.id]
-                                )
-                              : props.onRead(r)
-                          }
-                        >
-                          <span className="muted">{m.name}</span>
-                          <span className="record-title">
-                            <strong className="record-name">{r.name}</strong>
-                            <span
-                              className={
-                                props.deferredRecords.has(r.id) ||
-                                r.rawContent ||
-                                r.manualContent !== undefined
-                                  ? 'tag available'
-                                  : 'tag'
-                              }
-                            >
-                              {props.deferredRecords.has(r.id) ||
-                              r.rawContent ||
-                              r.manualContent !== undefined
-                                ? '正文已保存'
-                                : '缺少正文'}
-                            </span>
-                          </span>
-                          <span className="record-status">
-                            <span className="record-status-text">
-                              序号 {r.sequenceNo} ·{' '}
-                              {r.sourceType === 'manual' ? '手动内容' : STATUS_LABELS[r.status]}
-                              {r.lastError ? ' · ' + r.lastError : ''}
-                              {' · 跑团时间：' + (r.playDate || '未填写')}
-                            </span>
-                          </span>
-                        </button>
-                      </div>
-                    </GestureRow>
-                  ))}
-                </div>
+                <RecordCards
+                  records={records}
+                  moduleId={m.id}
+                  moduleName={m.name}
+                  selected={selected}
+                  selecting={selecting}
+                  busy={props.busy}
+                  returnRecordId={props.returnRecordId}
+                  deferredRecords={props.deferredRecords}
+                  returnCard={returnCard}
+                  setSelected={setSelected}
+                  setSelecting={setSelecting}
+                  onRead={cardHandlers.onRead}
+                  onAction={cardHandlers.onAction}
+                />
                 {!records.length && <p className="muted">此模组暂无场次。</p>}
               </div>
             )}

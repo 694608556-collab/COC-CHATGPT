@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import type { FilterPreset, SessionRecord } from '../../../../../src/shared/types'
 import { compileBodyQuery, recordMessages } from '../../../data/search'
 import { SearchInput } from '../SearchInput'
@@ -21,11 +22,38 @@ export function ModuleBodySearch(props: {
   onRead(record: SessionRecord, query: string): void
 }) {
   const [page, setPage] = useState(0)
-  const needle = props.submittedQuery.trim()
+  const [pendingQuery, setPendingQuery] = useState('')
+  const pendingSubmission = useRef<{ frame?: number; timer?: ReturnType<typeof setTimeout> }>(undefined)
+  /** Cancel a queued submission when the input changes or this module disappears. */
+  const cancelSubmission = () => {
+    const pending = pendingSubmission.current
+    pendingSubmission.current = undefined
+    if (pending?.frame !== undefined) cancelAnimationFrame(pending.frame)
+    if (pending?.timer !== undefined) clearTimeout(pending.timer)
+  }
+  useEffect(() => cancelSubmission, [])
+  /** Paint local progress before parent state changes render the complete record list. */
+  const submit = () => {
+    const query = props.query
+    if (!query.trim()) return
+    cancelSubmission()
+    const pending: NonNullable<typeof pendingSubmission.current> = {}
+    pendingSubmission.current = pending
+    flushSync(() => setPendingQuery(query))
+    pending.frame = requestAnimationFrame(() => {
+      pending.timer = setTimeout(() => {
+        if (pendingSubmission.current !== pending) return
+        pendingSubmission.current = undefined
+        props.onSearch(query)
+        setPendingQuery('')
+      }, 0)
+    })
+  }
+  const needle = (pendingQuery || props.submittedQuery).trim()
   const matcher = useMemo(() => compileBodyQuery(needle), [needle])
   const streamed = props.result?.query === needle ? props.result : undefined
-  const ready = props.streaming ? !!streamed : props.ready
-  const busy = props.streaming ? !!props.searching : props.busy
+  const ready = !pendingQuery && (props.streaming ? !!streamed : props.ready)
+  const busy = !!pendingQuery || (props.streaming ? !!props.searching : props.busy)
   const active = !!needle && ready
   const rows = useMemo(
     () =>
@@ -73,7 +101,7 @@ export function ModuleBodySearch(props: {
         className="reader-search"
         onSubmit={(event) => {
           event.preventDefault()
-          if (props.query.trim()) props.onSearch(props.query)
+          submit()
         }}
       >
         <label className="field module-search-field">
@@ -85,17 +113,28 @@ export function ModuleBodySearch(props: {
             placeholder="搜索该模组所有场次正文"
             value={props.query}
             onChange={(value) => {
+              cancelSubmission()
+              setPendingQuery('')
               props.onQuery(value)
               setPage(0)
             }}
           />
         </label>
       </form>
-      {!!needle && !ready && (
-        <section className="search-results" aria-label="模组正文搜索结果">
-          <p role="status">{busy ? '正在逐场搜索已保存正文…' : '正文尚未读取，重试后显示完整搜索结果。'}</p>
-          {!busy && (
-            <button type="button" onClick={() => props.onSearch(props.query)}>
+      {!active && (
+        <section
+          className={needle ? 'search-results' : 'module-search-hint'}
+          aria-label={needle ? '模组正文搜索结果' : undefined}
+        >
+          <p role={needle ? 'status' : undefined}>
+            {!needle
+              ? '输入关键词后，逐场搜索已保存正文。'
+              : busy
+                ? '正在逐场搜索已保存正文…'
+                : '正文尚未读取，重试后显示完整搜索结果。'}
+          </p>
+          {!!needle && !busy && (
+            <button type="button" onClick={submit}>
               重试正文搜索
             </button>
           )}

@@ -34,6 +34,8 @@ export interface StreamBackupPreview {
   archive: ReturnType<typeof backupArchiveReferences>
 }
 export interface StreamReadOptions {
+  /** Optional numeric diagnostics; receives no record or source contents. */
+  measurePhase?: (phase: string, milliseconds: number) => void
   /** A trusted per-operation budget; production must obtain it from the native storage boundary. */
   maximumBytes: number
   signal?: AbortSignal
@@ -85,8 +87,12 @@ export async function readBackupJsonStream(
       else flatRecords = true
       await reader.array(async () => {
         checkStreamCancelled(options.signal)
+        const parseStarted = options.measurePhase ? performance.now() : 0
         const original = await reader.readRawValue()
+        options.measurePhase?.('strictRecordParseMs', performance.now() - parseStarted)
+        const validationStarted = options.measurePhase ? performance.now() : 0
         const record = validateBackupRecord(original.value)
+        options.measurePhase?.('recordValidationMs', performance.now() - validationStarted)
         const preserved = options.preserveBodyTokens
           ? recordJsonWithBodyTokens(record, original.value, original.json)
           : undefined
@@ -116,6 +122,7 @@ export async function readBackupJsonStream(
         await reader.object((name) => field(nested, name, true))
       } else await field(flat, key, false)
     })
+    const finalStarted = options.measurePhase ? performance.now() : 0
     const proof = await reader.finish()
     if (
       options.expectedSource &&
@@ -140,6 +147,7 @@ export async function readBackupJsonStream(
     const warnings = checked.warnings.filter((message) => !message.includes('个场次未带正文'))
     if (offlineRecords < records.length)
       warnings.push(`${records.length - offlineRecords} 个场次未带正文，导入后不能凭链接离线阅读。`)
+    options.measurePhase?.('finalSourceGraphMs', performance.now() - finalStarted)
     return {
       metadata: { ...checked.snapshot, records: checked.snapshot.records.map(recordMetadata) },
       offlineRecords,

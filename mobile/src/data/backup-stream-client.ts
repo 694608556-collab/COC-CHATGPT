@@ -1,4 +1,5 @@
 import { Capacitor } from '@capacitor/core'
+import { Native } from './native'
 import type { LogbookPort } from './native'
 import type { FilterPreset } from '../../../src/shared/types'
 import type { BodySearchResult } from './body-search-stream'
@@ -9,6 +10,8 @@ import { encodeBase64 } from './bytes'
 import type { BackupStreamJob } from './backup-stream-job'
 import type { RestoreStreamResult } from './restore-stream'
 import type { StreamProof } from './backup-stream'
+import type { SearchPipelineMessage } from './search-pipeline-channel'
+import { requestSearchPipeline, type SearchFeed } from './search-source-pipeline'
 import type {
   BackupStreamPort,
   NativeRestoreSource,
@@ -76,7 +79,13 @@ function mime(name: string) {
     )[extension] ?? 'application/octet-stream'
   )
 }
-async function run<T>(job: BackupStreamJob, port: Port, id: string, signal?: AbortSignal): Promise<T> {
+async function run<T>(
+  job: BackupStreamJob,
+  port: Port,
+  id: string,
+  signal?: AbortSignal,
+  feed?: SearchFeed
+): Promise<T> {
   checkStreamCancelled(signal)
   if (typeof document === 'undefined') {
     const indexes = new Map<string, number>()
@@ -91,7 +100,10 @@ async function run<T>(job: BackupStreamJob, port: Port, id: string, signal?: Abo
     )) as T
   }
   if (typeof Worker === 'undefined') throw new Error('此环境缺少后台大文件处理能力，未尝试整库载入。')
-  const prepared = job.type === 'search' || job.type === 'search-cached' ? prepareSearchWorker() : undefined
+  const prepared =
+    job.type === 'search' || job.type === 'search-cached' || job.type === 'search-pipeline'
+      ? prepareSearchWorker()
+      : undefined
   const shared = prepared && !prepared.busy ? prepared : undefined
   if (shared) shared.busy = true
   const worker = shared?.worker ?? new Worker('backup-stream-worker.js'),
@@ -99,6 +111,7 @@ async function run<T>(job: BackupStreamJob, port: Port, id: string, signal?: Abo
   let active = true
   let succeeded = false
   let abort: (() => void) | undefined
+  let disconnect: (() => void) | undefined
   try {
     const result = await new Promise<T>((resolve, reject) => {
       abort = () => reject(new Error('搜索已取消。'))
@@ -137,11 +150,16 @@ async function run<T>(job: BackupStreamJob, port: Port, id: string, signal?: Abo
         reject(new Error('大文件后台处理器启动或运行失败，未发布数据。'))
       }
       worker.postMessage({ type: 'start', job })
+      disconnect = feed?.connect((message) => {
+        const buffer = message.type === 'search-part' ? message.part.prefetched : undefined
+        worker.postMessage(message, buffer ? [buffer] : [])
+      })
     })
     succeeded = true
     return result
   } finally {
     active = false
+    disconnect?.()
     if (abort) signal?.removeEventListener('abort', abort)
     // Native writes already dispatched must settle before their owner is released.
     // Android's older system WebViews have Promise.all but not allSettled.
@@ -276,27 +294,58 @@ export async function searchNativeBodies(
     admittedSearchCaches.delete(port)
   }
   if (!port.createSearchSource) throw new Error('本机缺少逐场正文搜索能力。')
-  const lease = await port.createSearchSource({ ids, expectedRevision: revision })
   const generation = crypto.randomUUID()
+  type SearchResult = Awaited<ReturnType<typeof import('./body-search-stream').searchBodyStream>>
+  const request = await requestSearchPipeline<SearchResult>(port, { ids, revision, signal }, (config, feed) =>
+    run<SearchResult>(
+      {
+        type: 'search-pipeline',
+        nonce: config.nonce,
+        ids,
+        query: trimmed,
+        preset,
+        maximumReadBytes: config.maximumReadBytes,
+        cache: { generation, signature, maximumMemoryBytes: config.cacheMemoryBytes }
+      },
+      required(port),
+      config.id,
+      signal,
+      feed
+    )
+  )
+  const lease = request.lease
   let completed: BodySearchResult | undefined
   let cacheReady = false
   try {
     checkStreamCancelled(signal)
     if (lease.revision !== revision) throw new Error('搜索数据版本已变化。')
-    const result = await run<Awaited<ReturnType<typeof import('./body-search-stream').searchBodyStream>>>(
-      {
-        type: 'search',
-        source: local(lease.source),
-        ids,
-        query: trimmed,
-        preset,
-        maximumReadBytes: lease.maximumReadBytes,
-        cache: { generation, signature, maximumMemoryBytes: lease.cacheMemoryBytes }
-      },
-      required(port),
-      lease.id,
-      signal
-    )
+    const result = request.result
+      ? await request.result
+      : await run<SearchResult>(
+          {
+            type: 'search',
+            source: local(lease.source),
+            ids,
+            query: trimmed,
+            preset,
+            maximumReadBytes: lease.maximumReadBytes,
+            // A caller-supplied port cannot enable the attested grammar path.
+            nativeProjection:
+              port === Native &&
+              (lease.searchProjectionVersion === 1 ||
+                lease.searchProjectionVersion === 2 ||
+                lease.searchProjectionVersion === 3) &&
+              Number.isSafeInteger(lease.originalSource?.bytes) &&
+              lease.originalSource!.bytes > 0 &&
+              /^[a-f0-9]{64}$/.test(lease.originalSource?.sha256 ?? '')
+                ? lease.searchProjectionVersion
+                : undefined,
+            cache: { generation, signature, maximumMemoryBytes: lease.cacheMemoryBytes }
+          },
+          required(port),
+          lease.id,
+          signal
+        )
     if (
       result.records !== ids.length ||
       result.source.bytes !== lease.source.bytes ||
