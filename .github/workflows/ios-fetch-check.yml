@@ -2,7 +2,7 @@ name: iOS native fetch isolation
 on:
   push:
     branches: [codex/ios-ipa-adaptation]
-    paths: ['mobile/ios/App/App/LogbookFetch.swift', 'mobile/ios/App/App/LogbookPlugin.swift', 'mobile/scripts/ios-fetch-tests.swift', '.github/workflows/ios-fetch-check.yml']
+    paths: ['mobile/ios/App/App/LogbookFetch.swift', 'mobile/ios/App/App/LogbookPlugin.swift', 'mobile/ios/App/App/LogbookStore.swift', 'mobile/ios/App/App/LogbookValidation.swift', 'mobile/ios/App/App/LogbookMutations.swift', 'mobile/ios/App/App/LogbookArchive.swift', 'mobile/ios/App/App/LogbookBackup.swift', 'mobile/ios/App/App/LogbookTable.swift', 'mobile/native/table-kernel/**', 'mobile/scripts/build-table-kernel.sh', 'mobile/scripts/ios-fetch-tests.swift', '.github/workflows/ios-fetch-check.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -12,6 +12,18 @@ jobs:
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
+      - name: Verify native dependency changes trigger the complete fetch regression
+        run: |
+          python3 - <<'PY'
+          import ast, fnmatch, pathlib, re
+          source = pathlib.Path('.github/workflows/ios-fetch-check.yml').read_text()
+          patterns = ast.literal_eval(re.search(r'paths:\s*(\[.*?\])', source, re.S).group(1))
+          dependencies = ['LogbookFetch', 'LogbookPlugin', 'LogbookStore', 'LogbookValidation', 'LogbookMutations', 'LogbookArchive', 'LogbookBackup', 'LogbookTable']
+          changes = ['mobile/ios/App/App/' + name + '.swift' for name in dependencies]
+          changes += ['mobile/native/table-kernel/search-json.cpp', 'mobile/native/table-kernel/search-json.h', 'mobile/scripts/build-table-kernel.sh', 'mobile/scripts/ios-fetch-tests.swift']
+          assert all(any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns) for path in changes), 'Native dependency changes must run fetch regression'
+          print('All twelve native dependency trigger examples passed')
+          PY
       - name: Run public native URLSession regression
         working-directory: mobile
         run: |
