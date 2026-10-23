@@ -4,7 +4,7 @@ import type { SavedDocument } from '../src/data/native'
 import { characterDraftProofText } from './character-draft-proof'
 import type { Coc7ImportPreview } from '../src/data/coc7-import'
 import type { NativeTablePreview } from '../src/data/table-stream-native'
-import { CandidateWitness } from './public-io-candidate-witness'
+import { CandidateWitnessCapture } from './public-io-candidate-witness'
 import { requirePrivateTableExpectation, verifyPrivateTableCandidate } from './private-table-proof'
 import type { PrivateTableExpectation } from './private-table-proof'
 import { mergeImportedParticipants } from '../../src/shared/table-import'
@@ -50,7 +50,7 @@ let actionStarted = 0
 let receivedTablePreview: NativeTablePreview | undefined
 let tableSourceTiming: Record<string, number> | undefined
 let tableWorkerTiming: Record<string, number> | undefined
-let tableCandidateWitness = new CandidateWitness()
+const tableCandidateWitness = new CandidateWitnessCapture()
 let tableCandidateProof: { bytes: number; sha256: string } | undefined
 let tableSourceProof: { bytes: number; sha256: string } | undefined
 let expectedPrivateTable: PrivateTableExpectation | undefined
@@ -135,9 +135,7 @@ cap.nativePromise = async (plugin, method, options) => {
     ['tables', 'private-table', 'complete'].includes(window.__publicIoConfig.mode)
   ) {
     const value = options as { key?: string; base64?: string; candidate?: { bytes: number; sha256: string } }
-    if (method === 'appendTableStage' && value.key === 'candidate') {
-      tableCandidateWitness.append(value.base64!)
-    }
+    tableCandidateWitness.observe(method, value)
     if (method === 'finishTablePreview') {
       tableCandidateProof = value.candidate
       options = { ...value, measureImport: true }
@@ -355,7 +353,6 @@ async function measureRecordTables(commit = true) {
       receivedTablePreview = undefined
       tableSourceTiming = undefined
       tableWorkerTiming = undefined
-      tableCandidateWitness = new CandidateWitness()
       tableCandidateProof = undefined
       tableSourceProof = undefined
       await timed('record-table-import-preview-' + extension + '-' + repeat, async () => {

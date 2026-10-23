@@ -33,3 +33,25 @@ export class CandidateWitness {
     }
   }
 }
+
+/** Evidence follows the real native source-open boundary, including imports
+ * performed after the nine-preview matrix in the complete I/O scenario.
+ */
+export class CandidateWitnessCapture {
+  private current?: CandidateWitness
+  /** @param method Real native request. @param options Original request values.
+   * @returns No value; captures only original candidate bytes after a source opens.
+   */
+  observe(method: string, options: { key?: string; base64?: string }) {
+    if (method === 'openBackup') this.current = new CandidateWitness()
+    if (method === 'appendTableStage' && options.key === 'candidate') {
+      if (!this.current) throw Error('Candidate witness has no source')
+      this.current.append(options.base64!)
+    }
+  }
+  /** @returns All bytes of precisely the current source, independently decoded once. */
+  read() {
+    if (!this.current) throw Error('Candidate witness has no source')
+    return this.current.read()
+  }
+}
