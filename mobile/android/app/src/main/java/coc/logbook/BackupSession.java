@@ -19,9 +19,19 @@ final class BackupSession implements AutoCloseable {
     }
     private static final class Entry {
         final File file; FileOutputStream output; long bytes; int index; Proof proof;
+        android.os.ParcelFileDescriptor memory;
         Entry(File file)throws Exception{this.file=file;if(!file.createNewFile())throw new IOException("备份暂存已存在。");output=new FileOutputStream(file);}
+        Entry(byte[] complete,long budget)throws Exception{
+            int fd=NativeSearchKernel.sealedSource(complete,budget);if(fd<0)throw new SearchSnapshot.Unavailable();
+            memory=android.os.ParcelFileDescriptor.adoptFd(fd);file=new File("/proc/self/fd/"+fd);bytes=complete.length;
+            try{proof=fileProof(file,bytes);proof.matches(bytes,digestHex(MessageDigest.getInstance("SHA-256").digest(complete)));}
+            catch(Exception|OutOfMemoryError failure){memory.close();memory=null;throw failure;}
+        }
         void seal()throws Exception{
-            if(output!=null){output.flush();output.getFD().sync();output.close();output=null;}
+            seal(true);
+        }
+        void seal(boolean durable)throws Exception{
+            if(output!=null){output.flush();if(durable)output.getFD().sync();output.close();output=null;}
             proof=fileProof(file,bytes);proof.matches(bytes,proof.sha256);
         }
     }
@@ -34,6 +44,11 @@ final class BackupSession implements AutoCloseable {
     private final long maximumInputBytes;
     private long inputBytes,outputBytes,maximumOutputBytes;
     private boolean ready,closed;
+    private int searchPartIndex;
+    private long searchMemoryBudget,searchMemoryParts;
+    private ByteArrayOutputStream activeSearchMemory;
+    private Entry activeSearchPart;
+    private OutputStream activeSearchOutput;
     RestoreCandidate.Preview restorePreview;
     final List<Attachment> attachments=new ArrayList<>();
     static final class Attachment {
@@ -74,17 +89,87 @@ final class BackupSession implements AutoCloseable {
     }
     interface Producer {void write(Writer output)throws Exception;}
     Proof captureJson(Producer producer)throws Exception{
+        return captureBytes(output->{
+            Writer writer=new BufferedWriter(new OutputStreamWriter(output,java.nio.charset.StandardCharsets.UTF_8),32768);
+            producer.write(writer);writer.flush();
+        });
+    }
+    interface ByteProducer {void write(OutputStream output)throws Exception;}
+    /** Only a searching lease can create disposable read-only source slices.
+     * Their bytes count against the same current-space budget as the full source. */
+    OutputStream beginSearchPart(int index)throws Exception{
+        if(!searching||closed||ready||maximumOutputBytes!=0||index!=searchPartIndex||activeSearchPart!=null||activeSearchMemory!=null)
+            throw new IOException("搜索分片阶段或次序无效。");
+        if(searchMemoryBudget>0){
+            activeSearchMemory=new ByteArrayOutputStream();final ByteArrayOutputStream buffer=activeSearchMemory;
+            return new OutputStream(){
+                public void write(int value)throws IOException{write(new byte[]{(byte)value},0,1);}
+                public void write(byte[] bytes,int start,int length)throws IOException{
+                    if(closed||activeSearchMemory!=buffer)throw new IOException("搜索分片租约已失效。");
+                    if(length>searchMemoryBudget-searchMemoryParts-buffer.size())throw new SearchSnapshot.Unavailable();
+                    buffer.write(bytes,start,length);
+                }
+            };
+        }
+        final Entry entry=create("search:"+index);activeSearchPart=entry;
+        OutputStream bounded=new OutputStream(){
+            public void write(int value)throws IOException{write(new byte[]{(byte)value},0,1);}
+            public void write(byte[] bytes,int start,int length)throws IOException{
+                if(closed||activeSearchPart!=entry)throw new IOException("搜索分片租约已失效。");
+                if(inputBytes+length>maximumInputBytes)throw new SearchSnapshot.Unavailable();
+                try{StorageBudget.require(available,length);entry.output.write(bytes,start,length);entry.bytes+=length;inputBytes+=length;}
+                catch(IOException error){throw error;}catch(Exception error){throw new IOException(error);}
+            }
+        };
+        activeSearchOutput=new BufferedOutputStream(bounded,256*1024);return activeSearchOutput;
+    }
+    /** A part cannot be named by a readable credential until durable full readback succeeds. */
+    String finishSearchPart(int index)throws Exception{
+        if(searchMemoryBudget>0){
+            if(!searching||closed||index!=searchPartIndex||activeSearchMemory==null||activeSearchMemory.size()==0)throw new IOException("搜索分片封存次序无效。");
+            byte[] bytes=activeSearchMemory.toByteArray();Entry entry=new Entry(bytes,searchMemoryBudget);
+            String key="search:"+index;entries.put(key,entry);searchMemoryParts+=bytes.length;activeSearchMemory=null;searchPartIndex++;return key;
+        }
+        if(!searching||closed||activeSearchPart==null||index!=searchPartIndex)throw new IOException("搜索分片封存次序无效。");
+        // Disposable immutable read views can be consumed speculatively. Their
+        // full readback/EOF/SHA remains mandatory; the canonical full source
+        // still flushes and fsyncs before its final proof can publish results.
+        activeSearchOutput.flush();activeSearchPart.seal(false);
+        if(activeSearchPart.bytes==0)throw new IOException("搜索分片不能为空。");
+        String key="search:"+index;activeSearchPart=null;activeSearchOutput=null;searchPartIndex++;return key;
+    }
+    Proof captureBytes(ByteProducer producer)throws Exception{
         if(closed||ready||maximumOutputBytes!=0||entries.containsKey("source"))throw new IOException("备份来源阶段无效。");
         Entry entry=create("source");
         OutputStream bounded=new OutputStream(){
             public void write(int value)throws IOException{write(new byte[]{(byte)value},0,1);}
             public void write(byte[] bytes,int start,int length)throws IOException{
-                try{if(inputBytes+length>maximumInputBytes)throw new IOException("完整备份来源暂存空间不足。");StorageBudget.require(available,length);entry.output.write(bytes,start,length);entry.bytes+=length;inputBytes+=length;}
+                try{if(inputBytes+length>maximumInputBytes){if(searching&&(activeSearchPart!=null||searchPartIndex>0))throw new SearchSnapshot.Unavailable();throw new IOException("完整备份来源暂存空间不足。");}StorageBudget.require(available,length);entry.output.write(bytes,start,length);entry.bytes+=length;inputBytes+=length;}
                 catch(IOException error){throw error;}catch(Exception error){throw new IOException(error);}
             }
         };
-        Writer writer=new BufferedWriter(new OutputStreamWriter(bounded,java.nio.charset.StandardCharsets.UTF_8),32768);
-        producer.write(writer);writer.flush();entry.seal();return entry.proof;
+        // Coalesce encoder-sized writes before the actual-write space check.
+        // Flush, fsync and complete readback remain inside captureJson; this
+        // bounded transport buffer is never an input or content-size limit.
+        OutputStream output=new BufferedOutputStream(bounded,256*1024);
+        producer.write(output);output.flush();entry.seal();return entry.proof;
+    }
+    /** Kernel-sealed derived search views; all bytes are independently read back.
+     * The source is disposable and has no database, restore or publication authority.
+     * A resource/feature failure requests a new lease through the complete disk path.
+     */
+    Proof captureSearchMemory(ByteProducer producer,long budget)throws Exception{
+        if(!searching||closed||ready||maximumOutputBytes!=0||!entries.isEmpty()||budget<1)throw new SearchSnapshot.Unavailable();
+        searchMemoryBudget=budget;ByteArrayOutputStream buffer=new ByteArrayOutputStream();
+        OutputStream bounded=new OutputStream(){
+            public void write(int value)throws IOException{write(new byte[]{(byte)value},0,1);}
+            public void write(byte[] bytes,int start,int length)throws IOException{
+                if(length>budget-buffer.size())throw new SearchSnapshot.Unavailable();buffer.write(bytes,start,length);
+            }
+        };
+        producer.write(bounded);
+        if(activeSearchMemory!=null)throw new IOException("搜索分片尚未完整封存。");
+        Entry source=new Entry(buffer.toByteArray(),budget);entries.put("source",source);return source.proof;
     }
     long beginOutput()throws Exception{
         if(searching)throw new IOException("正文搜索来源只读，不能暂存输出或发布文件。");
@@ -173,9 +258,9 @@ final class BackupSession implements AutoCloseable {
     public void close()throws Exception{
         Exception failure=null;
         for(Entry entry:entries.values()){
-            try{if(entry.output!=null){entry.output.close();entry.output=null;}delete(entry.file);}catch(Exception error){if(failure==null)failure=error;}
+            try{if(entry.output!=null){entry.output.close();entry.output=null;}if(entry.memory!=null){entry.memory.close();entry.memory=null;}else delete(entry.file);}catch(Exception error){if(failure==null)failure=error;}
         }
         if(failure!=null)throw failure;
-        entries.clear();closed=true;
+        entries.clear();activeSearchMemory=null;closed=true;
     }
 }

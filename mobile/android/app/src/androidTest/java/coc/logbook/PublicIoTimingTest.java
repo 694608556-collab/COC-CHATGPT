@@ -85,6 +85,12 @@ public final class PublicIoTimingTest {
         String id="public-"+UUID.randomUUID();
         boolean localPrivateCard="true".equals(InstrumentationRegistry.getArguments().getString("localPrivateCard"));
         boolean localPrivateTable="true".equals(InstrumentationRegistry.getArguments().getString("localPrivateTable"));
+        boolean capturePrivateSearch="true".equals(InstrumentationRegistry.getArguments().getString("capturePrivateSearch"));
+        String searchReferenceText=InstrumentationRegistry.getArguments().getString("privateSearchReferenceBase64","");
+        JSONObject searchReference=searchReferenceText.isEmpty()?null:new JSONObject(new String(java.util.Base64.getDecoder().decode(searchReferenceText),StandardCharsets.UTF_8));
+        String searchInput=searchReference==null?null:"private-search-input-"+searchReference.getJSONObject("snapshot").getString("sha256")+".json";
+        assertTrue("Private search input must carry a complete source proof",searchInput==null||searchInput.matches("private-search-input-[a-f0-9]{64}\\.json")&&searchReference.has("reference"));
+        assertTrue("Private search requires the proven runtime private table",!capturePrivateSearch||localPrivateTable);
         String publicIoTableFirst=InstrumentationRegistry.getArguments().getString("publicIoTableFirst","csv");
         assertTrue("publicIoTableFirst must be exactly csv, xlsx or xls",publicIoTableFirst.equals("csv")||publicIoTableFirst.equals("xlsx")||publicIoTableFirst.equals("xls"));
         assertFalse("Private card and table modes must be separate",localPrivateCard&&localPrivateTable);
@@ -100,11 +106,28 @@ public final class PublicIoTimingTest {
         java.util.Map<File,File> preservedRegistry=new java.util.LinkedHashMap<>();
         for(String suffix:new String[]{"","-journal","-wal","-shm"}){File original=target.getDatabasePath("archive-index.db"+suffix);if(original.exists()){File saved=new File(registryEvidence,"before-archive-index.db"+suffix);assertTrue(original.renameTo(saved));preservedRegistry.put(original,saved);}}
         try{
-            Intent grant=new Intent().setComponent(new android.content.ComponentName(tests.getPackageName(),PublicIoGrantActivity.class.getName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("publicTarget",target.getPackageName()).putExtra("publicUri",tree.toString()).putExtra("localPrivateCard",localPrivateCard).putExtra("localPrivateTable",localPrivateTable);tests.startActivity(grant);
+            Intent grant=new Intent().setComponent(new android.content.ComponentName(tests.getPackageName(),PublicIoGrantActivity.class.getName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("publicTarget",target.getPackageName()).putExtra("publicUri",tree.toString()).putExtra("localPrivateCard",localPrivateCard).putExtra("localPrivateTable",localPrivateTable).putExtra("privateSearchInput",searchInput);tests.startActivity(grant);
             long deadline=System.currentTimeMillis()+20000;
             while(!granted){try{target.getContentResolver().takePersistableUriPermission(tree,modes);granted=true;}catch(SecurityException pending){assertTrue("Public I/O grant timeout",System.currentTimeMillis()<deadline);Thread.sleep(100);}}
             assertTrue(prefs.edit().putString("tree",tree.toString()).putString("label","公开计时测试目录").commit());
-            try(LogbookDatabase database=new LogbookDatabase(target)){assertEquals(1,database.replace(asset(tests,"public-io-library.json"),0));}
+            if(searchReference!=null){
+                Uri reference=DocumentsContract.buildDocumentUriUsingTree(tree,id+"/private-search-reference.json");
+                BackupSession.Proof referenceProof;try(InputStream input=target.getContentResolver().openInputStream(reference)){referenceProof=BackupSession.streamProof(input,StorageBudget.JS_SAFE_INTEGER);}
+                assertEquals(searchReference.getJSONObject("reference").getLong("bytes"),referenceProof.bytes);assertEquals(searchReference.getJSONObject("reference").getString("sha256"),referenceProof.sha256);
+                JSONObject originalProof=searchReference.getJSONObject("snapshot");
+                try(InputStream input=target.getContentResolver().openInputStream(reference);ByteArrayOutputStream output=new ByteArrayOutputStream()){byte[] buffer=new byte[65536];int count;while((count=input.read(buffer))!=-1)output.write(buffer,0,count);searchReference=new JSONObject(output.toString("UTF-8"));}
+                assertEquals(originalProof.getLong("bytes"),searchReference.getJSONObject("snapshot").getLong("bytes"));assertEquals(originalProof.getString("sha256"),searchReference.getJSONObject("snapshot").getString("sha256"));assertEquals(114,searchReference.getJSONArray("responses").length());
+            }
+            try(LogbookDatabase database=new LogbookDatabase(target)){
+                if(searchReference==null)assertEquals(1,database.replace(asset(tests,"public-io-library.json"),0));
+                else{
+                    Uri source=DocumentsContract.buildDocumentUriUsingTree(tree,id+"/private-search-resume.json");
+                    BackupSession.Proof proof;try(InputStream input=target.getContentResolver().openInputStream(source)){proof=BackupSession.streamProof(input,StorageBudget.JS_SAFE_INTEGER);}
+                    assertEquals(searchReference.getJSONObject("snapshot").getLong("bytes"),proof.bytes);assertEquals(searchReference.getJSONObject("snapshot").getString("sha256"),proof.sha256);
+                    try(Reader reader=new BufferedReader(new InputStreamReader(target.getContentResolver().openInputStream(source),StandardCharsets.UTF_8))){assertEquals(1,database.replace(reader,0));}
+                    assertEquals("Require the complete captured private corpus and all originals",196,database.recordCount());
+                }
+            }
             monitor=new Instrumentation.ActivityMonitor(){@Override public Instrumentation.ActivityResult onStartActivity(Intent intent){
                 if(Intent.ACTION_OPEN_DOCUMENT_TREE.equals(intent.getAction())){intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI,DocumentsContract.buildDocumentUri("com.android.externalstorage.documents",outputId));return null;}
                 if(!Intent.ACTION_OPEN_DOCUMENT.equals(intent.getAction()))return null;
@@ -115,7 +138,21 @@ public final class PublicIoTimingTest {
             try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
                 scenario.onActivity(activity->{activity.getBridge().getWebView().addJavascriptInterface(choice,"PublicIoChoice");activity.getBridge().getWebView().reload();});
                 deadline=System.currentTimeMillis()+90000;
-                while(!"true".equals(evaluate(scenario,"!!window.Capacitor && typeof window.Capacitor.nativePromise==='function' && !!document.querySelector('.module-body-search input') && typeof PublicIoChoice !== 'undefined'"))){assertTrue("Public UI readiness timeout",System.currentTimeMillis()<deadline);Thread.sleep(100);}
+                while(!"true".equals(evaluate(scenario,"!!window.Capacitor && typeof window.Capacitor.nativePromise==='function' && !!document.querySelector('"+(searchReference==null?".module-body-search input":".records-create-actions")+"') && typeof PublicIoChoice !== 'undefined'"))){assertTrue("Public UI readiness timeout",System.currentTimeMillis()<deadline);Thread.sleep(100);}
+                if(searchReference!=null){
+                    evaluate(scenario,"window.__privateSearchReference="+searchReference+";window.__privateSearchResume=true;");
+                    evaluate(scenario,asset(tests,"public-io-private-search.js"));
+                    deadline=System.currentTimeMillis()+21*60*1000;String value;
+                    while("null".equals(value=evaluate(scenario,"window.__privateSearchResult || null"))){assertTrue("Resumed private search timeout",System.currentTimeMillis()<deadline);Thread.sleep(250);}
+                    JSONObject search=new JSONObject(value);
+                    Uri saved=DocumentsContract.createDocument(target.getContentResolver(),DocumentsContract.buildDocumentUriUsingTree(tree,id),"application/json","private-search-snapshot.json");assertNotNull(saved);
+                    try(LogbookDatabase database=new LogbookDatabase(target);Writer writer=new BufferedWriter(new OutputStreamWriter(target.getContentResolver().openOutputStream(saved,"w"),StandardCharsets.UTF_8))){database.writeSnapshot(writer,null);}
+                    BackupSession.Proof proof;try(InputStream input=target.getContentResolver().openInputStream(saved)){proof=BackupSession.streamProof(input,StorageBudget.JS_SAFE_INTEGER);}
+                    search.put("localSnapshot","public-io/"+id+"/private-search-snapshot.json");search.put("snapshotBytes",proof.bytes);search.put("snapshotSha256",proof.sha256);
+                    android.os.Bundle evidence=new android.os.Bundle();evidence.putString("private_search_result",search.toString());instrumentation.sendStatus(0,evidence);
+                    checkOriginalBodies(target,tests,search);
+                    assertTrue("All full-content and private search timings must pass",search.getBoolean("passed"));return;
+                }
                 String mode=InstrumentationRegistry.getArguments().getString("publicIoMode","baseline");assertTrue(mode.equals("baseline")||mode.equals("complete")||mode.equals("imports")||mode.equals("cards")||mode.equals("matrix")||mode.equals("tables")||mode.equals("private-table"));
                 assertEquals("Private table mode must have runtime input and complete proof",mode.equals("private-table"),localPrivateTable);
                 if(mode.equals("complete")||mode.equals("matrix")){
@@ -176,6 +213,23 @@ public final class PublicIoTimingTest {
                 if(!mode.equals("matrix")&&!mode.equals("tables")&&!mode.equals("private-table"))assertEquals("All three character runs are required",3,characterSamples);
                 if(mode.equals("tables"))assertEquals("All formats need their first and two subsequent previews",9,tableSamples);
                 if(mode.equals("private-table"))assertEquals("Private table requires its first and two subsequent complete previews",3,tableSamples);
+                if(capturePrivateSearch){
+                    assertEquals("Private search starts only after complete table verification","private-table",mode);
+                    evaluate(scenario,asset(tests,"public-io-private-search.js"));
+                    deadline=System.currentTimeMillis()+21*60*1000;
+                    String searchResult;
+                    while("null".equals(searchResult=evaluate(scenario,"window.__privateSearchResult || null"))){assertTrue("Private search timeout at "+evaluate(scenario,"window.__publicIoStage || ''"),System.currentTimeMillis()<deadline);Thread.sleep(250);}
+                    JSONObject search=new JSONObject(searchResult);
+                    android.os.Bundle progress=new android.os.Bundle();progress.putString("private_search_progress",search.toString());instrumentation.sendStatus(0,progress);
+                    Uri saved=DocumentsContract.createDocument(target.getContentResolver(),DocumentsContract.buildDocumentUriUsingTree(tree,id),"application/json","private-search-snapshot.json");
+                    assertNotNull("Private search snapshot must be created in its own granted test directory",saved);
+                    try(LogbookDatabase database=new LogbookDatabase(target);Writer writer=new BufferedWriter(new OutputStreamWriter(target.getContentResolver().openOutputStream(saved,"w"),StandardCharsets.UTF_8))){database.writeSnapshot(writer,null);}
+                    BackupSession.Proof proof;try(InputStream input=target.getContentResolver().openInputStream(saved)){proof=BackupSession.streamProof(input,StorageBudget.JS_SAFE_INTEGER);}
+                    search.put("localSnapshot","public-io/"+id+"/private-search-snapshot.json");search.put("snapshotBytes",proof.bytes);search.put("snapshotSha256",proof.sha256);
+                    android.os.Bundle searchEvidence=new android.os.Bundle();searchEvidence.putString("private_search_result",search.toString());instrumentation.sendStatus(0,searchEvidence);
+                    assertTrue("Private full-text search must pass every complete-content and timing gate",search.getBoolean("passed"));
+                    checkOriginalBodies(target,tests,checked);
+                }
             }
         }finally{
             if(monitor!=null)instrumentation.removeMonitor(monitor);

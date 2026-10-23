@@ -22,6 +22,14 @@ public final class PublicIoGrantActivity extends android.app.Activity {
                 }
                 try(java.io.InputStream input=localCard||localTable?new java.io.FileInputStream(new java.io.File(getFilesDir(),localTable?"local-table-input.xlsx":"local-card-input.xlsx")):getAssets().open(name);java.io.OutputStream output=new java.io.FileOutputStream(new java.io.File(directory,name))){byte[] buffer=new byte[65536];int count;while((count=input.read(buffer))!=-1)output.write(buffer,0,count);}
             }
+            String searchInput=getIntent().getStringExtra("privateSearchInput");
+            if(searchInput!=null){
+                if(!searchInput.matches("private-search-input-[a-f0-9]{64}\\.json"))throw new IllegalStateException("Refuse unknown private search source");
+                for(String name:new String[]{searchInput,searchInput.replace("input-","reference-")}){
+                    String destination=name.equals(searchInput)?"private-search-resume.json":"private-search-reference.json";
+                    try(java.io.InputStream input=new java.io.FileInputStream(new java.io.File(getFilesDir(),name));java.io.OutputStream output=new java.io.FileOutputStream(new java.io.File(directory,destination))){byte[] buffer=new byte[65536];int count;while((count=input.read(buffer))!=-1)output.write(buffer,0,count);}
+                }
+            }
         }catch(java.io.IOException error){throw new IllegalStateException("Public fixture preparation failed",error);}
         grantUriPermission(target,android.net.Uri.parse(value),android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION|android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION|android.content.Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION|android.content.Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
         finish();

@@ -1,6 +1,10 @@
 :root {
   --app-safe-top: env(safe-area-inset-top, 0px);
 }
+.record-list {
+  /* Search feedback moves this block without reflowing every gesture card. */
+  contain: layout;
+}
 @font-face {
   font-family: 'SF Pro Display';
   src: url('../../../src/renderer/src/assets/fonts/SF-Pro-Display-Regular.otf') format('opentype');

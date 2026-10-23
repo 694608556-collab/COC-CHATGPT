@@ -54,6 +54,8 @@ export interface LogbookPort extends BackupStreamPort, TableStreamPort {
   createSearchSource?(options: {
     ids: string[]
     expectedRevision: number
+    /** Optional real-adapter sealed-piece event correlation; grants no write authority. */
+    streamNonce?: string
   }): Promise<import('./body-search-stream').NativeSearchSource>
   /** Android: private staged results, one revision/CAS transaction for the entire batch. */
   beginFetchBatch?(options: { ids: string[]; expectedRevision: number }): Promise<{ id: string }>

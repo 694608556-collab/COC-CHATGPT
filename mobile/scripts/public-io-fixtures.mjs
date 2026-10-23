@@ -30,3 +30,11 @@ await build({
   format: 'iife',
   target: 'chrome69'
 })
+await build({
+  entryPoints: ['tests/private-search-webview.ts'],
+  outfile: resolve(assets, 'public-io-private-search.js'),
+  bundle: true,
+  nodePaths: [resolve('node_modules')],
+  format: 'iife',
+  target: 'chrome69'
+})

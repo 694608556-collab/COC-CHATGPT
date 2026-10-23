@@ -568,25 +568,52 @@ public final class LogbookPlugin extends Plugin {
     }
     @PluginMethod public void createSearchSource(PluginCall call){
         execute(()->{BackupSession owner=null;try{
+            final String streamNonce=call.getString("streamNonce");
+            if(streamNonce!=null&&!streamNonce.matches("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"))throw new IllegalArgumentException("搜索分片标识无效。");
             if(backupSession!=null||tableSession!=null||importPickerPending)throw new IllegalStateException("已有文件读取任务，请稍候。");
             long revision=backupExpected(call);if(revision!=database.revision())throw new IllegalStateException("数据已变化，请重新读取。");
             JSONArray requested=call.getArray("ids");Set<String> ids=new java.util.LinkedHashSet<>();
             if(requested==null||requested.length()==0)throw new IllegalArgumentException("搜索场次无效。");
             for(int index=0;index<requested.length();index++){Object id=requested.get(index);if(!(id instanceof String)||!ids.add((String)id))throw new IllegalArgumentException("搜索场次重复或类型无效。");}
-            database.projectedBytes(ids);
-            owner=new BackupSession(new java.io.File(getContext().getCacheDir(),"backup-stream-staging"),"",revision,false,false,true,null);backupSession=owner;
-            owner.captureJson(writer->{
-                writer.write("{\"format\":\"coc.logbook.android\",\"formatVersion\":1,\"exportedAt\":"+JSONObject.quote(java.time.Instant.now().toString())+",\"restoreScope\":[\"modules\",\"records\",\"characters\"],\"snapshot\":");
-                database.writeSnapshot(writer,ids);writer.write('}');
-            });
+            final long originalSearchBytes=database.projectedBytes(ids);
             android.app.ActivityManager.MemoryInfo memory=new android.app.ActivityManager.MemoryInfo();((android.app.ActivityManager)getContext().getSystemService(android.content.Context.ACTIVITY_SERVICE)).getMemoryInfo(memory);
             long cacheMemory=memory.lowMemory?0:Math.max(0,Math.min(memory.availMem/8,Runtime.getRuntime().maxMemory()/4));
             long maximumRead=memory.lowMemory?0:Math.max(0,Math.min(memory.availMem/16,Runtime.getRuntime().maxMemory()/8));
+            String prefix="{\"format\":\"coc.logbook.android\",\"formatVersion\":1,\"exportedAt\":"+JSONObject.quote(java.time.Instant.now().toString())+",\"restoreScope\":[\"modules\",\"records\",\"characters\"],\"snapshot\":";
+            owner=new BackupSession(new java.io.File(getContext().getCacheDir(),"backup-stream-staging"),"",revision,false,false,true,null);backupSession=owner;
+            final BackupSession.Proof[] original={null};
+            final SearchSourceChunks[] chunks={null};
+            final BackupSession searchOwner=owner;
+            final java.util.Map<String,Long> timing=Boolean.TRUE.equals(call.getBoolean("measureSearch",false))?new java.util.LinkedHashMap<>():null;
+            final long captureStarted=timing==null?0:System.nanoTime();
+            try{BackupSession.ByteProducer producer=output->{
+                long start=System.nanoTime();
+                if(streamNonce!=null){
+                    chunks[0]=new SearchSourceChunks(searchOwner,output,maximumRead,(index,kind,key)->{
+                        JSObject event=new JSObject();event.put("nonce",streamNonce);event.put("id",searchOwner.id);event.put("revision",revision);event.put("index",index);event.put("kind",kind);event.put("source",backupFileReply(searchOwner,key));event.put("maximumReadBytes",maximumRead);event.put("cacheMemoryBytes",cacheMemory);event.put("searchProjectionVersion",3);
+                        notifyListeners("searchSourceChunk",event);
+                    },Math.max(128L*1024,Math.min(512L*1024,Math.min(maximumRead/4,originalSearchBytes/24))));
+                    original[0]=database.writeSearchSnapshot(chunks[0],ids,maximumRead,prefix,timing,chunks[0]);
+                }else original[0]=database.writeSearchSnapshot(output,ids,maximumRead,prefix,timing);
+                if(timing!=null)timing.put("snapshotNs",System.nanoTime()-start);
+            };if(streamNonce!=null)owner.captureSearchMemory(producer,maximumRead);else owner.captureBytes(producer);if(owner.proof("source").bytes>maximumRead)throw new SearchSnapshot.Unavailable();}
+            catch(SearchSnapshot.Unavailable|OutOfMemoryError unavailable){
+                original[0]=null;
+                chunks[0]=null;
+                owner.close();backupSession=null;
+                owner=new BackupSession(new java.io.File(getContext().getCacheDir(),"backup-stream-staging"),"",revision,false,false,true,null);backupSession=owner;
+                owner.captureJson(writer->{writer.write(prefix);database.writeSnapshot(writer,ids);writer.write('}');});
+            }
             // The immutable search source is not an export or restore candidate.
-            // The Worker validates every record, graph, duplicate key and complete
-            // source proof before publishing hits; avoid doing that semantic pass twice.
+            // Native validates original grammar/message fields; the Worker checks
+            // projection proof, metadata/graph/association and every search field.
+            // The complete generic fallback keeps its original strict reader.
             if(database.revision()!=revision)throw new IllegalStateException("搜索来源版本已变化。");
-            JSObject result=new JSObject();result.put("id",owner.id);result.put("revision",revision);result.put("source",backupFileReply(owner,"source"));result.put("cacheMemoryBytes",cacheMemory);result.put("maximumReadBytes",maximumRead);call.resolve(result);
+            JSObject result=new JSObject();result.put("id",owner.id);result.put("revision",revision);result.put("source",backupFileReply(owner,"source"));result.put("cacheMemoryBytes",cacheMemory);result.put("maximumReadBytes",maximumRead);
+            if(original[0]!=null){result.put("searchProjectionVersion",3);JSObject proof=new JSObject();proof.put("bytes",original[0].bytes);proof.put("sha256",original[0].sha256);result.put("originalSource",proof);}
+            if(chunks[0]!=null){JSObject stream=new JSObject();stream.put("nonce",streamNonce);stream.put("chunks",chunks[0].count());result.put("searchStream",stream);}
+            if(timing!=null){timing.put("captureNs",System.nanoTime()-captureStarted);JSObject phases=new JSObject();for(java.util.Map.Entry<String,Long> phase:timing.entrySet())phases.put(phase.getKey().replace("Ns","Ms"),phase.getValue()/1e6);result.put("searchTiming",phases);}
+            call.resolve(result);
         }catch(Exception|OutOfMemoryError error){rejectBackup(call,owner,error);}});
     }
     @PluginMethod public void createBackupStream(PluginCall call){

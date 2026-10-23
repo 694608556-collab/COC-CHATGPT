@@ -18,25 +18,47 @@ function literalPattern(query: string, global = false): RegExp | undefined {
  */
 export function compileBodyQuery(query: string) {
   const pattern = literalPattern(query, true)
+  const needle = query.trim()
+  // Unified CJK ideographs, CJK punctuation and ASCII digits/space have no
+  // ignore-case aliases. Their literal UTF-16 search can use the engine's
+  // indexOf loop; all cased text retains the original RegExp semantics.
+  const direct = /^[\u3400-\u9fff\u3000-\u303f0-9 ]+$/.test(needle)
+  /** @param text 完整待计数字符串。 @returns 与字面不区分大小写正则相同的全部计数。 */
+  const countText = (text: string): number => {
+    if (!pattern) return 0
+    if (direct) {
+      let count = 0,
+        from = 0,
+        at: number
+      while ((at = text.indexOf(needle, from)) >= 0) {
+        count++
+        from = at + needle.length
+      }
+      return count
+    }
+    pattern.lastIndex = 0
+    let count = 0
+    while (pattern.test(text)) count++
+    return count
+  }
   return {
     /** @param text 待判断消息。 @returns 首次命中即返回，不遍历消息中的其余命中。 */
     has(text: string): boolean {
       if (!pattern) return false
+      if (direct) return text.indexOf(needle) >= 0
       pattern.lastIndex = 0
       return pattern.test(text)
     },
     /** @param text 待计数消息。 @returns 不重叠命中总数。 */
-    count(text: string): number {
-      if (!pattern) return 0
-      pattern.lastIndex = 0
-      let count = 0
-      while (pattern.test(text)) count++
-      return count
+    count: countText,
+    /** @param header 原发言头。 @param text 原消息正文。 @returns 不含换行的查询不可能跨越两者之间的换行；其余查询完整拼接匹配。 */
+    countMessage(header: string, text: string): number {
+      return needle.includes('\n') ? countText(header + '\n' + text) : countText(header) + countText(text)
     },
     /** @param text 待摘要消息。 @returns 首次命中附近保留原文的上下文。 */
     excerpt(text: string): string {
       if (pattern) pattern.lastIndex = 0
-      const at = pattern?.exec(text)?.index ?? 0
+      const at = direct ? Math.max(0, text.indexOf(needle)) : (pattern?.exec(text)?.index ?? 0)
       const start = Math.max(0, at - 30)
       const end = Math.min(text.length, at + Math.max(query.trim().length, 1) + 60)
       return (start ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '')

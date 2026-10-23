@@ -184,9 +184,8 @@ export async function searchBodyCache(
         let matches = 0,
           excerpt = ''
         for (const message of row.messages) {
-          const text = message.header + '\n' + message.text,
-            count = matcher.count(text)
-          if (count && !matches) excerpt = matcher.excerpt(text)
+          const count = matcher.countMessage(message.header, message.text)
+          if (count && !matches) excerpt = matcher.excerpt(message.header + '\n' + message.text)
           matches += count
         }
         if (matches) hits.push({ id: row.id, matches, excerpt })
@@ -222,9 +221,8 @@ export async function searchBodyCache(
           Object.keys(message).length !== 2
         )
           return null
-        const text = message.header + '\n' + message.text,
-          count = matcher.count(text)
-        if (count && !matches) excerpt = matcher.excerpt(text)
+        const count = matcher.countMessage(message.header, message.text)
+        if (count && !matches) excerpt = matcher.excerpt(message.header + '\n' + message.text)
         matches += count
       }
       if (matches) hits.push({ id: row.id, matches, excerpt })

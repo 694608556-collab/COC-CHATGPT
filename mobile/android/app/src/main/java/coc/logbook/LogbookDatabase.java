@@ -40,6 +40,13 @@ final class LogbookDatabase extends SQLiteOpenHelper {
   if(!exists())throw new IllegalStateException("尚无已保存数据。");
   new IndexedSnapshot(getReadableDatabase()).write(writer,selected);
  }
+ synchronized BackupSession.Proof writeSearchSnapshot(OutputStream output,Set<String> selected,long memory,String prefix,Map<String,Long> timing)throws Exception{
+  return writeSearchSnapshot(output,selected,memory,prefix,timing,null);
+ }
+ synchronized BackupSession.Proof writeSearchSnapshot(OutputStream output,Set<String> selected,long memory,String prefix,Map<String,Long> timing,SearchSnapshot.Boundaries boundaries)throws Exception{
+  if(!exists())throw new IllegalStateException("尚无已保存数据。");
+  return SearchSnapshot.write(getReadableDatabase(),output,selected,memory,prefix,timing,boundaries);
+ }
  synchronized String snapshot(){
   if(!exists())return null;
   try{StringWriter out=new StringWriter();writeSnapshot(out,null);return out.toString();}
