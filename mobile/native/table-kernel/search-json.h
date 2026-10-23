@@ -22,6 +22,11 @@ uint8_t *coc_search_json_compact(const uint8_t *source,size_t bytes,
 /* Full log/message/image schema validation plus searchable field tuples. */
 uint8_t *coc_search_json_searchable(const uint8_t *source,size_t bytes,
                                  uint64_t resident_budget,size_t *projected_bytes);
+/* Full record-body validation and the same tuples in a single C pass.
+ * Only the top-level rawContent member is projected; every other byte remains
+ * exact, including complete manual content. Null requests complete fallback. */
+uint8_t *coc_search_json_body(const uint8_t *source,size_t bytes,
+                            uint64_t resident_budget,size_t *projected_bytes);
 #ifdef __cplusplus
 }
 #endif

@@ -24,7 +24,9 @@ enum LogbookSearchMemory {
             $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { host_statistics64(port, HOST_VM_INFO64, $0, &count) }
         }
         guard status == KERN_SUCCESS else { return 0 }
-        let pages = UInt64(stats.free_count) + UInt64(stats.speculative_count)
+        // Inactive pages are reclaimable host resources; the admission budget
+        // remains capped to one quarter of physical RAM and is simulator-only.
+        let pages = UInt64(stats.free_count) + UInt64(stats.speculative_count) + UInt64(stats.inactive_count)
         let bytes = pages.multipliedReportingOverflow(by: UInt64(page))
         return bytes.overflow ? 0 : bytes.partialValue
     }
@@ -160,28 +162,16 @@ enum LogbookBackupJSON {
     /// complete searchable tuples. Original manual/unknown spans remain exact.
     static func searchBody(_ data: Data, budget: Int) throws -> Data? {
         guard budget > 0, data.count <= budget / 8 else { return nil }
-        let valid = data.withUnsafeBytes { raw in
-            coc_search_json_check(raw.bindMemory(to: UInt8.self).baseAddress, data.count, UInt64(budget / 3), 0)
-        }
-        guard valid != 0 else { return nil }
-        guard let ranges = try? memberRanges(data, selected: ["rawContent"]) else { return nil }
-        guard let span = ranges["rawContent"] else { return data }
-        let rawLog = data.withUnsafeBytes { raw in Data(raw.bindMemory(to: UInt8.self)[span]) }
         var count = 0
-        let pointer = rawLog.withUnsafeBytes { raw in
-            coc_search_json_searchable(raw.bindMemory(to: UInt8.self).baseAddress, rawLog.count, UInt64(budget / 3), &count)
+        let pointer = data.withUnsafeBytes { raw in
+            coc_search_json_body(raw.bindMemory(to: UInt8.self).baseAddress, data.count, UInt64(budget / 3), &count)
         }
         guard let pointer else { return nil }
         defer { free(pointer) }
-        guard count >= 0, count <= span.count else { return nil }
-        return data.withUnsafeBytes { raw in
-            let bytes = raw.bindMemory(to: UInt8.self)
-            var output = Data(bytes[..<span.lowerBound])
-            output.append(pointer, count: count)
-            output.append(contentsOf: bytes[span.upperBound...])
-            return output
-        }
+        guard count >= 0, count <= data.count else { return nil }
+        return Data(bytes: pointer, count: count)
     }
+
     private static func memberRanges(_ data: Data, selected: Set<String>) throws -> [String: Range<Int>] {
         try data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) throws -> [String: Range<Int>] in
             let bytes = raw.bindMemory(to: UInt8.self)

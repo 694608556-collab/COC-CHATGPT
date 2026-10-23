@@ -276,6 +276,7 @@ async function timed(operation: string, task: () => Promise<void>) {
     redundantCancel = 0
   const importing = operation.includes('import-')
   const searching = operation.startsWith('module-search-')
+  if (searching) searchWorkerTiming = undefined
   let responseMs: number | undefined,
     responseQueued = false
   const observer = new MutationObserver((mutations) => {
@@ -845,6 +846,11 @@ void (async () => {
           'Search count must preserve complete messages'
         )
       })
+      if (Capacitor.getPlatform() === 'ios') {
+        const sample = results[results.length - 1]!
+        check(sample.totalMs <= 600 && Number.isFinite(sample.responseMs) && sample.responseMs! <= 100,
+          'Every complete iOS search requires 600ms total and 100ms visible response: ' + JSON.stringify(sample))
+      }
       document.querySelector<HTMLButtonElement>('button[aria-label="清空模组正文搜索"]')!.click()
       await new Promise((resolve) => setTimeout(resolve, 0))
     }

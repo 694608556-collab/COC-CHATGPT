@@ -38,6 +38,9 @@ if(!['arm64-v8a','armeabi-v7a'].every(abi=>available.includes(abi)))throw Error(
 const remote='/data/local/tmp/coc-search-json-'+id
 run(adb,['shell','mkdir',remote])
 run(adb,['push',corpusFile,remote+'/public-corpus.jsonl'])
+const bodyExpected=deserialize(fs.readFileSync(path.join(directory,'body-corpus.expected.bin')))
+assert.equal(bodyExpected.length,423)
+run(adb,['push',path.join(directory,'body-corpus.jsonl'),remote+'/body-corpus.jsonl'])
 const builds=[]
 for(const abi of ['arm64-v8a','armeabi-v7a']){
  const build=path.join(directory,abi)
@@ -53,7 +56,12 @@ for(const abi of ['arm64-v8a','armeabi-v7a']){
  const rows=differential.trimEnd().split(/\r?\n/).map(line=>JSON.parse(line))
  assert.equal(rows.length,expected.length,'Every public differential case must execute')
  for(let index=0;index<expected.length;index++)assert.deepEqual(rows[index],expected[index].expected,abi+' '+expected[index].name)
- builds.push({abi,sha256:hash(binary),...result,publicDifferentialCases:rows.length})
+ const bodyRaw=run(adb,['shell',target,'--body-corpus',remote+'/body-corpus.jsonl'])
+ fs.writeFileSync(path.join(directory,abi+'-body-differential.jsonl'),bodyRaw)
+ const bodies=bodyRaw.trimEnd().split(/\r?\n/).map(line=>JSON.parse(line))
+ assert.equal(bodies.length,bodyExpected.length)
+ for(let index=0;index<bodies.length;index++)assert.deepEqual(bodies[index],bodyExpected[index].expected,abi+' '+bodyExpected[index].name)
+ builds.push({abi,sha256:hash(binary),...result,publicDifferentialCases:rows.length,publicBodyDifferentialCases:bodies.length})
 }
 const sources=['native/table-kernel/search-json.cpp','native/table-kernel/search-json.h','tests/search-json-cli.cpp','tests/search-kernel-corpus.ts','scripts/check-search-json-android.mjs'].map(file=>({path:file,sha256:hash(path.join(root,file))}))
 const summary={passed:true,builds,sources,publicCorpusSha256:hash(corpusFile),remote}

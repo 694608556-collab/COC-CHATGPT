@@ -27,6 +27,11 @@ const expected = deserialize(fs.readFileSync(directory + '/public-corpus.expecte
 const rows = run(binary, ['--corpus', directory + '/public-corpus.jsonl']).trimEnd().split(/\r?\n/).map(row => JSON.parse(row))
 assert.equal(rows.length, expected.length)
 for (let index = 0; index < rows.length; index++) assert.deepEqual(rows[index], expected[index].expected, expected[index].name)
-const summary = { ...proof, publicDifferentialCases: rows.length, physicalPhone: false }
+const bodyExpected = deserialize(fs.readFileSync(directory + '/body-corpus.expected.bin'))
+assert.equal(bodyExpected.length, 423)
+const bodies = run(binary, ['--body-corpus', directory + '/body-corpus.jsonl']).trimEnd().split(/\r?\n/).map(row => JSON.parse(row))
+assert.equal(bodies.length, bodyExpected.length)
+for (let index = 0; index < bodies.length; index++) assert.deepEqual(bodies[index], bodyExpected[index].expected, bodyExpected[index].name)
+const summary = { ...proof, publicDifferentialCases: rows.length, publicBodyDifferentialCases: bodies.length, physicalPhone: false }
 fs.writeFileSync(directory + '/summary.json', JSON.stringify(summary, null, 2))
 console.log(JSON.stringify(summary))

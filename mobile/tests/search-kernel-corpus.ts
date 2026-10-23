@@ -93,3 +93,31 @@ fs.writeFileSync(path.join(directory, 'public-corpus.jsonl'), corpus.map(item =>
 // to Infinity; JSON.stringify would incorrectly replace those with null.
 fs.writeFileSync(path.join(directory, 'public-corpus.expected.bin'), serialize(corpus.map(({ name, expected }) => ({ name, expected }))))
 console.log(JSON.stringify({ publicDifferentialCases: corpus.length }))
+
+// Exercise the exact full native body boundary too. The independent original
+// schema still supplies every tuple; unrelated nested rawContent is retained.
+const bodyPrefix = '{"unknown":{"rawContent":[1,2,{"END":"完整"}]},"manualContent":"完整\\uD800raw END","rawContent":'
+const bodies = corpus.map(({ name, input, expected }) => ({
+  name: 'body-' + name,
+  input: bodyPrefix + input + '}',
+  expected: expected === null ? null : {
+    unknown: { rawContent: [1, 2, { END: '完整' }] },
+    manualContent: '完整\uD800raw END', rawContent: expected
+  }
+}))
+const outerCases: Array<[string, unknown]> = [
+  ['{}', {}],
+  ['{"manualContent":"full END"}', { manualContent: 'full END' }],
+  ['{"unknown":{"rawContent":{}}}', { unknown: { rawContent: {} } }],
+  ['null', null], ['[]', null], ['1', null],
+  ['{"rawContent":null}', null], ['{"rawContent":[]}', null],
+  ['{"rawContent":{"parserVersion":1,"messages":[]},"r\\u0061wContent":{}}', null],
+  ['{"rawContent":{"parserVersion":1,"messages":[]},"tail":{"a":1,"\\u0061":2}}', null],
+  ['{"rawContent":{"parserVersion":1,"messages":[{}]}}', null],
+  ['{"manualContent":"END",}', null], ['{} false', null],
+  ['{"rawContent":{"parserVersion":1,"messages":[],"unknown":{"x":1,"x":2}}}', null]
+]
+for (const [index, [input, expected]] of outerCases.entries())
+  bodies.push({ name: 'outer-body-' + index, input, expected: expected as any })
+fs.writeFileSync(path.join(directory, 'body-corpus.jsonl'), bodies.map(item => item.input).join('\n') + '\n')
+fs.writeFileSync(path.join(directory, 'body-corpus.expected.bin'), serialize(bodies.map(({ name, expected }) => ({ name, expected }))))

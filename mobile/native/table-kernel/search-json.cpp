@@ -12,7 +12,7 @@
 
 namespace {
 struct Unavailable {};
-enum class Context { other, raw_content, messages, message, images, image };
+enum class Context { record_body, other, raw_content, messages, message, images, image };
 constexpr uint64_t ascii_hash(const char *text) {
   uint64_t hash=1469598103934665603ULL;
   while(*text){hash^=static_cast<unsigned char>(*text++);hash*=1099511628211ULL;}
@@ -47,6 +47,7 @@ class Parser {
   const bool metadata, projection;
   const bool compact;
   const bool semantic;
+  const bool body_projection;
   std::vector<uint8_t> output;
   struct Key {size_t start, bytes; bool escaped; uint64_t hash;};
   static bool space(unsigned c) { return c == 32 || c == 9 || c == 10 || c == 13; }
@@ -295,6 +296,7 @@ class Parser {
       const size_t begin = p;
       const int field=compact&&context==Context::message?message_field(key):-1;
       Context next = Context::other;
+      if(context==Context::record_body&&named(key,"rawContent"))next=Context::raw_content;
       if (context == Context::raw_content && named(key,"messages")) next = Context::messages;
       if(semantic&&field==9)next=Context::images;
       if (projection && !compact && context == Context::message && named(key,"raw")) {
@@ -330,7 +332,7 @@ class Parser {
   void value(Context context, unsigned depth) {
     skip(); if (p == n || depth > 256 || (s[p] == '{' && depth + 1 > 256)) throw Unavailable{};
     if(compact&&context==Context::message&&s[p]!='{')throw Unavailable{};
-    if(semantic&&((context==Context::raw_content||context==Context::image)&&s[p]!='{'))throw Unavailable{};
+    if(semantic&&((context==Context::record_body||context==Context::raw_content||context==Context::image)&&s[p]!='{'))throw Unavailable{};
     if(semantic&&(context==Context::messages||context==Context::images)&&s[p]!='[')throw Unavailable{};
     switch (s[p]) {
       case '{': object(context, depth); break;
@@ -343,14 +345,14 @@ class Parser {
     }
   }
 public:
-  Parser(const uint8_t *source, size_t bytes, uint64_t available, bool is_metadata, bool project,bool is_compact=false,bool is_semantic=false)
-      : s(source), n(bytes), budget(size_t(available > std::numeric_limits<size_t>::max() ? std::numeric_limits<size_t>::max() : available)), metadata(is_metadata), projection(project),compact(is_compact),semantic(is_semantic) {
+  Parser(const uint8_t *source, size_t bytes, uint64_t available, bool is_metadata, bool project,bool is_compact=false,bool is_semantic=false,bool is_body=false)
+      : s(source), n(bytes), budget(size_t(available > std::numeric_limits<size_t>::max() ? std::numeric_limits<size_t>::max() : available)), metadata(is_metadata), projection(project),compact(is_compact),semantic(is_semantic),body_projection(is_body) {
     if (!s || !n || n > budget / 3) throw Unavailable{};
   }
   std::vector<uint8_t> run() {
     utf8(s, n); skip();
     if (metadata && (p == n || s[p] != '{')) throw Unavailable{};
-    value(projection ? Context::raw_content : Context::other, 0);
+    value(body_projection ? Context::record_body : projection ? Context::raw_content : Context::other, 0);
     skip(); if (p != n) throw Unavailable{};
     if (projection) append(s + copied, n - copied);
     return std::move(output);
@@ -379,4 +381,9 @@ extern "C" uint8_t *coc_search_json_compact(const uint8_t *source,size_t bytes,u
 extern "C" uint8_t *coc_search_json_searchable(const uint8_t *source,size_t bytes,uint64_t available,size_t *length){
   if(!length)return nullptr;*length=0;
   try{auto value=Parser(source,bytes,available,false,true,true,true).run();auto result=static_cast<uint8_t*>(std::malloc(value.size()));if(!result)return nullptr;std::memcpy(result,value.data(),value.size());*length=value.size();return result;}catch(...){return nullptr;}
+}
+
+extern "C" uint8_t *coc_search_json_body(const uint8_t *source,size_t bytes,uint64_t available,size_t *length){
+  if(!length)return nullptr;*length=0;
+  try{auto value=Parser(source,bytes,available,false,true,true,true,true).run();auto result=static_cast<uint8_t*>(std::malloc(value.size()));if(!result)return nullptr;std::memcpy(result,value.data(),value.size());*length=value.size();return result;}catch(...){return nullptr;}
 }

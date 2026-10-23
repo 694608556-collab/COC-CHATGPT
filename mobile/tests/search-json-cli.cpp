@@ -13,6 +13,14 @@ static bool searchable(const std::string &text,std::string *output=nullptr,uint6
 int main(int argc,char **argv){
   // Public JSONL only: the host compares every result with the real backup
   // schema and independently constructs the seven searchable tuple fields.
+  if(argc==3&&std::string(argv[1])=="--body-corpus"){
+    std::ifstream input(argv[2]);if(!input)return 3;
+    std::string line;while(std::getline(input,line)){
+      size_t count=0;auto projected=coc_search_json_body(reinterpret_cast<const uint8_t*>(line.data()),line.size(),64*1024*1024,&count);
+      if(projected){std::fwrite(projected,1,count,stdout);std::free(projected);std::puts("");}else std::puts("null");
+    }
+    return input.bad()?4:0;
+  }
   if(argc==3&&std::string(argv[1])=="--corpus"){
     std::ifstream input(argv[2]);if(!input)return 3;
     std::string line,result;while(std::getline(input,line)){
