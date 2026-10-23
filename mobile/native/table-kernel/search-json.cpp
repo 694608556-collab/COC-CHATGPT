@@ -119,6 +119,55 @@ class Parser {
     return decoded(a)==decoded(b);
   }
   uint64_t key_hash(const Key &key){
+    // Ordinary schema keys recur in every message. Exact original ASCII
+    // equality reuses the same hash; escaped/unknown/colliding keys still use
+    // the complete original decoder and duplicate-key equality below.
+    if(!key.escaped){
+      switch(key.bytes){
+        case 4:
+          if(!std::memcmp(s+key.start+1,"id",2))return ascii_hash("id");
+          break;
+        case 5:
+          if(!std::memcmp(s+key.start+1,"raw",3))return ascii_hash("raw");
+          if(!std::memcmp(s+key.start+1,"url",3))return ascii_hash("url");
+          if(!std::memcmp(s+key.start+1,"alt",3))return ascii_hash("alt");
+          break;
+        case 6:
+          if(!std::memcmp(s+key.start+1,"text",4))return ascii_hash("text");
+          if(!std::memcmp(s+key.start+1,"type",4))return ascii_hash("type");
+          break;
+        case 7:
+          if(!std::memcmp(s+key.start+1,"order",5))return ascii_hash("order");
+          if(!std::memcmp(s+key.start+1,"title",5))return ascii_hash("title");
+          break;
+        case 8:
+          if(!std::memcmp(s+key.start+1,"images",6))return ascii_hash("images");
+          break;
+        case 10:
+          if(!std::memcmp(s+key.start+1,"messages",8))return ascii_hash("messages");
+          break;
+        case 11:
+          if(!std::memcmp(s+key.start+1,"timestamp",9))return ascii_hash("timestamp");
+          if(!std::memcmp(s+key.start+1,"sourceUrl",9))return ascii_hash("sourceUrl");
+          break;
+        case 12:
+          if(!std::memcmp(s+key.start+1,"isOffTopic",10))return ascii_hash("isOffTopic");
+          break;
+        case 13:
+          if(!std::memcmp(s+key.start+1,"displayName",11))return ascii_hash("displayName");
+          break;
+        case 14:
+          if(!std::memcmp(s+key.start+1,"responseHash",12))return ascii_hash("responseHash");
+          break;
+        case 15:
+          if(!std::memcmp(s+key.start+1,"isDiceCommand",13))return ascii_hash("isDiceCommand");
+          if(!std::memcmp(s+key.start+1,"parserVersion",13))return ascii_hash("parserVersion");
+          break;
+        case 17:
+          if(!std::memcmp(s+key.start+1,"platformAccount",15))return ascii_hash("platformAccount");
+          break;
+      }
+    }
     uint64_t hash=1469598103934665603ULL;bool simple=!key.escaped;
     if(simple)for(size_t i=1;i+1<key.bytes;++i){
       const unsigned byte=s[key.start+i];if(byte>=128){simple=false;break;}
