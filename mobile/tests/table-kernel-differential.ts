@@ -8,8 +8,9 @@ import { readTableGridStream } from '../src/data/table-grid-stream'
 import { projectKernelCoc7Sheet, previewKernelCoc7 } from '../src/data/table-kernel-preview'
 import { previewCoc7Import } from '../src/data/coc7-import'
 import { characterDraftProofText } from './character-draft-proof'
+import { checkRecordKernel } from './table-record-kernel-differential'
 
-const directory = process.argv[2]!, probe = process.argv[3]
+const directory = process.argv[2]!, probe = process.argv[3], savedResponses = process.argv[4]
 fs.mkdirSync(directory, { recursive: true })
 const manifest = []
 for (const item of nativeTableKernelCorpus()) {
@@ -33,10 +34,15 @@ for (const item of nativeTableKernelCorpus()) {
     })
   } catch { full = false }
   assert.equal(full, item.full, item.name + ': complete reader acceptance')
-  if (probe) {
-    const process = spawnSync(probe, [file], { encoding: 'utf8' })
-    assert.equal(process.status, 0, item.name + ': actual production kernel executable')
-    const native = JSON.parse(process.stdout)
+  if (probe || savedResponses) {
+    let response: string
+    if (savedResponses) response = fs.readFileSync(path.resolve(savedResponses, item.name + '.json'), 'utf8')
+    else {
+      const process = spawnSync(probe!, [file], { encoding: 'utf8' })
+      assert.equal(process.status, 0, item.name + ': actual production kernel executable')
+      response = process.stdout
+    }
+    const native = JSON.parse(response)
     assert.equal(native.supported, item.native, item.name + ': native capability/fallback')
     if (native.supported) {
       assert(full, item.name + ': native must never accept invalid complete input')
@@ -49,4 +55,5 @@ for (const item of nativeTableKernelCorpus()) {
 }
 fs.writeFileSync(path.join(directory, 'manifest.json'), JSON.stringify(manifest, null, 2))
 console.log(JSON.stringify({ cases: manifest.length, valid: manifest.filter(item => item.full).length,
-  invalid: manifest.filter(item => !item.full).length, nativeDifferential: !!probe, passed: true }))
+  invalid: manifest.filter(item => !item.full).length, nativeDifferential: !!(probe || savedResponses), passed: true }))
+await checkRecordKernel(directory, probe, savedResponses)

@@ -9,6 +9,8 @@ export interface NativeTableSource extends NativeBackupFile {
   maximumStageBytes: number
   /** Native-validated immutable source snapshot; never business write authority. */
   coc7Kernel?: { source: StreamProof; payload: unknown }
+  /** Complete records projection, parsed once in the background worker. */
+  recordsKernel?: { source: StreamProof; payloadJson: string }
 }
 export interface NativeTablePreview {
   id: string

@@ -9,6 +9,7 @@ const entry = resolve(root, 'differential.mjs')
 await build({ entryPoints: ['tests/table-kernel-differential.ts'], outfile: entry,
   bundle: true, platform: 'node', format: 'esm', target: 'node24',
   banner: { js: "import {createRequire as kernelCreateRequire} from 'node:module'; const require=kernelCreateRequire(import.meta.url);" } })
-const probe = process.argv[2] ? resolve(process.argv[2]) : undefined
-const result = spawnSync(process.execPath, [entry, root, ...(probe ? [probe] : [])], { stdio: 'inherit' })
+const saved = process.argv[2] === '--saved-results' ? resolve(process.argv[3]) : undefined
+const probe = !saved && process.argv[2] ? resolve(process.argv[2]) : undefined
+const result = spawnSync(process.execPath, [entry, root, ...(saved ? ['', saved] : probe ? [probe] : [])], { stdio: 'inherit' })
 if (result.status !== 0) process.exit(result.status ?? 1)

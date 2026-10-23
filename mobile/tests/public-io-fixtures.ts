@@ -5,11 +5,18 @@ import { searchSample } from '../src/dev/sample'
 import { previewBackup } from '../src/data/backup'
 import { publicCoc7Workbook } from '../test-fixtures/coc7'
 import { nativeTableKernelCorpus } from './native-table-kernel-corpus'
+import { nativeRecordKernelCorpus } from './native-record-kernel-corpus'
 
 const output = process.argv[2]!
 const nativeKernelCorpus = nativeTableKernelCorpus()
 for (const item of nativeKernelCorpus) writeFileSync(join(output, 'public-io-kernel-' + item.name + '.xlsx'), item.bytes)
 writeFileSync(join(output, 'public-io-kernel-manifest.json'), JSON.stringify(nativeKernelCorpus.map(({ name, native, full }) => ({ name, native, full }))))
+const recordKernelCorpus = nativeRecordKernelCorpus()
+for (const item of recordKernelCorpus) {
+  writeFileSync(join(output, 'public-io-record-kernel-' + item.name + '.xlsx'), item.bytes)
+  if (item.completeManual !== undefined) writeFileSync(join(output, 'public-io-record-kernel-' + item.name + '.txt'), item.completeManual)
+}
+writeFileSync(join(output, 'public-io-record-kernel-manifest.json'), JSON.stringify(recordKernelCorpus.map(({ name, bytes, native, full, candidates }) => ({ name, bytes: bytes.length, native, full, candidates }))))
 const snapshot = (await previewBackup(new TextEncoder().encode(JSON.stringify(searchSample())))).snapshot
 const template = snapshot.records[0]!
 snapshot.modules = [{ ...snapshot.modules[0]!, name: '公开计时模组' }]

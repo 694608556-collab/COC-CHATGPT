@@ -127,6 +127,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         do {
             var source = try archive.withPicked(url) { try owner.capture($0, name: url.lastPathComponent) }
             if coc7, let kernel = try owner.inspectCoc7Kernel() { source["coc7Kernel"] = kernel }
+            if let kernel = try owner.inspectRecordsKernel() { source["recordsKernel"] = kernel }
             try checkTable(owner, store, archive)
             return ["cancelled": false, "tableSource": source]
         } catch {

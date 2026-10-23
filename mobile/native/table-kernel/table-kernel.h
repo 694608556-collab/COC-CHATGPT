@@ -9,6 +9,10 @@ extern "C" {
  * Unsupported formats or resident-cache overflow request complete fallback. */
 char *coc_table_kernel_preview(const uint8_t *source, size_t bytes,
                                uint64_t available);
+/* Complete read-only record workbook projection. Same immutable source and
+ * fallback contract; all worksheet rows/cells and merged ranges are retained. */
+char *coc_table_kernel_records(const uint8_t *source, size_t bytes,
+                               uint64_t available);
 /* Code/allocator initialization with literal public numeric XML only. No
  * user input, file capability, retained source, or business data is touched. */
 void coc_table_kernel_warm(void);

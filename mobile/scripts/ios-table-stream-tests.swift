@@ -43,6 +43,137 @@ extension IOSNativeChecks {
         }
     }
 
+    static func tableRecordKernelChecks(root: URL, fixture: LogbookJSON) throws {
+        let directory = root.appendingPathComponent("native-record-kernel-public")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let corpus = URL(fileURLWithPath: "ios/build/table-kernel-corpus", isDirectory: true)
+        let manifest = try JSONSerialization.jsonObject(with: Data(contentsOf: corpus.appendingPathComponent("record-manifest.json"))) as! [LogbookJSON]
+        try require(manifest.count >= 38 && manifest.contains { $0["native"] as? Bool == true } && manifest.contains { $0["full"] as? Bool == false }, "record kernel retains all 38 positive and invalid complete-input cases")
+        let picked = directory.appendingPathComponent("public-picked.xlsx")
+        for item in manifest {
+            let name = item["name"] as! String
+            let bytes = try Data(contentsOf: corpus.appendingPathComponent("record-" + name + ".xlsx"))
+            let owner = try LogbookTableSession(directory: directory, expected: 7, bookmark: Data(), kind: "record-table", available: { 1024 * 1024 * 1024 }, deferStorage: true)
+            try bytes.write(to: picked)
+            let input = try FileHandle(forReadingFrom: picked)
+            let captured = try owner.capture(input, name: "public.xlsx"); try input.close()
+            try require(captured["bytes"] as? Int == bytes.count && captured["sha256"] as? String == LogbookArchive.digest(bytes), "record source proves full EOF/SHA: " + name)
+            try require(try Data(contentsOf: owner.sourceURL) == bytes && FileManager.default.fileExists(atPath: owner.directory.appendingPathComponent("index.sqlite").path), "record acceleration always retains complete durable source and index")
+            try Data("outside picked file replaced".utf8).write(to: picked)
+            let kernel = try owner.inspectRecordsKernel()
+            var supported = false
+            if let kernel {
+                let proof = kernel["source"] as! LogbookJSON, text = kernel["payloadJson"] as! String
+                let payload = try JSONSerialization.jsonObject(with: Data(text.utf8)) as! LogbookJSON
+                supported = payload["supported"] as? Bool == true
+                try require(proof["bytes"] as? Int == bytes.count && proof["sha256"] as? String == captured["sha256"] as? String, "record projection is bound to original complete captured source")
+                if supported { try require(payload["version"] as? Int == 1 && payload["projection"] as? String == "records" && payload["compact"] as? Bool == true, "record projection protocol preserves complete compact cells") }
+            }
+            try require(supported == (item["native"] as! Bool), "record native/full-fallback decision: " + name)
+            // Both supported and unsupported inputs keep their original writable
+            // private stage. The character-only RAM owner is never substituted.
+            let string = "完整私有字符串😀\r\n\u{0000}末尾"
+            try owner.append(key: "strings", chunkIndex: 0, bytes: logbookData([0, string]) + Data([10]))
+            try require(Data(base64Encoded: try owner.readString(0, offset: 0)["base64"] as! String) == Data(string.utf8), "record kernel/fallback retains complete writable string stage")
+            try owner.append(key: "candidate", chunkIndex: 0, bytes: Data("T{}\n".utf8))
+            try owner.close()
+            try require(!FileManager.default.fileExists(atPath: owner.directory.path), "record projection cleanup removes only owned private files")
+        }
+
+        // The bridge wrapper validates every UTF-8 byte but deliberately leaves
+        // structural JSON parsing to the Worker. Exercise actual malloc ownership.
+        func ownedCString(_ bytes: [UInt8]) -> UnsafeMutablePointer<CChar> {
+            let pointer = malloc(bytes.count + 1)!.assumingMemoryBound(to: UInt8.self)
+            for (index, value) in bytes.enumerated() { pointer[index] = value }
+            pointer[bytes.count] = 0
+            return UnsafeMutableRawPointer(pointer).assumingMemoryBound(to: CChar.self)
+        }
+        let opaque = "{\"version\":1,\"supported\":false,\"text\":\"完整😀\\u0000\\r\\n尾\"}"
+        try require(try LogbookTableKernel.takeRecordsPayload(ownedCString(Array(opaque.utf8))) == opaque, "record bridge preserves whole UTF-8 JSON string without reserialization")
+        try require(try LogbookTableKernel.takeRecordsPayload(nil) == nil, "record kernel allocation failure retains complete fallback")
+        let invalidEncodings: [[UInt8]] = [[0xc0, 0xaf], [0xed, 0xa0, 0x80], [0xe2, 0x82]]
+        for invalid in invalidEncodings {
+            try rejects("invalid UTF-8 anywhere in record kernel output is rejected") { _ = try LogbookTableKernel.takeRecordsPayload(ownedCString(Array("{\"text\":\"".utf8) + invalid + Array("\"}".utf8))) }
+        }
+
+        let fullBytes = try Data(contentsOf: corpus.appendingPathComponent("record-complete-118-rows-334k-inline.xlsx"))
+        let manual = try String(contentsOf: corpus.appendingPathComponent("record-complete-manual.txt"), encoding: .utf8)
+        let expectedManual = String(repeating: "  公开完整正文😀\r\n\u{0000}", count: 13000) + "末行不可截断\r\n "
+        try require(manual == expectedManual && Data(manual.utf8).count == 351021, "independent record corpus keeps every large Unicode/NUL/CRLF body byte")
+        let constrained = try LogbookTableKernel.inspectRecords(fullBytes, available: 0)
+        let constrainedValue = try constrained.map { try JSONSerialization.jsonObject(with: Data($0.utf8)) as! LogbookJSON }
+        try require(constrainedValue == nil || constrainedValue?["supported"] as? Bool == false, "kernel resource shortage requests full fallback rather than partial records")
+        let store = try LogbookStore(url: directory.appendingPathComponent("state.sqlite"), available: { 1024 * 1024 * 1024 })
+        _ = try store.replace(fixture, expected: 0)
+        let original = try logbookData(store.fullSnapshot()!), originalBodies = try store.rows("SELECT id,body FROM records ORDER BY position")
+        let row: LogbookJSON = ["sheet": "公开场次", "moduleName": "Kernel完整公开模组", "sessionName": "Kernel完整正文", "link": "", "manualContent": manual, "kps": [String](), "pairs": [LogbookJSON]()]
+        let candidate = Data([84]) + (try logbookData(["sheetOrder": 0, "rowOrder": 0, "value": row])) + Data([10])
+        let proof = LogbookBackupProof(bytes: candidate.count, sha256: LogbookArchive.digest(candidate))
+        func open(_ replacementBytes: Data? = nil, name: String = "public.xlsx") throws -> LogbookTableSession {
+            try (replacementBytes ?? fullBytes).write(to: picked)
+            let owner = try LogbookTableSession(directory: directory, expected: store.revision(), bookmark: Data("public".utf8), kind: "record-table", available: { 1024 * 1024 * 1024 })
+            let input = try FileHandle(forReadingFrom: picked); defer { try? input.close() }
+            _ = try owner.capture(input, name: name); return owner
+        }
+        func stage(_ owner: LogbookTableSession, _ expected: LogbookBackupProof? = nil) throws {
+            for (part, start) in stride(from: 0, to: candidate.count, by: LogbookLimits.transferChunkBytes).enumerated() {
+                try owner.append(key: "candidate", chunkIndex: part, bytes: candidate.subdata(in: start..<min(candidate.count, start + LogbookLimits.transferChunkBytes)))
+            }
+            _ = try owner.preview(expected ?? proof, store: store)
+        }
+        var changed = fullBytes; changed[changed.startIndex] ^= 1
+        for replacement in [changed, Data(fullBytes.dropLast()), fullBytes + Data([0])] {
+            let owner = try open(); try Data(replacement).write(to: owner.sourceURL)
+            try rejects("changed source cannot produce a record kernel proof") { _ = try owner.inspectRecordsKernel() }
+            try rejects("changed source remains noncommittable after kernel rejection") { try stage(owner) }
+            try owner.close()
+        }
+        let afterProjection = try open(); _ = try afterProjection.inspectRecordsKernel()
+        try changed.write(to: afterProjection.sourceURL)
+        try rejects("source changed after projection cannot reach preview") { try stage(afterProjection) }; try afterProjection.close()
+        let afterPreview = try open(); _ = try afterPreview.inspectRecordsKernel(); try stage(afterPreview)
+        try changed.write(to: afterPreview.sourceURL)
+        try rejects("source changed after record preview cannot commit") { try afterPreview.prepareCommit(store: store) }; try afterPreview.close()
+        let badProof = try open(); _ = try badProof.inspectRecordsKernel()
+        try rejects("record kernel does not authorize a bad candidate SHA") { try stage(badProof, LogbookBackupProof(bytes: candidate.count, sha256: String(repeating: "0", count: 64))) }; try badProof.close()
+        try require(try store.revision() == 1 && logbookData(store.fullSnapshot()!) == original, "all record kernel corruption failures preserve full original store")
+
+        let largeBytes = try Data(contentsOf: corpus.appendingPathComponent("source-cache-overflow-is-full-fallback.xlsx"))
+        try require(largeBytes.count > 2 * 1024 * 1024, "public valid source crosses optional resident budget")
+        let fallback = try open(largeBytes)
+        try require(try fallback.inspectRecordsKernel() == nil && Data(contentsOf: fallback.sourceURL) == largeBytes, "resident source budget retains complete oversized source for full fallback")
+        try fallback.append(key: "candidate", chunkIndex: 0, bytes: Data("T{}\n".utf8)); try fallback.close()
+        let csv = try open(Data("公开完整CSV\n".utf8), name: "public.csv")
+        try require(try csv.inspectRecordsKernel() == nil, "non-XLSX record formats preserve original complete parser"); try csv.close()
+
+        let stale = try open(); _ = try stale.inspectRecordsKernel(); try stage(stale)
+        _ = try store.mutate(expected: 1) { $0["exportedAt"] = "2099-01-01T00:00:00Z" }
+        try rejects("record kernel projection never bypasses CAS") { try stale.prepareCommit(store: store) }; try stale.close()
+        let beforeCommit = try logbookData(store.fullSnapshot()!)
+        let revoked = try open(); _ = try revoked.inspectRecordsKernel(); try stage(revoked); try revoked.prepareCommit(store: store)
+        var authorizations = 0
+        try rejects("record kernel final authorization failure rolls back complete body") {
+            _ = try store.importTableStream(revoked) { authorizations += 1; if authorizations == 2 { throw LogbookFailure("public revoked permission") } }
+        }
+        try revoked.close()
+        try require(try store.revision() == 2 && logbookData(store.fullSnapshot()!) == beforeCommit, "record kernel revoked authorization preserves revision and all bodies")
+        let rollback = try open(); _ = try rollback.inspectRecordsKernel(); try stage(rollback); try rollback.prepareCommit(store: store)
+        try store.execute("CREATE TRIGGER record_kernel_fail BEFORE UPDATE ON state BEGIN SELECT RAISE(ABORT,'public rollback'); END")
+        try rejects("record kernel SQL failure rolls back") { _ = try store.importTableStream(rollback) }
+        try store.execute("DROP TRIGGER record_kernel_fail"); try rollback.close()
+        try require(try store.revision() == 2 && logbookData(store.fullSnapshot()!) == beforeCommit, "record kernel SQL rollback preserves every original field")
+        let success = try open(); _ = try success.inspectRecordsKernel(); try stage(success); try success.prepareCommit(store: store)
+        try require(!FileManager.default.fileExists(atPath: success.directory.path), "kernel-backed commit removes private stages before publication")
+        _ = try store.importTableStream(success); try success.close()
+        let saved = try store.rows("SELECT id FROM records WHERE json_extract(metadata,'$.name')='Kernel完整正文'")
+        try require(try saved.count == 1 && logbookObject(store.bodyText(saved[0][0]!))["manualContent"] as? String == manual, "record kernel writable owner commits the entire independent 334KiB body")
+        try require(Array(try store.rows("SELECT id,body FROM records ORDER BY position").prefix(originalBodies.count)) == originalBodies, "record kernel commit preserves all previous raw bodies byte for byte")
+        let reopened = try LogbookStore(url: directory.appendingPathComponent("state.sqlite"), available: { 1024 * 1024 * 1024 })
+        try require(try reopened.revision() == 3 && logbookObject(reopened.bodyText(saved[0][0]!))["manualContent"] as? String == manual, "complete kernel-backed body and revision survive restart")
+        print("PUBLIC_IOS_RECORD_KERNEL cases=\(manifest.count) fullSource=true strictUTF8=true full334KiBBody=true sourceCandidateSHA=true CAS=true authorizationRollback=true SQLRollback=true phone=false")
+    }
+
     static func chunkStorageChecks(root: URL, fixture: LogbookJSON) throws {
         let MiB = 1024 * 1024, directory = root.appendingPathComponent("single-large-public")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -210,6 +341,7 @@ extension IOSNativeChecks {
     }
 
     static func tableStreamChecks(root: URL, fixture: LogbookJSON) throws {
+        try tableRecordKernelChecks(root: root, fixture: fixture)
         try tablePreviewBatchChecks(root: root, fixture: fixture)
         let MiB = 1024 * 1024, free = { 8 * 1024 * 1024 * 1024 }
         let base = root.appendingPathComponent("table-tests"), source = root.appendingPathComponent("table-public.csv")

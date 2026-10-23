@@ -14,6 +14,8 @@ import type { Coc7ImportPreview } from './coc7-import'
 import type { WorkSheet, CellObject } from 'xlsx'
 import { createVerifiedTableReplay } from './verified-table-source'
 import type { Coc7WorksheetRequest, WorksheetCell } from './table-dom-worksheet'
+import { readKernelRecordsGrid } from './table-kernel-records'
+import type { RecordsKernelSource } from './table-kernel-records'
 
 export interface TableStreamJob {
   source: LocalStreamSource
@@ -22,6 +24,7 @@ export interface TableStreamJob {
   kind: 'records' | 'characters' | 'coc7'
   maximumStageBytes: number
   measure?: boolean
+  recordsKernel?: RecordsKernelSource
 }
 /** Writes only a native-owned private candidate. No production write capability. */
 export async function performTableStreamJob(
@@ -170,7 +173,12 @@ export async function performTableStreamJob(
     }
     cachedSource = cache
   }
-  if (job.format === 'xls') {
+  const kernelRead = job.kind === 'records' && job.format === 'xlsx' && job.recordsKernel
+    ? await readKernelRecordsGrid(job.recordsKernel, job.source, { onSheetStart: start, onRow: row, onSheetEnd: end }, signal)
+    : false
+  if (kernelRead) {
+    if (job.measure) timing.recordsKernel = performance.now() - jobStart
+  } else if (job.format === 'xls') {
     // Legacy BIFF/content-detected formats keep the existing parser compatibility.
     // No product file-size cap; allocation is limited by the actual JS/OS memory.
     let bytes: Uint8Array

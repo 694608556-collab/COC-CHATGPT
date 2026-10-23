@@ -173,6 +173,7 @@ export async function previewNativeTable(
         name: source.name,
         format: source.format,
         kind,
+        recordsKernel: kind === 'records' && source.format === 'xlsx' ? source.recordsKernel : undefined,
         maximumStageBytes: source.maximumStageBytes
       },
       device,

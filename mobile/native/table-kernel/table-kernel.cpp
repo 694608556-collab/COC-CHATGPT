@@ -81,7 +81,7 @@ static void merge(const std::string &range) {
       address(last);
   }
 }
-static std::string quoted(const std::string &text) {
+static std::string jsonQuoted(const std::string &text) {
   std::string result = "\"";
   const char *digits = "0123456789abcdef";
   for (unsigned char c : text) {
@@ -424,6 +424,21 @@ struct Row {
   uint64_t index;
   std::vector<Token> cells;
 };
+// One resident optimization budget shared by every record worksheet task.
+// A miss discards the whole projection and invokes the complete old reader.
+struct ProjectionBudget {
+  std::atomic<size_t> bytes{0};
+  void claim(size_t count) {
+    constexpr size_t limit = 2 * 1024 * 1024;
+    check(count <= limit, "record projection resident budget");
+    auto previous = bytes.load(std::memory_order_relaxed);
+    for (;;) {
+      check(previous <= limit - count, "record projection resident budget");
+      if (bytes.compare_exchange_weak(previous, previous + count,
+                                      std::memory_order_relaxed)) break;
+    }
+  }
+};
 static bool decimal(const std::string &text) {
   size_t at = 0;
   auto space = [](char c) {
@@ -463,8 +478,9 @@ static bool decimal(const std::string &text) {
 }
 class Cells : public Xml {
   const std::vector<std::string> &strings;
-  bool selected, active = false, inValue = false, inText = false,
+  bool selected, completeRows, active = false, inValue = false, inText = false,
                  inFormula = false;
+  ProjectionBudget *budget;
   int phonetic = 0, column = -1;
   int64_t row = -1;
   uint64_t rowBytes = 0;
@@ -472,8 +488,14 @@ class Cells : public Xml {
   Row *output = nullptr;
   size_t detailBytes = 0;
   void start(const char *name, const char **attrs) override {
-    if (!std::strcmp(name, "mergeCell"))
-      merge(attr(attrs, "ref"));
+    if (!std::strcmp(name, "mergeCell")) {
+      auto range = attr(attrs, "ref");
+      merge(range);
+      if (completeRows) {
+        budget->claim(range.size() * 2 + 64);
+        mergedRanges.push_back(std::move(range));
+      }
+    }
     if (!std::strcmp(name, "row")) {
       auto number = attr(attrs, "r");
       if (present(attrs, "r")) {
@@ -487,7 +509,8 @@ class Cells : public Xml {
       column = -1;
       rowBytes = 0;
       output = nullptr;
-      if (selected && row < 95) {
+      if (selected && (completeRows || row < 95)) {
+        if (completeRows) budget->claim(sizeof(Row) + 64);
         rows.push_back({uint64_t(row), {}});
         output = &rows.back();
       }
@@ -552,7 +575,7 @@ class Cells : public Xml {
         auto index = integer(cell.raw);
         check(index < strings.size(), "invalid shared string reference");
         valueBytes = strings[index].size();
-        if (output)
+        if (output && !completeRows)
           usedStrings[index] = strings[index];
       } else if (cell.type == "inlineStr")
         valueBytes = cell.inlineText.size();
@@ -579,7 +602,11 @@ class Cells : public Xml {
       // Keep every value, error and formula, including missing formula caches.
       const bool numericBlank = (cell.type.empty() || cell.type == "n") &&
                                 cell.raw.empty() && !cell.hasFormula;
-      if (output && !numericBlank) {
+      if (output && (completeRows || !numericBlank)) {
+        if (completeRows)
+          budget->claim((cell.address.size() + cell.type.size() +
+                         cell.raw.size() + cell.inlineText.size() +
+                         cell.formula.size()) * 2 + sizeof(Token) + 64);
         detailBytes += cell.address.size() + cell.type.size() +
                        cell.raw.size() + cell.inlineText.size() +
                        cell.formula.size() + 96;
@@ -594,16 +621,29 @@ class Cells : public Xml {
 
 public:
   std::vector<Row> rows;
+  std::vector<std::string> mergedRanges;
   std::map<uint64_t, std::string> usedStrings;
   size_t count = 0;
-  Cells(const std::vector<std::string> &strings, bool selected)
-      : strings(strings), selected(selected) {}
+  Cells(const std::vector<std::string> &strings, bool selected,
+        bool completeRows = false, ProjectionBudget *budget = nullptr)
+      : strings(strings), selected(selected), completeRows(completeRows),
+        budget(budget) {}
 };
 class OtherSheet : public Xml {
+  ProjectionBudget *budget;
   void start(const char *name, const char **attrs) override {
-    if (!std::strcmp(name, "mergeCell"))
-      merge(attr(attrs, "ref"));
+    if (!std::strcmp(name, "mergeCell")) {
+      auto range = attr(attrs, "ref");
+      merge(range);
+      if (budget) {
+        budget->claim(range.size() * 2 + 64);
+        mergedRanges.push_back(std::move(range));
+      }
+    }
   }
+public:
+  std::vector<std::string> mergedRanges;
+  explicit OtherSheet(ProjectionBudget *budget = nullptr) : budget(budget) {}
 };
 static const Bytes &part(const std::map<std::string, Bytes> &parts,
                          const std::string &name) {
@@ -617,7 +657,8 @@ static std::string relPath(const std::string &path) {
                                     : path.substr(0, slash + 1) + "_rels/" +
                                           path.substr(slash + 1) + ".rels";
 }
-static std::string supportedPreview(const Bytes &source, size_t available) {
+static std::string supportedPreview(const Bytes &source, size_t available,
+                                    bool records = false) {
   check(source.size() <= 2 * 1024 * 1024, "source resident budget");
   auto parts = unpack(source, available);
   Relations root("");
@@ -641,11 +682,14 @@ static std::string supportedPreview(const Bytes &source, size_t available) {
   Strings strings;
   if (!sst.empty())
     strings.parse(part(parts, sst.front()));
+  ProjectionBudget budget;
+  if (records)
+    for (const auto &value : strings.values) budget.claim(value.size() * 2 + 64);
   std::set<std::string> names, targets;
   std::unique_ptr<Cells> selected;
   size_t allCells = 0;
   struct Work {
-    std::string target;
+    std::string target, name;
     bool cells, selected;
   };
   std::vector<Work> work;
@@ -661,8 +705,9 @@ static std::string supportedPreview(const Bytes &source, size_t available) {
     check(names.insert(sheet.name).second && targets.insert(rel.target).second,
           "duplicate worksheet");
     part(parts, rel.target);
-    work.push_back(
-        {rel.target, ends(rel.type, "/worksheet"), sheet.name == "人物卡"});
+    if (records) budget.claim(sheet.name.size() * 2 + 128);
+    work.push_back({rel.target, sheet.name, ends(rel.type, "/worksheet"),
+                    records || sheet.name == "人物卡"});
   }
   // Bound concurrency, not content. Every worksheet completes validation and
   // joins before any projected draft is returned, including auxiliary errors.
@@ -681,17 +726,21 @@ static std::string supportedPreview(const Bytes &source, size_t available) {
       try {
         const auto &item = work[index];
         if (item.cells) {
-          auto cells = std::make_unique<Cells>(strings.values, item.selected);
+          auto cells = std::make_unique<Cells>(strings.values, item.selected,
+                                               records, records ? &budget : nullptr);
           cells->parse(part(parts, item.target));
           results[index].count = cells->count;
           if (item.selected)
             results[index].selected = std::move(cells);
         } else {
-          OtherSheet other;
+          OtherSheet other(records ? &budget : nullptr);
           other.parse(part(parts, item.target));
-          if (item.selected)
+          if (item.selected) {
             results[index].selected =
-                std::make_unique<Cells>(strings.values, true);
+                std::make_unique<Cells>(strings.values, true, records,
+                                        records ? &budget : nullptr);
+            results[index].selected->mergedRanges = std::move(other.mergedRanges);
+          }
         }
       } catch (...) {
         results[index].failure = std::current_exception();
@@ -716,8 +765,52 @@ static std::string supportedPreview(const Bytes &source, size_t available) {
     if (result.failure)
       std::rethrow_exception(result.failure);
     allCells += result.count;
-    if (result.selected)
+    if (result.selected && !records)
       selected = std::move(result.selected);
+  }
+  if (records) {
+    std::string output =
+        "{\"version\":1,\"supported\":true,\"projection\":\"records\",\"compact\":true,\"stringCount\":" +
+        std::to_string(strings.values.size()) + ",\"validatedCells\":" +
+        std::to_string(allCells) + ",\"strings\":{";
+    for (size_t index = 0; index < strings.values.size(); index++) {
+      if (index) output += ',';
+      output += jsonQuoted(std::to_string(index)) + ':' + jsonQuoted(strings.values[index]);
+      check(output.size() <= 2 * 1024 * 1024, "record bridge resident budget");
+    }
+    output += "},\"sheets\":[";
+    for (size_t index = 0; index < work.size(); index++) {
+      check(bool(results[index].selected), "missing complete worksheet result");
+      const auto &sheet = *results[index].selected;
+      if (index) output += ',';
+      output += "{\"name\":" + jsonQuoted(work[index].name) + ",\"order\":" +
+                std::to_string(index) + ",\"mergedRanges\":[";
+      for (size_t range = 0; range < sheet.mergedRanges.size(); range++) {
+        if (range) output += ',';
+        output += jsonQuoted(sheet.mergedRanges[range]);
+      }
+      output += "],\"rows\":[";
+      for (size_t rowIndex = 0; rowIndex < sheet.rows.size(); rowIndex++) {
+        if (rowIndex) output += ',';
+        const auto &row = sheet.rows[rowIndex];
+        output += "{\"index\":" + std::to_string(row.index) + ",\"cells\":[";
+        for (size_t cellIndex = 0; cellIndex < row.cells.size(); cellIndex++) {
+          if (cellIndex) output += ',';
+          const auto &cell = row.cells[cellIndex];
+          output += '[' + jsonQuoted(cell.address) + ',' + jsonQuoted(cell.type) + ',' +
+                    jsonQuoted(cell.raw) + ',' + jsonQuoted(cell.inlineText) + ',' +
+                    jsonQuoted(cell.formula) + ',' +
+                    (cell.hasFormula ? "true" : "false") + ']';
+          check(output.size() <= 2 * 1024 * 1024, "record bridge resident budget");
+        }
+        output += "]}";
+      }
+      output += "]}";
+      check(output.size() <= 2 * 1024 * 1024, "record bridge resident budget");
+    }
+    output += "]}";
+    check(output.size() <= 2 * 1024 * 1024, "record bridge resident budget");
+    return output;
   }
   check(bool(selected), "fixed character sheet absent");
   std::string output =
@@ -729,7 +822,7 @@ static std::string supportedPreview(const Bytes &source, size_t available) {
     if (comma)
       output += ',';
     comma = true;
-    output += quoted(std::to_string(item.first)) + ':' + quoted(item.second);
+    output += jsonQuoted(std::to_string(item.first)) + ':' + jsonQuoted(item.second);
   }
   output += "},\"rows\":[";
   comma = false;
@@ -743,9 +836,9 @@ static std::string supportedPreview(const Bytes &source, size_t available) {
       if (next)
         output += ',';
       next = true;
-      output += '[' + quoted(cell.address) + ',' + quoted(cell.type) + ',' +
-                quoted(cell.raw) + ',' + quoted(cell.inlineText) + ',' +
-                quoted(cell.formula) + ',' +
+      output += '[' + jsonQuoted(cell.address) + ',' + jsonQuoted(cell.type) + ',' +
+                jsonQuoted(cell.raw) + ',' + jsonQuoted(cell.inlineText) + ',' +
+                jsonQuoted(cell.formula) + ',' +
                 (cell.hasFormula ? "true" : "false") + ']';
     }
     output += "]}";
@@ -775,6 +868,27 @@ extern "C" char *coc_table_kernel_preview(const uint8_t *source, size_t bytes,
     char *output = static_cast<char *>(std::malloc(result.size() + 1));
     if (!output)
       return nullptr;
+    std::memcpy(output, result.c_str(), result.size() + 1);
+    return output;
+  } catch (...) {
+    return nullptr;
+  }
+}
+extern "C" char *coc_table_kernel_records(const uint8_t *source, size_t bytes,
+                                          uint64_t available) {
+  try {
+    std::string result = "{\"version\":1,\"supported\":false}";
+    if (source && bytes && bytes <= 2 * 1024 * 1024) {
+      try {
+        Bytes snapshot(source, source + bytes);
+        result = supportedPreview(snapshot,
+            size_t(std::min<uint64_t>(available, 8 * 1024 * 1024)), true);
+      } catch (...) {
+        // No partial worksheet or candidate can escape a failed projection.
+      }
+    }
+    char *output = static_cast<char *>(std::malloc(result.size() + 1));
+    if (!output) return nullptr;
     std::memcpy(output, result.c_str(), result.size() + 1);
     return output;
   } catch (...) {

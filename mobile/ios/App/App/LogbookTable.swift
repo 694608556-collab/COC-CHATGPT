@@ -19,6 +19,21 @@ enum LogbookTableKernel {
         guard value["version"] as? Int == 1, value["supported"] as? Bool == true else { return nil }
         return value
     }
+    static func inspectRecords(_ bytes: Data, available: Int) throws -> String? {
+        let output = bytes.withUnsafeBytes { buffer in
+            coc_table_kernel_records(buffer.bindMemory(to: UInt8.self).baseAddress, bytes.count, UInt64(max(0, available)))
+        }
+        return try takeRecordsPayload(output)
+    }
+    // Keep the complete JSON as one strict UTF-8 string through Capacitor.
+    // The Worker performs the single structural parse and full cell validation;
+    // this payload never grants candidate, source or commit authority.
+    static func takeRecordsPayload(_ output: UnsafeMutablePointer<CChar>?) throws -> String? {
+        guard let output else { return nil }
+        defer { free(output) }
+        guard let text = String(validatingUTF8: output) else { throw LogbookFailure("原生场次表格编码无效。") }
+        return text
+    }
 }
 
 /// A private disk index. Every query returning multiple values has an explicit
@@ -143,6 +158,7 @@ final class LogbookTableSession {
     private var memorySnapshot: Data?
     private var ownershipEstablished = false
     private var sourceProof: LogbookBackupProof?
+    private var sourceFormat: String?
     private var candidateProof: LogbookBackupProof?
     private var indexProof: LogbookBackupProof?
     private var commitMetadata: FileHandle?, commitRecords: FileHandle?
@@ -192,6 +208,7 @@ final class LogbookTableSession {
         guard sourceProof == nil, !closed else { throw LogbookFailure("表格来源已封存。") }
         let format = (name as NSString).pathExtension.lowercased()
         guard ["csv", "xlsx", "xls"].contains(format) else { throw LogbookFailure("仅支持XLSX、XLS或CSV表格。") }
+        sourceFormat = format
         if allowMemorySnapshot && format == "xlsx" { return try captureReadonlySnapshot(input, name: name) }
         try ensureStorage()
         guard let output = source.handle else { throw LogbookFailure("表格来源已封存。") }
@@ -246,6 +263,25 @@ final class LogbookTableSession {
         try proof.matches(bytes: copied.bytes, sha256: copied.sha256)
         memorySnapshot = nil
         return nil
+    }
+    func inspectRecordsKernel() throws -> LogbookJSON? {
+        guard kind == "record-table", sourceFormat == "xlsx", memorySnapshot == nil,
+              !closed, !ready, let sourceProof, source != nil else { return nil }
+        // This is an optional resident acceleration budget, never a content
+        // quota. Larger inputs retain the complete durable source/reader path.
+        guard sourceProof.bytes <= 2 * 1024 * 1024 else { return nil }
+        let input = try FileHandle(forReadingFrom: source.url)
+        defer { try? input.close() }
+        var bytes = Data()
+        while let chunk = try input.read(upToCount: 65536), !chunk.isEmpty {
+            guard chunk.count <= sourceProof.bytes - bytes.count else { throw LogbookFailure("场次表格完整来源长度已变化。") }
+            bytes.append(chunk)
+        }
+        try sourceProof.matches(bytes: bytes.count, sha256: LogbookArchive.digest(bytes))
+        guard let payload = try LogbookTableKernel.inspectRecords(bytes, available: maximumStageBytes) else { return nil }
+        // The source remains sealed on disk and the writable candidate/index
+        // remain owned by this lease. Preview and commit re-prove the source.
+        return ["source": ["bytes": sourceProof.bytes, "sha256": sourceProof.sha256], "payloadJson": payload]
     }
     func append(key: String, chunkIndex: Int, bytes: Data) throws {
         guard memorySnapshot == nil, sourceProof != nil, !closed, !ready, !bytes.isEmpty, bytes.count <= LogbookLimits.transferChunkBytes,

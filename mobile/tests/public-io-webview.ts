@@ -5,6 +5,12 @@ import { characterDraftProofText } from './character-draft-proof'
 import type { Coc7ImportPreview } from '../src/data/coc7-import'
 import type { NativeTablePreview } from '../src/data/table-stream-native'
 import { decodeBase64 } from '../src/data/bytes'
+import { requirePrivateTableExpectation, verifyPrivateTableCandidate } from './private-table-proof'
+import type { PrivateTableExpectation } from './private-table-proof'
+import { mergeImportedParticipants } from '../../src/shared/table-import'
+import type { TableImportRow } from '../../src/shared/table-import'
+import type { ModuleRecord, SessionRecord } from '../../src/shared/types'
+import { cancelImportFromBack } from './public-io-navigation'
 
 declare global {
   interface Window {
@@ -14,6 +20,8 @@ declare global {
       expectedCardName?: string
       expectedCardProof?: string
       localPrivateCard?: boolean
+      localPrivateTable?: boolean
+      expectedTableProof?: unknown
     }
     __publicIoSource: string
     __publicIoResult: unknown
@@ -27,19 +35,22 @@ const results: Array<{
   totalMs: number
   responseMs?: number
   workerTiming?: Record<string, number>
-  nativeCalls: Array<{ method: string; milliseconds: number }>
+  nativeCalls: Array<{ method: string; milliseconds: number; enteredMs: number }>
 }> = []
 const published: SavedDocument[] = []
 let confirmations: ReturnType<typeof setInterval> | undefined
 let delayNextStageForCancellation = false
 let delayedCancellationStage: Promise<void> | undefined
-let calls: Array<{ method: string; milliseconds: number }> = []
+let calls: Array<{ method: string; milliseconds: number; enteredMs: number }> = []
 let privateDraftProof: string | undefined
 let privateWorkerTiming: Record<string, number> | undefined
 let actionStarted = 0
 let receivedTablePreview: NativeTablePreview | undefined
+let tableSourceTiming: Record<string, number> | undefined
 let tableCandidateParts: Uint8Array[] = []
 let tableCandidateProof: { bytes: number; sha256: string } | undefined
+let tableSourceProof: { bytes: number; sha256: string } | undefined
+let expectedPrivateTable: PrivateTableExpectation | undefined
 if (window.__publicIoConfig.localPrivateCard) {
   window.__publicIoObserveEditor = (milliseconds) => {
     privateWorkerTiming = {
@@ -87,7 +98,10 @@ const cap = (
 ).Capacitor
 const nativePromise = cap.nativePromise.bind(cap)
 cap.nativePromise = async (plugin, method, options) => {
-  if (plugin === 'Logbook' && ['tables', 'complete'].includes(window.__publicIoConfig.mode)) {
+  if (
+    plugin === 'Logbook' &&
+    ['tables', 'private-table', 'complete'].includes(window.__publicIoConfig.mode)
+  ) {
     const value = options as { key?: string; base64?: string; candidate?: { bytes: number; sha256: string } }
     if (method === 'appendTableStage' && value.key === 'candidate')
       tableCandidateParts.push(decodeBase64(value.base64!))
@@ -97,6 +111,8 @@ cap.nativePromise = async (plugin, method, options) => {
     }
   }
   if (plugin === 'Logbook' && method === 'openBackup') {
+    if (['tables', 'private-table', 'complete'].includes(window.__publicIoConfig.mode))
+      options = { ...(options as object), measureImport: true }
     if (window.__publicIoConfig.localPrivateCard) {
       privateDraftProof = undefined
       privateWorkerTiming = undefined
@@ -118,6 +134,12 @@ cap.nativePromise = async (plugin, method, options) => {
   const enteredAt = start - actionStarted
   try {
     const result = await nativePromise(plugin, method, options)
+    if (plugin === 'Logbook' && method === 'openBackup') {
+      tableSourceTiming = (result as { tableSource?: { importTiming?: Record<string, number> } }).tableSource
+        ?.importTiming
+      const source = (result as { tableSource?: { bytes: number; sha256: string } }).tableSource
+      tableSourceProof = source && { bytes: source.bytes, sha256: source.sha256 }
+    }
     if (plugin === 'Logbook' && method === 'finishTablePreview')
       receivedTablePreview = result as NativeTablePreview
     if (plugin === 'Logbook' && method === 'openBackup' && window.__publicIoConfig.localPrivateCard) {
@@ -139,7 +161,8 @@ cap.nativePromise = async (plugin, method, options) => {
       published.push((result as { document: SavedDocument }).document)
     return result
   } finally {
-    if (plugin === 'Logbook') calls.push({ method, milliseconds: performance.now() - start })
+    if (plugin === 'Logbook')
+      calls.push({ method, milliseconds: performance.now() - start, enteredMs: enteredAt })
   }
 }
 /** @param ok Public fixture invariant. @param message Failure reason without user data. @returns No value; throws on failure. */
@@ -153,7 +176,12 @@ async function waitFor<T>(predicate: () => T, message: string): Promise<NonNulla
     const value = predicate()
     if (value) return value as NonNullable<T>
     const error = document.querySelector('[role="alert"]')?.textContent
-    if (error) throw Error(message + ': ' + error)
+    if (error)
+      throw Error(
+        window.__publicIoConfig.localPrivateTable
+          ? 'Private table UI operation failed'
+          : message + ': ' + error
+      )
     if (performance.now() > deadline) throw Error('Timeout: ' + message)
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
@@ -282,13 +310,18 @@ async function chooseExport(label: string) {
  * first eight previews, then commit all 115 rows once and verify every link
  * and the entire last manual body. Existing complete matrix stays intact. */
 async function measureRecordTables(commit = true) {
+  const privateMode = !!expectedPrivateTable
+  const before = privateMode ? await Native.getOverview() : undefined
+  let privateRows: TableImportRow[] | undefined
   await click('数据与设置')
-  for (const extension of ['csv', 'xlsx', 'xls']) {
+  for (const extension of privateMode ? ['xlsx'] : ['csv', 'xlsx', 'xls']) {
     window.__publicIoSource = 'public-io-table.' + extension
     for (let repeat = 0; repeat < 3; repeat++) {
       receivedTablePreview = undefined
+      tableSourceTiming = undefined
       tableCandidateParts = []
       tableCandidateProof = undefined
+      tableSourceProof = undefined
       await timed('record-table-import-preview-' + extension + '-' + repeat, async () => {
         await click('导入场次表格')
         await waitFor(
@@ -296,18 +329,20 @@ async function measureRecordTables(commit = true) {
           'complete table preview'
         )
         check(
-          receivedTablePreview?.added === 115 &&
+          receivedTablePreview?.added === (expectedPrivateTable?.rows ?? 115) &&
             receivedTablePreview.updated === 0 &&
             receivedTablePreview.skipped === 0 &&
-            receivedTablePreview.namesCount === 115,
-          'Every preview must include all 114 links and the full manual last row'
+            receivedTablePreview.namesCount === (expectedPrivateTable?.rows ?? 115),
+          'Every preview must include every complete expected input row'
         )
       })
       // This independent readback happens after timing. It binds every format's
       // entire staged candidate to the proof actually accepted by native code.
-      results[results.length - 1]!.workerTiming = (
-        receivedTablePreview as (NativeTablePreview & { timing?: Record<string, number> }) | undefined
-      )?.timing
+      results[results.length - 1]!.workerTiming = {
+        ...(tableSourceTiming as Record<string, number> | undefined),
+        ...(receivedTablePreview as (NativeTablePreview & { timing?: Record<string, number> }) | undefined)
+          ?.timing
+      }
       const bytes = new Uint8Array(tableCandidateParts.reduce((size, part) => size + part.length, 0))
       let offset = 0
       for (const part of tableCandidateParts) {
@@ -324,45 +359,68 @@ async function measureRecordTables(commit = true) {
       )
       const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
       check(text.endsWith('\n'), 'Complete final candidate line is present')
-      const candidates = text
-        .slice(0, -1)
-        .split('\n')
-        .map((line) => {
-          check(line[0] === 'T', 'Every candidate has the correct record-table purpose')
-          return JSON.parse(line.slice(1))
+      if (privateMode) {
+        privateRows = await verifyPrivateTableCandidate(expectedPrivateTable, tableSourceProof, proof, bytes)
+        const names = privateTableNames(privateRows)
+        for (let offset = 0; offset < names.length; offset += 100) {
+          const page = await Native.readTablePreview!({
+            id: receivedTablePreview!.id,
+            kind: 'names',
+            offset,
+            limit: 100
+          })
+          check(
+            page.total === names.length &&
+              JSON.stringify(page.values) === JSON.stringify(names.slice(offset, offset + 100)),
+            'Private table complete preview pages differ from independent input'
+          )
+        }
+      } else {
+        const candidates = text
+          .slice(0, -1)
+          .split('\n')
+          .map((line) => {
+            check(line[0] === 'T', 'Every candidate has the correct record-table purpose')
+            return JSON.parse(line.slice(1))
+          })
+        check(candidates.length === 115, 'Each format has all 115 complete candidate rows')
+        candidates.forEach((entry, index) => {
+          check(
+            entry.sheetOrder === 0 && entry.rowOrder === index + 1,
+            'Every input row is represented once in original order'
+          )
+          const value = entry.value
+          check(value.moduleName === '公开导入模组', 'Every candidate retains the complete module name')
+          if (index < 114)
+            check(
+              value.sessionName === '公开导入场' + index &&
+                value.link === 'https://log.weizaima.com/?key=public-io-' + index &&
+                !value.manualContent,
+              'Every format retains all complete names and links'
+            )
+          else
+            check(
+              value.sessionName === '公开导入完整手动正文' &&
+                value.link === '' &&
+                value.manualContent === 'PUBLIC_MANUAL_BEGIN\n完整😀正文\nPUBLIC_MANUAL_END',
+              'Every format retains the entire final Unicode manual body'
+            )
         })
-      check(candidates.length === 115, 'Each format has all 115 complete candidate rows')
-      candidates.forEach((entry, index) => {
+        const preview = receivedTablePreview as NativeTablePreview | undefined
+        const tail = await Native.readTablePreview!({
+          id: preview!.id,
+          kind: 'names',
+          offset: 100,
+          limit: 100
+        })
         check(
-          entry.sheetOrder === 0 && entry.rowOrder === index + 1,
-          'Every input row is represented once in original order'
+          tail.total === 115 &&
+            tail.values.length === 15 &&
+            tail.values[14] === '公开导入模组 / 公开导入完整手动正文',
+          'Native preview includes the last page and complete final row'
         )
-        const value = entry.value
-        check(value.moduleName === '公开导入模组', 'Every candidate retains the complete module name')
-        if (index < 114)
-          check(
-            value.sessionName === '公开导入场' + index &&
-              value.link === 'https://log.weizaima.com/?key=public-io-' + index &&
-              !value.manualContent,
-            'Every format retains all complete names and links'
-          )
-        else
-          check(
-            value.sessionName === '公开导入完整手动正文' &&
-              value.link === '' &&
-              value.manualContent === 'PUBLIC_MANUAL_BEGIN\n完整😀正文\nPUBLIC_MANUAL_END',
-            'Every format retains the entire final Unicode manual body'
-          )
-      })
-      const preview = receivedTablePreview as NativeTablePreview | undefined
-      const tail = await Native.readTablePreview!({ id: preview!.id, kind: 'names', offset: 100, limit: 100 })
-      check(
-        tail.total === 115 &&
-          tail.values.length === 15 &&
-          tail.values[14] === '公开导入模组 / 公开导入完整手动正文',
-        'Native preview includes the last page and complete final row'
-      )
-      if (!commit || extension !== 'xls' || repeat !== 2) {
+      }
+      if (!commit || extension !== (privateMode ? 'xlsx' : 'xls') || repeat !== 2) {
         const dialog = document.querySelector('[role="dialog"][aria-label="表格导入预览"]')!
         check(button('取消', dialog), 'Table preview cancel is available')
         button('取消', dialog)!.click()
@@ -376,18 +434,106 @@ async function measureRecordTables(commit = true) {
           JSON.parse(afterCancel.json!).records.length === 78,
           'Cancelled preview must not write any record'
         )
+        if (before)
+          check(
+            afterCancel.revision === before.revision && afterCancel.json === before.json,
+            'Private cancelled preview must preserve the complete original overview'
+          )
       }
     }
   }
   if (!commit) return
-  await timed('record-table-import-commit-full-115', async () => {
-    await click('确认添加表格数据')
-    await waitFor(
-      () => !document.querySelector('[role="dialog"][aria-label="表格导入预览"]') && button('导入场次表格'),
-      'complete table commit'
-    )
+  await timed(
+    privateMode ? 'record-table-import-commit-private' : 'record-table-import-commit-full-115',
+    async () => {
+      await click('确认添加表格数据')
+      await waitFor(
+        () => !document.querySelector('[role="dialog"][aria-label="表格导入预览"]') && button('导入场次表格'),
+        'complete table commit'
+      )
+    }
+  )
+  if (privateMode) await checkPrivateImportedTable(privateRows!, before!)
+  else await checkCompleteImportedTable()
+}
+
+function privateTableNames(rows: TableImportRow[]) {
+  const counts = new Map<string, number>()
+  return rows.map((row) => {
+    const count = (counts.get(row.moduleName) ?? 0) + 1
+    counts.set(row.moduleName, count)
+    return row.moduleName + ' / ' + (row.sessionName || '第' + count + '场')
   })
-  await checkCompleteImportedTable()
+}
+
+/** Complete runtime-only values are compared in memory; assertions never print them. */
+async function checkPrivateImportedTable(
+  rows: TableImportRow[],
+  before: Awaited<ReturnType<typeof Native.getOverview>>
+) {
+  const state = await Native.getOverview(),
+    original = JSON.parse(before.json!),
+    metadata = JSON.parse(state.json!)
+  check(state.revision === before.revision + 1, 'Private table must commit exactly one CAS revision')
+  const oldIDs = new Set(original.records.map((row: SessionRecord) => row.id))
+  const added = (metadata.records as SessionRecord[]).filter((row) => !oldIDs.has(row.id))
+  check(
+    metadata.records.length === original.records.length + rows.length && added.length === rows.length,
+    'Private table must retain all original and imported records'
+  )
+  const complete = JSON.parse(
+    (await Native.getRecordContent({ ids: added.map((row) => row.id), expectedRevision: state.revision }))
+      .json
+  )
+  check(complete.records.length === rows.length, 'Every private imported record must be independently reread')
+  const records = new Map<string, SessionRecord>(
+    (complete.records as SessionRecord[]).map((row) => [row.id, row])
+  )
+  check(records.size === rows.length, 'Private imported IDs must be unique')
+  const groups = new Map<string, TableImportRow[]>()
+  for (const row of rows) groups.set(row.moduleName, [...(groups.get(row.moduleName) ?? []), row])
+  check(groups.size === expectedPrivateTable!.moduleRows.length, 'All private input modules must be retained')
+  for (const [name, input] of groups) {
+    check(
+      !original.modules.some((module: ModuleRecord) => module.name === name),
+      'Private fixture must use independent modules'
+    )
+    const modules = (metadata.modules as ModuleRecord[]).filter((module) => module.name === name)
+    check(modules.length === 1, 'Each private module must be committed exactly once')
+    const module = modules[0]!,
+      saved = added.filter((row) => row.moduleId === module.id).sort((a, b) => a.order - b.order)
+    check(saved.length === input.length, 'Private module record counts must match all sheets')
+    let participants = { kps: [] as string[], pairs: [] as { pc: string; pl: string }[] }
+    input.forEach((expected, index) => {
+      participants = mergeImportedParticipants(participants, expected)
+      const record = records.get(saved[index]!.id)!
+      check(
+        record && record.moduleId === module.id && record.order === index && record.sequenceNo === index + 1,
+        'Private record module, order and sequence must match'
+      )
+      check(
+        record.name === (expected.sessionName || '第' + (index + 1) + '场') &&
+          (record.link ?? '') === expected.link,
+        'Every private name and complete link must match'
+      )
+      const manual = expected.manualContent?.trim() ? expected.manualContent : expected.link ? undefined : ''
+      check(
+        record.manualContent === manual && record.rawContent === undefined,
+        'Every private manual body must match completely without raw-body substitution'
+      )
+      check(
+        record.sourceType === (expected.link && !manual ? 'online' : 'manual') &&
+          record.status === (expected.link && !manual ? 'pending' : 'manual'),
+        'Private record source and status must match import semantics'
+      )
+      check((record.playDate ?? '') === (expected.playDate ?? ''), 'Private play dates must be preserved')
+    })
+    check(
+      JSON.stringify(module.kps) === JSON.stringify(participants.kps) &&
+        JSON.stringify(module.pairs) === JSON.stringify(participants.pairs),
+      'All private module participants must be retained'
+    )
+  }
 }
 
 async function checkCompleteImportedTable() {
@@ -578,6 +724,12 @@ async function completeMatrix() {
 
 void (async () => {
   try {
+    check(
+      (window.__publicIoConfig.mode === 'private-table') === !!window.__publicIoConfig.localPrivateTable,
+      'Private table mode and runtime input configuration must agree'
+    )
+    if (window.__publicIoConfig.localPrivateTable)
+      expectedPrivateTable = requirePrivateTableExpectation(window.__publicIoConfig.expectedTableProof)
     const overview = await Native.getOverview(),
       library = JSON.parse(overview.json!)
     check(
@@ -618,7 +770,7 @@ void (async () => {
       document.querySelector<HTMLButtonElement>('button[aria-label="清空模组正文搜索"]')!.click()
       await new Promise((resolve) => setTimeout(resolve, 0))
     }
-    if (window.__publicIoConfig.mode !== 'tables') {
+    if (!['tables', 'private-table'].includes(window.__publicIoConfig.mode)) {
       await click('角色卡')
       if (['complete', 'cards'].includes(window.__publicIoConfig.mode)) {
         window.__publicIoSource = 'public-io-card-spill.xlsx'
@@ -631,7 +783,7 @@ void (async () => {
               document.querySelector('[role="progressbar"][aria-label="导入处理进度"]'),
             'real card progress before back'
           )
-          document.querySelector<HTMLButtonElement>('.app-back')!.click()
+          cancelImportFromBack(Capacitor.getPlatform(), document, window)
           await waitFor(
             () => button('导入七版角色卡') && !document.querySelector('.editor'),
             'back cancellation finished'
@@ -684,20 +836,29 @@ void (async () => {
           check((await Native.getOverview()).revision === overview.revision, 'Cancelled card must not write')
         }
     }
-    if (window.__publicIoConfig.mode === 'tables') await measureRecordTables()
+    if (['tables', 'private-table'].includes(window.__publicIoConfig.mode)) await measureRecordTables()
     if (window.__publicIoConfig.mode === 'complete') await measureRecordTables(false)
     if (['complete', 'matrix'].includes(window.__publicIoConfig.mode)) await completeMatrix()
     window.__publicIoResult = {
       passed: true,
       results,
-      documents: published,
-      source: window.__publicIoConfig.localPrivateCard
-        ? 'user-selected private card supplied locally at runtime; no private data packaged or uploaded; actual WebView, Worker, SQLite and native copy'
-        : 'fictional public fixtures; actual WebView, Worker, SQLite and bounded native file copy; OS picker response is deterministic',
+      documents: window.__publicIoConfig.localPrivateTable ? [] : published,
+      source: window.__publicIoConfig.localPrivateTable
+        ? 'user-selected private table supplied locally at runtime; complete candidate and committed values checked; no private data packaged or uploaded'
+        : window.__publicIoConfig.localPrivateCard
+          ? 'user-selected private card supplied locally at runtime; no private data packaged or uploaded; actual WebView, Worker, SQLite and native copy'
+          : 'fictional public fixtures; actual WebView, Worker, SQLite and bounded native file copy; OS picker response is deterministic',
       physicalPhone: undefined
     }
   } catch (error) {
-    window.__publicIoResult = { passed: false, stage: window.__publicIoStage, error: String(error), results }
+    window.__publicIoResult = {
+      passed: false,
+      stage: window.__publicIoStage,
+      error: window.__publicIoConfig.localPrivateTable
+        ? 'Private table validation failed; private details withheld'
+        : String(error),
+      results
+    }
   } finally {
     delete window.__publicIoObserveDraft
     delete window.__publicIoObserveEditor
