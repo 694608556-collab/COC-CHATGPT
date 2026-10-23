@@ -34,10 +34,20 @@ enum LogbookSearchMemory {
 
 /// Optional numeric-only phase measurements; no source text or credentials.
 final class LogbookSearchTiming {
+    private let lock = NSLock()
     private(set) var values: [String: Double] = [:]
     func elapsed(_ key: String, _ started: TimeInterval) {
+        lock.lock(); defer { lock.unlock() }
         values[key, default: 0] += (ProcessInfo.processInfo.systemUptime - started) * 1000
     }
+}
+
+/// Both independent readbacks finish before an error reaches owner cleanup.
+private final class LogbookSearchReadbackFailures {
+    private let lock = NSLock()
+    private var failure: Error?
+    func record(_ error: Error) { lock.lock(); defer { lock.unlock() }; if failure == nil { failure = error } }
+    func check() throws { lock.lock(); defer { lock.unlock() }; if let failure { throw failure } }
 }
 
 /// An acceleration admission failure requests the complete original stream,
@@ -230,6 +240,13 @@ enum LogbookBackupJSON {
 struct LogbookBackupProof {
     let bytes: Int
     let sha256: String
+    /// Exact lowercase digest text without locale formatting or omitted zeros.
+    static func hex<S: Sequence>(_ bytes: S) -> String where S.Element == UInt8 {
+        let alphabet = Array("0123456789abcdef".utf8)
+        var output: [UInt8] = []; output.reserveCapacity(64)
+        for byte in bytes { output.append(alphabet[Int(byte >> 4)]); output.append(alphabet[Int(byte & 15)]) }
+        return String(decoding: output, as: UTF8.self)
+    }
     func matches(bytes: Int, sha256: String) throws {
         guard self.bytes == bytes, self.sha256 == sha256 else { throw LogbookFailure("备份文件完整长度或摘要不符。") }
     }
@@ -275,7 +292,7 @@ enum LogbookRestoreCandidate {
             }
             line.append(chunk.subdata(in: start..<chunk.endIndex))
         }
-        let digest = hash.finalize().map { String(format: "%02x", $0) }.joined()
+        let digest = LogbookBackupProof.hex(hash.finalize())
         guard line.isEmpty, let metadata else { throw LogbookFailure("恢复候选不完整。") }
         try proof.matches(bytes: total, sha256: digest)
         return Preview(metadata: metadata, offlineRecords: offline, proof: proof)
@@ -296,9 +313,9 @@ final class LogbookBackupSession {
             do { output = try FileHandle(forWritingTo: url) }
             catch { try FileManager.default.removeItem(at: url); throw error }
         }
-        func seal() throws {
+        func seal(readBufferBytes: Int = 65536) throws {
             if let output { try output.synchronize(); try output.close(); self.output = nil }
-            let actual = try LogbookBackupSession.fileProof(url, maximumBytes: bytes)
+            let actual = try LogbookBackupSession.fileProof(url, maximumBytes: bytes, readBufferBytes: readBufferBytes)
             guard actual.bytes == bytes else { throw LogbookFailure("备份暂存长度不完整。") }
             proof = actual
         }
@@ -368,7 +385,7 @@ final class LogbookBackupSession {
     }
     /// One SQLite snapshot feeds the complete original ledger and the read-only
     /// projection. Both files must match their independently hashed input bytes.
-    func captureSearch(timing: LogbookSearchTiming? = nil, _ producer: (_ original: (Data) throws -> Void, _ projection: (Data) throws -> Void) throws -> Void) throws -> (original: LogbookBackupProof, projection: LogbookBackupProof) {
+    func captureSearch(timing: LogbookSearchTiming? = nil, readBufferBytes: Int = 65536, _ producer: (_ original: (Data) throws -> Void, _ projection: (Data) throws -> Void) throws -> Void) throws -> (original: LogbookBackupProof, projection: LogbookBackupProof) {
         guard searching, !restoring, !includeArchives, !closed, !ready, maximumOutputBytes == 0,
               entries["source"] == nil, entries["search"] == nil else { throw LogbookFailure("只读搜索来源阶段无效。") }
         let original = try create("source"), projection = try create("search")
@@ -383,12 +400,21 @@ final class LogbookBackupSession {
             try LogbookCapacity.require(available: self.available, additional: chunk.count)
             try output.write(contentsOf: chunk); projectionHash.update(data: chunk); projection.bytes += chunk.count
         })
-        var sealStarted = timing == nil ? 0 : ProcessInfo.processInfo.systemUptime
-        try original.seal(); timing?.elapsed("sealOriginalMs", sealStarted)
-        sealStarted = timing == nil ? 0 : ProcessInfo.processInfo.systemUptime
-        try projection.seal(); timing?.elapsed("sealProjectionMs", sealStarted)
-        try original.proof!.matches(bytes: original.bytes, sha256: originalHash.finalize().map { String(format: "%02x", $0) }.joined())
-        try projection.proof!.matches(bytes: projection.bytes, sha256: projectionHash.finalize().map { String(format: "%02x", $0) }.joined())
+        // The producer has finished and each handle belongs to one task only.
+        // Join both tasks before observing proofs, comparing input hashes,
+        // returning credentials or allowing the caller to remove private files.
+        let readbacks = DispatchGroup(), failures = LogbookSearchReadbackFailures()
+        for (entry, key) in [(original, "sealOriginalMs"), (projection, "sealProjectionMs")] {
+            readbacks.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                let started = timing == nil ? 0 : ProcessInfo.processInfo.systemUptime
+                defer { timing?.elapsed(key, started); readbacks.leave() }
+                do { try entry.seal(readBufferBytes: readBufferBytes) } catch { failures.record(error) }
+            }
+        }
+        readbacks.wait(); try failures.check()
+        try original.proof!.matches(bytes: original.bytes, sha256: LogbookBackupProof.hex(originalHash.finalize()))
+        try projection.proof!.matches(bytes: projection.bytes, sha256: LogbookBackupProof.hex(projectionHash.finalize()))
         return (original.proof!, projection.proof!)
     }
     var sourceBudget: Int { maximumInputBytes }
@@ -451,13 +477,14 @@ final class LogbookBackupSession {
         }
         try finish(keeping: keep); restorePreview = preview; attachments = checked
     }
-    static func fileProof(_ url: URL, maximumBytes: Int) throws -> LogbookBackupProof {
+    static func fileProof(_ url: URL, maximumBytes: Int, readBufferBytes: Int = 65536) throws -> LogbookBackupProof {
+        guard readBufferBytes > 0 else { throw LogbookFailure("文件回读缓冲无效。") }
         let input = try FileHandle(forReadingFrom: url); defer { try? input.close() }
         var hash = SHA256(), bytes = 0
-        while let chunk = try input.read(upToCount: 65536), !chunk.isEmpty {
+        while let chunk = try input.read(upToCount: readBufferBytes), !chunk.isEmpty {
             bytes += chunk.count; guard bytes <= maximumBytes else { throw LogbookFailure("备份文件长度已变化。") }; hash.update(data: chunk)
         }
-        return LogbookBackupProof(bytes: bytes, sha256: hash.finalize().map { String(format: "%02x", $0) }.joined())
+        return LogbookBackupProof(bytes: bytes, sha256: LogbookBackupProof.hex(hash.finalize()))
     }
     private static func delete(_ file: URL) throws {
         guard FileManager.default.fileExists(atPath: file.path) else { return }

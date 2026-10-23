@@ -311,7 +311,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
                 do {
                     if projecting {
                         let snapshotStarted = timing == nil ? 0 : ProcessInfo.processInfo.systemUptime
-                        let proofs = try owner.captureSearch(timing: timing) { original, projection in
+                        let proofs = try owner.captureSearch(timing: timing, readBufferBytes: min(1024 * 1024, max(1, memory / 64))) { original, projection in
                             try store.writeSearchProjection(expected: revision, maximumBytes: owner.sourceBudget, selected: ids,
                                                             memoryBudget: memory / 2, timing: timing, original: original, sink: projection)
                         }

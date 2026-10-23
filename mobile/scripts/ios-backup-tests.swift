@@ -5,6 +5,8 @@ extension IOSNativeChecks {
     /// Exercise the actual C/Swift ABI and the read-only native snapshot boundary.
     static func searchProjectionChecks(root: URL, fixture: LogbookJSON) throws {
         let MiB = 1024 * 1024, budget = 256 * 1024 * 1024
+        try require(LogbookBackupProof.hex(Data()) == "", "empty hexadecimal encoding")
+        try require(LogbookBackupProof.hex((0...255).map { UInt8($0) }) == "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff", "every hexadecimal byte and leading zero matches independent reference")
         var hostReads = 0
         try require(LogbookSearchMemory.available(process: 0, simulator: false, host: { hostReads += 1; return 123456 }) == 0 && hostReads == 0, "real-device zero headroom never borrows host memory")
         try require(LogbookSearchMemory.available(process: 4321, simulator: true, host: { hostReads += 1; return 0 }) == 4321 && hostReads == 0, "positive process headroom is used directly")
@@ -52,7 +54,7 @@ extension IOSNativeChecks {
         let directory = root.appendingPathComponent("search-private")
         let owner = try LogbookBackupSession(directory: directory, expected: revision, bookmark: Data(), restoring: false, includeArchives: false, searching: true, available: { 1024 * MiB })
         let timing = LogbookSearchTiming()
-        let proofs = try owner.captureSearch(timing: timing) { original, projection in
+        let proofs = try owner.captureSearch(timing: timing, readBufferBytes: 1024 * 1024) { original, projection in
             try store.writeSearchProjection(expected: revision, maximumBytes: owner.sourceBudget, selected: ids, memoryBudget: budget, timing: timing, original: original, sink: projection)
         }
         try require(["readBodyMs", "kernelMs", "writeMs", "sealOriginalMs", "sealProjectionMs"].allSatisfy { timing.values[$0].map { $0.isFinite && $0 >= 0 } == true }, "optional phase metrics are finite and content-free")
@@ -92,6 +94,25 @@ extension IOSNativeChecks {
         try require(try store.revision() == revision && logbookData(store.fullSnapshot()!) == before, "search leaves all business bytes and CAS revision unchanged")
         try owner.close()
         try require(!FileManager.default.fileExists(atPath: originalURL.path) && !FileManager.default.fileExists(atPath: projectionURL.path), "search cleanup removes only its two private files")
+        let failureDirectory = root.appendingPathComponent("search-readback-failure")
+        let damaged = try LogbookBackupSession(directory: failureDirectory, expected: revision, bookmark: Data(), restoring: false, includeArchives: false, searching: true, available: {1024 * MiB})
+        let failedTiming = LogbookSearchTiming(), input = Data("{\"v\":\"A\"}".utf8)
+        var tampered = false
+        try rejects("concurrent readback still rejects a changed original input hash") {
+            _ = try damaged.captureSearch(timing: failedTiming, readBufferBytes: MiB) { original, projection in
+                try original(input); try projection(Data("{\"projection\":true}".utf8))
+                guard let files = FileManager.default.enumerator(at: failureDirectory, includingPropertiesForKeys: [.isRegularFileKey]) else { throw LogbookFailure("Public readback directory required") }
+                for case let file as URL in files {
+                    if (try? Data(contentsOf: file)) == input {
+                        try Data("{\"v\":\"B\"}".utf8).write(to: file)
+                        tampered = true; break
+                    }
+                }
+            }
+        }
+        try require(tampered && failedTiming.values["sealOriginalMs"] != nil && failedTiming.values["sealProjectionMs"] != nil, "both complete readbacks join before a failed source can be cleaned up")
+        try damaged.close()
+        try require(try store.revision() == revision && logbookData(store.fullSnapshot()!) == before, "readback failure cannot mutate business data or revision")
         let unsupported = try LogbookBackupSession(directory: directory, expected: revision, bookmark: Data(), restoring: false, includeArchives: false, searching: true, available: {1024 * MiB})
         try rejects("zero acceleration budget requests complete fallback") {
             _ = try unsupported.captureSearch { original, projection in
