@@ -5,6 +5,13 @@ extension IOSNativeChecks {
     /// Exercise the actual C/Swift ABI and the read-only native snapshot boundary.
     static func searchProjectionChecks(root: URL, fixture: LogbookJSON) throws {
         let MiB = 1024 * 1024, budget = 256 * 1024 * 1024
+        var hostReads = 0
+        try require(LogbookSearchMemory.available(process: 0, simulator: false, host: { hostReads += 1; return 123456 }) == 0 && hostReads == 0, "real-device zero headroom never borrows host memory")
+        try require(LogbookSearchMemory.available(process: 4321, simulator: true, host: { hostReads += 1; return 0 }) == 4321 && hostReads == 0, "positive process headroom is used directly")
+        try require(LogbookSearchMemory.available(process: 0, simulator: true, host: { 123456 }) == 123456, "simulator without jetsam uses actual advisory host pages")
+        try require(LogbookSearchMemory.available(process: 0, simulator: true, host: { 0 }) == 0, "failed host memory probe retains complete fallback")
+        try require(LogbookSearchMemory.available(process: UInt64.max, simulator: false) == Int.max, "memory arithmetic cannot overflow Int")
+        print("iOS search host advisory memory=\(LogbookSearchMemory.available(process: 0, simulator: true)) physicalPhone=false")
         let log = #"{"parserVersion":1,"messages":[{"id":"public","order":1,"timestamp":"2026-10-23T12:00:00Z","displayName":"Reader","text":"完整😀END","type":"message","isDiceCommand":false,"isOffTopic":true,"images":[{"url":"https://example.invalid/public.png","alt":"full"}],"raw":{"tail":[9007199254740993,null,"END"]}}]}"#
         let original = Data((#"{"unknown":{"rawContent":"not the selected member"},"rawContent":"# + log + #", "manualContent":"full END"}"#).utf8)
         let originalHash = SHA256.hash(data: original)

@@ -1,5 +1,34 @@
 import Foundation
 import CryptoKit
+import Darwin
+
+/// Simulator processes may have no jetsam application budget. Real devices
+/// must retain zero-headroom fallback; host pages are advisory only in simulator.
+enum LogbookSearchMemory {
+    static func available(process: UInt64, simulator: Bool) -> Int {
+        available(process: process, simulator: simulator, host: hostAvailable)
+    }
+    static func available(process: UInt64, simulator: Bool, host: () -> UInt64) -> Int {
+        if process > 0 { return Int(min(process, UInt64(Int.max))) }
+        guard simulator else { return 0 }
+        return Int(min(host(), min(ProcessInfo.processInfo.physicalMemory / 4, UInt64(Int.max))))
+    }
+    private static func hostAvailable() -> UInt64 {
+        let port = mach_host_self()
+        defer { mach_port_deallocate(mach_task_self_, port) }
+        var page: vm_size_t = 0
+        guard host_page_size(port, &page) == KERN_SUCCESS else { return 0 }
+        var stats = vm_statistics64_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size)
+        let status = withUnsafeMutablePointer(to: &stats) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { host_statistics64(port, HOST_VM_INFO64, $0, &count) }
+        }
+        guard status == KERN_SUCCESS else { return 0 }
+        let pages = UInt64(stats.free_count) + UInt64(stats.speculative_count)
+        let bytes = pages.multipliedReportingOverflow(by: UInt64(page))
+        return bytes.overflow ? 0 : bytes.partialValue
+    }
+}
 
 /// An acceleration admission failure requests the complete original stream,
 /// never a content-size rejection or permission/validation bypass.

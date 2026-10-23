@@ -37,6 +37,7 @@ const results: Array<{
   totalMs: number
   responseMs?: number
   workerTiming?: Record<string, number>
+  searchSource?: Record<string, number | boolean>
   nativeCalls: Array<{ method: string; milliseconds: number; enteredMs: number }>
 }> = []
 const published: SavedDocument[] = []
@@ -54,6 +55,30 @@ const tableCandidateWitness = new CandidateWitnessCapture()
 let tableCandidateProof: { bytes: number; sha256: string } | undefined
 let tableSourceProof: { bytes: number; sha256: string } | undefined
 let expectedPrivateTable: PrivateTableExpectation | undefined
+let searchSourceNumbers: Record<string, number | boolean> | undefined
+let searchWorkerTiming: Record<string, number> | undefined
+if (['complete', 'baseline'].includes(window.__publicIoConfig.mode)) {
+  const post = Worker.prototype.postMessage
+  /** Measure the complete real Worker job, without logging credentials or bodies.
+   * @param message Existing request. @param rest Original transfer arguments.
+   * @returns The original postMessage result.
+   */
+  Worker.prototype.postMessage = function (message: any, ...rest: any[]) {
+    if (message?.type === 'start' && message.job?.type === 'search') {
+      message = { ...message, job: { ...message.job, measureSearch: true } }
+      searchWorkerTiming = undefined
+      const observe = (event: MessageEvent) => {
+        if (!['done', 'failed'].includes(event.data?.type)) return
+        this.removeEventListener('message', observe)
+        if (event.data.type === 'done' && event.data.result?.timing)
+          searchWorkerTiming = Object.fromEntries(Object.entries(event.data.result.timing as Record<string, number>)
+            .filter(([, value]) => Number.isFinite(value) && value >= 0))
+      }
+      this.addEventListener('message', observe)
+    }
+    return (post as any).call(this, message, ...rest)
+  }
+}
 if (window.__publicIoConfig.localPrivateCard) {
   window.__publicIoObserveEditor = (milliseconds) => {
     privateWorkerTiming = {
@@ -165,6 +190,15 @@ cap.nativePromise = async (plugin, method, options) => {
   const enteredAt = start - actionStarted
   try {
     const result = await nativePromise(plugin, method, options)
+    if (plugin === 'Logbook' && method === 'createSearchSource') {
+      const value = result as Record<string, any>
+      searchSourceNumbers = {
+        version: value.searchProjectionVersion ?? 0, bytes: value.source?.bytes ?? 0,
+        originalBytes: value.originalSource?.bytes ?? 0, cacheMemoryBytes: value.cacheMemoryBytes ?? 0,
+        maximumReadBytes: value.maximumReadBytes ?? 0, memoryBytes: value.searchMemoryBytes ?? 0,
+        processMemoryZero: value.searchProcessMemoryZero === true
+      }
+    }
     if (plugin === 'Logbook' && method === 'openBackup') {
       tableSourceTiming = (result as { tableSource?: { importTiming?: Record<string, number> } }).tableSource
         ?.importTiming
@@ -289,6 +323,7 @@ async function timed(operation: string, task: () => Promise<void>) {
       operation,
       totalMs,
       ...(importing || searching ? { responseMs: responseMs ?? totalMs } : {}),
+      ...(searching ? { searchSource: searchSourceNumbers, workerTiming: searchWorkerTiming } : {}),
       ...(operation.startsWith('character-import-xlsx') && privateWorkerTiming
         ? { workerTiming: privateWorkerTiming }
         : {}),
