@@ -151,6 +151,11 @@ final class LogbookTableSession {
     private var stringsLine = Data()
     private var ready = false, closed = false, unlinked = false
     private var moduleTotal = 0, recordTotal = 0, characterTotal = 0
+    // A single current module is cached only inside the private preview
+    // transaction. Switching modules reloads its complete persisted value.
+    private var currentModuleName: Data?, currentModule: LogbookJSON?
+    private var currentModulePosition = 0, currentModuleChange = 0, currentModuleCount = 0
+    private var previewDate = ""
     private(set) var added = 0, updated = 0, skipped = 0, namesCount = 0, warningsCount = 0
     private(set) var root: LogbookJSON?
     var sourceURL: URL { source?.url ?? directory.appendingPathComponent("source") }
@@ -338,17 +343,36 @@ final class LogbookTableSession {
         if let status = row["status"] as? String, !["pending", "valid", "fetch_failed", "manual"].contains(status) { throw LogbookFailure("表格链接状态无效。") }
         if let fetched = row["fetchedAt"] as? String, fetched.range(of: "^\\d{4}-\\d{2}-\\d{2}T", options: .regularExpression) == nil { throw LogbookFailure("表格抓取时间无效。") }
         try Self.validateLink(link)
-        let date = logbookNow(), existing = try index.rows("SELECT value,position,changed FROM entities WHERE kind='modules' AND name=? ORDER BY position LIMIT 1", [Self.indexKey(name)]).first
+        let date = previewDate, nameBytes = Data(name.utf8)
+        if currentModule == nil || currentModuleName != nameBytes {
+            let existing = try index.rows("SELECT value,position,changed FROM entities WHERE kind='modules' AND name=? ORDER BY position LIMIT 1", [Self.indexKey(name)]).first
+            currentModuleName = nameBytes
+            if let existing {
+                let value = try logbookObject(index.unpack(existing[0]!))
+                currentModule = value; currentModulePosition = Int(existing[1]!)!; currentModuleChange = Int(existing[2]!)!
+                currentModuleCount = try index.count("SELECT value FROM module_counts WHERE id=?", [value["id"] as? String])
+            } else { currentModule = nil; currentModuleCount = 0 }
+        }
         var module: LogbookJSON
         let modulePosition: Int, moduleChange: Int
-        if let existing {
-            module = try mergeParticipants(logbookObject(index.unpack(existing[0]!)), row); modulePosition = Int(existing[1]!)!; moduleChange = existing[2] == "1" ? 1 : 2
+        let previousText: String?
+        if let existing = currentModule {
+            previousText = try logbookText(existing)
+            module = try mergeParticipants(existing, row); modulePosition = currentModulePosition; moduleChange = currentModuleChange == 1 ? 1 : 2
         } else {
+            previousText = nil
             modulePosition = moduleTotal; moduleTotal += 1; moduleChange = 1
             module = ["id": UUID().uuidString.lowercased(), "name": name, "playStatus": row["playStatus"] ?? "not_started", "kps": row["kps"]!, "pairs": pairs, "order": modulePosition, "collapsed": false, "createdAt": date, "updatedAt": date]
             try index.execute("INSERT INTO module_counts VALUES(?,0)", [module["id"] as? String])
         }
-        try LogbookValidation.module(module); try put("modules", module, position: modulePosition, changed: moduleChange)
+        // Validate all rows and participants as before. Unchanged normalized
+        // metadata needs no second serialization into SQLite or chunk rewrite.
+        try LogbookValidation.module(module)
+        if previousText != (try logbookText(module)) {
+            try put("modules", module, position: modulePosition, changed: moduleChange)
+            currentModuleChange = moduleChange
+        }
+        currentModule = module; currentModulePosition = modulePosition
         let moduleID = module["id"] as! String, manual = row["manualContent"] as? String
         let explicit = manual?.unicodeScalars.contains(where: { !Self.whitespace($0) }) == true
         var matching: [[String?]] = []
@@ -364,7 +388,7 @@ final class LogbookTableSession {
         if !link.isEmpty, try index.count("SELECT EXISTS(SELECT 1 FROM entities WHERE kind='records' AND module=? AND link=?)", [moduleID, Self.indexKey(link)]) > 0 {
             skipped += 1; try note("warnings", sessionName + "：来源已存在，已跳过。"); return
         }
-        let count = try index.count("SELECT value FROM module_counts WHERE id=?", [moduleID]), position = recordTotal
+        let count = currentModuleCount, position = recordTotal
         let online = !link.isEmpty && !explicit, playDate = row["playDate"] as? String ?? ""
         var record: LogbookJSON = ["id": UUID().uuidString.lowercased(), "moduleId": moduleID, "name": sessionName.isEmpty ? "第\(count + 1)场" : sessionName, "sequenceNo": count + 1, "sourceType": online ? "online" : "manual", "status": online ? "pending" : "manual", "dateSource": playDate.isEmpty ? "none" : "manual", "order": count, "createdAt": date, "updatedAt": date]
         if !link.isEmpty { record["link"] = link }; if !playDate.isEmpty { record["playDate"] = playDate }
@@ -373,6 +397,7 @@ final class LogbookTableSession {
         try LogbookValidation.record(record)
         try put("records", record, position: position, changed: 1, manual: body); added += 1; recordTotal += 1
         try index.execute("UPDATE module_counts SET value=value+1 WHERE id=?", [moduleID])
+        currentModuleCount += 1
         try note("names", name + " / " + (record["name"] as! String))
     }
     private func applyCharacter(_ value: LogbookJSON, warnings: [String]) throws {
@@ -389,6 +414,8 @@ final class LogbookTableSession {
     }
     func preview(_ proof: LogbookBackupProof, store: LogbookStore) throws -> LogbookJSON {
         guard memorySnapshot == nil, !closed, !ready, stringsLine.isEmpty, let sourceProof, candidate != nil, proof.bytes == candidate.bytes else { throw LogbookFailure("表格来源或候选尚未完整。") }
+        previewDate = logbookNow()
+        defer { currentModule = nil; currentModuleName = nil; previewDate = "" }
         try store.check(expected); try source.seal(); try candidate.seal(); try verify(source.url, sourceProof); try verify(candidate.url, proof)
         var baseline = try store.metadata() ?? LogbookStore.empty()
         try LogbookValidation.snapshot(baseline, metadataOnly: true)

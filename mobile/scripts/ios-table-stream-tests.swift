@@ -143,7 +143,74 @@ extension IOSNativeChecks {
         print("PUBLIC_IOS_SINGLE_BODY bytes=\(utf8.count) chunkBytes=262144 v3MigrationRollback=true fullBody=true restoreRollback=true phone=false")
     }
 
+    static func tablePreviewBatchChecks(root: URL, fixture: LogbookJSON) throws {
+        let free = 32 * 1024 * 1024 * 1024
+        let store = try LogbookStore(url: root.appendingPathComponent("table-preview-batch/state.sqlite"), available: { free })
+        _ = try store.replace(fixture, expected: 0)
+        let before = try logbookData(store.fullSnapshot()!), originals = try store.rows("SELECT id,body FROM records ORDER BY position")
+        let source = root.appendingPathComponent("table-preview-batch-source.csv")
+        try Data("public independent source".utf8).write(to: source)
+        func owner(_ available: @escaping () throws -> Int = { 32 * 1024 * 1024 * 1024 }) throws -> LogbookTableSession {
+            let value = try LogbookTableSession(directory: root.appendingPathComponent("table-preview-batch-stage"), expected: store.revision(), bookmark: Data("public".utf8), kind: "record-table", available: available)
+            let input = try FileHandle(forReadingFrom: source); defer { try? input.close() }; _ = try value.capture(input, name: "public.csv"); return value
+        }
+        func row(_ module: String, _ name: String, _ link: String, _ manual: String? = nil) -> LogbookJSON {
+            var result: LogbookJSON = ["sheet": "公开表", "moduleName": module, "sessionName": name, "link": link, "kps": ["公开KP"], "pairs": [LogbookJSON]()]
+            if let manual { result["manualContent"] = manual }; return result
+        }
+        func frame(_ value: LogbookJSON, _ position: Int) throws -> Data {
+            var bytes = Data([84]); bytes.append(try logbookData(["sheetOrder": 0, "rowOrder": position, "value": value])); bytes.append(10); return bytes
+        }
+        func send(_ bytes: Data, _ value: LogbookTableSession) throws -> LogbookBackupProof {
+            for (index, start) in stride(from: 0, to: bytes.count, by: LogbookLimits.transferChunkBytes).enumerated() {
+                try value.append(key: "candidate", chunkIndex: index, bytes: bytes.subdata(in: start..<min(bytes.count, start + LogbookLimits.transferChunkBytes)))
+            }
+            return LogbookBackupProof(bytes: bytes.count, sha256: LogbookArchive.digest(bytes))
+        }
+        let table = try owner(); defer { try? table.close() }
+        var bytes = Data()
+        for i in 0..<114 { bytes.append(try frame(row(i == 57 ? "公开B" : "公开A", "公开场\(i)", "https://log.weizaima.com/?key=batch-\(i)"), i)) }
+        bytes.append(try frame(row("公开A", "完整手动", "", "首份正文😀\r\n\u{0000}尾"), 114))
+        var duplicate = row("公开A", "重复来源", "https://log.weizaima.com/?key=batch-0")
+        duplicate["kps"] = ["后到KP"]; duplicate["pairs"] = [["pc": "后到PC", "pl": "后到PL"]]
+        bytes.append(try frame(duplicate, 115))
+        let body = "最终完整正文😀\r\n\u{0000}末尾"
+        bytes.append(try frame(row("公开A", "完整手动", "", body), 116))
+        let result = try table.preview(send(bytes, table), store: store)
+        try require(result["added"] as? Int == 115 && result["updated"] as? Int == 1 && result["skipped"] as? Int == 1, "batch reused and revisited modules preserve every addition/update/duplicate")
+        try require(result["namesCount"] as? Int == 116 && (try table.page("names", offset: 100, limit: 100)["values"] as? [String])?.count == 16, "batch full preview tail retained")
+        try require(try logbookData(store.fullSnapshot()!) == before, "batch preview does not write production")
+        try table.prepareCommit(store: store); _ = try store.importTableStream(table); try table.close()
+        let saved = try store.fullSnapshot()!, records = saved["records"] as! [LogbookJSON]
+        try require(records.count == originals.count + 115 && Array(try store.rows("SELECT id,body FROM records ORDER BY position").prefix(originals.count)) == originals, "batch commit preserves every original body byte")
+        for i in 0..<114 {
+            let value = records[originals.count + i]
+            try require(value["name"] as? String == "公开场\(i)" && value["link"] as? String == "https://log.weizaima.com/?key=batch-\(i)", "batch complete link and ordered name")
+            let sequence = i == 57 ? 1 : i < 57 ? i + 1 : i
+            try require(value["sequenceNo"] as? Int == sequence, "batch module-local sequence survives module revisit")
+        }
+        try require(records.last?["manualContent"] as? String == body && records.last?["sequenceNo"] as? Int == 114, "batch final manual Unicode/NUL body is complete")
+        let module = (saved["modules"] as! [LogbookJSON]).first { $0["name"] as? String == "公开A" }!
+        try require(module["kps"] as? [String] == ["公开KP", "后到KP"] && (module["pairs"] as? [LogbookJSON])?.first?["pc"] as? String == "后到PC", "duplicate rows still merge late participants")
+        let after = try logbookData(saved), revision = try store.revision()
+        for lowSpace in [false, true] {
+            var available = free
+            let rejected = try owner { available }; defer { try? rejected.close() }
+            var candidate = Data()
+            for i in 0..<115 { candidate.append(try frame(row("连续验证", "场\(i)", "https://log.weizaima.com/?key=validate-\(i)"), i)) }
+            var invalid = row("连续验证", "重复", "https://log.weizaima.com/?key=validate-0")
+            if !lowSpace { invalid["kps"] = [5] }
+            candidate.append(try frame(invalid, 115)); let proof = try send(candidate, rejected)
+            if lowSpace { available = LogbookCapacity.minimumReserve }
+            try rejects("batch still rejects invalid duplicate participants or capacity loss") { _ = try rejected.preview(proof, store: store) }
+            available = free; try rejected.close()
+            try require(try store.revision() == revision && logbookData(store.fullSnapshot()!) == after, "failed batch preserves every production value and revision")
+        }
+        print("PUBLIC_IOS_TABLE_BATCH rows=115 moduleRevisit=true lateParticipants=true fullBody=true validationAndCapacityRollback=true phone=false")
+    }
+
     static func tableStreamChecks(root: URL, fixture: LogbookJSON) throws {
+        try tablePreviewBatchChecks(root: root, fixture: fixture)
         let MiB = 1024 * 1024, free = { 8 * 1024 * 1024 * 1024 }
         let base = root.appendingPathComponent("table-tests"), source = root.appendingPathComponent("table-public.csv")
         try Data("模组名,场次名,手动保存内容\n公开夹具,第一场,完整正文\n".utf8).write(to: source)

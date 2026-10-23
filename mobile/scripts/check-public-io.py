@@ -1,10 +1,13 @@
 """Independent readback of only fictional outputs and the newly created CI database."""
 import hashlib, json, pathlib, re, sqlite3, sys, zipfile
 import xml.etree.ElementTree as ET
+from character_import_acceptance import check_character_timings
+from table_import_acceptance import check_table_timings
 
 container, report = map(pathlib.Path, sys.argv[1:3])
 result = json.loads(report.read_text())
 assert result['passed'] is True and len(result['documents']) >= 31
+check_character_timings(result)
 archive = (container / 'Documents/归档').resolve()
 for item in result['documents']:
     path = (archive / item['name']).resolve()
@@ -50,5 +53,6 @@ for original in source['records']:
     assert body['rawContent'] == original['rawContent']
 db.close()
 result.update(independentOutputProofs=len(result['documents']), completeOriginalBodiesVerified=78)
+check_table_timings(result)
 report.write_text(json.dumps(result, ensure_ascii=False))
 print('PUBLIC_IOS_IO_PROOFS outputs=' + str(len(result['documents'])) + ' completeBodies=78 sqliteIntegrity=ok physicalPhone=false')

@@ -3,15 +3,22 @@ import { Native } from '../src/data/native'
 import type { SavedDocument } from '../src/data/native'
 import { characterDraftProofText } from './character-draft-proof'
 import type { Coc7ImportPreview } from '../src/data/coc7-import'
+import type { NativeTablePreview } from '../src/data/table-stream-native'
+import { decodeBase64 } from '../src/data/bytes'
 
 declare global {
   interface Window {
     __publicIoDocuments?: Record<string, SavedDocument>
-    __publicIoConfig: { mode: string; expectedCardName?: string; expectedCardProof?: string; localPrivateCard?: boolean }
+    __publicIoConfig: {
+      mode: string
+      expectedCardName?: string
+      expectedCardProof?: string
+      localPrivateCard?: boolean
+    }
     __publicIoSource: string
     __publicIoResult: unknown
     __publicIoStage: string
-    __publicIoObserveDraft?: (draft: Coc7ImportPreview, timing?: Record<string,number>) => void
+    __publicIoObserveDraft?: (draft: Coc7ImportPreview, timing?: Record<string, number>) => void
     __publicIoObserveEditor?: (milliseconds: number) => void
   }
 }
@@ -30,16 +37,24 @@ let calls: Array<{ method: string; milliseconds: number }> = []
 let privateDraftProof: string | undefined
 let privateWorkerTiming: Record<string, number> | undefined
 let actionStarted = 0
+let receivedTablePreview: NativeTablePreview | undefined
+let tableCandidateParts: Uint8Array[] = []
+let tableCandidateProof: { bytes: number; sha256: string } | undefined
 if (window.__publicIoConfig.localPrivateCard) {
-  window.__publicIoObserveEditor = milliseconds => {
-    privateWorkerTiming = { ...privateWorkerTiming, editorCommits: (privateWorkerTiming?.editorCommits ?? 0) + 1,
-      editorCommitMs: (privateWorkerTiming?.editorCommitMs ?? 0) + milliseconds }
+  window.__publicIoObserveEditor = (milliseconds) => {
+    privateWorkerTiming = {
+      ...privateWorkerTiming,
+      editorCommits: (privateWorkerTiming?.editorCommits ?? 0) + 1,
+      editorCommitMs: (privateWorkerTiming?.editorCommitMs ?? 0) + milliseconds
+    }
   }
   window.__publicIoObserveDraft = (draft, timing) => {
     privateWorkerTiming = { ...privateWorkerTiming, nativeKernel: 1, ...timing }
     const bytes = new TextEncoder().encode(characterDraftProofText(draft))
-    void crypto.subtle.digest('SHA-256', bytes).then(result => {
-      privateDraftProof = Array.from(new Uint8Array(result), value => value.toString(16).padStart(2, '0')).join('')
+    void crypto.subtle.digest('SHA-256', bytes).then((result) => {
+      privateDraftProof = Array.from(new Uint8Array(result), (value) =>
+        value.toString(16).padStart(2, '0')
+      ).join('')
     })
   }
   const post = Worker.prototype.postMessage
@@ -54,7 +69,10 @@ if (window.__publicIoConfig.localPrivateCard) {
         if (event.data.type === 'done' && event.data.result?.draft) {
           privateWorkerTiming = event.data.result.timing
           const bytes = new TextEncoder().encode(characterDraftProofText(event.data.result.draft))
-          privateDraftProof = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), value => value.toString(16).padStart(2, '0')).join('')
+          privateDraftProof = Array.from(
+            new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)),
+            (value) => value.toString(16).padStart(2, '0')
+          ).join('')
         }
       }
       this.addEventListener('message', observe)
@@ -69,8 +87,21 @@ const cap = (
 ).Capacitor
 const nativePromise = cap.nativePromise.bind(cap)
 cap.nativePromise = async (plugin, method, options) => {
+  if (plugin === 'Logbook' && ['tables', 'complete'].includes(window.__publicIoConfig.mode)) {
+    const value = options as { key?: string; base64?: string; candidate?: { bytes: number; sha256: string } }
+    if (method === 'appendTableStage' && value.key === 'candidate')
+      tableCandidateParts.push(decodeBase64(value.base64!))
+    if (method === 'finishTablePreview') {
+      tableCandidateProof = value.candidate
+      options = { ...value, measureImport: true }
+    }
+  }
   if (plugin === 'Logbook' && method === 'openBackup') {
-    if (window.__publicIoConfig.localPrivateCard) { privateDraftProof = undefined; privateWorkerTiming = undefined; options = { ...(options as object), measureImport: true } }
+    if (window.__publicIoConfig.localPrivateCard) {
+      privateDraftProof = undefined
+      privateWorkerTiming = undefined
+      options = { ...(options as object), measureImport: true }
+    }
     const selected =
       published.find((file) => file.name === window.__publicIoSource) ??
       window.__publicIoDocuments?.[window.__publicIoSource]
@@ -87,8 +118,11 @@ cap.nativePromise = async (plugin, method, options) => {
   const enteredAt = start - actionStarted
   try {
     const result = await nativePromise(plugin, method, options)
+    if (plugin === 'Logbook' && method === 'finishTablePreview')
+      receivedTablePreview = result as NativeTablePreview
     if (plugin === 'Logbook' && method === 'openBackup' && window.__publicIoConfig.localPrivateCard) {
-      const timing = (result as { tableSource?: { importTiming?: Record<string,number> } }).tableSource?.importTiming
+      const timing = (result as { tableSource?: { importTiming?: Record<string, number> } }).tableSource
+        ?.importTiming
       if (timing) privateWorkerTiming = { ...timing, beforeNativeCallMs: enteredAt }
     }
     if (plugin === 'Logbook' && method === 'appendTableStage' && delayNextStageForCancellation) {
@@ -148,15 +182,24 @@ async function timed(operation: string, task: () => Promise<void>) {
     progress = 0,
     redundantCancel = 0
   const importing = operation.includes('import-')
-  let responseMs: number | undefined, responseQueued = false
+  let responseMs: number | undefined,
+    responseQueued = false
   const observer = new MutationObserver((mutations) => {
     if (!importing) return
-    if (!responseQueued && mutations.some((mutation) =>
-      (mutation.type === 'attributes' && mutation.target instanceof HTMLButtonElement && mutation.target.disabled) ||
-      (mutation.type === 'childList' && !!document.querySelector('.editor'))
-    )) {
+    if (
+      !responseQueued &&
+      mutations.some(
+        (mutation) =>
+          (mutation.type === 'attributes' &&
+            mutation.target instanceof HTMLButtonElement &&
+            mutation.target.disabled) ||
+          (mutation.type === 'childList' && !!document.querySelector('.editor'))
+      )
+    ) {
       responseQueued = true
-      requestAnimationFrame(() => { responseMs = performance.now() - start })
+      requestAnimationFrame(() => {
+        responseMs = performance.now() - start
+      })
     }
     blocking += document.querySelectorAll('[role="dialog"][aria-label="正在导入表格"]').length
     redundantCancel = Math.max(
@@ -167,7 +210,12 @@ async function timed(operation: string, task: () => Promise<void>) {
     )
     progress = Math.max(progress, document.querySelectorAll('[role="progressbar"]').length)
   })
-  observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled'] })
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['disabled']
+  })
   const start = performance.now()
   actionStarted = start
   try {
@@ -176,7 +224,15 @@ async function timed(operation: string, task: () => Promise<void>) {
     check(progress <= 1, 'Import must not duplicate progress')
     check(redundantCancel === 0, 'Import must not add the removed trailing cancel button')
     const totalMs = performance.now() - start
-    results.push({ operation, totalMs, ...(importing ? { responseMs: responseMs ?? totalMs } : {}), ...(operation.startsWith('character-import-xlsx') && privateWorkerTiming ? { workerTiming: privateWorkerTiming } : {}), nativeCalls: [...calls] })
+    results.push({
+      operation,
+      totalMs,
+      ...(importing ? { responseMs: responseMs ?? totalMs } : {}),
+      ...(operation.startsWith('character-import-xlsx') && privateWorkerTiming
+        ? { workerTiming: privateWorkerTiming }
+        : {}),
+      nativeCalls: [...calls]
+    })
   } finally {
     observer.disconnect()
   }
@@ -222,6 +278,144 @@ async function chooseExport(label: string) {
   await click('保存导出文件')
 }
 
+/** Real packaged UI, fresh source/grant/revision on every preview. Cancel the
+ * first eight previews, then commit all 115 rows once and verify every link
+ * and the entire last manual body. Existing complete matrix stays intact. */
+async function measureRecordTables(commit = true) {
+  await click('数据与设置')
+  for (const extension of ['csv', 'xlsx', 'xls']) {
+    window.__publicIoSource = 'public-io-table.' + extension
+    for (let repeat = 0; repeat < 3; repeat++) {
+      receivedTablePreview = undefined
+      tableCandidateParts = []
+      tableCandidateProof = undefined
+      await timed('record-table-import-preview-' + extension + '-' + repeat, async () => {
+        await click('导入场次表格')
+        await waitFor(
+          () => document.querySelector('[role="dialog"][aria-label="表格导入预览"]'),
+          'complete table preview'
+        )
+        check(
+          receivedTablePreview?.added === 115 &&
+            receivedTablePreview.updated === 0 &&
+            receivedTablePreview.skipped === 0 &&
+            receivedTablePreview.namesCount === 115,
+          'Every preview must include all 114 links and the full manual last row'
+        )
+      })
+      // This independent readback happens after timing. It binds every format's
+      // entire staged candidate to the proof actually accepted by native code.
+      results[results.length - 1]!.workerTiming = (
+        receivedTablePreview as (NativeTablePreview & { timing?: Record<string, number> }) | undefined
+      )?.timing
+      const bytes = new Uint8Array(tableCandidateParts.reduce((size, part) => size + part.length, 0))
+      let offset = 0
+      for (const part of tableCandidateParts) {
+        bytes.set(part, offset)
+        offset += part.length
+      }
+      const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (value) =>
+        value.toString(16).padStart(2, '0')
+      ).join('')
+      const proof = tableCandidateProof as { bytes: number; sha256: string } | undefined
+      check(
+        proof?.bytes === bytes.length && proof.sha256 === hash,
+        'Every complete staged candidate matches the accepted native proof'
+      )
+      const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+      check(text.endsWith('\n'), 'Complete final candidate line is present')
+      const candidates = text
+        .slice(0, -1)
+        .split('\n')
+        .map((line) => {
+          check(line[0] === 'T', 'Every candidate has the correct record-table purpose')
+          return JSON.parse(line.slice(1))
+        })
+      check(candidates.length === 115, 'Each format has all 115 complete candidate rows')
+      candidates.forEach((entry, index) => {
+        check(
+          entry.sheetOrder === 0 && entry.rowOrder === index + 1,
+          'Every input row is represented once in original order'
+        )
+        const value = entry.value
+        check(value.moduleName === '公开导入模组', 'Every candidate retains the complete module name')
+        if (index < 114)
+          check(
+            value.sessionName === '公开导入场' + index &&
+              value.link === 'https://log.weizaima.com/?key=public-io-' + index &&
+              !value.manualContent,
+            'Every format retains all complete names and links'
+          )
+        else
+          check(
+            value.sessionName === '公开导入完整手动正文' &&
+              value.link === '' &&
+              value.manualContent === 'PUBLIC_MANUAL_BEGIN\n完整😀正文\nPUBLIC_MANUAL_END',
+            'Every format retains the entire final Unicode manual body'
+          )
+      })
+      const preview = receivedTablePreview as NativeTablePreview | undefined
+      const tail = await Native.readTablePreview!({ id: preview!.id, kind: 'names', offset: 100, limit: 100 })
+      check(
+        tail.total === 115 &&
+          tail.values.length === 15 &&
+          tail.values[14] === '公开导入模组 / 公开导入完整手动正文',
+        'Native preview includes the last page and complete final row'
+      )
+      if (!commit || extension !== 'xls' || repeat !== 2) {
+        const dialog = document.querySelector('[role="dialog"][aria-label="表格导入预览"]')!
+        check(button('取消', dialog), 'Table preview cancel is available')
+        button('取消', dialog)!.click()
+        await waitFor(
+          () =>
+            !document.querySelector('[role="dialog"][aria-label="表格导入预览"]') && button('导入场次表格'),
+          'cancelled table lease released'
+        )
+        const afterCancel = await Native.getOverview()
+        check(
+          JSON.parse(afterCancel.json!).records.length === 78,
+          'Cancelled preview must not write any record'
+        )
+      }
+    }
+  }
+  if (!commit) return
+  await timed('record-table-import-commit-full-115', async () => {
+    await click('确认添加表格数据')
+    await waitFor(
+      () => !document.querySelector('[role="dialog"][aria-label="表格导入预览"]') && button('导入场次表格'),
+      'complete table commit'
+    )
+  })
+  await checkCompleteImportedTable()
+}
+
+async function checkCompleteImportedTable() {
+  const state = await Native.getOverview(),
+    metadata = JSON.parse(state.json!)
+  check(metadata.records.length === 193, 'All original and 115 imported records survive')
+  const module = metadata.modules.find((row: { name: string }) => row.name === '公开导入模组')
+  check(module, 'Complete imported module exists')
+  const rows = metadata.records.filter((row: { moduleId: string }) => row.moduleId === module.id)
+  check(rows.length === 115, 'Imported module contains every row exactly once')
+  for (let i = 0; i < 114; i++) {
+    const matching = rows.filter((row: { name: string }) => row.name === '公开导入场' + i)
+    check(
+      matching.length === 1 && matching[0].link === 'https://log.weizaima.com/?key=public-io-' + i,
+      'Every complete link and name matches the independent public input'
+    )
+  }
+  const manual = rows.find((row: { name: string }) => row.name === '公开导入完整手动正文')
+  check(manual, 'Last manual row is present')
+  const content = JSON.parse(
+    (await Native.getRecordContent({ ids: [manual.id], expectedRevision: state.revision })).json
+  )
+  check(
+    content.records[0].manualContent === 'PUBLIC_MANUAL_BEGIN\n完整😀正文\nPUBLIC_MANUAL_END',
+    'Last manual Unicode body is complete'
+  )
+}
+
 /** @returns Completes all supported table, backup and six-format single/batch/combined exports through the packaged UI. */
 async function completeMatrix() {
   confirmations = setInterval(() => {
@@ -257,6 +451,9 @@ async function completeMatrix() {
       content.records[0].manualContent === 'PUBLIC_MANUAL_BEGIN\n完整😀正文\nPUBLIC_MANUAL_END',
       'Manual Unicode/newlines must be complete'
     )
+    await checkCompleteImportedTable()
+    if (extension === 'csv')
+      results.push({ ...results[results.length - 1]!, operation: 'record-table-import-commit-full-115' })
   }
   for (const [label, operation] of [
     ['导出记录 CSV', 'record-table-export-csv'],
@@ -421,83 +618,74 @@ void (async () => {
       document.querySelector<HTMLButtonElement>('button[aria-label="清空模组正文搜索"]')!.click()
       await new Promise((resolve) => setTimeout(resolve, 0))
     }
-    await click('角色卡')
-    if (['complete', 'cards'].includes(window.__publicIoConfig.mode)) {
-      window.__publicIoSource = 'public-io-card-spill.xlsx'
-      delayNextStageForCancellation = true
-      await timed('character-import-back-cancel-with-delayed-stage', async () => {
-        await click('导入七版角色卡')
-        await waitFor(
-          () =>
-            !delayNextStageForCancellation &&
-            document.querySelector('[role="progressbar"][aria-label="导入处理进度"]'),
-          'real card progress before back'
-        )
-        // iOS intentionally has no header back button; use its protected
-        // navigation entry. Gesture-to-entry wiring is covered by browser UI tests.
-        if (Capacitor.getPlatform() === 'ios') {
-          check(!document.querySelector('.app-back'), 'Keep the iOS header without an Android back button')
-          window.dispatchEvent(new Event('logbook-back'))
-        } else {
-          const back = document.querySelector<HTMLButtonElement>('.app-back')
-          check(back && !back.disabled, 'Android header back must be available')
-          back.click()
-        }
-        await waitFor(
-          () =>
-            button('导入七版角色卡') &&
-            !document.querySelector('.editor') &&
-            !document.querySelector('[role="progressbar"][aria-label="导入处理进度"]'),
-          'back cancellation finished'
-        )
-        check(
-          calls.some((call) => call.method === 'cancelTableStage'),
-          'Cancelled card must release its native stage'
-        )
-        check(
-          (await Native.getOverview()).revision === overview.revision,
-          'Back-cancelled card must not write'
-        )
-      })
-      await delayedCancellationStage
-      delayNextStageForCancellation = false
-    }
-    for (const extension of window.__publicIoConfig.mode === 'matrix' ? [] : ['xlsx', 'xls'])
-      for (let repeat = 0; repeat < 3; repeat++) {
-        window.__publicIoSource = 'public-io-card.' + extension
-        if (extension === 'xls') {
-          await timed('character-import-xls-explicit-rejection-' + repeat, async () => {
-            await click('导入七版角色卡')
-            await waitFor(
-              () =>
-                document
-                  .querySelector('[role="alert"]')
-                  ?.textContent?.includes('请选择七版角色卡的 XLSX 文件'),
-              'unsupported card explicitly rejected'
-            )
-          })
-          check(
-            (await Native.getOverview()).revision === overview.revision,
-            'Unsupported card must not write'
-          )
-          continue
-        }
-        await timed('character-import-' + extension + '-' + repeat, async () => {
+    if (window.__publicIoConfig.mode !== 'tables') {
+      await click('角色卡')
+      if (['complete', 'cards'].includes(window.__publicIoConfig.mode)) {
+        window.__publicIoSource = 'public-io-card-spill.xlsx'
+        delayNextStageForCancellation = true
+        await timed('character-import-back-cancel-with-delayed-stage', async () => {
           await click('导入七版角色卡')
           await waitFor(
             () =>
-              document.querySelector<HTMLInputElement>('.editor input[role="combobox"]')?.value ===
-              (window.__publicIoConfig.expectedCardName ?? '公开七版调查员'),
-            'complete character draft'
+              !delayNextStageForCancellation &&
+              document.querySelector('[role="progressbar"][aria-label="导入处理进度"]'),
+            'real card progress before back'
           )
-          if (window.__publicIoConfig.localPrivateCard)
-            await waitFor(() => privateDraftProof === window.__publicIoConfig.expectedCardProof, 'complete character fields equal independent original importer')
+          document.querySelector<HTMLButtonElement>('.app-back')!.click()
+          await waitFor(
+            () => button('导入七版角色卡') && !document.querySelector('.editor'),
+            'back cancellation finished'
+          )
+          check(
+            (await Native.getOverview()).revision === overview.revision,
+            'Back-cancelled card must not write'
+          )
         })
-        await click('取消编辑')
-        if (button('确认')) await click('确认')
-        await waitFor(() => button('导入七版角色卡'), 'character cancellation')
-        check((await Native.getOverview()).revision === overview.revision, 'Cancelled card must not write')
+        await delayedCancellationStage
+        delayNextStageForCancellation = false
       }
+      for (const extension of window.__publicIoConfig.mode === 'matrix' ? [] : ['xlsx', 'xls'])
+        for (let repeat = 0; repeat < 3; repeat++) {
+          window.__publicIoSource = 'public-io-card.' + extension
+          if (extension === 'xls') {
+            await timed('character-import-xls-explicit-rejection-' + repeat, async () => {
+              await click('导入七版角色卡')
+              await waitFor(
+                () =>
+                  document
+                    .querySelector('[role="alert"]')
+                    ?.textContent?.includes('请选择七版角色卡的 XLSX 文件'),
+                'unsupported card explicitly rejected'
+              )
+            })
+            check(
+              (await Native.getOverview()).revision === overview.revision,
+              'Unsupported card must not write'
+            )
+            continue
+          }
+          await timed('character-import-' + extension + '-' + repeat, async () => {
+            await click('导入七版角色卡')
+            await waitFor(
+              () =>
+                document.querySelector<HTMLInputElement>('.editor input[role="combobox"]')?.value ===
+                (window.__publicIoConfig.expectedCardName ?? '公开七版调查员'),
+              'complete character draft'
+            )
+            if (window.__publicIoConfig.localPrivateCard)
+              await waitFor(
+                () => privateDraftProof === window.__publicIoConfig.expectedCardProof,
+                'complete character fields equal independent original importer'
+              )
+          })
+          await click('取消编辑')
+          if (button('确认')) await click('确认')
+          await waitFor(() => button('导入七版角色卡'), 'character cancellation')
+          check((await Native.getOverview()).revision === overview.revision, 'Cancelled card must not write')
+        }
+    }
+    if (window.__publicIoConfig.mode === 'tables') await measureRecordTables()
+    if (window.__publicIoConfig.mode === 'complete') await measureRecordTables(false)
     if (['complete', 'matrix'].includes(window.__publicIoConfig.mode)) await completeMatrix()
     window.__publicIoResult = {
       passed: true,

@@ -2,11 +2,23 @@ name: iOS IPA development
 on:
   push:
     branches: [codex/ios-ipa-adaptation]
-    paths: ['mobile/**', '!mobile/*.md', '!mobile/releases/**', 'src/shared/**', '.github/workflows/ios-check.yml']
+    paths:
+      [
+        'mobile/**',
+        '!mobile/*.md',
+        '!mobile/releases/**',
+        'src/shared/**',
+        '.github/workflows/ios-check.yml',
+        '.github/workflows/ios-public-io-check.yml'
+      ]
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
+  # A fresh runner performs every complete I/O assertion in parallel with the
+  # native/UI suites, avoiding a second simulator on their exhausted host.
+  complete-public-io:
+    uses: ./.github/workflows/ios-public-io-check.yml
   ios:
     runs-on: xcode-27
     # Expanded UI suites retain their own 900s process limits and exact 10s
@@ -27,6 +39,10 @@ jobs:
           cache-dependency-path: mobile/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck && pnpm test
+      - name: Check strict first and repeated import timing gates
+        run: python3 scripts/test-character-import-acceptance.py && python3 scripts/test-table-import-acceptance.py
+      - name: Check required parallel iOS acceptance schedule
+        run: python3 scripts/test-ios-ci-scheduling.py
       - name: Check iOS native transactions, bodies and local archive protection
         run: |
           node scripts/ios-native-fixture.mjs
@@ -56,7 +72,7 @@ jobs:
         run: |
           gem install --user-install xcodeproj --no-document
           node scripts/coc7-public-fixture.mjs
-          python3 scripts/ios-simulator-smoke.py
+          python3 scripts/ios-simulator-smoke.py --required-public-io-job complete-public-io
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -90,3 +106,13 @@ jobs:
           name: ios-build-diagnostics
           path: mobile/ios/build/*.log
           if-no-files-found: ignore
+  ios-complete:
+    needs: [ios, complete-public-io]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require native, system UI and complete I/O success
+        env:
+          NATIVE_RESULT: ${{ needs.ios.result }}
+          IO_RESULT: ${{ needs.complete-public-io.result }}
+        run: test "$NATIVE_RESULT" = success && test "$IO_RESULT" = success

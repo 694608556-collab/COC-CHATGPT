@@ -1,4 +1,6 @@
+import argparse
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -23,7 +25,78 @@ def command(*args, timeout=60, log=None):
     return (result.stdout or '').strip()
 
 
-def main():
+def _job_block(workflow, name):
+    """Read our checked-in block-style job layout, rejecting ambiguous entries."""
+    if workflow.count('\njobs:\n') != 1:
+        raise RuntimeError('Required iOS workflow jobs are missing or ambiguous')
+    jobs = workflow.split('\njobs:\n', 1)[1]
+    headers = list(re.finditer(r'^  ([A-Za-z0-9_-]+):[ \t]*$', jobs, re.MULTILINE))
+    selected = [index for index, header in enumerate(headers) if header.group(1) == name]
+    if len(selected) != 1:
+        raise RuntimeError('Required iOS job missing or duplicated: ' + name)
+    index = selected[0]
+    return jobs[headers[index].end():headers[index + 1].start() if index + 1 < len(headers) else len(jobs)]
+
+
+def required_public_io_is_delegated(job, environment, workflow, reusable):
+    """Only full CI may delegate I/O; all other invocations retain inline I/O.
+
+    This deliberately accepts the checked-in simple workflow layout only. A
+    workflow restructuring must update this guard and its negative tests, so a
+    missing/conditional/optional replacement cannot silently remove coverage.
+    """
+    if job is None:
+        return False
+    if (job != 'complete-public-io' or environment.get('GITHUB_ACTIONS') != 'true'
+            or environment.get('GITHUB_JOB') != 'ios'
+            or not re.fullmatch(r'[^/]+/[^/]+/\.github/workflows/ios-check\.yml@.+', environment.get('GITHUB_WORKFLOW_REF', ''))):
+        raise RuntimeError('Complete I/O delegation requires the explicit full iOS workflow job')
+    delegated = _job_block(workflow, job)
+    lines = [line.strip() for line in delegated.splitlines() if line.strip() and not line.lstrip().startswith('#')]
+    if lines != ['uses: ./.github/workflows/ios-public-io-check.yml']:
+        raise RuntimeError('Complete I/O must be an unconditional parallel reusable job')
+    gate = _job_block(workflow, 'ios-complete')
+    required_gate = [
+        '    needs: [ios, complete-public-io]',
+        '    if: ${{ always() }}',
+        '          NATIVE_RESULT: ${{ needs.ios.result }}',
+        '          IO_RESULT: ${{ needs.complete-public-io.result }}',
+        '        run: test "$NATIVE_RESULT" = success && test "$IO_RESULT" = success',
+    ]
+    if (any(gate.splitlines().count(line) != 1 for line in required_gate)
+            or 'continue-on-error:' in gate
+            or re.search(r'^\s{6,}(?:- )?if:', gate, re.MULTILINE)):
+        raise RuntimeError('Full iOS acceptance must require success from both independent jobs')
+    header = reusable.split('\njobs:\n', 1)[0]
+    if not re.search(r'^  workflow_call:[ \t]*$', header, re.MULTILINE) or re.search(r'^  push:', header, re.MULTILINE):
+        raise RuntimeError('Complete I/O must be callable without a duplicate push run')
+    io = _job_block(reusable, 'public-io-feedback')
+    if (io.splitlines().count('    runs-on: xcode-27') != 1
+            or re.search(r'^    (?:if|needs|continue-on-error):', io, re.MULTILINE)):
+        raise RuntimeError('Complete I/O must execute unconditionally on its fresh Xcode runner')
+    required_commands = [
+        'python3 scripts/ios-public-io-check.py',
+        'python3 scripts/test-character-import-acceptance.py',
+        'python3 scripts/test-table-import-acceptance.py',
+    ]
+    steps = re.split(r'^      - ', io, flags=re.MULTILINE)[1:]
+    for command_text in required_commands:
+        matching = [step for step in steps if re.search(r'(?m)^\s*run:.*' + re.escape(command_text) + r'(?:\s|$)', step)]
+        if len(matching) != 1 or re.search(r'^\s*(?:if|continue-on-error):', matching[0], re.MULTILINE):
+            raise RuntimeError('Required complete I/O or performance check missing/conditional: ' + command_text)
+    return True
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--required-public-io-job', help='Full CI only: mandatory parallel job that runs all complete I/O checks')
+    arguments = parser.parse_args(argv)
+    root = pathlib.Path(__file__).resolve().parents[2]
+    delegated_io = required_public_io_is_delegated(
+        arguments.required_public_io_job, os.environ,
+        (root / '.github/workflows/ios-check.yml').read_text(encoding='utf-8'),
+        (root / '.github/workflows/ios-public-io-check.yml').read_text(encoding='utf-8'),
+    )
     OUTPUT.mkdir(parents=True, exist_ok=True)
     udid = None
     io_udid = None
@@ -96,7 +169,7 @@ def main():
             ('names', ['testPublicNameCandidatesSecondLaunchWithNativeKeyboard', 'testPublicNameCandidatesThirdLaunchWithNativeKeyboard', 'testPublicNameCandidatesWithNativeKeyboard'], 'picker-ui-names.xcresult', False),
             ('stress', ['testPublicNameCandidateRepeatedSwitchFocusAndKeyboard'], 'picker-ui-stress.xcresult', True),
         ]
-        declared = re.findall(r'\bfunc (test\w+)\(', pathlib.Path('scripts/ios-picker-ui-tests.swift').read_text())
+        declared = re.findall(r'\bfunc (test\w+)\(', pathlib.Path('scripts/ios-picker-ui-tests.swift').read_text(encoding='utf-8'))
         planned = [case for _, cases, _, _ in groups for case in cases]
         if len(planned) != len(set(planned)) or sorted(planned) != sorted(declared):
             raise RuntimeError('Every declared public UI test must run exactly once: ' + str(declared))
@@ -192,33 +265,36 @@ def main():
         print(json.dumps(capacity), flush=True)
         if not capacity.get('passed'):
             raise RuntimeError('Public native capacity WKWebView failed: ' + str(capacity))
-        phase = 'public-complete-io-fixtures'
-        command('xcrun', 'simctl', 'shutdown', udid, timeout=60)
-        command('node', 'scripts/public-io-fixtures.mjs', '--ios', timeout=120)
-        io_udid = command('xcrun', 'simctl', 'create', 'COC isolated public I/O timing', device['identifier'], runtime['identifier'])
-        uuid.UUID(io_udid)
-        command('xcrun', 'simctl', 'boot', io_udid, timeout=300)
-        command('xcrun', 'simctl', 'bootstatus', io_udid, '-b', timeout=300)
-        command('xcrun', 'simctl', 'install', io_udid, 'ios/build/simulator/Build/Products/Debug-iphonesimulator/App.app', timeout=120)
-        io_container = pathlib.Path(command('xcrun', 'simctl', 'get_app_container', io_udid, 'coc.logbook', 'data'))
-        command('python3', 'scripts/ios-public-io-fixture.py', str(io_container / 'Library/Application Support/COCLogbook/logbook.sqlite'), timeout=120)
-        (io_container / 'tmp').mkdir(parents=True, exist_ok=True)
-        (io_container / 'tmp/ios-scale-webview.js').write_text(pathlib.Path('ios/build/public-io/public-io-webview.js').read_text())
-        io_report = io_container / 'tmp/ios-scale-result.json'
-        phase = 'public-complete-io-wkwebview'
-        command('xcrun', 'simctl', 'launch', io_udid, 'coc.logbook', '--coc-ios-scale', '--coc-public-io', timeout=120)
-        deadline = time.monotonic() + 950
-        while not io_report.exists() and time.monotonic() < deadline:
-            time.sleep(1)
-        if not io_report.exists():
-            raise TimeoutError('Public complete I/O timing report not produced')
-        io_output = OUTPUT / 'ios-public-io-result.json'
-        io_output.write_bytes(io_report.read_bytes())
-        io_result = json.loads(io_output.read_text())
-        if not io_result.get('passed'):
-            raise RuntimeError('Complete public I/O failed: ' + str(io_result))
-        command('xcrun', 'simctl', 'terminate', io_udid, 'coc.logbook', timeout=60)
-        command('python3', 'scripts/check-public-io.py', str(io_container), str(io_output), timeout=120)
+        if delegated_io:
+            print('Complete I/O is required in the parallel complete-public-io job; ios-complete requires both jobs to succeed.', flush=True)
+        else:
+            phase = 'public-complete-io-fixtures'
+            command('xcrun', 'simctl', 'shutdown', udid, timeout=60)
+            command('node', 'scripts/public-io-fixtures.mjs', '--ios', timeout=120)
+            io_udid = command('xcrun', 'simctl', 'create', 'COC isolated public I/O timing', device['identifier'], runtime['identifier'])
+            uuid.UUID(io_udid)
+            command('xcrun', 'simctl', 'boot', io_udid, timeout=300)
+            command('xcrun', 'simctl', 'bootstatus', io_udid, '-b', timeout=300)
+            command('xcrun', 'simctl', 'install', io_udid, 'ios/build/simulator/Build/Products/Debug-iphonesimulator/App.app', timeout=120)
+            io_container = pathlib.Path(command('xcrun', 'simctl', 'get_app_container', io_udid, 'coc.logbook', 'data'))
+            command('python3', 'scripts/ios-public-io-fixture.py', str(io_container / 'Library/Application Support/COCLogbook/logbook.sqlite'), timeout=120)
+            (io_container / 'tmp').mkdir(parents=True, exist_ok=True)
+            (io_container / 'tmp/ios-scale-webview.js').write_text(pathlib.Path('ios/build/public-io/public-io-webview.js').read_text())
+            io_report = io_container / 'tmp/ios-scale-result.json'
+            phase = 'public-complete-io-wkwebview'
+            command('xcrun', 'simctl', 'launch', io_udid, 'coc.logbook', '--coc-ios-scale', '--coc-public-io', timeout=120)
+            deadline = time.monotonic() + 950
+            while not io_report.exists() and time.monotonic() < deadline:
+                time.sleep(1)
+            if not io_report.exists():
+                raise TimeoutError('Public complete I/O timing report not produced')
+            io_output = OUTPUT / 'ios-public-io-result.json'
+            io_output.write_bytes(io_report.read_bytes())
+            io_result = json.loads(io_output.read_text())
+            if not io_result.get('passed'):
+                raise RuntimeError('Complete public I/O failed: ' + str(io_result))
+            command('xcrun', 'simctl', 'terminate', io_udid, 'coc.logbook', timeout=60)
+            command('python3', 'scripts/check-public-io.py', str(io_container), str(io_output), timeout=120)
         if capture_errors:
             raise RuntimeError('Required screenshot capture failed after startup/UI checks: ' + '; '.join(capture_errors))
     except Exception as error:
