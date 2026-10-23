@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { createHash } from 'node:crypto'
+import { createHash, webcrypto } from 'node:crypto'
 import * as XLSX from 'xlsx'
 import { performTableStreamJob } from './table-stream-job'
 import type { TableStreamJob } from './table-stream-job'
@@ -7,6 +7,98 @@ import { publicCoc7Workbook } from '../../test-fixtures/coc7'
 import { StreamSha256 } from './stream-sha256'
 
 afterEach(() => vi.unstubAllGlobals())
+
+it('bounded candidate text is encoded together without changing a complete row or its order', async () => {
+  const reference = await complete(false, '公开中😀完整正文'.repeat(3000))
+  const { job } = fixture(true, '公开中😀完整正文'.repeat(3000)),
+    seen: Blob[] = []
+  vi.stubGlobal(
+    'FileReaderSync',
+    class {
+      readAsArrayBuffer(blob: Blob) {
+        seen.push(blob)
+        return Uint8Array.from(reference.bytes).buffer
+      }
+    }
+  )
+  const chunks: Uint8Array[] = []
+  const result = await performTableStreamJob(
+    job,
+    async (_key, bytes) => {
+      chunks.push(bytes.slice())
+    },
+    async () => {
+      throw Error('Unexpected SST')
+    }
+  )
+  expect(seen).toHaveLength(1)
+  expect(new Uint8Array(await seen[0]!.arrayBuffer())).toEqual(Uint8Array.from(reference.bytes))
+  expect(Buffer.concat(chunks)).toEqual(reference.bytes)
+  expect(result.candidate).toEqual(reference.result.candidate)
+})
+
+it.each([256 * 1024 - 1, 256 * 1024, 256 * 1024 + 1])(
+  'the %s-code-unit queue boundary preserves the whole candidate and its live byte budget',
+  async (length) => {
+    const reference = await complete(false, 'x'),
+      overhead = reference.bytes.toString('utf8').length - 1
+    const body = 'x'.repeat(length - overhead),
+      actual = await complete(true, body)
+    expect(actual.bytes.toString('utf8').length).toBe(length)
+    expect(JSON.parse(actual.bytes.toString('utf8').split('\n')[0]!.slice(1)).value.manualContent).toBe(body)
+    expect(actual.result.candidate).toEqual({
+      bytes: actual.bytes.length,
+      sha256: createHash('sha256').update(actual.bytes).digest('hex')
+    })
+    const { job } = fixture(true, body)
+    job.maximumStageBytes = actual.bytes.length - 1
+    await expect(
+      performTableStreamJob(
+        job,
+        async () => {},
+        async () => {
+          throw Error('Unexpected SST')
+        }
+      )
+    ).rejects.toThrow(/暂存|空间/)
+  }
+)
+
+it('small complete records use native SHA only after every append is acknowledged', async () => {
+  const { job } = fixture(true),
+    chunks: Uint8Array[] = []
+  let active = 0,
+    calls = 0
+  vi.stubGlobal('crypto', {
+    subtle: {
+      async digest(algorithm: string, bytes: ArrayBuffer) {
+        calls++
+        expect(algorithm).toBe('SHA-256')
+        expect(active).toBe(0)
+        expect(Buffer.from(bytes)).toEqual(Buffer.concat(chunks))
+        return webcrypto.subtle.digest(algorithm, bytes)
+      }
+    }
+  })
+  const result = await performTableStreamJob(
+    job,
+    async (_key, bytes) => {
+      active++
+      chunks.push(bytes.slice())
+      await Promise.resolve()
+      active--
+    },
+    async () => {
+      throw Error('Unexpected SST')
+    }
+  )
+  expect(calls).toBe(1)
+  expect(result.candidate).toEqual({
+    bytes: Buffer.concat(chunks).length,
+    sha256: createHash('sha256').update(Buffer.concat(chunks)).digest('hex')
+  })
+  expect(result.timing?.jsDigestFinalizeMs).toBeGreaterThanOrEqual(0)
+})
 
 /** Build a public multi-chunk workbook and its complete native token transport.
  * @param measure Whether optional numeric diagnostics are requested.
@@ -91,25 +183,42 @@ async function complete(measure: boolean, text?: string) {
 }
 
 it('records calculate the complete candidate proof while each private append awaits acknowledgement', async () => {
-  const { job } = fixture(true), events: string[] = [], chunks: Uint8Array[] = []
+  vi.stubGlobal('crypto', undefined) // Exercise the unchanged incremental fallback and its ACK ordering.
+  const { job } = fixture(true),
+    events: string[] = [],
+    chunks: Uint8Array[] = []
   const original = StreamSha256.prototype.update
-  const update = vi.spyOn(StreamSha256.prototype, 'update').mockImplementation(function (this: StreamSha256, bytes) {
+  const update = vi.spyOn(StreamSha256.prototype, 'update').mockImplementation(function (
+    this: StreamSha256,
+    bytes
+  ) {
     events.push('digest')
     return original.call(this, bytes)
   })
   try {
-    const result = await performTableStreamJob(job, async (key, bytes) => {
-      expect(key).toBe('candidate')
-      chunks.push(bytes.slice())
-      events.push('write')
-      await Promise.resolve()
-      events.push('ack')
-    }, async () => { throw Error('Unexpected SST') })
+    const result = await performTableStreamJob(
+      job,
+      async (key, bytes) => {
+        expect(key).toBe('candidate')
+        chunks.push(bytes.slice())
+        events.push('write')
+        await Promise.resolve()
+        events.push('ack')
+      },
+      async () => {
+        throw Error('Unexpected SST')
+      }
+    )
     expect(chunks.length).toBeGreaterThan(1)
     expect(events).toEqual(chunks.flatMap(() => ['write', 'digest', 'ack']))
     const bytes = Buffer.concat(chunks)
-    expect(result.candidate).toEqual({ bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
-  } finally { update.mockRestore() }
+    expect(result.candidate).toEqual({
+      bytes: bytes.length,
+      sha256: createHash('sha256').update(bytes).digest('hex')
+    })
+  } finally {
+    update.mockRestore()
+  }
 })
 
 it('optional records timings preserve every candidate byte and SHA across multiple acknowledged chunks', async () => {
@@ -141,38 +250,314 @@ it('optional records timings preserve every candidate byte and SHA across multip
   expect(timing.jsTotalMs).toBeGreaterThanOrEqual(timing.jsRecordsReplayMs!)
 })
 
-it.each([false, true])('digest failure still settles the outstanding append and preserves its failure priority: %s', async (rejectAppend) => {
+it.each([false, true])(
+  'digest failure still settles the outstanding append and preserves its failure priority: %s',
+  async (rejectAppend) => {
+    vi.stubGlobal('crypto', undefined) // Fault injection targets the incremental fallback.
+    const { job } = fixture(true)
+    let release!: () => void, entered!: () => void
+    const acknowledgement = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const writing = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const update = vi.spyOn(StreamSha256.prototype, 'update').mockImplementation(() => {
+      throw Error('candidate digest failed')
+    })
+    try {
+      const result = performTableStreamJob(
+        job,
+        async () => {
+          entered()
+          await acknowledgement
+          if (rejectAppend) throw Error('private append failed')
+        },
+        async () => {
+          throw Error('Unexpected SST')
+        }
+      )
+      let settled = false
+      void result.then(
+        () => {
+          settled = true
+        },
+        () => {
+          settled = true
+        }
+      )
+      await writing
+      await Promise.resolve()
+      expect(settled).toBe(false)
+      release()
+      await expect(result).rejects.toThrow(rejectAppend ? 'private append failed' : 'candidate digest failed')
+    } finally {
+      update.mockRestore()
+    }
+  }
+)
+
+it.each([2 * 1024 * 1024 - 1, 2 * 1024 * 1024, 2 * 1024 * 1024 + 1])(
+  'the native digest budget at %s bytes never limits complete input or permits borrowed-byte mutation',
+  async (length) => {
+    const reference = await complete(false, 'x')
+    const body = 'x'.repeat(length - reference.bytes.length + 1)
+    const { job } = fixture(true, body),
+      chunks: Uint8Array[] = []
+    let calls = 0
+    vi.stubGlobal('crypto', {
+      subtle: {
+        async digest(algorithm: string, bytes: ArrayBuffer) {
+          calls++
+          return webcrypto.subtle.digest(algorithm, bytes)
+        }
+      }
+    })
+    const result = await performTableStreamJob(
+      job,
+      async (_key, chunk) => {
+        chunks.push(chunk.slice())
+        await Promise.resolve()
+        chunk.fill(0)
+      },
+      async () => {
+        throw Error('Unexpected SST')
+      }
+    )
+    const bytes = Buffer.concat(chunks)
+    expect(bytes.length).toBe(length)
+    expect(result.candidate).toEqual({
+      bytes: length,
+      sha256: createHash('sha256').update(bytes).digest('hex')
+    })
+    expect(JSON.parse(bytes.toString('utf8').split('\n')[0]!.slice(1)).value.manualContent).toBe(body)
+    expect(calls).toBe(length <= 2 * 1024 * 1024 ? 1 : 0)
+  }
+)
+
+it.each(['rejection', 'short-result'])(
+  'a native digest %s retains every original byte for a complete incremental proof',
+  async (failure) => {
+    vi.stubGlobal('crypto', {
+      subtle: {
+        async digest() {
+          if (failure === 'rejection') throw Error('public native SHA unavailable')
+          return new ArrayBuffer(31)
+        }
+      }
+    })
+    const result = await complete(true)
+    expect(result.result.candidate).toEqual({
+      bytes: result.bytes.length,
+      sha256: createHash('sha256').update(result.bytes).digest('hex')
+    })
+    expect(JSON.parse(result.bytes.toString('utf8').split('\n')[0]!.slice(1)).value.manualContent).toBe(
+      result.body
+    )
+  }
+)
+
+it('cancellation during the native digest waits for it and never returns a successful proof', async () => {
+  const { job } = fixture(true),
+    controller = new AbortController()
+  let entered!: () => void,
+    release!: () => void,
+    active = 0
+  const digesting = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  const wait = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  vi.stubGlobal('crypto', {
+    subtle: {
+      async digest(algorithm: string, bytes: ArrayBuffer) {
+        expect(active).toBe(0)
+        entered()
+        await wait
+        return webcrypto.subtle.digest(algorithm, bytes)
+      }
+    }
+  })
+  const result = performTableStreamJob(
+    job,
+    async () => {
+      active++
+      await Promise.resolve()
+      active--
+    },
+    async () => {
+      throw Error('Unexpected SST')
+    },
+    controller.signal
+  )
+  let settled = false
+  void result.then(
+    () => {
+      settled = true
+    },
+    () => {
+      settled = true
+    }
+  )
+  await digesting
+  controller.abort()
+  await Promise.resolve()
+  expect(settled).toBe(false)
+  release()
+  await expect(result).rejects.toThrow('取消')
+})
+
+it('native and incremental digest failures cannot produce an empty or substitute candidate proof', async () => {
   const { job } = fixture(true)
-  let release!: () => void, entered!: () => void
-  const acknowledgement = new Promise<void>(resolve => { release = resolve })
-  const writing = new Promise<void>(resolve => { entered = resolve })
-  const update = vi.spyOn(StreamSha256.prototype, 'update').mockImplementation(() => { throw Error('candidate digest failed') })
+  vi.stubGlobal('crypto', {
+    subtle: {
+      async digest() {
+        throw Error('public native SHA failure')
+      }
+    }
+  })
+  const update = vi.spyOn(StreamSha256.prototype, 'update').mockImplementation(() => {
+    throw Error('public incremental SHA failure')
+  })
   try {
-    const result = performTableStreamJob(job, async () => {
-      entered()
-      await acknowledgement
-      if (rejectAppend) throw Error('private append failed')
-    }, async () => { throw Error('Unexpected SST') })
+    await expect(
+      performTableStreamJob(
+        job,
+        async () => {},
+        async () => {
+          throw Error('Unexpected SST')
+        }
+      )
+    ).rejects.toThrow('public incremental SHA failure')
+  } finally {
+    update.mockRestore()
+  }
+})
+
+it.each(['success', 'cancel', 'append-failure'] as const)(
+  'one outstanding candidate keeps its borrowed bytes immutable and settles before %s',
+  async (outcome) => {
+    const { job } = fixture(true),
+      controller = new AbortController(),
+      chunks: Uint8Array[] = []
+    let release!: () => void,
+      entered!: () => void,
+      active = 0,
+      maximumActive = 0
+    const ack = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const writing = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    let borrowed: Uint8Array | undefined, original: Uint8Array | undefined
+    const result = performTableStreamJob(
+      job,
+      async (_key, bytes) => {
+        maximumActive = Math.max(maximumActive, ++active)
+        try {
+          if (!borrowed) {
+            borrowed = bytes
+            original = bytes.slice()
+            entered()
+            await ack
+            expect(bytes).toEqual(original)
+            if (outcome === 'append-failure') throw Error('deferred append failed')
+          }
+          chunks.push(bytes.slice())
+        } finally {
+          active--
+        }
+      },
+      async () => {
+        throw Error('Unexpected SST')
+      },
+      controller.signal
+    )
     let settled = false
-    void result.then(() => { settled = true }, () => { settled = true })
+    void result.then(
+      () => {
+        settled = true
+      },
+      () => {
+        settled = true
+      }
+    )
     await writing
-    await Promise.resolve()
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    expect(settled).toBe(false)
+    expect(borrowed).toEqual(original)
+    if (outcome === 'cancel') controller.abort()
+    release()
+    if (outcome === 'success') {
+      const value = await result,
+        bytes = Buffer.concat(chunks)
+      expect(chunks.length).toBeGreaterThan(1)
+      expect(value.candidate).toEqual({
+        bytes: bytes.length,
+        sha256: createHash('sha256').update(bytes).digest('hex')
+      })
+    } else await expect(result).rejects.toThrow(outcome === 'cancel' ? '取消' : 'deferred append failed')
+    expect(maximumActive).toBe(1)
+    expect(active).toBe(0)
+  }
+)
+
+it.each([false, true])(
+  'late malformed coordinates settle the prior append and preserve its failure priority: %s',
+  async (rejectAppend) => {
+    // Cross the bounded text queue so the malformed later row still follows
+    // a real in-flight append, as required by this failure-ordering test.
+    const { job } = fixture(true, '公开正文😀\r\n'.repeat(35000) + '完整尾部')
+    const payload = JSON.parse(job.recordsKernel!.payloadJson)
+    payload.sheets[0].rows[2].cells[0][0] = 'A99'
+    job.recordsKernel!.payloadJson = JSON.stringify(payload)
+    let release!: () => void, entered!: () => void
+    const ack = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const writing = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const result = performTableStreamJob(
+      job,
+      async () => {
+        entered()
+        await ack
+        if (rejectAppend) throw Error('prior append failed')
+      },
+      async () => {
+        throw Error('Unexpected SST')
+      }
+    )
+    let settled = false
+    void result.then(
+      () => {
+        settled = true
+      },
+      () => {
+        settled = true
+      }
+    )
+    await writing
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
     expect(settled).toBe(false)
     release()
-    await expect(result).rejects.toThrow(rejectAppend ? 'private append failed' : 'candidate digest failed')
-  } finally { update.mockRestore() }
-})
+    await expect(result).rejects.toThrow(rejectAppend ? 'prior append failed' : /单元格|行号/)
+  }
+)
 
 it.each([16383, 16384])(
   'candidate encoding changes implementation only at the internal %s-code-unit boundary',
   async (length) => {
     const reference = await complete(false, 'x')
-    const overhead = reference.bytes.toString('utf8').split('\n')[0]!.length
+    const overhead = reference.bytes.toString('utf8').length - 1
     const body = 'x'.repeat(length - overhead)
     const baseline = await complete(false, body)
-    const firstLine = baseline.bytes.toString('utf8').split('\n')[0]! + '\n'
-    expect(firstLine.length).toBe(length)
-    const expected = new TextEncoder().encode(firstLine),
+    const completeText = baseline.bytes.toString('utf8')
+    expect(completeText.length).toBe(length)
+    const expected = new TextEncoder().encode(completeText),
       received: Blob[] = []
     vi.stubGlobal(
       'FileReaderSync',
@@ -195,8 +580,7 @@ it.each([16383, 16384])(
 it('large Worker Blob candidates preserve full multi-chunk Unicode, lone surrogates, CRLF, NUL and SHA', async () => {
   const body = '公开正文😀\r\n'.repeat(25000) + '\0\ufeff\ud800x\udc00\r\n完整尾部'
   const baseline = await complete(true, body)
-  const firstLine = baseline.bytes.toString('utf8').split('\n')[0]! + '\n'
-  const expected = new TextEncoder().encode(firstLine),
+  const expected = Uint8Array.from(baseline.bytes),
     received: Blob[] = []
   vi.stubGlobal(
     'FileReaderSync',

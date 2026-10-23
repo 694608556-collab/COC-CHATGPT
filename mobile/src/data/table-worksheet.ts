@@ -29,6 +29,8 @@ export interface WorksheetEvents {
   start(name: string, attrs: Record<string, string>): Promise<void> | void
   text(value: string): Promise<void> | void
   end(name: string): Promise<void> | void
+  /** Complete native token; shares every cell/row rule with the XML events. */
+  compactCell(address: string, type: string, raw: string, inline: string, formula: string, hasFormula: boolean): Promise<void> | void
   emptyNumericCell?(address: string): Promise<void> | void
 }
 export const xstring = (value: string) => value.replace(/_x([a-f0-9]{4})_/gi, (_, code: string) => String.fromCharCode(parseInt(code, 16)))
@@ -110,6 +112,22 @@ export function createWorksheetEvents(options: Pick<TableGridStreamOptions, 'rea
       cell = undefined
     }
     const events: WorksheetEvents = {
+      compactCell(address, type, raw, inline, formula, hasFormula) {
+        // The native tokenizer has already emitted complete values. Avoid
+        // reconstructing v/t/f tag state while retaining the same begin/end,
+        // text accounting, coordinate, type, numeric and SST validation.
+        events.start('c', { r: address, ...(type ? { t: type } : {}) })
+        const current = cell
+        if (!current) throw new Error('工作表单元格未开始。')
+        current.hasFormula = hasFormula
+        if (hasFormula && options.onCell) {
+          current.formula = new TextValue()
+          if (formula) current.formula.add(formula)
+        }
+        if (raw) { current.value = new TextValue(); current.value.add(raw) }
+        if (inline) { current.inline = new TextValue(); current.inline.add(inline) }
+        return events.end('c')
+      },
       emptyNumericCell(address) {
         if (cell || row < 0) throw new Error('工作表单元格位置无效。')
         const parsed = cellAddress(address)

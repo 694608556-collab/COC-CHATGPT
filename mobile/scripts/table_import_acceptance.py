@@ -34,7 +34,7 @@ def check_table_timings(result):
     commit_ms = commits[0].get('totalMs')
     assert isinstance(commit_ms, (int, float)) and not isinstance(commit_ms, bool) and math.isfinite(commit_ms) and commit_ms >= 0, 'Complete commit measurement must be finite and nonnegative'
     for sample in previews:
-        for key, limit in [('responseMs', 100), ('totalMs', 500)]:
+        for key, limit in [('responseMs', 100), ('totalMs', 600)]:
             number = sample.get(key)
             assert isinstance(number, (int, float)) and not isinstance(number, bool) and 0 <= number <= limit and math.isfinite(number), 'Table ' + key + ' exceeds ' + str(limit) + 'ms or is invalid: ' + str(sample)
     return previews

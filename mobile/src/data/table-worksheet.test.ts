@@ -8,7 +8,7 @@ import { readKernelRecordsGrid } from './table-kernel-records'
 import { readTableGridStream } from './table-grid-stream'
 import type { TableGridStreamOptions } from './table-grid-stream'
 
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 type CellValue = string | number | boolean | null
 type Token = [string, string, string, string, string, boolean]
@@ -31,6 +31,43 @@ async function decode(type: 'str' | 'inlineStr', parts: string[]) {
   await events.end('row')
   return rows
 }
+
+it.each([16383, 16384, 2 * 1024 * 1024, 2 * 1024 * 1024 + 1])(
+  'Worker text accounting keeps all %s UTF-16 units and exact checked UTF-8 bytes',
+  async length => {
+    const raw = '公开😀\r\n\0\ufeff\ud800x\udc00'.repeat(Math.ceil(length / 8)).slice(0, length)
+    const expected = new TextEncoder().encode(raw).length, NativeBlob = Blob, calls: BlobPart[][] = []
+    vi.stubGlobal('FileReaderSync', class {})
+    vi.stubGlobal('Blob', class extends NativeBlob {
+      constructor(parts: BlobPart[], options?: BlobPropertyBag) {
+        super(parts, options); calls.push(parts); expect(options?.endings).toBe('transparent')
+      }
+    })
+    const add = vi.spyOn(streamJson, 'addStreamBytes')
+    expect(await decode('inlineStr', [raw])).toEqual([{ index: 0, values: [raw] }])
+    // Content and checked totals remain the contract across encoding choices.
+    expect(add.mock.calls).toEqual([[0, expected], [0, expected]])
+  }
+)
+
+it('large native counts are recomputed after cross-fragment surrogates and OOXML escapes join', async () => {
+  vi.stubGlobal('FileReaderSync', class {})
+  const head='公开正文\r\n'.repeat(5000), tail='完整尾部'.repeat(5000)
+  const parts=[head+'\ud83d', '\ude00'+tail+'_x0000__x005F_x0041_']
+  const expected=head+'😀'+tail+'\0_x0041_', add=vi.spyOn(streamJson,'addStreamBytes')
+  expect(await decode('inlineStr',parts)).toEqual([{index:0,values:[expected]}])
+  expect(add.mock.calls.at(-1)).toEqual([0,new TextEncoder().encode(expected).length])
+})
+
+it('a failed optional native byte counter uses the original complete count without losing checks', async () => {
+  vi.stubGlobal('FileReaderSync',class {})
+  vi.stubGlobal('Blob',class {constructor(){throw Error('public native counter unavailable')}})
+  const raw='公开😀\r\n\0\ud800x\udc00'.repeat(5000), size=vi.spyOn(streamJson,'utf8Size'), add=vi.spyOn(streamJson,'addStreamBytes')
+  expect(await decode('str',[raw])).toEqual([{index:0,values:[raw]}])
+  expect(size.mock.calls).toEqual([[raw]])
+  const expected=new TextEncoder().encode(raw).length
+  expect(add.mock.calls).toEqual([[0,expected],[0,expected]])
+})
 
 for (const type of ['str', 'inlineStr'] as const) {
   it(`${type}: unchanged single text fragment is measured once with exact complete UTF-8 row accounting`, async () => {

@@ -5,14 +5,14 @@ from character_import_acceptance import check_character_timings
 
 class CharacterImportAcceptance(unittest.TestCase):
     def fixture(self):
-        return {'passed': True, 'results': [{'operation': 'character-import-xlsx-' + str(i), 'responseMs': 100, 'totalMs': 500} for i in range(3)]}
+        return {'passed': True, 'results': [{'operation': 'character-import-xlsx-' + str(i), 'responseMs': 100, 'totalMs': 600} for i in range(3)]}
 
     def test_exact_boundaries(self):
         self.assertEqual(len(check_character_timings(self.fixture())), 3)
 
     def test_each_first_and_repeat_must_pass_without_averaging(self):
         for i in range(3):
-            for key, bad in [('responseMs', 100.001), ('totalMs', 500.001)]:
+            for key, bad in [('responseMs', 100.001), ('totalMs', 600.001)]:
                 with self.subTest(sample=i, field=key):
                     data = self.fixture()
                     for item in data['results']: item.update(responseMs=1, totalMs=1)

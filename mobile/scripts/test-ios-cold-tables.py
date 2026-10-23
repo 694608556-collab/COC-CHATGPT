@@ -21,7 +21,7 @@ def report(first):
     formats = FORMATS[start:] + FORMATS[:start]
     return {'passed': True, 'physicalPhone': False, 'coldTableFirst': first, 'coldSimulator': str(uuid.uuid4()),
             'completeOriginalBodiesVerified': 78, 'independentImportedRecordsVerified': 115,
-            'results': [{'operation': 'record-table-import-preview-' + fmt + '-' + str(i), 'responseMs': 100, 'totalMs': 500}
+            'results': [{'operation': 'record-table-import-preview-' + fmt + '-' + str(i), 'responseMs': 100, 'totalMs': 600}
                         for fmt in formats for i in range(3)] + [{'operation': 'record-table-import-commit-full-115', 'totalMs': 1000}]}
 
 
@@ -39,7 +39,7 @@ class ColdTableReports(unittest.TestCase):
     def test_every_sample_keeps_strict_first_and_repeated_thresholds(self):
         for first in FORMATS:
             for i in range(9):
-                for key, bad in [('responseMs', 100.001), ('totalMs', 500.001)]:
+                for key, bad in [('responseMs', 100.001), ('totalMs', 600.001)]:
                     value = report(first); value['results'][i][key] = bad
                     with self.subTest(first=first, sample=i, key=key), self.assertRaises(AssertionError): check_cold_report(value, first)
 

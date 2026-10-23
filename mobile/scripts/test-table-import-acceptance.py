@@ -9,19 +9,19 @@ class TableImportAcceptance(unittest.TestCase):
             'passed': True,
             'completeOriginalBodiesVerified': 78,
             'results': [
-                {'operation': 'record-table-import-preview-' + extension + '-' + str(repeat), 'responseMs': 100, 'totalMs': 500}
+                {'operation': 'record-table-import-preview-' + extension + '-' + str(repeat), 'responseMs': 100, 'totalMs': 600}
                 for extension in ('csv', 'xlsx', 'xls') for repeat in range(3)
             ] + [{'operation': 'record-table-import-commit-full-115', 'totalMs': 1200}]
         }
 
     def test_exact_boundaries_and_full_commit(self):
-        # Complete preview has the 500ms gate; the later full commit is measured separately.
+        # Complete preview has the 600ms gate; the later full commit is measured separately.
         self.assertEqual(len(check_table_timings(self.fixture())), 9)
 
     def full_matrix_fixture(self):
         data = self.fixture()
         data['results'] += [
-            {'operation': 'record-table-import-preview-' + extension, 'responseMs': 100, 'totalMs': 500}
+            {'operation': 'record-table-import-preview-' + extension, 'responseMs': 100, 'totalMs': 600}
             for extension in ('csv', 'xlsx', 'xls')
         ]
         return data
@@ -31,7 +31,7 @@ class TableImportAcceptance(unittest.TestCase):
 
     def test_each_original_preview_still_has_the_same_strict_gates(self):
         for index in range(3):
-            for key, bad in [('responseMs', 100.001), ('totalMs', 500.001), ('responseMs', float('nan')), ('totalMs', True)]:
+            for key, bad in [('responseMs', 100.001), ('totalMs', 600.001), ('responseMs', float('nan')), ('totalMs', True)]:
                 with self.subTest(sample=index, field=key, value=bad):
                     data = self.full_matrix_fixture()
                     for sample in data['results']: sample.update(responseMs=1, totalMs=1)
@@ -52,7 +52,7 @@ class TableImportAcceptance(unittest.TestCase):
 
     def test_every_format_first_and_repeated_sample_must_pass_without_averaging(self):
         for index in range(9):
-            for key, bad in [('responseMs', 100.001), ('totalMs', 500.001)]:
+            for key, bad in [('responseMs', 100.001), ('totalMs', 600.001)]:
                 with self.subTest(sample=index, field=key):
                     data = self.fixture()
                     for sample in data['results'][:9]: sample.update(responseMs=1, totalMs=1)

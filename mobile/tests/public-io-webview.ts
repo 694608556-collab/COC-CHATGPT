@@ -4,7 +4,7 @@ import type { SavedDocument } from '../src/data/native'
 import { characterDraftProofText } from './character-draft-proof'
 import type { Coc7ImportPreview } from '../src/data/coc7-import'
 import type { NativeTablePreview } from '../src/data/table-stream-native'
-import { decodeBase64 } from '../src/data/bytes'
+import { CandidateWitness } from './public-io-candidate-witness'
 import { requirePrivateTableExpectation, verifyPrivateTableCandidate } from './private-table-proof'
 import type { PrivateTableExpectation } from './private-table-proof'
 import { mergeImportedParticipants } from '../../src/shared/table-import'
@@ -50,7 +50,7 @@ let actionStarted = 0
 let receivedTablePreview: NativeTablePreview | undefined
 let tableSourceTiming: Record<string, number> | undefined
 let tableWorkerTiming: Record<string, number> | undefined
-let tableCandidateParts: Uint8Array[] = []
+let tableCandidateWitness = new CandidateWitness()
 let tableCandidateProof: { bytes: number; sha256: string } | undefined
 let tableSourceProof: { bytes: number; sha256: string } | undefined
 let expectedPrivateTable: PrivateTableExpectation | undefined
@@ -135,8 +135,9 @@ cap.nativePromise = async (plugin, method, options) => {
     ['tables', 'private-table', 'complete'].includes(window.__publicIoConfig.mode)
   ) {
     const value = options as { key?: string; base64?: string; candidate?: { bytes: number; sha256: string } }
-    if (method === 'appendTableStage' && value.key === 'candidate')
-      tableCandidateParts.push(decodeBase64(value.base64!))
+    if (method === 'appendTableStage' && value.key === 'candidate') {
+      tableCandidateWitness.append(value.base64!)
+    }
     if (method === 'finishTablePreview') {
       tableCandidateProof = value.candidate
       options = { ...value, measureImport: true }
@@ -354,7 +355,7 @@ async function measureRecordTables(commit = true) {
       receivedTablePreview = undefined
       tableSourceTiming = undefined
       tableWorkerTiming = undefined
-      tableCandidateParts = []
+      tableCandidateWitness = new CandidateWitness()
       tableCandidateProof = undefined
       tableSourceProof = undefined
       await timed('record-table-import-preview-' + extension + '-' + repeat, async () => {
@@ -379,12 +380,10 @@ async function measureRecordTables(commit = true) {
           ?.timing,
         ...tableWorkerTiming
       }
-      const bytes = new Uint8Array(tableCandidateParts.reduce((size, part) => size + part.length, 0))
-      let offset = 0
-      for (const part of tableCandidateParts) {
-        bytes.set(part, offset)
-        offset += part.length
-      }
+      const verificationStarted = performance.now()
+      const bytes = tableCandidateWitness.read()
+      results[results.length - 1]!.workerTiming!.witnessDecodeAfterPreviewMs =
+        performance.now() - verificationStarted
       const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (value) =>
         value.toString(16).padStart(2, '0')
       ).join('')
