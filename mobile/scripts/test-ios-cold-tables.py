@@ -75,6 +75,19 @@ class IndependentReadback(unittest.TestCase):
             path, source = self.fixture(pathlib.Path(folder))
             self.assertEqual(verify_database(path, source), 78)
 
+    def test_manual_record_optional_link_matches_the_actual_saved_metadata(self):
+        # Both native importers omit an empty optional link on manual records.
+        with tempfile.TemporaryDirectory() as folder:
+            path, source = self.fixture(pathlib.Path(folder))
+            with contextlib.closing(sqlite3.connect(path)) as db:
+                db.execute("UPDATE records SET metadata=json_remove(metadata,'$.link') WHERE id='added-114'")
+                db.commit()
+            self.assertEqual(verify_database(path, source), 78)
+            with contextlib.closing(sqlite3.connect(path)) as db:
+                db.execute("UPDATE records SET metadata=json_set(metadata,'$.link','unexpected') WHERE id='added-114'")
+                db.commit()
+            with self.assertRaises(AssertionError): verify_database(path, source)
+
     def test_missing_tail_wrong_link_manual_truncation_and_corrupt_chunk_fail(self):
         mutations = ["DELETE FROM records WHERE id='added-114'",
                      "UPDATE records SET metadata=json_set(metadata,'$.link','wrong') WHERE id='added-113'",

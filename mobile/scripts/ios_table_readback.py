@@ -61,7 +61,7 @@ def verify_database(database, source):
             assert row['link'] == 'https://log.weizaima.com/?key=public-io-' + str(i)
             assert row['order'] == i and row['sequenceNo'] == i + 1
         manual = [row for row in added if row['name'] == '公开导入完整手动正文']
-        assert len(manual) == 1 and manual[0]['link'] == ''
+        assert len(manual) == 1 and manual[0].get('link', '') == ''
         assert manual[0]['order'] == 114 and manual[0]['sequenceNo'] == 115
         assert read_body(db, manual[0]['id'])['manualContent'] == MANUAL
     return 78
