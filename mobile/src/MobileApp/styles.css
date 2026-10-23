@@ -568,6 +568,18 @@ main {
   align-items: center;
   margin: 3px 0 5px;
 }
+.recent-saved {
+  opacity: 1;
+  transition: opacity 250ms ease;
+}
+.recent-saved.is-fading {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .recent-saved {
+    transition: none;
+  }
+}
 .recent-saved-title {
   display: flex;
   align-items: center;

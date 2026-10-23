@@ -148,6 +148,37 @@ test('最近保存灰色 × 只关闭显示，已导出的文件与归档登记�
   await expect(page.getByText('测试文件（1）', { exact: true })).toBeVisible()
 })
 
+test('最近保存出现回顶部，点击重计三秒后渐隐，原文件仍可打开', async ({ page }) => {
+  await ready(page)
+  await page.locator('[data-drag-id="demo-manual"] .record-card').click()
+  const exportButton = page.getByRole('button', { name: '导出 TXT', exact: true })
+  await exportButton.scrollIntoViewIfNeeded()
+  await page.clock.install()
+  await exportButton.click()
+  const notice = page.locator('.recent-saved')
+  await expect(notice).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
+  // Pause timer time while CSS transitions use the browser's real animation clock.
+  // This keeps the final opacity proof observable before the 3300ms DOM dismissal.
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 100))
+  await notice.getByText(/最近保存：/).click()
+  await page.clock.fastForward(2700)
+  await notice.getByText(/最近保存：/).click()
+  await page.clock.fastForward(2700)
+  await expect(notice).toBeVisible()
+  await expect(notice).toHaveCSS('opacity', '1')
+  await page.clock.fastForward(350)
+  await expect(notice).toHaveCSS('opacity', '0')
+  await page.clock.fastForward(300)
+  await expect(notice).toHaveCount(0)
+  await page.getByRole('button', { name: '刷新测试文件列表', exact: true }).click()
+  await expect(page.getByText('测试文件（1）', { exact: true })).toBeVisible()
+  await page.getByText('测试文件（1）', { exact: true }).click()
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: /\.txt$/ }).click()
+  expect((await download).suggestedFilename()).toMatch(/\.txt$/)
+})
+
 test('退出确认使用应用卡片弹窗，取消和系统返回保留草稿，确认后才丢弃', async ({ page }, info) => {
   await ready(page)
   await page.removeLocatorHandler(page.getByRole('dialog', { name: '确认操作', exact: true }))
