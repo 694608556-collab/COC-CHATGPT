@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 project(coc_table_kernel LANGUAGES C CXX)
-add_library(coc_table_kernel STATIC table-kernel.cpp
+add_library(coc_table_kernel STATIC table-kernel.cpp search-json.cpp
   vendor/expat/xcs.c
   vendor/expat/xmlparse.c vendor/expat/xmlrole.c vendor/expat/xmltok.c
   vendor/expat/random_dev_urandom.c)

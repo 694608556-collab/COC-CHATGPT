@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C0C720000000000000000007 /* search-json.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0C710000000000000000007 /* search-json.cpp */; settings = {COMPILER_FLAGS = "-O3 -std=c++17"; }; };
 		C0C720000000000000000001 /* table-kernel.cpp in Sources */ = {isa = PBXBuildFile; fileRef = C0C710000000000000000001 /* table-kernel.cpp */; settings = {COMPILER_FLAGS = "-O3 -DHAVE_EXPAT_CONFIG_H=1 -DXML_STATIC=1"; }; };
 		C0C720000000000000000002 /* xcs.c in Sources */ = {isa = PBXBuildFile; fileRef = C0C710000000000000000002 /* xcs.c */; settings = {COMPILER_FLAGS = "-O3 -DHAVE_EXPAT_CONFIG_H=1 -DXML_STATIC=1"; }; };
 		C0C720000000000000000003 /* xmlparse.c in Sources */ = {isa = PBXBuildFile; fileRef = C0C710000000000000000003 /* xmlparse.c */; settings = {COMPILER_FLAGS = "-O3 -DHAVE_EXPAT_CONFIG_H=1 -DXML_STATIC=1"; }; };
@@ -35,6 +36,7 @@ C0C200000000000000000008 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBu
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		C0C710000000000000000007 /* search-json.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "search-json.cpp"; path = "../../native/table-kernel/search-json.cpp"; sourceTree = SOURCE_ROOT; };
 		C0C710000000000000000001 /* table-kernel.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = "table-kernel.cpp"; path = "../../native/table-kernel/table-kernel.cpp"; sourceTree = SOURCE_ROOT; };
 		C0C710000000000000000002 /* xcs.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = "xcs.c"; path = "../../native/table-kernel/vendor/expat/xcs.c"; sourceTree = SOURCE_ROOT; };
 		C0C710000000000000000003 /* xmlparse.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = "xmlparse.c"; path = "../../native/table-kernel/vendor/expat/xmlparse.c"; sourceTree = SOURCE_ROOT; };
@@ -107,6 +109,7 @@ C0C100000000000000000008 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; 
 				C0C100000000000000000009 /* LogbookBackup.swift */,
 				C0C10000000000000000000A /* LogbookTable.swift */,
 				C0C710000000000000000001 /* table-kernel.cpp */,
+				C0C710000000000000000007 /* search-json.cpp */,
 				C0C710000000000000000002 /* xcs.c */,
 				C0C710000000000000000003 /* xmlparse.c */,
 				C0C710000000000000000004 /* xmlrole.c */,
@@ -219,6 +222,7 @@ C0C200000000000000000008 /* PrivacyInfo.xcprivacy in Resources */,
 				C0C200000000000000000009 /* LogbookBackup.swift in Sources */,
 				C0C20000000000000000000A /* LogbookTable.swift in Sources */,
 				C0C720000000000000000001 /* table-kernel.cpp in Sources */,
+				C0C720000000000000000007 /* search-json.cpp in Sources */,
 				C0C720000000000000000002 /* xcs.c in Sources */,
 				C0C720000000000000000003 /* xmlparse.c in Sources */,
 				C0C720000000000000000004 /* xmlrole.c in Sources */,

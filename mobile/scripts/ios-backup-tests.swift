@@ -1,6 +1,85 @@
 import Foundation
+import CryptoKit
 
 extension IOSNativeChecks {
+    /// Exercise the actual C/Swift ABI and the read-only native snapshot boundary.
+    static func searchProjectionChecks(root: URL, fixture: LogbookJSON) throws {
+        let MiB = 1024 * 1024, budget = 256 * 1024 * 1024
+        let log = #"{"parserVersion":1,"messages":[{"id":"public","order":1,"timestamp":"2026-10-23T12:00:00Z","displayName":"Reader","text":"完整😀END","type":"message","isDiceCommand":false,"isOffTopic":true,"images":[{"url":"https://example.invalid/public.png","alt":"full"}],"raw":{"tail":[9007199254740993,null,"END"]}}]}"#
+        let original = Data((#"{"unknown":{"rawContent":"not the selected member"},"rawContent":"# + log + #", "manualContent":"full END"}"#).utf8)
+        let originalHash = SHA256.hash(data: original)
+        guard let projected = try LogbookBackupJSON.searchBody(original, budget: budget) else { throw LogbookFailure("Public search body did not project") }
+        let decoded = try LogbookBackupJSON.object(projected)
+        let raw = decoded["rawContent"] as! LogbookJSON, messages = raw["messages"] as! [[Any]]
+        try require(messages.count == 1 && messages[0].count == 7, "actual C/Swift searchable tuple ABI")
+        try require(messages[0][0] as? String == "2026-10-23T12:00:00Z" && messages[0][1] as? String == "Reader" && messages[0][2] is NSNull && messages[0][3] as? String == "完整😀END", "all searchable timestamp/name/platform/text fields")
+        try require(messages[0][4] as? Bool == false && messages[0][5] as? Bool == true && messages[0][6] as? Bool == true, "dice/off-topic/image filters retain meaning")
+        try require(decoded["manualContent"] as? String == "full END" && (decoded["unknown"] as? LogbookJSON)?["rawContent"] as? String == "not the selected member", "manual and unrelated original spans are unchanged")
+        try require(SHA256.hash(data: original) == originalHash, "native projection never mutates original bytes")
+        try require(try LogbookBackupJSON.searchBody(original, budget: original.count) == nil, "resident budget requests complete fallback")
+        for invalid in [#"{"rawContent":{"parserVersion":1,"messages":[]},"tail":{"x":1,"\u0078":2}}"#,
+                        #"{"rawContent":{"parserVersion":1,"messages":[{}]}}"#,
+                        #"{"manualContent":"first","manualContent":"second"}"#,
+                        #"{"manualContent":"full"} true"#] {
+            try require(try LogbookBackupJSON.searchBody(Data(invalid.utf8), budget: budget) == nil, "every unknown byte, key and original message field is validated")
+        }
+        try require(try LogbookBackupJSON.searchBody(Data([123,34,120,34,58,34,192,175,34,125]), budget: budget) == nil, "malformed UTF8 cannot obtain a projection")
+        let manual = Data(#"{"manualContent":"完整\uD83D\uDE00END"}"#.utf8)
+        try require(try LogbookBackupJSON.searchBody(manual, budget: budget) == manual, "manual-only raw spelling remains exact")
+
+        let store = try LogbookStore(url: root.appendingPathComponent("search-readonly.sqlite"))
+        _ = try store.replace(fixture, expected: 0)
+        let before = try logbookData(store.fullSnapshot()!), revision = try store.revision()
+        let ids = (fixture["records"] as! [LogbookJSON]).map { $0["id"] as! String }
+        let directory = root.appendingPathComponent("search-private")
+        let owner = try LogbookBackupSession(directory: directory, expected: revision, bookmark: Data(), restoring: false, includeArchives: false, searching: true, available: { 1024 * MiB })
+        let proofs = try owner.captureSearch { original, projection in
+            try store.writeSearchProjection(expected: revision, maximumBytes: owner.sourceBudget, selected: ids, memoryBudget: budget, original: original, sink: projection)
+        }
+        let originalURL = try owner.file("source"), projectionURL = try owner.file("search")
+        let envelope = try LogbookBackupJSON.object(Data(contentsOf: originalURL))
+        try require(try logbookData(envelope["snapshot"] as! LogbookJSON) == before, "complete original snapshot ledger retains every body and field")
+        let sourceProof = try LogbookBackupSession.fileProof(originalURL, maximumBytes: proofs.original.bytes)
+        let projectionProof = try LogbookBackupSession.fileProof(projectionURL, maximumBytes: proofs.projection.bytes)
+        try require(sourceProof.sha256 == proofs.original.sha256 && projectionProof.sha256 == proofs.projection.sha256, "both native immutable files match complete independent readback proofs")
+        let projectedEnvelope = try LogbookBackupJSON.object(Data(contentsOf: projectionURL))
+        let originalRows = (envelope["snapshot"] as! LogbookJSON)["records"] as! [LogbookJSON]
+        let projectedRows = (projectedEnvelope["snapshot"] as! LogbookJSON)["records"] as! [LogbookJSON]
+        try require(projectedRows.count == ids.count, "every selected native record appears")
+        for (index, row) in originalRows.enumerated() {
+            let hint = projectedRows[index]
+            var originalMeta = row, projectedMeta = hint
+            originalMeta.removeValue(forKey: "rawContent"); projectedMeta.removeValue(forKey: "rawContent")
+            try require(try logbookData(originalMeta) == logbookData(projectedMeta), "all record metadata and complete manual content retain order and associations")
+            if let log = row["rawContent"] as? LogbookJSON {
+                let originalMessages = log["messages"] as! [LogbookJSON]
+                let compact = (hint["rawContent"] as! LogbookJSON)["messages"] as! [[Any]]
+                try require(compact.count == originalMessages.count, "no native source message is truncated")
+                for (at, message) in originalMessages.enumerated() {
+                    let expected: [Any] = [message["timestamp"] ?? NSNull(), message["displayName"]!, message["platformAccount"] ?? NSNull(), message["text"]!, message["isDiceCommand"]!, message["isOffTopic"]!, !(message["images"] as! [Any]).isEmpty]
+                    try require(try logbookData(compact[at]) == logbookData(expected), "every original searchable field in every native message")
+                }
+            }
+        }
+        try rejects("search projection cannot obtain output/write authority") { _ = try owner.beginOutput() }
+        try rejects("search projection cannot become a restore candidate") { try owner.previewRestore(candidate: proofs.projection, selected: []) }
+        try require(try store.revision() == revision && logbookData(store.fullSnapshot()!) == before, "search leaves all business bytes and CAS revision unchanged")
+        try owner.close()
+        try require(!FileManager.default.fileExists(atPath: originalURL.path) && !FileManager.default.fileExists(atPath: projectionURL.path), "search cleanup removes only its two private files")
+        let unsupported = try LogbookBackupSession(directory: directory, expected: revision, bookmark: Data(), restoring: false, includeArchives: false, searching: true, available: {1024 * MiB})
+        try rejects("zero acceleration budget requests complete fallback") {
+            _ = try unsupported.captureSearch { original, projection in
+                try store.writeSearchProjection(expected: revision, maximumBytes: unsupported.sourceBudget, selected: ids, memoryBudget: 0, original: original, sink: projection)
+            }
+        }
+        try unsupported.close()
+        let fallback = try LogbookBackupSession(directory: directory, expected: revision, bookmark: Data(), restoring: false, includeArchives: false, searching: true, available: {1024 * MiB})
+        _ = try fallback.captureJSON { try store.writeBackup(expected: revision, maximumBytes: fallback.sourceBudget, selected: ids, validateRecords: false, sink: $0) }
+        let full = try LogbookBackupJSON.object(Data(contentsOf: fallback.file("source")))
+        try require(try logbookData(full["snapshot"] as! LogbookJSON) == before, "complete legacy fallback has no new content quota or skipped body")
+        try fallback.close()
+        print("iOS native search projection: complete C/Swift fields, original ledger, read-only authority and fallback passed; physicalPhone=false")
+    }
     static func backupStreamChecks(root: URL, fixture: LogbookJSON) throws {
         let MiB = 1024 * 1024
         let work = root.appendingPathComponent("backup-private")

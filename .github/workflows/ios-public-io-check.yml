@@ -24,7 +24,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck && pnpm ios:sync && node scripts/check-release-web.mjs
       - run: python3 scripts/test-character-import-acceptance.py && python3 scripts/test-table-import-acceptance.py
-      - run: python3 scripts/test-ios-ci-scheduling.py
+      - run: python3 scripts/test-ios-ci-scheduling.py && python3 scripts/test-ios-build-reuse.py && python3 scripts/test-ios-search-acceptance.py
       - name: Verify cold table completeness and failure propagation
         run: python3 scripts/test-ios-cold-tables.py
       # Required by ios-check.yml on the same source revision. Standalone manual

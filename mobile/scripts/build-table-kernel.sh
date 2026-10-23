@@ -13,5 +13,8 @@ for source in xcs xmlparse xmlrole xmltok random_dev_urandom; do
 done
 xcrun clang++ -O3 -std=c++17 -DHAVE_EXPAT_CONFIG_H=1 -DXML_STATIC=1 -I"$root/vendor/expat" -c "$root/table-kernel.cpp" -o "$output/table-kernel.o"
 objects+=("$output/table-kernel.o")
+xcrun clang++ -O3 -std=c++17 -c "$root/search-json.cpp" -o "$output/search-json.o"
+objects+=("$output/search-json.o")
 xcrun ar rcs "$output/libcoc_table_kernel.a" "${objects[@]}"
 xcrun clang++ -O3 -std=c++17 -I"$root" tests/table-kernel-cli.cpp "$output/libcoc_table_kernel.a" -lz -o "$output/coc-table-kernel-probe"
+xcrun clang++ -O3 -std=c++17 -I"$root" tests/search-json-cli.cpp "$output/libcoc_table_kernel.a" -lz -o "$output/coc-search-json-probe"

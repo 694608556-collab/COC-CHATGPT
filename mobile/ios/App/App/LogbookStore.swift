@@ -313,6 +313,18 @@ final class LogbookStore {
     /// here; read-only search delegates full semantic validation to its Worker.
     /// The trusted native caller chooses the operation budget, never JavaScript.
     func writeBackup(expected: Int, maximumBytes: Int, selected: [String]? = nil, validateRecords: Bool = true, sink: (Data) throws -> Void) throws {
+        try writeSnapshot(expected: expected, maximumBytes: maximumBytes, selected: selected, validateRecords: validateRecords, searchBudget: nil, original: { _ in }, sink: sink)
+    }
+    /// Read-only acceleration only: the complete original and projected bytes
+    /// come from the same selection, SQLite pass, metadata order and revision.
+    func writeSearchProjection(expected: Int, maximumBytes: Int, selected: [String], memoryBudget: Int,
+                               original: (Data) throws -> Void, sink: (Data) throws -> Void) throws {
+        guard memoryBudget > 0 else { throw LogbookSearchUnavailable() }
+        try writeSnapshot(expected: expected, maximumBytes: maximumBytes, selected: selected, validateRecords: false,
+                          searchBudget: memoryBudget, original: original, sink: sink)
+    }
+    private func writeSnapshot(expected: Int, maximumBytes: Int, selected: [String]?, validateRecords: Bool,
+                               searchBudget: Int?, original: (Data) throws -> Void, sink: (Data) throws -> Void) throws {
         try check(expected)
         var root = try metadata() ?? Self.empty()
         let allRecords = root.removeValue(forKey: "records") as! [LogbookJSON]
@@ -321,15 +333,27 @@ final class LogbookStore {
         if let selected { guard !selected.isEmpty, wanted!.count == selected.count, records.count == selected.count else { throw LogbookFailure("搜索场次缺失、重复或无效。") } }
         let maximum = maximumBytes
         guard maximum > 0 else { throw LogbookFailure("备份空间预算无效。") }
-        var total = 0
-        func write(_ text: String) throws {
-            let bytes = Data(text.utf8)
+        var total = 0, originalTotal = 0
+        func write(_ text: String, projected: String? = nil) throws {
+            let originalBytes = Data(text.utf8)
+            if searchBudget != nil {
+                guard originalBytes.count <= maximum - originalTotal else { throw LogbookFailure("完整搜索来源超过本次可用空间预算。") }
+                for start in stride(from: 0, to: originalBytes.count, by: 65536) { try original(originalBytes.subdata(in: start..<min(start + 65536, originalBytes.count))) }
+                originalTotal += originalBytes.count
+            }
+            let bytes = projected.map { Data($0.utf8) } ?? originalBytes
+            if searchBudget != nil, bytes.count > originalBytes.count { throw LogbookSearchUnavailable() }
             guard bytes.count <= maximum - total else { throw LogbookFailure("完整备份超过本次可用空间预算。") }
             for start in stride(from: 0, to: bytes.count, by: 65536) { try sink(bytes.subdata(in: start..<min(start + 65536, bytes.count))) }
             total += bytes.count
         }
         try write("{\"format\":\"coc.logbook.android\",\"formatVersion\":1,\"exportedAt\":" + String(try logbookText([logbookNow()]).dropFirst().dropLast()) + ",\"restoreScope\":[\"modules\",\"records\",\"characters\"],\"snapshot\":")
-        try write(String(try logbookText(root).dropLast()) + ",\"records\":[")
+        let rootText = try logbookText(root)
+        if let budget = searchBudget {
+            let bytes = Data(rootText.utf8)
+            guard bytes.withUnsafeBytes({ coc_search_json_check($0.bindMemory(to: UInt8.self).baseAddress, bytes.count, UInt64(budget / 3), 0) }) != 0 else { throw LogbookSearchUnavailable() }
+        }
+        try write(String(rootText.dropLast()) + ",\"records\":[")
         let statement = try prepare("SELECT id FROM records ORDER BY position")
         defer { sqlite3_finalize(statement) }
         var status = sqlite3_step(statement), count = 0
@@ -348,7 +372,16 @@ final class LogbookStore {
                     row = value; row.removeValue(forKey: "rawContent"); row.removeValue(forKey: "manualContent")
                 }
                 guard try logbookData(row) == logbookData(records[count]) else { throw LogbookFailure("备份场次次序或元数据已变化。") }
-                try write((count == 0 ? "" : ",") + text); count += 1
+                var projection: String?
+                if let budget = searchBudget {
+                    let headBytes = Data(head.utf8)
+                    guard headBytes.withUnsafeBytes({ coc_search_json_check($0.bindMemory(to: UInt8.self).baseAddress, headBytes.count, UInt64(budget / 3), 1) }) != 0,
+                          tail.utf8.count <= budget / 8,
+                          let projected = try LogbookBackupJSON.searchBody(Data(tail.utf8), budget: budget),
+                          let body = String(data: projected, encoding: .utf8) else { throw LogbookSearchUnavailable() }
+                    projection = body == "{}" ? head : String(head.dropLast()) + "," + String(body.dropFirst())
+                }
+                try write((count == 0 ? "" : ",") + text, projected: projection.map { (count == 0 ? "" : ",") + $0 }); count += 1
             }
             status = sqlite3_step(statement)
         }

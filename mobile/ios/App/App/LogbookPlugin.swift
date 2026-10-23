@@ -297,20 +297,38 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         run(call) { store, _ in
             guard self.backupSession == nil, self.tableSession == nil, !self.filePickerPending, let ids = call.options["ids"] as? [String], !ids.isEmpty, Set(ids).count == ids.count else { throw LogbookFailure("搜索场次无效或已有文件任务。") }
             let revision = try self.expected(call); try store.check(revision)
-            let owner = try LogbookBackupSession(directory: self.backupDirectory(), expected: revision, bookmark: Data(), restoring: false, includeArchives: false, searching: true)
-            self.backupSession = owner
-            do {
-                // Read-only search publishes no document or restore candidate.
-                // Worker checks complete grammar, records, graph and SHA before hits.
-                _ = try owner.captureJSON { write in try store.writeBackup(expected: revision, maximumBytes: owner.sourceBudget, selected: ids, validateRecords: false, sink: write) }
+            let memory = Int(os_proc_available_memory())
+            func capture(projecting: Bool) throws -> LogbookJSON {
                 try store.check(revision)
-                let memory = os_proc_available_memory()
-                return ["id": owner.id, "revision": revision, "source": try self.backupFile(owner, "source"), "cacheMemoryBytes": Int(memory / 8), "maximumReadBytes": Int(memory / 32)]
-            } catch {
-                do { try owner.close(); self.backupSession = nil }
-                catch { throw LogbookFailure("搜索未完成，私有读取暂存清理失败，请重开后重试。") }
-                throw error
+                let owner = try LogbookBackupSession(directory: self.backupDirectory(), expected: revision, bookmark: Data(), restoring: false, includeArchives: false, searching: true)
+                self.backupSession = owner
+                do {
+                    if projecting {
+                        let proofs = try owner.captureSearch { original, projection in
+                            try store.writeSearchProjection(expected: revision, maximumBytes: owner.sourceBudget, selected: ids,
+                                                            memoryBudget: memory / 2, original: original, sink: projection)
+                        }
+                        guard proofs.projection.bytes <= memory / 16 else { throw LogbookSearchUnavailable() }
+                        try store.check(revision)
+                        return ["id": owner.id, "revision": revision, "source": try self.backupFile(owner, "search"),
+                                "originalSource": try self.backupFile(owner, "source"), "searchProjectionVersion": 3,
+                                "cacheMemoryBytes": memory / 4, "maximumReadBytes": memory / 16]
+                    }
+                    // A new owner runs the complete original stream when the
+                    // read-only acceleration budget or grammar path is unavailable.
+                    _ = try owner.captureJSON { write in try store.writeBackup(expected: revision, maximumBytes: owner.sourceBudget, selected: ids, validateRecords: false, sink: write) }
+                    try store.check(revision)
+                    return ["id": owner.id, "revision": revision, "source": try self.backupFile(owner, "source"),
+                            "cacheMemoryBytes": memory / 4, "maximumReadBytes": memory / 32]
+                } catch {
+                    let failure = error
+                    do { try owner.close(); self.backupSession = nil }
+                    catch { throw LogbookFailure("搜索未完成，私有读取暂存清理失败，请重开后重试。") }
+                    if projecting && failure is LogbookSearchUnavailable { return try capture(projecting: false) }
+                    throw failure
+                }
             }
+            return try capture(projecting: true)
         }
     }
     @objc func createBackupStream(_ call: CAPPluginCall) {

@@ -57,6 +57,7 @@ import Darwin
         try require(try finalCheck.revision() == 1 && logbookData(finalCheck.fullSnapshot()!) == beforeFinalCheck, "late capacity rejection preserves state bodies and revision")
         try autoreleasepool { try chunkStorageChecks(root: root, fixture: fixture) }
         try backupStreamChecks(root: root, fixture: fixture)
+        try searchProjectionChecks(root: root, fixture: fixture)
         try capacityDatabaseChecks(root: root, fixture: fixture)
         try capacityFetchChecks(root: root, fixture: fixture)
         try tableStreamChecks(root: root, fixture: fixture)

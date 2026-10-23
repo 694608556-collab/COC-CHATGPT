@@ -1,6 +1,10 @@
 import Foundation
 import CryptoKit
 
+/// An acceleration admission failure requests the complete original stream,
+/// never a content-size rejection or permission/validation bypass.
+struct LogbookSearchUnavailable: Error {}
+
 /// Strict decoded duplicate-key checks before Foundation parses one bounded
 /// candidate line. JSONSerialization supplies the complete grammar/UTF-8 check.
 enum LogbookBackupJSON {
@@ -117,7 +121,40 @@ enum LogbookBackupJSON {
         return Data(records.dropFirst().dropLast())
     }
     private static func members(_ data: Data, selected: Set<String>) throws -> [String: Data] {
-        try data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) throws -> [String: Data] in
+        let ranges = try memberRanges(data, selected: selected)
+        return data.withUnsafeBytes { raw in
+            let bytes = raw.bindMemory(to: UInt8.self)
+            return ranges.mapValues { Data(bytes[$0]) }
+        }
+    }
+    /// Validate every original body byte, then replace only the raw log with
+    /// complete searchable tuples. Original manual/unknown spans remain exact.
+    static func searchBody(_ data: Data, budget: Int) throws -> Data? {
+        guard budget > 0, data.count <= budget / 8 else { return nil }
+        let valid = data.withUnsafeBytes { raw in
+            coc_search_json_check(raw.bindMemory(to: UInt8.self).baseAddress, data.count, UInt64(budget / 3), 0)
+        }
+        guard valid != 0 else { return nil }
+        guard let ranges = try? memberRanges(data, selected: ["rawContent"]) else { return nil }
+        guard let span = ranges["rawContent"] else { return data }
+        let rawLog = data.withUnsafeBytes { raw in Data(raw.bindMemory(to: UInt8.self)[span]) }
+        var count = 0
+        let pointer = rawLog.withUnsafeBytes { raw in
+            coc_search_json_searchable(raw.bindMemory(to: UInt8.self).baseAddress, rawLog.count, UInt64(budget / 3), &count)
+        }
+        guard let pointer else { return nil }
+        defer { free(pointer) }
+        guard count >= 0, count <= span.count else { return nil }
+        return data.withUnsafeBytes { raw in
+            let bytes = raw.bindMemory(to: UInt8.self)
+            var output = Data(bytes[..<span.lowerBound])
+            output.append(pointer, count: count)
+            output.append(contentsOf: bytes[span.upperBound...])
+            return output
+        }
+    }
+    private static func memberRanges(_ data: Data, selected: Set<String>) throws -> [String: Range<Int>] {
+        try data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) throws -> [String: Range<Int>] in
             let bytes = raw.bindMemory(to: UInt8.self)
             func space(_ start: Int) -> Int { var at = start; while at < bytes.count && [9, 10, 13, 32].contains(bytes[at]) { at += 1 }; return at }
             func stringEnd(_ start: Int) throws -> Int {
@@ -144,7 +181,7 @@ enum LogbookBackupJSON {
                 while at < bytes.count && ![9, 10, 13, 32, 44, 93, 125].contains(bytes[at]) { at += 1 }
                 return at
             }
-            var at = space(0), fields: [String: Data] = [:]
+            var at = space(0), fields: [String: Range<Int>] = [:]
             guard at < bytes.count, bytes[at] == 123 else { throw LogbookFailure("正文词元对象无效。") }; at += 1
             while true {
                 at = space(at); guard at < bytes.count else { throw LogbookFailure("正文词元字段不完整。") }
@@ -153,7 +190,7 @@ enum LogbookBackupJSON {
                 guard let key = try JSONSerialization.jsonObject(with: keyData, options: [.fragmentsAllowed]) as? String else { throw LogbookFailure("正文词元字段名无效。") }
                 at = space(keyEnd); guard at < bytes.count, bytes[at] == 58 else { throw LogbookFailure("正文词元字段分隔无效。") }; at = space(at + 1)
                 let until = try end(at)
-                if selected.contains(key) { fields[key] = Data(bytes[at..<until]) }
+                if selected.contains(key) { fields[key] = at..<until }
                 at = space(until); guard at < bytes.count else { throw LogbookFailure("正文词元对象不完整。") }
                 if bytes[at] == 125 { break }
                 guard bytes[at] == 44 else { throw LogbookFailure("正文词元字段分隔无效。") }; at += 1
@@ -301,6 +338,28 @@ final class LogbookBackupSession {
             try output.write(contentsOf: chunk); entry.bytes += chunk.count; inputBytes += chunk.count
         }
         try entry.seal(); return entry.proof!
+    }
+    /// One SQLite snapshot feeds the complete original ledger and the read-only
+    /// projection. Both files must match their independently hashed input bytes.
+    func captureSearch(_ producer: (_ original: (Data) throws -> Void, _ projection: (Data) throws -> Void) throws -> Void) throws -> (original: LogbookBackupProof, projection: LogbookBackupProof) {
+        guard searching, !restoring, !includeArchives, !closed, !ready, maximumOutputBytes == 0,
+              entries["source"] == nil, entries["search"] == nil else { throw LogbookFailure("只读搜索来源阶段无效。") }
+        let original = try create("source"), projection = try create("search")
+        var originalHash = SHA256(), projectionHash = SHA256()
+        try producer({ chunk in
+            guard !self.closed, chunk.count <= self.maximumInputBytes - original.bytes, let output = original.output else { throw LogbookFailure("完整搜索来源暂存空间不足。") }
+            try LogbookCapacity.require(available: self.available, additional: chunk.count)
+            try output.write(contentsOf: chunk); originalHash.update(data: chunk)
+            original.bytes += chunk.count; self.inputBytes += chunk.count
+        }, { chunk in
+            guard !self.closed, chunk.count <= self.maximumInputBytes - projection.bytes, let output = projection.output else { throw LogbookFailure("搜索投影暂存空间不足。") }
+            try LogbookCapacity.require(available: self.available, additional: chunk.count)
+            try output.write(contentsOf: chunk); projectionHash.update(data: chunk); projection.bytes += chunk.count
+        })
+        try original.seal(); try projection.seal()
+        try original.proof!.matches(bytes: original.bytes, sha256: originalHash.finalize().map { String(format: "%02x", $0) }.joined())
+        try projection.proof!.matches(bytes: projection.bytes, sha256: projectionHash.finalize().map { String(format: "%02x", $0) }.joined())
+        return (original.proof!, projection.proof!)
     }
     var sourceBudget: Int { maximumInputBytes }
     func verifySources() throws {

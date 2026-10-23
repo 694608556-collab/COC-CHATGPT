@@ -1,6 +1,7 @@
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
+#include "search-json.h"
 #ifdef __cplusplus
 extern "C" {
 #endif

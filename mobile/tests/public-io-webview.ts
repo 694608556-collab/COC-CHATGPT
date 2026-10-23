@@ -241,19 +241,20 @@ async function timed(operation: string, task: () => Promise<void>) {
     progress = 0,
     redundantCancel = 0
   const importing = operation.includes('import-')
+  const searching = operation.startsWith('module-search-')
   let responseMs: number | undefined,
     responseQueued = false
   const observer = new MutationObserver((mutations) => {
-    if (!importing) return
+    if (!importing && !searching) return
     if (
       !responseQueued &&
-      mutations.some(
+      ((searching && !!document.querySelector('.module-body-search [role="status"]')) || mutations.some(
         (mutation) =>
           (mutation.type === 'attributes' &&
             mutation.target instanceof HTMLButtonElement &&
             mutation.target.disabled) ||
           (mutation.type === 'childList' && !!document.querySelector('.editor'))
-      )
+      ))
     ) {
       responseQueued = true
       requestAnimationFrame(() => {
@@ -272,6 +273,7 @@ async function timed(operation: string, task: () => Promise<void>) {
   observer.observe(document.body, {
     childList: true,
     subtree: true,
+    characterData: true,
     attributes: true,
     attributeFilter: ['disabled']
   })
@@ -286,7 +288,7 @@ async function timed(operation: string, task: () => Promise<void>) {
     results.push({
       operation,
       totalMs,
-      ...(importing ? { responseMs: responseMs ?? totalMs } : {}),
+      ...(importing || searching ? { responseMs: responseMs ?? totalMs } : {}),
       ...(operation.startsWith('character-import-xlsx') && privateWorkerTiming
         ? { workerTiming: privateWorkerTiming }
         : {}),
@@ -776,14 +778,23 @@ void (async () => {
       ['baseline', 'complete'].includes(window.__publicIoConfig.mode) && repeat < 3;
       repeat++
     ) {
-      await timed('module-search-' + repeat, async () => {
-        const field = document.querySelector<HTMLInputElement>('.module-body-search input')!
-        input(field, queries[repeat]!)
-        await new Promise((resolve) => setTimeout(resolve, 0))
-        const submit = await waitFor(
+      // Prepare the visible controls before the timed click; no source is read
+      // until submission, and complete result publication stays inside timing.
+      const beforePreparation = calls.filter(call => call.method === 'createSearchSource').length
+      const field = document.querySelector<HTMLInputElement>('.module-body-search input')!
+      input(field, queries[repeat]!)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const submit = await waitFor(
           () => document.querySelector<HTMLButtonElement>('button[aria-label="搜索模组正文"]'),
           'search submit'
         )
+      submit.scrollIntoView({ block: 'center' })
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      const bounds = submit.getBoundingClientRect()
+      const target = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
+      check(document.visibilityState === 'visible' && !submit.disabled && !!target && submit.contains(target), 'Search control must be visible and actionable')
+      check(calls.filter(call => call.method === 'createSearchSource').length === beforePreparation, 'Search preparation must not read a source')
+      await timed('module-search-' + repeat, async () => {
         submit.click()
         await waitFor(
           () =>

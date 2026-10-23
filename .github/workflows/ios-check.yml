@@ -42,11 +42,12 @@ jobs:
       - name: Check strict first and repeated import timing gates
         run: python3 scripts/test-character-import-acceptance.py && python3 scripts/test-table-import-acceptance.py
       - name: Check required parallel iOS acceptance schedule
-        run: python3 scripts/test-ios-ci-scheduling.py
+        run: python3 scripts/test-ios-ci-scheduling.py && python3 scripts/test-ios-build-reuse.py && python3 scripts/test-ios-search-acceptance.py
       - name: Check iOS native transactions, bodies and local archive protection
         run: |
           node scripts/ios-native-fixture.mjs
           bash scripts/build-table-kernel.sh
+          node scripts/check-search-json-host.mjs
           node scripts/check-table-kernel.mjs ios/build/table-kernel-host/coc-table-kernel-probe
           swiftc -swift-version 5 -import-objc-header native/table-kernel/table-kernel.h ios/App/App/LogbookStore.swift ios/App/App/LogbookValidation.swift ios/App/App/LogbookMutations.swift ios/App/App/LogbookArchive.swift ios/App/App/LogbookBackup.swift ios/App/App/LogbookTable.swift scripts/ios-native-tests.swift scripts/ios-scale-tests.swift scripts/ios-backup-tests.swift scripts/ios-capacity-tests.swift scripts/ios-capacity-fetch-tests.swift scripts/ios-table-stream-tests.swift ios/build/table-kernel-host/libcoc_table_kernel.a -Xlinker -lc++ -lz -o ios/build/native-checks
           ios/build/native-checks ios/build/native-sample.json

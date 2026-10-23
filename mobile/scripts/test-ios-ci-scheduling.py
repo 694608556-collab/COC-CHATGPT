@@ -207,6 +207,10 @@ class CompleteIOPreparationTests(unittest.TestCase):
             base = pathlib.Path(directory)
             container = base / 'public-container'
             (container / 'tmp').mkdir(parents=True)
+            for name in ['ios/App/App/Info.plist', 'ios/App/App.xcodeproj/project.pbxproj', 'ios/App/CapApp-SPM/Package.swift', 'native/table-kernel/table-kernel.h', 'pnpm-lock.yaml']:
+                source = base / name
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text('public build input', encoding='utf-8')
 
             def fake_command(*args, **kwargs):
                 calls.append((args, kwargs))
@@ -228,12 +232,16 @@ class CompleteIOPreparationTests(unittest.TestCase):
                     return device_id
                 if args[:3] == ('xcrun', 'simctl', 'get_app_container'):
                     return str(container)
+                if args[:2] == ('xcodebuild', '-project'):
+                    binary = base / 'ios/build/public-io-simulator/Build/Products/Debug-iphonesimulator/App.app/App'
+                    binary.parent.mkdir(parents=True, exist_ok=True)
+                    binary.write_bytes(b'public simulator executable')
                 if args[:2] == ('node', 'scripts/public-io-fixtures.mjs'):
                     output = base / 'ios/build/public-io/public-io-webview.js'
                     output.parent.mkdir(parents=True, exist_ok=True)
                     output.write_text('public fixture placeholder', encoding='utf-8')
                 if args[:3] == ('xcrun', 'simctl', 'launch'):
-                    (container / 'tmp/ios-scale-result.json').write_text(json.dumps({'passed': content_passed}), encoding='utf-8')
+                    (container / 'tmp/ios-scale-result.json').write_text(json.dumps({'passed': content_passed, 'results': [{'operation': 'module-search-' + str(index), 'totalMs': 500, 'responseMs': 50} for index in range(3)]}), encoding='utf-8')
                 return ''
 
             original_write = pathlib.Path.write_text

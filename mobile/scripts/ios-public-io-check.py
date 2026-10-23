@@ -7,6 +7,8 @@ import pathlib
 import tempfile
 import time
 import uuid
+from ios_build_reuse import digest as build_digest, reusable as reusable_build, record as record_build
+from ios_search_acceptance import verify as verify_searches
 
 spec = importlib.util.spec_from_file_location('coc_smoke_shared', pathlib.Path(__file__).with_name('ios-simulator-smoke.py'))
 shared = importlib.util.module_from_spec(spec)
@@ -82,8 +84,17 @@ def main(table_first=None):
         # booted device. The generic-before-boot scheduling assumption failed
         # on both runner image versions; all acceptance limits stay unchanged.
         phase = 'build'
-        with (output / ('public-io-diagnostic' + suffix + '-build.log')).open('w') as log:
-            command('xcodebuild', '-project', 'ios/App/App.xcodeproj', '-scheme', 'App', '-configuration', 'Debug', '-destination', 'platform=iOS Simulator,id=' + owned, '-derivedDataPath', 'ios/build/public-io-simulator', 'build', 'CODE_SIGN_IDENTITY=-', 'CODE_SIGNING_ALLOWED=YES', timeout=900, log=log)
+        app = output / 'public-io-simulator/Build/Products/Debug-iphonesimulator/App.app'
+        marker = output / 'ios-public-io-diagnostic-build-proof.json'
+        context = {'sources': build_digest(['ios/App/App', 'ios/App/App.xcodeproj/project.pbxproj', 'ios/App/CapApp-SPM/Package.swift', 'native/table-kernel', 'pnpm-lock.yaml']),
+                   'runtime': runtime['identifier'], 'configuration': 'Debug', 'architecture': 'arm64',
+                   'checkout': os.environ.get('GITHUB_SHA'), 'job': os.environ.get('GITHUB_RUN_ID')}
+        reuse = reusable_build(marker, app, context)
+        if not reuse:
+            with (output / ('public-io-diagnostic' + suffix + '-build.log')).open('w') as log:
+                command('xcodebuild', '-project', 'ios/App/App.xcodeproj', '-scheme', 'App', '-configuration', 'Debug', '-destination', 'platform=iOS Simulator,id=' + owned, '-derivedDataPath', 'ios/build/public-io-simulator', 'build', 'CODE_SIGN_IDENTITY=-', 'CODE_SIGNING_ALLOWED=YES', timeout=900, log=log)
+            record_build(marker, app, context)
+        write_diagnostic('ios-public-io-diagnostic' + suffix + '-build-reuse.json', {'reusedVerifiedBinary': reuse, 'freshSimulator': owned, **json.loads(marker.read_text(encoding='utf-8'))})
         phase = 'install'
         command('xcrun', 'simctl', 'install', owned, 'ios/build/public-io-simulator/Build/Products/Debug-iphonesimulator/App.app', timeout=120)
         phase = 'container'
@@ -115,6 +126,7 @@ def main(table_first=None):
             command('python3', 'scripts/check-ios-table-io.py', str(container), str(result_path), table_first, timeout=120)
             print('Additional cold table I/O passed for ' + table_first + '; complete I/O and full iOS CI remain required.', flush=True)
         else:
+            verify_searches(result)
             command('python3', 'scripts/check-public-io.py', str(container), str(result_path), timeout=120)
             print('Additional complete I/O passed; full iOS CI remains required.', flush=True)
     except Exception as error:
