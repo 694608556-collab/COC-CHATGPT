@@ -12,6 +12,7 @@ await build({
   entryPoints: ['tests/public-io-fixtures.ts'],
   outfile: generator,
   bundle: true,
+  nodePaths: [resolve('node_modules')],
   platform: 'node',
   format: 'esm',
   target: 'node24',
@@ -25,6 +26,7 @@ await build({
   entryPoints: ['tests/public-io-webview.ts'],
   outfile: resolve(assets, 'public-io-webview.js'),
   bundle: true,
+  nodePaths: [resolve('node_modules')],
   format: 'iife',
   target: 'chrome69'
 })

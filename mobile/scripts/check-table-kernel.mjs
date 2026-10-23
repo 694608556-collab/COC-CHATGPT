@@ -8,6 +8,7 @@ await mkdir(root, { recursive: true })
 const entry = resolve(root, 'differential.mjs')
 await build({ entryPoints: ['tests/table-kernel-differential.ts'], outfile: entry,
   bundle: true, platform: 'node', format: 'esm', target: 'node24',
+  nodePaths: [resolve('node_modules')],
   banner: { js: "import {createRequire as kernelCreateRequire} from 'node:module'; const require=kernelCreateRequire(import.meta.url);" } })
 const saved = process.argv[2] === '--saved-results' ? resolve(process.argv[3]) : undefined
 const probe = !saved && process.argv[2] ? resolve(process.argv[2]) : undefined

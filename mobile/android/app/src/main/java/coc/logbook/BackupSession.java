@@ -152,11 +152,18 @@ final class BackupSession implements AutoCloseable {
     static Proof fileProof(File file,long maximumBytes)throws Exception{
         try(InputStream input=new FileInputStream(file)){return streamProof(input,maximumBytes);}
     }
+    /** Encode only the already-computed digest; complete input reading and SHA
+     * remain unchanged. Avoid per-byte Formatter setup on older ART runtimes. */
+    static String digestHex(byte[] digest){
+        final char[] digits="0123456789abcdef".toCharArray(),text=new char[digest.length*2];
+        for(int index=0;index<digest.length;index++){int value=digest[index]&255;text[index*2]=digits[value>>>4];text[index*2+1]=digits[value&15];}
+        return new String(text);
+    }
     static Proof streamProof(InputStream input,long maximumBytes)throws Exception{
         if(input==null||maximumBytes<0||maximumBytes>StorageBudget.JS_SAFE_INTEGER)throw new IOException("备份读取证明无效。");
         long total=0;MessageDigest hash=MessageDigest.getInstance("SHA-256");byte[] buffer=new byte[65536];
         int count;while((count=input.read(buffer))!=-1){total=Math.addExact(total,count);if(total>maximumBytes)throw new IOException("备份文件长度已变化。");hash.update(buffer,0,count);}
-        StringBuilder digest=new StringBuilder();for(byte b:hash.digest())digest.append(String.format("%02x",b&255));return new Proof(total,digest.toString());
+        return new Proof(total,digestHex(hash.digest()));
     }
     private static void delete(File file)throws IOException{
         File resolved=file.getCanonicalFile();

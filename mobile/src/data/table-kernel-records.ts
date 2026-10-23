@@ -91,13 +91,7 @@ export async function readKernelRecordsGrid(kernel: RecordsKernelSource, source:
       sync(events.start('row', { r: String(row.index + 1) }))
       for (const [address, type, raw, inlineText, formula, hasFormula] of row.cells) {
         checkStreamCancelled(signal)
-        sync(events.start('c', { r: address, ...(type ? { t: type } : {}) }))
-        if (hasFormula) {
-          sync(events.start('f', {})); if (formula) sync(events.text(formula)); sync(events.end('f'))
-        }
-        if (raw) { sync(events.start('v', {})); sync(events.text(raw)); sync(events.end('v')) }
-        if (inlineText) { sync(events.start('t', {})); sync(events.text(inlineText)); sync(events.end('t')) }
-        sync(events.end('c'))
+        sync(events.compactCell(address, type, raw, inlineText, formula, hasFormula))
       }
       const pending = events.end('row')
       if (pending) await pending

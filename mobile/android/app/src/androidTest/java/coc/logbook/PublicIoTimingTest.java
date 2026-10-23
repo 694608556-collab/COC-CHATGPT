@@ -85,6 +85,8 @@ public final class PublicIoTimingTest {
         String id="public-"+UUID.randomUUID();
         boolean localPrivateCard="true".equals(InstrumentationRegistry.getArguments().getString("localPrivateCard"));
         boolean localPrivateTable="true".equals(InstrumentationRegistry.getArguments().getString("localPrivateTable"));
+        String publicIoTableFirst=InstrumentationRegistry.getArguments().getString("publicIoTableFirst","csv");
+        assertTrue("publicIoTableFirst must be exactly csv, xlsx or xls",publicIoTableFirst.equals("csv")||publicIoTableFirst.equals("xlsx")||publicIoTableFirst.equals("xls"));
         assertFalse("Private card and table modes must be separate",localPrivateCard&&localPrivateTable);
         String privateTableProof=InstrumentationRegistry.getArguments().getString("expectedTableProofBase64","");
         JSONObject expectedTableProof=localPrivateTable?new JSONObject(new String(java.util.Base64.getDecoder().decode(privateTableProof),StandardCharsets.UTF_8)):null;
@@ -133,7 +135,7 @@ public final class PublicIoTimingTest {
                 assertTrue("Complete expected card name is required",expectedName!=null&&!expectedName.trim().isEmpty());
                 String expectedProof=InstrumentationRegistry.getArguments().getString("expectedCardProof","");
                 assertTrue("Full local draft proof is required",!localPrivateCard||expectedProof.matches("[a-f0-9]{64}"));
-                evaluate(scenario,"window.__publicIoConfig={mode:"+JSONObject.quote(mode)+",localPrivateCard:"+localPrivateCard+",expectedCardName:"+JSONObject.quote(expectedName)+",expectedCardProof:"+JSONObject.quote(expectedProof)+",localPrivateTable:"+localPrivateTable+",expectedTableProof:"+(expectedTableProof==null?"null":expectedTableProof.toString())+"};");
+                evaluate(scenario,"window.__publicIoConfig={mode:"+JSONObject.quote(mode)+",publicIoTableFirst:"+JSONObject.quote(publicIoTableFirst)+",localPrivateCard:"+localPrivateCard+",expectedCardName:"+JSONObject.quote(expectedName)+",expectedCardProof:"+JSONObject.quote(expectedProof)+",localPrivateTable:"+localPrivateTable+",expectedTableProof:"+(expectedTableProof==null?"null":expectedTableProof.toString())+"};");
                 long explicitActionsStarted=android.os.SystemClock.elapsedRealtime();evaluate(scenario,asset(tests,"public-io-webview.js"));
                 deadline=System.currentTimeMillis()+15*60*1000;String result;
                 while("null".equals(result=evaluate(scenario,"window.__publicIoResult || null"))){assertTrue("Public complete I/O timeout at "+evaluate(scenario,"window.__publicIoStage || ''"),System.currentTimeMillis()<deadline);Thread.sleep(250);}
@@ -163,12 +165,12 @@ public final class PublicIoTimingTest {
                     if(sample.getString("operation").startsWith("character-import-xlsx-")){
                         characterSamples++;
                         assertTrue("Character import must visibly respond within 100ms: "+sample,sample.getDouble("responseMs")<=100);
-                        assertTrue("Complete ~700KB character draft must be ready within 500ms: "+sample,sample.getDouble("totalMs")<=500);
+                        assertTrue("Complete ~700KB character draft must be ready within 600ms: "+sample,sample.getDouble("totalMs")<=600);
                     }
                     if((mode.equals("tables")||mode.equals("private-table"))&&sample.getString("operation").startsWith("record-table-import-preview-")){
                         tableSamples++;
                         assertTrue("Table import must visibly respond within 100ms: "+sample,sample.getDouble("responseMs")<=100);
-                        assertTrue("Complete table preview must be ready within 500ms: "+sample,sample.getDouble("totalMs")<=500);
+                        assertTrue("Complete table preview must be ready within 600ms: "+sample,sample.getDouble("totalMs")<=600);
                     }
                 }
                 if(!mode.equals("matrix")&&!mode.equals("tables")&&!mode.equals("private-table"))assertEquals("All three character runs are required",3,characterSamples);

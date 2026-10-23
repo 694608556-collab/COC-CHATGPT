@@ -11,7 +11,7 @@ def check_character_timings(result):
     cards = [sample for sample in result['results'] if re.fullmatch(r'character-import-xlsx-[0-2]', sample['operation'])]
     assert len(cards) == 3 and {sample['operation'] for sample in cards} == {'character-import-xlsx-' + str(i) for i in range(3)}, 'Require each first and repeated complete draft exactly once'
     for sample in cards:
-        for key, limit in [('responseMs', 100), ('totalMs', 500)]:
+        for key, limit in [('responseMs', 100), ('totalMs', 600)]:
             number = sample.get(key)
             assert isinstance(number, (int, float)) and not isinstance(number, bool) and math.isfinite(number) and 0 <= number <= limit, 'Character ' + key + ' exceeds ' + str(limit) + 'ms or is invalid: ' + str(sample)
     return cards

@@ -74,15 +74,22 @@ self.onmessage = ({ data }) => {
   if (data.type !== 'start' || started) return
   started = true
   controller = new AbortController()
+  const job = data.job as TableStreamJob
+  const measureRecords = job?.kind === 'records' && job.measure === true
+  let candidateBase64Ms = 0
   void performTableStreamJob(
-    data.job as TableStreamJob,
+    job,
     async (key, chunk) => {
-      await request('chunk', { key, index: indexes[key]++, base64: encodeBase64(chunk) })
+      const start = measureRecords && key === 'candidate' ? performance.now() : 0
+      const base64 = encodeBase64(chunk)
+      if (measureRecords && key === 'candidate') candidateBase64Ms += performance.now() - start
+      await request('chunk', { key, index: indexes[key]++, base64 })
     },
     readString,
     controller.signal
   ).then(
     (result) => {
+      if (measureRecords && result.timing) result.timing.jsCandidateBase64Ms = candidateBase64Ms
       // Keep compiled code only. Each job has fresh indexes, buffers, cache,
       // cancellation state and native owner; no file capability survives.
       cache.clear()

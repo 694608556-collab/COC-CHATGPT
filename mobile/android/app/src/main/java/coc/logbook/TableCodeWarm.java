@@ -43,8 +43,19 @@ final class TableCodeWarm {
                 if(cancelled.get()||Thread.currentThread().isInterrupted())return;
                 switch(step){
                     case 0:StrictBackupJson.validate(PUBLIC_RECORD);break;
-                    case 1:record=StrictTableJson.parseObject(PUBLIC_RECORD);break;
-                    case 2:BackupValidation.record(record);break;
+                    case 1:
+                        // Fixed public computation only. Repeated calls allow
+                        // older ART runtimes to compile parsing code before a
+                        // first explicit import, without retaining any result.
+                        for(int round=0;round<512;round++){
+                            if(cancelled.get()||Thread.currentThread().isInterrupted())return;
+                            record=StrictTableJson.parseObject(PUBLIC_RECORD);
+                        }break;
+                    case 2:
+                        for(int round=0;round<512;round++){
+                            if(cancelled.get()||Thread.currentThread().isInterrupted())return;
+                            BackupValidation.record(record);
+                        }break;
                     case 3:
                         encoded=record.toString();bytes=encoded.getBytes(StandardCharsets.UTF_8);
                         String decoded=StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString();

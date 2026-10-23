@@ -56,13 +56,37 @@ final class TableSession implements AutoCloseable {
         void seal()throws Exception{if(output!=null){output.flush();output.getFD().sync();output.close();output=null;}}
     }
     interface Line {void accept(String value)throws Exception;}
+    /** byteLength covers this complete strictly decoded line, excluding LF but
+     * retaining CR and JSON whitespace. It is measured here, never caller supplied. */
+    interface ProvenLine {void accept(String value,long byteLength)throws Exception;}
     interface Authorization {void check()throws Exception;}
-    private static final class Lines extends ByteArrayOutputStream {
-        private final CharsetDecoder decoder=StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT);
+    static final class Lines extends ByteArrayOutputStream {
+        /** Validate every original UTF-8 byte before the platform's native
+         * string conversion. No replacement decoding can accept malformed
+         * input: overlongs, surrogate scalars, overflow and incomplete tails
+         * all fail before a complete line reaches its consumer. */
+        private String complete(int length)throws CharacterCodingException{
+            for(int at=0;at<length;){
+                int first=buf[at++]&255;if(first<128)continue;
+                int count;
+                if(first>=0xc2&&first<=0xdf)count=1;
+                else if(first>=0xe0&&first<=0xef)count=2;
+                else if(first>=0xf0&&first<=0xf4)count=3;
+                else throw new MalformedInputException(1);
+                if(length-at<count)throw new MalformedInputException(1);
+                int second=buf[at]&255;
+                if(first==0xe0&&second<0xa0||first==0xed&&second>=0xa0||first==0xf0&&second<0x90||first==0xf4&&second>=0x90)throw new MalformedInputException(1);
+                for(int index=0;index<count;index++)if((buf[at++]&0xc0)!=0x80)throw new MalformedInputException(1);
+            }
+            return new String(buf,0,length,StandardCharsets.UTF_8);
+        }
         void append(byte[] input,int offset,int count,Line accept)throws Exception{
+            appendWithProof(input,offset,count,(value,byteLength)->accept.accept(value));
+        }
+        void appendWithProof(byte[] input,int offset,int count,ProvenLine accept)throws Exception{
             int start=offset,end=offset+count;
             for(int i=offset;i<end;i++)if(input[i]==10){part(input,start,i-start);start=i+1;
-                String value=decoder.reset().decode(ByteBuffer.wrap(buf,0,size())).toString();reset();accept.accept(value);
+                int byteLength=size();String value=complete(byteLength);reset();accept.accept(value,byteLength);
             }part(input,start,end-start);
         }
         private void part(byte[] input,int start,int length)throws Exception{write(input,start,length);}
@@ -111,7 +135,7 @@ final class TableSession implements AutoCloseable {
             stage.execSQL("CREATE TABLE modules(id TEXT PRIMARY KEY,name TEXT NOT NULL,ordinal INTEGER NOT NULL,value INTEGER NOT NULL,count INTEGER NOT NULL DEFAULT 0)");
             stage.execSQL("CREATE INDEX module_name ON modules(name,ordinal)");
             stage.execSQL("CREATE TABLE characters(id TEXT PRIMARY KEY,ordinal INTEGER NOT NULL,value INTEGER NOT NULL)");
-            stage.execSQL("CREATE TABLE records(id TEXT PRIMARY KEY,module_id TEXT NOT NULL,name TEXT NOT NULL,link TEXT NOT NULL,source TEXT NOT NULL,ordinal INTEGER NOT NULL,value INTEGER NOT NULL,manual INTEGER,original INTEGER NOT NULL,changed INTEGER NOT NULL DEFAULT 0,raw_bytes INTEGER NOT NULL DEFAULT 0)");
+            stage.execSQL("CREATE TABLE records(id TEXT PRIMARY KEY,module_id TEXT NOT NULL,name TEXT NOT NULL,link TEXT NOT NULL,source TEXT NOT NULL,ordinal INTEGER NOT NULL,value INTEGER,manual INTEGER,original INTEGER NOT NULL,changed INTEGER NOT NULL DEFAULT 0,raw_bytes INTEGER NOT NULL DEFAULT 0,bytes INTEGER,resident BLOB)");
             stage.execSQL("CREATE INDEX record_link ON records(module_id,link)");stage.execSQL("CREATE INDEX record_manual ON records(module_id,source,name,link)");
             stage.execSQL("CREATE INDEX record_order ON records(ordinal)");
             stage.execSQL("CREATE TABLE preview(kind TEXT NOT NULL,position INTEGER NOT NULL,value INTEGER,bytes INTEGER,resident BLOB,PRIMARY KEY(kind,position))");
@@ -377,6 +401,23 @@ final class TableSession implements AutoCloseable {
         return output.toByteArray();
     }
     private JSONObject value(String table,String id)throws Exception{Long ref=reference(table,"value","id=?",new String[]{id});if(ref==null)throw new IOException("表格暂存实体缺失。");return new JSONObject(contentText(ref));}
+    /** Both record readers consume this complete representation through a
+     * strict UTF-8 decoder to EOF. A reference and inline bytes never coexist. */
+    private InputStream recordMetadataContent(Cursor row,int column)throws Exception{
+        if(!row.isNull(column+2)){
+            if(!row.isNull(column)||row.isNull(column+1)||row.getType(column+1)!=Cursor.FIELD_TYPE_INTEGER||row.getType(column+2)!=Cursor.FIELD_TYPE_BLOB)throw new IOException("表格场次元数据表示混合或不完整。");
+            long bytes=row.getLong(column+1);byte[] complete=row.getBlob(column+2);
+            if(bytes<1||bytes>65536||complete.length!=bytes)throw new IOException("表格场次元数据完整长度无效。");
+            return new ByteArrayInputStream(complete);
+        }
+        if(row.isNull(column)||!row.isNull(column+1)||row.getType(column)!=Cursor.FIELD_TYPE_INTEGER)throw new IOException("表格场次元数据引用不完整。");
+        return content(row.getLong(column));
+    }
+    private JSONObject recordValue(String id)throws Exception{
+        try(Cursor row=stage.rawQuery("SELECT value,bytes,resident FROM records WHERE id=?",new String[]{id})){
+            if(!row.moveToFirst())throw new IOException("表格暂存实体缺失。");return new JSONObject(contentText(recordMetadataContent(row,0)));
+        }
+    }
     private void seed(LogbookDatabase database,JSONObject defaultSettings)throws Exception{
         SQLiteDatabase business=database.getReadableDatabase();Map<String,String> root=new IndexedSnapshot(business).rootFields();
         if(root.isEmpty()){BackupValidation.settings(defaultSettings);initialSettings=new JSONObject(defaultSettings.toString());}
@@ -479,7 +520,7 @@ final class TableSession implements AutoCloseable {
         addTiming("rowValidationModuleMs",rowPhase);rowPhase=System.nanoTime();
         String manual=input.optString("manualContent","");boolean hasManual=!trim(manual).isEmpty();List<String> matches=new ArrayList<>();
         if(hasManual){String sql="SELECT id FROM records WHERE module_id=? AND source='manual' AND name=?"+(link.isEmpty()?"":" AND link=?")+" LIMIT 2";try(Cursor found=stage.rawQuery(sql,link.isEmpty()?new String[]{moduleID,session}:new String[]{moduleID,session,link})){while(found.moveToNext())matches.add(found.getString(0));}}
-        if(matches.size()==1){String id=matches.get(0);JSONObject record=value("records",id);record.put("updatedAt",now);if(input.has("playDate")&&!input.getString("playDate").isEmpty()){record.put("playDate",input.getString("playDate"));record.put("dateSource","manual");}RecordText encoded=validateCombined(record,manual,-1);replaceText("records",id,"value",encoded.metadata,encoded.metadataBytes);replaceText("records",id,"manual",encoded.manual,encoded.manualBytes);execute("UPDATE records SET changed=1 WHERE id=?",id);updated++;notice("names",moduleName+" / "+record.getString("name"));notice("warnings",record.getString("name")+"：将更新已有同名手动场次正文，确认后生效。");return;}
+        if(matches.size()==1){String id=matches.get(0);JSONObject record=recordValue(id);record.put("updatedAt",now);if(input.has("playDate")&&!input.getString("playDate").isEmpty()){record.put("playDate",input.getString("playDate"));record.put("dateSource","manual");}RecordText encoded=validateCombined(record,manual,-1);replaceRecordMetadata(id,encoded);replaceText("records",id,"manual",encoded.manual,encoded.manualBytes);execute("UPDATE records SET changed=1 WHERE id=?",id);updated++;notice("names",moduleName+" / "+record.getString("name"));notice("warnings",record.getString("name")+"：将更新已有同名手动场次正文，确认后生效。");return;}
         if(!link.isEmpty()&&scalar("SELECT COUNT(*) FROM records WHERE module_id=? AND link=?",moduleID,link)>0){skipped++;notice("warnings",session+"：来源已存在，已跳过。");return;}
         long count=currentModuleCount,ordinal=nextRecordOrdinal;
         JSONObject record=new JSONObject().put("id",UUID.randomUUID().toString()).put("moduleId",moduleID).put("name",session.isEmpty()?"第"+(count+1)+"场":session).put("sequenceNo",count+1).put("sourceType",!link.isEmpty()&&!hasManual?"online":"manual").put("status",!link.isEmpty()&&!hasManual?"pending":"manual").put("dateSource",input.has("playDate")&&!input.getString("playDate").isEmpty()?"manual":"none").put("order",count).put("createdAt",now).put("updatedAt",now);
@@ -507,13 +548,25 @@ final class TableSession implements AutoCloseable {
         if(retainedRawBytes>0)bytes=Math.addExact(bytes,Math.addExact(14,retainedRawBytes));StorageBudget.require(available,StorageBudget.estimate(bytes,4));
         return encoded;
     }
+    private byte[] inlineRecordMetadata(RecordText encoded)throws Exception{
+        if(encoded.metadataBytes<1||encoded.metadataBytes>65536)return null;
+        // Keep storeText's two exact live checks in their original order.
+        // Only the separate blob INSERT is removed; no space is reserved.
+        StorageBudget.require(available,StorageBudget.estimate(encoded.metadataBytes,3));byte[] complete=encoded.metadata.getBytes(StandardCharsets.UTF_8);
+        if(complete.length!=encoded.metadataBytes)throw new IOException("表格文本UTF-8计量不符。");StorageBudget.require(available,StorageBudget.estimate(complete.length,3));return complete;
+    }
+    private void replaceRecordMetadata(String id,RecordText encoded)throws Exception{
+        Long previous=reference("records","value","id=?",new String[]{id});byte[] resident=inlineRecordMetadata(encoded);Long value=resident==null?storeText(encoded.metadata,encoded.metadataBytes):null;
+        execute("UPDATE records SET value=?,bytes=?,resident=? WHERE id=?",value,resident==null?null:encoded.metadataBytes,resident,id);
+        if(previous!=null){execute("DELETE FROM blob_chunks WHERE owner=?",previous);execute("DELETE FROM blobs WHERE id=?",previous);}
+    }
     private void insertRecord(JSONObject row,long ordinal,String manual,boolean original,boolean changed,long rawBytes)throws Exception{insertEncodedRecord(row,ordinal,new RecordText(row,manual),original,changed,rawBytes);}
     private void insertEncodedRecord(JSONObject row,long ordinal,RecordText encoded,boolean original,boolean changed,long rawBytes)throws Exception{
-        long value=storeText(encoded.metadata,encoded.metadataBytes);Long manual=encoded.manual==null?null:storeText(encoded.manual,encoded.manualBytes);
-        SQLiteStatement query=statement("INSERT INTO records(id,module_id,name,link,source,ordinal,value,manual,original,changed,raw_bytes) VALUES(?,?,?,?,?,?,?,?,?,?,?)");
+        byte[] resident=inlineRecordMetadata(encoded);Long value=resident==null?storeText(encoded.metadata,encoded.metadataBytes):null;Long manual=encoded.manual==null?null:storeText(encoded.manual,encoded.manualBytes);
+        SQLiteStatement query=statement("INSERT INTO records(id,module_id,name,link,source,ordinal,value,manual,original,changed,raw_bytes,bytes,resident) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)");
         try{
-            query.bindString(1,row.getString("id"));query.bindString(2,row.getString("moduleId"));query.bindString(3,row.getString("name"));query.bindString(4,row.optString("link"));query.bindString(5,row.getString("sourceType"));query.bindLong(6,ordinal);query.bindLong(7,value);
-            if(manual==null)query.bindNull(8);else query.bindLong(8,manual);query.bindLong(9,original?1:0);query.bindLong(10,changed?1:0);query.bindLong(11,rawBytes);query.executeInsert();
+            query.bindString(1,row.getString("id"));query.bindString(2,row.getString("moduleId"));query.bindString(3,row.getString("name"));query.bindString(4,row.optString("link"));query.bindString(5,row.getString("sourceType"));query.bindLong(6,ordinal);if(value==null)query.bindNull(7);else query.bindLong(7,value);
+            if(manual==null)query.bindNull(8);else query.bindLong(8,manual);query.bindLong(9,original?1:0);query.bindLong(10,changed?1:0);query.bindLong(11,rawBytes);if(resident==null){query.bindNull(12);query.bindNull(13);}else{query.bindLong(12,encoded.metadataBytes);query.bindBlob(13,resident);}query.executeInsert();
         }finally{query.clearBindings();}
     }
     private void character(JSONObject value)throws Exception{Set<String> modules=new HashSet<>();try(Cursor rows=stage.rawQuery("SELECT id FROM modules",null)){while(rows.moveToNext())modules.add(rows.getString(0));}BackupValidation.character(value,modules);String id=value.getString("id");if(id.isEmpty()||scalar("SELECT COUNT(*) FROM characters WHERE id=?",id)!=0)throw new IOException("角色标识重复或缺失。");String encoded=value.toString();long bytes=JsonFields.bytes(encoded);StorageBudget.require(available,StorageBudget.estimate(bytes,4));execute("INSERT INTO characters VALUES(?,?,?)",id,scalar("SELECT COUNT(*) FROM characters"),storeText(encoded,bytes));added++;notice("names",value.getJSONObject("basic").getString("name"));}
@@ -542,8 +595,12 @@ final class TableSession implements AutoCloseable {
             // and is filled only after the full sealed-file proof succeeded.
             final SortedMap<long[],JSONObject> resident=proof.bytes<=2L*1024*1024?new TreeMap<>((a,b)->{int sheet=Long.compare(a[0],b[0]);return sheet!=0?sheet:Long.compare(a[1],b[1]);}):null;
             if(timing!=null)timing.put("residentCandidate",resident==null?0:1);
-            Lines lines=new Lines();try(InputStream input=new FileInputStream(candidate.file)){byte[] buffer=new byte[65536];int n;while((n=input.read(buffer))!=-1)lines.append(buffer,0,n,value->{
-                if(value.length()<2||value.charAt(0)!=(kind.equals("record-table")?'T':'C'))throw new IOException("表格候选用途不符。");String json=value.substring(1);JSONObject wrapper=StrictTableJson.parseObject(json);BackupValidation.shape(wrapper,"sheetOrder,rowOrder,value",kind.equals("character-table")?"warnings":"");long sheet=integer(wrapper.get("sheetOrder")),row=integer(wrapper.get("rowOrder"));wrapper.getJSONObject("value");if(wrapper.has("warnings")){JSONArray warnings=wrapper.getJSONArray("warnings");for(int i=0;i<warnings.length();i++)if(!(warnings.get(i) instanceof String))throw new IOException("角色提醒类型无效。");}StorageBudget.require(available,StorageBudget.estimate(JsonFields.bytes(json),4));
+            Lines lines=new Lines();try(InputStream input=new FileInputStream(candidate.file)){byte[] buffer=new byte[65536];int n;while((n=input.read(buffer))!=-1)lines.appendWithProof(buffer,0,n,(value,byteLength)->{
+                if(value.length()<2||value.charAt(0)!=(kind.equals("record-table")?'T':'C'))throw new IOException("表格候选用途不符。");String json=value.substring(1);JSONObject wrapper=StrictTableJson.parseObject(json);BackupValidation.shape(wrapper,"sheetOrder,rowOrder,value",kind.equals("character-table")?"warnings":"");long sheet=integer(wrapper.get("sheetOrder")),row=integer(wrapper.get("rowOrder"));wrapper.getJSONObject("value");if(wrapper.has("warnings")){JSONArray warnings=wrapper.getJSONArray("warnings");for(int i=0;i<warnings.length();i++)if(!(warnings.get(i) instanceof String))throw new IOException("角色提醒类型无效。");}
+                // Strict UTF-8 decoding above preserves every raw JSON byte.
+                // Only the already-checked ASCII purpose prefix is excluded;
+                // keep the same live capacity check after ALL line validation.
+                StorageBudget.require(available,StorageBudget.estimate(byteLength-1,4));
                 if(resident!=null){if(resident.put(new long[]{sheet,row},wrapper)!=null)throw new IOException("表格候选坐标重复。");}
                 else execute("INSERT INTO incoming VALUES(?,?,?,?)",sheet,row,value.substring(0,1),storeText(json));
             });}lines.finish();
@@ -616,11 +673,12 @@ final class TableSession implements AutoCloseable {
             output.write('{');
             if(initialSettings!=null)output.write("\"schemaVersion\":2,\"settings\":"+initialSettings+",");
             output.write("\"records\":[");boolean comma=false;
-            try(Cursor rows=stage.rawQuery("SELECT ordinal,original,value,manual FROM records WHERE changed=1 ORDER BY ordinal",null)){
+            try(Cursor rows=stage.rawQuery("SELECT ordinal,original,value,bytes,resident,manual FROM records WHERE changed=1 ORDER BY ordinal",null)){
                 while(rows.moveToNext()){
                     if(comma)output.write(',');comma=true;
-                    output.write("{\"ordinal\":"+rows.getLong(0)+",\"added\":"+(rows.getInt(1)==0)+",\"value\":");copyContent(rows.getLong(2),output);
-                    if(!rows.isNull(3)){output.write(",\"manual\":");copyContent(rows.getLong(3),output);}output.write('}');
+                    output.write("{\"ordinal\":"+rows.getLong(0)+",\"added\":"+(rows.getInt(1)==0)+",\"value\":");
+                    try(Reader input=new InputStreamReader(recordMetadataContent(rows,2),StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT))){char[] part=new char[32768];int count;while((count=input.read(part))!=-1)output.write(part,0,count);}
+                    if(!rows.isNull(5)){output.write(",\"manual\":");copyContent(rows.getLong(5),output);}output.write('}');
                 }
             }
             output.write(']');

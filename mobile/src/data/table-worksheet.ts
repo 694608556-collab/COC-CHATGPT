@@ -11,6 +11,14 @@ export class TextValue {
   value() {
     return this.parts.join('')
   }
+  /** Reuse exact accounting only when decoding left one complete token unchanged.
+   * @param decoded Final cell text after the original OOXML decoder.
+   * @returns Checked UTF-8 bytes, or undefined when a full recount is required.
+   */
+  unchangedSinglePartBytes(decoded: string): number | undefined {
+    // Separate fragments may join surrogate halves: 3 + 3 bytes becomes 4.
+    return this.parts.length === 1 && this.parts[0] === decoded ? this.bytes : undefined
+  }
 }
 export function safeInteger(value: number, label: string) {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error('表格' + label + '无效。')
@@ -21,6 +29,8 @@ export interface WorksheetEvents {
   start(name: string, attrs: Record<string, string>): Promise<void> | void
   text(value: string): Promise<void> | void
   end(name: string): Promise<void> | void
+  /** Complete native token; shares every cell/row rule with the XML events. */
+  compactCell(address: string, type: string, raw: string, inline: string, formula: string, hasFormula: boolean): Promise<void> | void
   emptyNumericCell?(address: string): Promise<void> | void
 }
 export const xstring = (value: string) => value.replace(/_x([a-f0-9]{4})_/gi, (_, code: string) => String.fromCharCode(parseInt(code, 16)))
@@ -82,10 +92,10 @@ export function createWorksheetEvents(options: Pick<TableGridStreamOptions, 'rea
       inValue = false,
       inText = false,
       phonetic = 0
-    function finishCell(value: Cell): Promise<void> | void {
+    function finishCell(value: Cell, unchangedBytes?: number): Promise<void> | void {
       const current = cell
       if (!current) throw new Error('工作表单元格未开始。')
-      rowBytes = addStreamBytes(rowBytes, typeof value === 'string' ? utf8Size(value) : 16)
+      rowBytes = addStreamBytes(rowBytes, typeof value === 'string' ? (unchangedBytes ?? utf8Size(value)) : 16)
       while (values.length < current.column) values.push(null)
       values[current.column] = value
       if (options.onCell) {
@@ -102,6 +112,22 @@ export function createWorksheetEvents(options: Pick<TableGridStreamOptions, 'rea
       cell = undefined
     }
     const events: WorksheetEvents = {
+      compactCell(address, type, raw, inline, formula, hasFormula) {
+        // The native tokenizer has already emitted complete values. Avoid
+        // reconstructing v/t/f tag state while retaining the same begin/end,
+        // text accounting, coordinate, type, numeric and SST validation.
+        events.start('c', { r: address, ...(type ? { t: type } : {}) })
+        const current = cell
+        if (!current) throw new Error('工作表单元格未开始。')
+        current.hasFormula = hasFormula
+        if (hasFormula && options.onCell) {
+          current.formula = new TextValue()
+          if (formula) current.formula.add(formula)
+        }
+        if (raw) { current.value = new TextValue(); current.value.add(raw) }
+        if (inline) { current.inline = new TextValue(); current.inline.add(inline) }
+        return events.end('c')
+      },
       emptyNumericCell(address) {
         if (cell || row < 0) throw new Error('工作表单元格位置无效。')
         const parsed = cellAddress(address)
@@ -149,14 +175,20 @@ export function createWorksheetEvents(options: Pick<TableGridStreamOptions, 'rea
         if (name === 'c') {
           if (!cell) throw new Error('工作表单元格未开始。')
           let value: Cell = null
+          let unchangedBytes: number | undefined
           const type = cell.type,
             raw = cell.value?.value() ?? ''
           if (type === 's' && raw !== '') {
             if (!/^\d+$/.test(raw) || Number(raw) >= strings) throw new Error('共享字符串索引缺失或无效。')
             const decoded = options.readString(sstBase + Number(raw))
             return typeof decoded === 'string' ? finishCell(decoded) : decoded.then(finishCell)
-          } else if (type === 'inlineStr') value = xstring(cell.inline?.value() ?? '')
-          else if (type === 'str') value = xstring(raw)
+          } else if (type === 'inlineStr') {
+            value = xstring(cell.inline?.value() ?? '')
+            unchangedBytes = cell.inline?.unchangedSinglePartBytes(value)
+          } else if (type === 'str') {
+            value = xstring(raw)
+            unchangedBytes = cell.value?.unchangedSinglePartBytes(value)
+          }
           else if (type === 'b') value = ['1', 'true', 'TRUE'].includes(raw)
           else if (type === 'd') value = excelDate(raw)
           else if (type === 'e') value = errors[raw] ?? null
@@ -168,7 +200,7 @@ export function createWorksheetEvents(options: Pick<TableGridStreamOptions, 'rea
             // SheetJS 0.18.5's missing-cache formula stub is omitted by its
             // numeric blank-cell check. Preserve null rather than inventing 0.
           } else if (type !== 's') throw new Error('工作表单元格类型不受支持。')
-          return finishCell(value)
+          return finishCell(value, unchangedBytes)
         } else if (name === 'row') {
           if (cell) throw new Error('工作表单元格未结束。')
           const complete = values
