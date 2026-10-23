@@ -75,6 +75,7 @@ const native = Capacitor as unknown as { nativePromise: (plugin: string, method:
 const original = native.nativePromise
 let timedCalls: Sample['nativeCalls'] | undefined
 let timedSearchStarted = 0
+let searchSourceRequests = 0
 const nativeCallback = (native as any).nativeCallback
 ;(native as any).nativeCallback = (plugin:string,method:string,options:any,callback:any) => {
   if(plugin!=='Logbook'||method!=='addListener'||options?.eventName!=='searchSourceChunk')
@@ -91,6 +92,7 @@ let witnessFailure = false
 let allowed = new Set<string>()
 const observed = new Set<string>()
 native.nativePromise = async (plugin, method, options) => {
+  if (plugin === 'Logbook' && method === 'createSearchSource') searchSourceRequests++
   const started = performance.now(), capture = timedCalls
   const reply = await original(plugin, method, method === 'createSearchSource' ? {...options,measureSearch:true} : options)
   capture?.push({ method, milliseconds: performance.now() - started,
@@ -127,6 +129,17 @@ async function search(moduleId: string, moduleName: string, query: string, repea
   await tick()
   const submit = area.querySelector<HTMLButtonElement>('button[aria-label="搜索模组正文"]')!
   check(submit && !submit.disabled, 'Submitted search is unavailable')
+  // A human can tap only after the expanded input has actually been displayed.
+  // Match browser actionability checks; do not read or warm any saved body here.
+  const sourcesBeforeActionability = searchSourceRequests
+  submit.scrollIntoView({ block: 'center', behavior: 'auto' })
+  await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+  const box = submit.getBoundingClientRect()
+  const target = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+  check(document.visibilityState === 'visible' && box.width > 0 && box.height > 0 &&
+    box.top >= 0 && box.bottom <= innerHeight && !!target && submit.contains(target),
+    'Search button must be visible, painted and actionable before a tap')
+  check(searchSourceRequests === sourcesBeforeActionability, 'Search source opened before the timed tap')
   const calls: Sample['nativeCalls'] = []
   timedCalls = calls
   let response: number | undefined, mutation: number | undefined, queued = false
@@ -146,6 +159,8 @@ async function search(moduleId: string, moduleName: string, query: string, repea
     const submitMs = performance.now() - start
     await waitFor(() => { check(!workerFailure, workerFailure ?? 'Search worker failed'); return /匹配 \d+ 个场次|没有找到匹配正文/.test(area.querySelector('[role="status"]')?.textContent ?? '') }, 'Complete search result timed out', 120000)
     const totalMs = performance.now() - start
+    check(calls.filter(call => call.method === 'createSearchSource').length === (repeat === 0 ? 1 : 0),
+      'First complete source must remain inside click-to-result timing')
     if (response === undefined) await new Promise(requestAnimationFrame)
     check(response !== undefined, 'Search visible response was not observed')
     results.push({ operation: 'private-module-search-' + captures.length + '-repeat-' + repeat, totalMs, responseMs: response, submitMs, mutationMs:mutation, nativeCalls: calls, ...workerTiming && { workerTiming } })
