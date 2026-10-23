@@ -6,6 +6,7 @@ import type { BodySearchResult } from '../data/body-search-stream'
 import { BatchCheck } from './components/BatchCheck'
 import { buildTableImportTemplateCsv, buildTableImportTemplateXlsx } from '../../../src/shared/table-import'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { DEFAULT_FILTER_PRESET } from '../../../src/shared/types'
 import type { FilterPreset, SessionRecord } from '../../../src/shared/types'
 import { Native, decodeBase64, encodeBase64 } from '../data/native'
@@ -81,6 +82,36 @@ import {
 import { createRecordTableExport } from '../data/table-export'
 import { useVisibleViewport } from './useVisibleViewport'
 import { deferredIds, mergeRecordContent } from '../data/deferred-records'
+
+/** Let the disabled import controls paint before acquiring or reading a source.
+ * @param signal The import owner's cancellation signal; cancellation opens no file.
+ * @returns True after a complete paint turn, or false if cancelled first. All source
+ * acquisition and validation remains after this gate and inside click-to-preview timing.
+ */
+function paintImportFeedback(signal: AbortSignal): Promise<boolean> {
+  return new Promise((resolve) => {
+    let frame: number | undefined,
+      timer: ReturnType<typeof setTimeout> | undefined,
+      settled = false
+    /** Release only this paint gate's callbacks and complete once. @returns No value. */
+    const finish = () => {
+      if (settled) return
+      settled = true
+      if (frame !== undefined) cancelAnimationFrame(frame)
+      clearTimeout(timer)
+      signal.removeEventListener('abort', finish)
+      resolve(!signal.aborted)
+    }
+    if (signal.aborted) {
+      finish()
+      return
+    }
+    signal.addEventListener('abort', finish, { once: true })
+    frame = requestAnimationFrame(() => {
+      timer = setTimeout(finish, 0)
+    })
+  })
+}
 
 /** @returns 初次使用的空数据，不推测或静默创建归档目录。 */
 function emptySnapshot(): MobileSnapshot {
@@ -730,9 +761,10 @@ export function MobileApp({
     if (native.tableStreamVersion === 1) {
       const controller = new AbortController()
       tableAbort.current = controller
-      setTableImporting(true)
+      flushSync(() => setTableImporting(true))
       let progressTimer: ReturnType<typeof setTimeout> | undefined
       try {
+        if (!(await paintImportFeedback(controller.signal))) return
         const selected = await port.openBackup({
           kind: kind === 'records' ? 'record-table' : 'character-table',
           stream: true,
@@ -801,9 +833,10 @@ export function MobileApp({
     if (native.tableStreamVersion === 1) {
       const controller = new AbortController()
       tableAbort.current = controller
-      setTableImporting(true)
+      flushSync(() => setTableImporting(true))
       let progressTimer: ReturnType<typeof setTimeout> | undefined
       try {
+        if (!(await paintImportFeedback(controller.signal))) return
         const selected = await port.openBackup({
           kind: 'character-table',
           stream: true,
