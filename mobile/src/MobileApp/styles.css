@@ -5,6 +5,13 @@
   /* Search feedback moves this block without reflowing every gesture card. */
   contain: layout;
 }
+.module-body-search {
+  contain: layout;
+}
+.module-body-search > section > p {
+  /* Keep first feedback repaint independent of the expanded gesture-card list. */
+  transform: translateZ(0);
+}
 @font-face {
   font-family: 'SF Pro Display';
   src: url('../../../src/renderer/src/assets/fonts/SF-Pro-Display-Regular.otf') format('opentype');
