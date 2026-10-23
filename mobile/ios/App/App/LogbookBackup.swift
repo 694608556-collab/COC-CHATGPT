@@ -32,6 +32,14 @@ enum LogbookSearchMemory {
     }
 }
 
+/// Optional numeric-only phase measurements; no source text or credentials.
+final class LogbookSearchTiming {
+    private(set) var values: [String: Double] = [:]
+    func elapsed(_ key: String, _ started: TimeInterval) {
+        values[key, default: 0] += (ProcessInfo.processInfo.systemUptime - started) * 1000
+    }
+}
+
 /// An acceleration admission failure requests the complete original stream,
 /// never a content-size rejection or permission/validation bypass.
 struct LogbookSearchUnavailable: Error {}
@@ -167,9 +175,9 @@ enum LogbookBackupJSON {
             coc_search_json_body(raw.bindMemory(to: UInt8.self).baseAddress, data.count, UInt64(budget / 3), &count)
         }
         guard let pointer else { return nil }
-        defer { free(pointer) }
-        guard count >= 0, count <= data.count else { return nil }
-        return Data(bytes: pointer, count: count)
+        guard count >= 2, count <= data.count else { free(pointer); return nil }
+        // The C ABI transfers malloc ownership; Data releases it exactly once.
+        return Data(bytesNoCopy: pointer, count: count, deallocator: .free)
     }
 
     private static func memberRanges(_ data: Data, selected: Set<String>) throws -> [String: Range<Int>] {
@@ -360,7 +368,7 @@ final class LogbookBackupSession {
     }
     /// One SQLite snapshot feeds the complete original ledger and the read-only
     /// projection. Both files must match their independently hashed input bytes.
-    func captureSearch(_ producer: (_ original: (Data) throws -> Void, _ projection: (Data) throws -> Void) throws -> Void) throws -> (original: LogbookBackupProof, projection: LogbookBackupProof) {
+    func captureSearch(timing: LogbookSearchTiming? = nil, _ producer: (_ original: (Data) throws -> Void, _ projection: (Data) throws -> Void) throws -> Void) throws -> (original: LogbookBackupProof, projection: LogbookBackupProof) {
         guard searching, !restoring, !includeArchives, !closed, !ready, maximumOutputBytes == 0,
               entries["source"] == nil, entries["search"] == nil else { throw LogbookFailure("只读搜索来源阶段无效。") }
         let original = try create("source"), projection = try create("search")
@@ -375,7 +383,10 @@ final class LogbookBackupSession {
             try LogbookCapacity.require(available: self.available, additional: chunk.count)
             try output.write(contentsOf: chunk); projectionHash.update(data: chunk); projection.bytes += chunk.count
         })
-        try original.seal(); try projection.seal()
+        var sealStarted = timing == nil ? 0 : ProcessInfo.processInfo.systemUptime
+        try original.seal(); timing?.elapsed("sealOriginalMs", sealStarted)
+        sealStarted = timing == nil ? 0 : ProcessInfo.processInfo.systemUptime
+        try projection.seal(); timing?.elapsed("sealProjectionMs", sealStarted)
         try original.proof!.matches(bytes: original.bytes, sha256: originalHash.finalize().map { String(format: "%02x", $0) }.joined())
         try projection.proof!.matches(bytes: projection.bytes, sha256: projectionHash.finalize().map { String(format: "%02x", $0) }.joined())
         return (original.proof!, projection.proof!)

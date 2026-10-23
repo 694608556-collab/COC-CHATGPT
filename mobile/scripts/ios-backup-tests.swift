@@ -35,15 +35,34 @@ extension IOSNativeChecks {
         try require(try LogbookBackupJSON.searchBody(manual, budget: budget) == manual, "manual-only raw spelling remains exact")
 
         let store = try LogbookStore(url: root.appendingPathComponent("search-readonly.sqlite"))
-        _ = try store.replace(fixture, expected: 0)
+        // Force nonzero-index Data slices across many transfer boundaries in
+        // both raw and manual bodies. Ordinary backup supplies the byte oracle.
+        var sourceFixture = fixture, sourceRows = fixture["records"] as! [LogbookJSON]
+        let largeText = String(repeating: "完整😀\nEND ", count: 100000)
+        var largeLog = sourceRows[0]["rawContent"] as! LogbookJSON
+        var largeMessages = largeLog["messages"] as! [LogbookJSON]
+        largeMessages[0]["text"] = largeText; largeLog["messages"] = largeMessages
+        sourceRows[0]["rawContent"] = largeLog
+        guard let manualIndex = sourceRows.firstIndex(where: { $0["sourceType"] as? String == "manual" }) else { throw LogbookFailure("Public manual fixture required") }
+        sourceRows[manualIndex]["manualContent"] = largeText
+        sourceFixture["records"] = sourceRows
+        _ = try store.replace(sourceFixture, expected: 0)
         let before = try logbookData(store.fullSnapshot()!), revision = try store.revision()
         let ids = (fixture["records"] as! [LogbookJSON]).map { $0["id"] as! String }
         let directory = root.appendingPathComponent("search-private")
         let owner = try LogbookBackupSession(directory: directory, expected: revision, bookmark: Data(), restoring: false, includeArchives: false, searching: true, available: { 1024 * MiB })
-        let proofs = try owner.captureSearch { original, projection in
-            try store.writeSearchProjection(expected: revision, maximumBytes: owner.sourceBudget, selected: ids, memoryBudget: budget, original: original, sink: projection)
+        let timing = LogbookSearchTiming()
+        let proofs = try owner.captureSearch(timing: timing) { original, projection in
+            try store.writeSearchProjection(expected: revision, maximumBytes: owner.sourceBudget, selected: ids, memoryBudget: budget, timing: timing, original: original, sink: projection)
         }
+        try require(["readBodyMs", "kernelMs", "writeMs", "sealOriginalMs", "sealProjectionMs"].allSatisfy { timing.values[$0].map { $0.isFinite && $0 >= 0 } == true }, "optional phase metrics are finite and content-free")
         let originalURL = try owner.file("source"), projectionURL = try owner.file("search")
+        var reference = Data()
+        try store.writeBackup(expected: revision, maximumBytes: owner.sourceBudget, selected: ids, validateRecords: false) { reference.append($0) }
+        let originalBytes = try Data(contentsOf: originalURL)
+        let marker = Data(",\"snapshot\":".utf8)
+        guard let referenceStart = reference.range(of: marker)?.upperBound, let originalStart = originalBytes.range(of: marker)?.upperBound else { throw LogbookFailure("Public canonical envelope required") }
+        try require(originalBytes.suffix(from: originalStart) == reference.suffix(from: referenceStart), "segmented search original is byte-exact with the complete ordinary backup, across all body boundaries")
         let envelope = try LogbookBackupJSON.object(Data(contentsOf: originalURL))
         try require(try logbookData(envelope["snapshot"] as! LogbookJSON) == before, "complete original snapshot ledger retains every body and field")
         let sourceProof = try LogbookBackupSession.fileProof(originalURL, maximumBytes: proofs.original.bytes)

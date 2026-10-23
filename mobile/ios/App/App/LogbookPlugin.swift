@@ -297,6 +297,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
         run(call) { store, _ in
             guard self.backupSession == nil, self.tableSession == nil, !self.filePickerPending, let ids = call.options["ids"] as? [String], !ids.isEmpty, Set(ids).count == ids.count else { throw LogbookFailure("搜索场次无效或已有文件任务。") }
             let revision = try self.expected(call); try store.check(revision)
+            let timing = call.getBool("measureSearch") == true ? LogbookSearchTiming() : nil
             let processMemory = UInt64(os_proc_available_memory())
             #if targetEnvironment(simulator)
             let memory = LogbookSearchMemory.available(process: processMemory, simulator: true)
@@ -309,16 +310,18 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
                 self.backupSession = owner
                 do {
                     if projecting {
-                        let proofs = try owner.captureSearch { original, projection in
+                        let snapshotStarted = timing == nil ? 0 : ProcessInfo.processInfo.systemUptime
+                        let proofs = try owner.captureSearch(timing: timing) { original, projection in
                             try store.writeSearchProjection(expected: revision, maximumBytes: owner.sourceBudget, selected: ids,
-                                                            memoryBudget: memory / 2, original: original, sink: projection)
+                                                            memoryBudget: memory / 2, timing: timing, original: original, sink: projection)
                         }
+                        timing?.elapsed("snapshotMs", snapshotStarted)
                         guard proofs.projection.bytes <= memory / 16 else { throw LogbookSearchUnavailable() }
                         try store.check(revision)
                         return ["id": owner.id, "revision": revision, "source": try self.backupFile(owner, "search"),
                                 "originalSource": try self.backupFile(owner, "source"), "searchProjectionVersion": 3,
                                 "cacheMemoryBytes": memory / 4, "maximumReadBytes": memory / 16,
-                                "searchMemoryBytes": memory, "searchProcessMemoryZero": processMemory == 0]
+                                "searchMemoryBytes": memory, "searchProcessMemoryZero": processMemory == 0, "timing": timing?.values ?? [:]]
                     }
                     // A new owner runs the complete original stream when the
                     // read-only acceleration budget or grammar path is unavailable.
@@ -326,7 +329,7 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
                     try store.check(revision)
                     return ["id": owner.id, "revision": revision, "source": try self.backupFile(owner, "source"),
                             "cacheMemoryBytes": memory / 4, "maximumReadBytes": memory / 32,
-                            "searchMemoryBytes": memory, "searchProcessMemoryZero": processMemory == 0]
+                            "searchMemoryBytes": memory, "searchProcessMemoryZero": processMemory == 0, "timing": timing?.values ?? [:]]
                 } catch {
                     let failure = error
                     do { try owner.close(); self.backupSession = nil }

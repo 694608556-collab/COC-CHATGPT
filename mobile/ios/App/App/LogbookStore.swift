@@ -317,14 +317,14 @@ final class LogbookStore {
     }
     /// Read-only acceleration only: the complete original and projected bytes
     /// come from the same selection, SQLite pass, metadata order and revision.
-    func writeSearchProjection(expected: Int, maximumBytes: Int, selected: [String], memoryBudget: Int,
+    func writeSearchProjection(expected: Int, maximumBytes: Int, selected: [String], memoryBudget: Int, timing: LogbookSearchTiming? = nil,
                                original: (Data) throws -> Void, sink: (Data) throws -> Void) throws {
         guard memoryBudget > 0 else { throw LogbookSearchUnavailable() }
         try writeSnapshot(expected: expected, maximumBytes: maximumBytes, selected: selected, validateRecords: false,
-                          searchBudget: memoryBudget, original: original, sink: sink)
+                          searchBudget: memoryBudget, timing: timing, original: original, sink: sink)
     }
     private func writeSnapshot(expected: Int, maximumBytes: Int, selected: [String]?, validateRecords: Bool,
-                               searchBudget: Int?, original: (Data) throws -> Void, sink: (Data) throws -> Void) throws {
+                               searchBudget: Int?, timing: LogbookSearchTiming? = nil, original: (Data) throws -> Void, sink: (Data) throws -> Void) throws {
         try check(expected)
         var root = try metadata() ?? Self.empty()
         let allRecords = root.removeValue(forKey: "records") as! [LogbookJSON]
@@ -334,19 +334,30 @@ final class LogbookStore {
         let maximum = maximumBytes
         guard maximum > 0 else { throw LogbookFailure("备份空间预算无效。") }
         var total = 0, originalTotal = 0
-        func write(_ text: String, projected: String? = nil) throws {
-            let originalBytes = Data(text.utf8)
+        // Native-only buffer size, bounded by live search memory admission;
+        // every actual write still checks its entire byte and free-space cost.
+        let chunkBytes = searchBudget.map { min(1024 * 1024, max(1, $0 / 32)) } ?? 65536
+        func writeData(_ originalBytes: Data, projected: Data? = nil) throws {
+            let started = timing == nil ? 0 : ProcessInfo.processInfo.systemUptime
+            defer { timing?.elapsed("writeMs", started) }
             if searchBudget != nil {
                 guard originalBytes.count <= maximum - originalTotal else { throw LogbookFailure("完整搜索来源超过本次可用空间预算。") }
-                for start in stride(from: 0, to: originalBytes.count, by: 65536) { try original(originalBytes.subdata(in: start..<min(start + 65536, originalBytes.count))) }
+                for offset in stride(from: 0, to: originalBytes.count, by: chunkBytes) {
+                    let start = originalBytes.startIndex + offset
+                    try original(originalBytes.subdata(in: start..<min(start + chunkBytes, originalBytes.endIndex)))
+                }
                 originalTotal += originalBytes.count
             }
-            let bytes = projected.map { Data($0.utf8) } ?? originalBytes
+            let bytes = projected ?? originalBytes
             if searchBudget != nil, bytes.count > originalBytes.count { throw LogbookSearchUnavailable() }
             guard bytes.count <= maximum - total else { throw LogbookFailure("完整备份超过本次可用空间预算。") }
-            for start in stride(from: 0, to: bytes.count, by: 65536) { try sink(bytes.subdata(in: start..<min(start + 65536, bytes.count))) }
+            for offset in stride(from: 0, to: bytes.count, by: chunkBytes) {
+                let start = bytes.startIndex + offset
+                try sink(bytes.subdata(in: start..<min(start + chunkBytes, bytes.endIndex)))
+            }
             total += bytes.count
         }
+        func write(_ text: String) throws { try writeData(Data(text.utf8)) }
         try write("{\"format\":\"coc.logbook.android\",\"formatVersion\":1,\"exportedAt\":" + String(try logbookText([logbookNow()]).dropFirst().dropLast()) + ",\"restoreScope\":[\"modules\",\"records\",\"characters\"],\"snapshot\":")
         let rootText = try logbookText(root)
         if let budget = searchBudget {
@@ -363,25 +374,40 @@ final class LogbookStore {
             if let wanted, !wanted.contains(id) { status = sqlite3_step(statement); continue }
             try autoreleasepool {
                 guard count < records.count else { throw LogbookFailure("场次数量已变化。") }
+                let readStarted = timing == nil ? 0 : ProcessInfo.processInfo.systemUptime
                 let head = try metadataText(id), tail = try bodyText(id)
+                timing?.elapsed("readBodyMs", readStarted)
                 guard head.hasSuffix("}"), tail.hasPrefix("{"), tail.hasSuffix("}") else { throw LogbookFailure("本机正文格式异常。") }
-                let text = tail == "{}" ? head : String(head.dropLast()) + "," + String(tail.dropFirst())
                 var row = try logbookObject(head)
                 if validateRecords {
+                    let text = tail == "{}" ? head : String(head.dropLast()) + "," + String(tail.dropFirst())
                     let value = try LogbookBackupJSON.object(Data(text.utf8)); try LogbookValidation.record(value)
                     row = value; row.removeValue(forKey: "rawContent"); row.removeValue(forKey: "manualContent")
                 }
                 guard try logbookData(row) == logbookData(records[count]) else { throw LogbookFailure("备份场次次序或元数据已变化。") }
-                var projection: String?
                 if let budget = searchBudget {
-                    let headBytes = Data(head.utf8)
+                    let kernelStarted = timing == nil ? 0 : ProcessInfo.processInfo.systemUptime
+                    let headBytes = Data(head.utf8), bodyBytes = Data(tail.utf8)
                     guard headBytes.withUnsafeBytes({ coc_search_json_check($0.bindMemory(to: UInt8.self).baseAddress, headBytes.count, UInt64(budget / 3), 1) }) != 0,
-                          tail.utf8.count <= budget / 8,
-                          let projected = try LogbookBackupJSON.searchBody(Data(tail.utf8), budget: budget),
-                          let body = String(data: projected, encoding: .utf8) else { throw LogbookSearchUnavailable() }
-                    projection = body == "{}" ? head : String(head.dropLast()) + "," + String(body.dropFirst())
+                          let projected = try LogbookBackupJSON.searchBody(bodyBytes, budget: budget) else { throw LogbookSearchUnavailable() }
+                    timing?.elapsed("kernelMs", kernelStarted)
+                    var prefix = Data((count == 0 ? "" : ",").utf8)
+                    if tail == "{}" {
+                        guard projected == bodyBytes else { throw LogbookSearchUnavailable() }
+                        prefix.append(headBytes); try writeData(prefix)
+                    } else {
+                        // Keep the exact original JSON tokens. The C-owned Data
+                        // and nonzero-index slices avoid full UTF-8 round trips.
+                        prefix.append(headBytes.dropLast()); prefix.append(44)
+                        try writeData(prefix)
+                        try writeData(bodyBytes.dropFirst(), projected: projected.dropFirst())
+                    }
+                } else {
+                    let text = tail == "{}" ? head : String(head.dropLast()) + "," + String(tail.dropFirst())
+                    try write((count == 0 ? "" : ",") + text)
                 }
-                try write((count == 0 ? "" : ",") + text, projected: projection.map { (count == 0 ? "" : ",") + $0 }); count += 1
+                count += 1
+
             }
             status = sqlite3_step(statement)
         }

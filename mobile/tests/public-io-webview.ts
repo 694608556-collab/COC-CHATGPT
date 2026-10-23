@@ -38,6 +38,7 @@ const results: Array<{
   responseMs?: number
   workerTiming?: Record<string, number>
   searchSource?: Record<string, number | boolean>
+  searchNativeTiming?: Record<string, number>
   nativeCalls: Array<{ method: string; milliseconds: number; enteredMs: number }>
 }> = []
 const published: SavedDocument[] = []
@@ -57,6 +58,7 @@ let tableSourceProof: { bytes: number; sha256: string } | undefined
 let expectedPrivateTable: PrivateTableExpectation | undefined
 let searchSourceNumbers: Record<string, number | boolean> | undefined
 let searchWorkerTiming: Record<string, number> | undefined
+let searchNativeTiming: Record<string, number> | undefined
 if (['complete', 'baseline'].includes(window.__publicIoConfig.mode)) {
   const post = Worker.prototype.postMessage
   /** Measure the complete real Worker job, without logging credentials or bodies.
@@ -155,6 +157,8 @@ const cap = (
 ).Capacitor
 const nativePromise = cap.nativePromise.bind(cap)
 cap.nativePromise = async (plugin, method, options) => {
+  if (plugin === 'Logbook' && method === 'createSearchSource')
+    options = { ...(options as object), measureSearch: true }
   if (
     plugin === 'Logbook' &&
     ['tables', 'private-table', 'complete'].includes(window.__publicIoConfig.mode)
@@ -192,6 +196,7 @@ cap.nativePromise = async (plugin, method, options) => {
     const result = await nativePromise(plugin, method, options)
     if (plugin === 'Logbook' && method === 'createSearchSource') {
       const value = result as Record<string, any>
+      searchNativeTiming = value.timing
       searchSourceNumbers = {
         version: value.searchProjectionVersion ?? 0, bytes: value.source?.bytes ?? 0,
         originalBytes: value.originalSource?.bytes ?? 0, cacheMemoryBytes: value.cacheMemoryBytes ?? 0,
@@ -324,7 +329,7 @@ async function timed(operation: string, task: () => Promise<void>) {
       operation,
       totalMs,
       ...(importing || searching ? { responseMs: responseMs ?? totalMs } : {}),
-      ...(searching ? { searchSource: searchSourceNumbers, workerTiming: searchWorkerTiming } : {}),
+      ...(searching ? { searchSource: searchSourceNumbers, searchNativeTiming, workerTiming: searchWorkerTiming } : {}),
       ...(operation.startsWith('character-import-xlsx') && privateWorkerTiming
         ? { workerTiming: privateWorkerTiming }
         : {}),
