@@ -948,12 +948,25 @@ async function csv(options: TableGridStreamOptions) {
     first = true,
     row = 0,
     pendingCR = false,
-    rowBytes = 0
+    rowBytes = 0,
+    columns = 1
   await options.onSheetStart({ name: 'Sheet1', order: 0 })
-  async function emit() {
+  // Temporary parser batches only. Flush before requesting another input chunk;
+  // an oversized complete row still takes the existing full-row path.
+  const batchTextBudget = 32 * 1024, batchRowBudget = 32
+  let pendingRows: string[] = [], pendingWidths: number[] = [], pendingBytes = 0
+  /** Convert bounded complete records with the original SheetJS scalar rules.
+   * Every output keeps its original row width, index and formula metadata.
+   * @returns Resolves after every consumer callback has acknowledged this batch.
+   */
+  async function flushRows() {
+    if (!pendingRows.length) return
+    checkStreamCancelled(options.signal)
+    const lines = pendingRows, widths = pendingWidths
+    pendingRows = []; pendingWidths = []; pendingBytes = 0
     // A fixed textual header prevents one row beginning with "ID", "sep=" or
     // "<" from accidentally invoking SheetJS's file-format sniffing again.
-    const workbook = XLSX.read('__COC_STREAM_ROW__\n' + line + '\n', {
+    const workbook = XLSX.read('__COC_STREAM_ROW__\n' + lines.join('\n') + '\n', {
       type: 'string',
       FS: separator,
       cellFormula: true,
@@ -961,32 +974,41 @@ async function csv(options: TableGridStreamOptions) {
       cellStyles: false,
       dense: false
     })
-    const sheet = workbook.Sheets[workbook.SheetNames[0]!]!,
-      range = XLSX.utils.decode_range(sheet['!ref'] ?? 'A1:A1'),
-      values: Cell[] = []
-    for (let column = 0; column <= range.e.c; column++) {
-      const cell = sheet[XLSX.utils.encode_cell({ r: 1, c: column })]
-      const value = cell?.v
-      values.push(
-        value == null
-          ? null
-          : ['string', 'number', 'boolean'].includes(typeof value)
-            ? (value as Cell)
-            : String(cell.w ?? value)
-      )
-      if (cell && options.onCell)
-        await options.onCell({
-          address: XLSX.utils.encode_cell({ r: row, c: column }),
-          type: cell.t,
-          ...(cell.f ? { formula: cell.f } : {}),
-          hasFormula: !!cell.f,
+    const sheet = workbook.Sheets[workbook.SheetNames[0]!]!
+    // SheetJS's global !ref spans other records. Preserve the exact per-row
+    // extent that the former one-row workbook produced, including empty rows.
+    for (const key of Object.keys(sheet)) {
+      if (key.startsWith('!')) continue
+      const address = XLSX.utils.decode_cell(key)
+      if (address.r > 0 && address.r <= lines.length)
+        widths[address.r - 1] = Math.max(widths[address.r - 1]!, address.c + 1)
+    }
+    for (let index = 0; index < lines.length; index++) {
+      checkStreamCancelled(options.signal)
+      const values: Cell[] = []
+      for (let column = 0; column < widths[index]!; column++) {
+        const cell = sheet[XLSX.utils.encode_cell({ r: index + 1, c: column })], value = cell?.v
+        values.push(value == null ? null : ['string', 'number', 'boolean'].includes(typeof value) ? value as Cell : String(cell.w ?? value))
+        if (cell && options.onCell) await options.onCell({
+          address: XLSX.utils.encode_cell({ r: row, c: column }), type: cell.t,
+          ...(cell.f ? { formula: cell.f } : {}), hasFormula: !!cell.f,
           ...(value == null ? {} : { value: values[values.length - 1]! })
         })
+      }
+      await options.onRow({ index: row++, values })
     }
-    await options.onRow({ index: row++, values })
+  }
+  /** Queue a complete record without retaining a whole source or delaying backpressure. */
+  async function emit() {
+    if (pendingRows.length && rowBytes > batchTextBudget - pendingBytes) await flushRows()
+    pendingRows.push(line)
+    pendingWidths.push(columns)
+    pendingBytes = addStreamBytes(pendingBytes, rowBytes)
     line = ''
     first = true
     rowBytes = 0
+    columns = 1
+    if (pendingRows.length >= batchRowBudget || pendingBytes >= batchTextBudget) await flushRows()
   }
   async function consumeCharacter(value: string) {
     checkStreamCancelled(options.signal)
@@ -1007,6 +1029,7 @@ async function csv(options: TableGridStreamOptions) {
       return
     } else {
       if (value === '"' && first) quoted = true
+      if (value === separator) columns++
       line += value
       first = value === separator
     }
@@ -1046,14 +1069,17 @@ async function csv(options: TableGridStreamOptions) {
     await plain(text.slice(position))
   }
   await consume(prefix.slice(skip))
+  await flushRows()
   while (!ended) {
     const next = await iterator.next()
     ended = !!next.done
     await consume(decode(next.done ? new Uint8Array() : next.value, !!next.done))
+    await flushRows()
   }
   if (pendingCR) await consumeCharacter('\r')
   if (quoted && !quotePending) throw new Error('CSV引号内的字段未结束。')
   if (line.length) await emit()
+  await flushRows()
   await options.onSheetEnd()
 }
 

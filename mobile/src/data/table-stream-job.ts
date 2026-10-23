@@ -379,7 +379,10 @@ export async function performTableStreamJob(
     } else {
       const replay =
         job.source.bytes <= cacheBudget ? await createVerifiedTableReplay(job.source, signal) : source
-      if (job.measure) timing.sourceReadAndProof = performance.now() - jobStart
+      if (job.measure) {
+        timing.sourceReadAndProof = performance.now() - jobStart
+        if (measureRecords) timing.jsSourceReadAndProofMs = timing.sourceReadAndProof
+      }
       await readTableGridStream({
         name: job.name,
         format: job.format,

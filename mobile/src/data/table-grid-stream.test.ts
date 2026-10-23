@@ -5,6 +5,8 @@ import { zipSync, unzipSync, deflateSync, strToU8, Inflate } from 'fflate'
 import { readTableGridStream, type TableGridStreamOptions } from './table-grid-stream'
 import { StreamCrc32 } from './stream-zip-proof'
 
+vi.mock('xlsx', { spy: true })
+
 const encode = (value: string) => new TextEncoder().encode(value)
 const proof = (bytes: Uint8Array) => ({
   bytes: bytes.length,
@@ -355,6 +357,75 @@ it('CSV分块引号/换行/BOM/分隔符与锁定SheetJS原始值等价，且保
       for (let col = 0; col < 7; col++)
         expect(row.values[col] ?? null).toEqual(raw(sheet[XLSX.utils.encode_cell({ r: row.index, c: col })]))
   }
+})
+
+it('CSV首次完整导入不为每行重复启动SheetJS，所有原始值与逐行兼容解析一致', async () => {
+  const lines = ['模组名,场次名,正文,数值,布尔,公式']
+  for (let index = 0; index < 115; index++)
+    lines.push(['公开团', '场' + index, '"完整😀正文\n第二行"', '001', 'TRUE', '=1+1'].join(','))
+  const expected = lines.map((line, index) => {
+    const book = XLSX.read('__COC_STREAM_ROW__\n' + line + '\n', { type: 'string', FS: ',', cellFormula: true, cellNF: false, cellStyles: false, dense: false })
+    const sheet = book.Sheets[book.SheetNames[0]!]!, range = XLSX.utils.decode_range(sheet['!ref'] ?? 'A1:A1')
+    return { index, values: Array.from({ length: range.e.c + 1 }, (_, column) => raw(sheet[XLSX.utils.encode_cell({ r: 1, c: column })])) }
+  })
+  const parse = vi.mocked(XLSX.read)
+  parse.mockClear()
+  try {
+    const actual = await read(encode(lines.join('\r\n') + '\r\n'), 'csv')
+    expect(actual[0]!.rows).toEqual(expected)
+    // Bound expensive parser invocations for the public-size first import;
+    // all rows still pass the same SheetJS value/formula conversion and oracle.
+    expect(parse.mock.calls.length).toBeLessThan(10)
+  } finally { parse.mockClear() }
+})
+
+it('CSV批处理保留每行宽度、空行、公式坐标与超出临时预算的完整大字段', async () => {
+  const body = '完整😀正文'.repeat(12000)
+  const lines = ['name,body,tail', 'one', '', 'two,,', 'three,TRUE,=A1', 'four,"' + body + '",end', 'five,"a\r\nb"']
+  const expected = lines.map((line, index) => {
+    const book = XLSX.read('__COC_STREAM_ROW__\n' + line + '\n', { type: 'string', FS: ',', cellFormula: true, cellNF: false, cellStyles: false, dense: false })
+    const sheet = book.Sheets[book.SheetNames[0]!]!, range = XLSX.utils.decode_range(sheet['!ref'] ?? 'A1:A1')
+    return { index, values: Array.from({ length: range.e.c + 1 }, (_, column) => raw(sheet[XLSX.utils.encode_cell({ r: 1, c: column })])) }
+  })
+  const bytes = encode(lines.join('\r\n') + '\r\n')
+  for (const size of [1, 17011, 262144]) expect((await read(bytes, 'csv', { source: factory(bytes, size) }))[0]!.rows).toEqual(expected)
+})
+
+it('CSV批量与逐行SheetJS对照保留全部标量、逐行宽度及原始公式坐标', async () => {
+  const scalars = ['', ' ', '001', 'TRUE', 'FALSE', '=A1', '1%', '2026-10-22', 'ID', 'sep=', '<tag>', '全文😀\0', '带"引号', '跨\r\n行']
+  for (const separator of [',', ';', '\t', '|']) {
+    const quote = (value: string) => '"' + value.replaceAll('"', '""') + '"'
+    const lines = Array.from({ length: 140 }, (_, index) => Array.from({ length: 1 + index % 9 }, (_, column) => quote(scalars[(index * 7 + column) % scalars.length]!)).join(separator))
+    const expectedRows: Sheet['rows'] = [], expectedCells: unknown[] = []
+    for (const [index, line] of lines.entries()) {
+      const book = XLSX.read('__COC_STREAM_ROW__\n' + line + '\n', { type: 'string', FS: separator, cellFormula: true, cellNF: false, cellStyles: false, dense: false })
+      const sheet = book.Sheets[book.SheetNames[0]!]!, range = XLSX.utils.decode_range(sheet['!ref'] ?? 'A1:A1')
+      const values = Array.from({ length: range.e.c + 1 }, (_, column) => raw(sheet[XLSX.utils.encode_cell({ r: 1, c: column })]))
+      expectedRows.push({ index, values: values as Sheet['rows'][number]['values'] })
+      for (let column = 0; column <= range.e.c; column++) {
+        const cell = sheet[XLSX.utils.encode_cell({ r: 1, c: column })]
+        if (cell) expectedCells.push({ address: XLSX.utils.encode_cell({ r: index, c: column }), type: cell.t, ...(cell.f ? { formula: cell.f } : {}), hasFormula: !!cell.f, ...(cell.v == null ? {} : { value: values[column] }) })
+      }
+    }
+    const actualCells: unknown[] = []
+    const actual = await read(encode('\uFEFFsep=' + separator + '\r\n' + lines.join('\r\n') + '\r\n'), 'csv', { onCell: (cell) => { actualCells.push(cell) } })
+    expect(actual[0]!.rows).toEqual(expectedRows)
+    expect(actualCells).toEqual(expectedCells)
+  }
+})
+
+it('CSV批处理中取消立即停止回调，不再读取下一块或结束工作表', async () => {
+  const bytes = encode(Array.from({ length: 100 }, (_, index) => '公开完整正文'.repeat(12) + ',' + index).join('\n') + '\n')
+  expect(bytes.length).toBeGreaterThan(1024) // Complete the original delimiter sniff in the first chunk.
+  const controller = new AbortController(), seen: number[] = []
+  let ended = false, reads = 0
+  await expect(read(bytes, 'csv', {
+    signal: controller.signal,
+    source: async function* () { reads++; yield bytes; throw Error('Must not request another input chunk after cancellation') },
+    onRow: (row) => { seen.push(row.index); if (row.index === 2) controller.abort() },
+    onSheetEnd: () => { ended = true }
+  })).rejects.toThrow('取消')
+  expect(seen).toEqual([0, 1, 2]); expect(reads).toBe(1); expect(ended).toBe(false)
 })
 
 it('CSV支持超过旧20MiB门槛，消费者背压且不保留整文件/全行数组', async () => {
