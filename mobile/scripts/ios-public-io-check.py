@@ -20,19 +20,26 @@ def main():
         runtime = shared.select_runtime(json.loads(command('xcrun', 'simctl', 'list', 'runtimes', '--json'))['runtimes'])
         types = json.loads(command('xcrun', 'simctl', 'list', 'devicetypes', '--json'))['devicetypes']
         device = next(item for item in types if item['name'] == 'iPhone 14 Pro')
+        # Build and prepare the public fixture before starting CoreSimulator.
+        # Neither needs a booted device; keeping a VM alive through a full
+        # compile competes for the runner's CPU and memory before acceptance.
+        # The same fresh runtime/device and all process/performance limits stay.
+        phase = 'build'
+        with (output / 'public-io-diagnostic-build.log').open('w') as log:
+            command('xcodebuild', '-project', 'ios/App/App.xcodeproj', '-scheme', 'App', '-configuration', 'Debug', '-destination', 'generic/platform=iOS Simulator', '-derivedDataPath', 'ios/build/public-io-simulator', 'build', 'CODE_SIGN_IDENTITY=-', 'CODE_SIGNING_ALLOWED=YES', timeout=900, log=log)
+        phase = 'prepare-public-fixtures'
+        command('node', 'scripts/public-io-fixtures.mjs', '--ios', timeout=120)
+        phase = 'create'
         owned = command('xcrun', 'simctl', 'create', 'COC additional complete public I/O', device['identifier'], runtime['identifier'])
         uuid.UUID(owned)
         phase = 'boot'
         command('xcrun', 'simctl', 'boot', owned, timeout=300)
         command('xcrun', 'simctl', 'bootstatus', owned, '-b', timeout=300)
-        phase = 'build'
-        with (output / 'public-io-diagnostic-build.log').open('w') as log:
-            command('xcodebuild', '-project', 'ios/App/App.xcodeproj', '-scheme', 'App', '-configuration', 'Debug', '-destination', 'platform=iOS Simulator,id=' + owned, '-derivedDataPath', 'ios/build/public-io-simulator', 'build', 'CODE_SIGN_IDENTITY=-', 'CODE_SIGNING_ALLOWED=YES', timeout=900, log=log)
         phase = 'install'
         command('xcrun', 'simctl', 'install', owned, 'ios/build/public-io-simulator/Build/Products/Debug-iphonesimulator/App.app', timeout=120)
+        phase = 'container'
         container = pathlib.Path(command('xcrun', 'simctl', 'get_app_container', owned, 'coc.logbook', 'data'))
         phase = 'fixtures'
-        command('node', 'scripts/public-io-fixtures.mjs', '--ios', timeout=120)
         command('python3', 'scripts/ios-public-io-fixture.py', str(container / 'Library/Application Support/COCLogbook/logbook.sqlite'), timeout=120)
         (container / 'tmp').mkdir(parents=True, exist_ok=True)
         (container / 'tmp/ios-scale-webview.js').write_bytes((output / 'public-io/public-io-webview.js').read_bytes())
