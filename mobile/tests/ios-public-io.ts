@@ -13,32 +13,28 @@ window.__cocSmokeTask = (async () => {
   const config = iosPublicIoConfig(window.__cocPublicTableFirst)
   // Public fixture diagnostics only: retain PNG header fields, never page pixels.
   const pngHeaders: Array<Record<string, number | string>> = []
-  // Observe the existing completed read; do not delay/replace canvas callbacks.
-  const read = FileReader.prototype.readAsArrayBuffer
-  FileReader.prototype.readAsArrayBuffer = function (this: FileReader, blob: Blob) {
-    if (blob.type === 'image/png' && !pngHeaders.length)
-      this.addEventListener(
-        'load',
-        () => {
-          try {
-            if (!(this.result instanceof ArrayBuffer)) throw Error('Public PNG metadata unavailable')
-            const view = new DataView(this.result)
-            pngHeaders.push({
-              width: view.getUint32(16),
-              height: view.getUint32(20),
-              bitDepth: view.getUint8(24),
-              colorType: view.getUint8(25),
-              compression: view.getUint8(26),
-              filter: view.getUint8(27),
-              interlace: view.getUint8(28)
-            })
-          } catch (error) {
-            pngHeaders.push({ error: String(error) })
-          }
-        },
-        { once: true }
-      )
-    return read.call(this, blob)
+  // Read only the header before the normal Worker transfer detaches this buffer.
+  // Forward the exact original arguments and transfer list; no extra pixel copy.
+  const send = Worker.prototype.postMessage
+  Worker.prototype.postMessage = function (message, options) {
+    const png = message?.job?.type === 'pdf-png' ? message.job.png : undefined
+    if (png instanceof Uint8Array && !pngHeaders.length) {
+      try {
+        const view = new DataView(png.buffer, png.byteOffset, png.byteLength)
+        pngHeaders.push({
+          width: view.getUint32(16),
+          height: view.getUint32(20),
+          bitDepth: view.getUint8(24),
+          colorType: view.getUint8(25),
+          compression: view.getUint8(26),
+          filter: view.getUint8(27),
+          interlace: view.getUint8(28)
+        })
+      } catch (error) {
+        pngHeaders.push({ error: String(error) })
+      }
+    }
+    return Reflect.apply(send, this, arguments)
   }
   window.__cocSmokeStage = 'public-io-setup'
   const state = await Native.getOverview()

@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { inflateSync } from 'node:zlib'
+import { rgbReferenceRows } from '../tests/png-rgb-reference'
 import { searchSample } from '../src/dev/sample'
 import { expandModules } from './helpers'
 
@@ -252,7 +253,11 @@ test('RGBA原生画布通过实际Worker生成完整PDF，每页RGB像素与原�
   while ((match = pattern.exec(pdf.toString('latin1')))) {
     const start = match.index + match[0].length
     const pixels = inflateSync(pdf.subarray(start, start + Number(match[1])))
-    hashes.push(createHash('sha256').update(pixels).digest('hex'))
+    hashes.push(
+      createHash('sha256')
+        .update(rgbReferenceRows(pixels, 1754, 1240))
+        .digest('hex')
+    )
   }
   expect(hashes).toEqual(expected.hashes)
   expect(pdf.subarray(-32).toString()).toContain('%%EOF')

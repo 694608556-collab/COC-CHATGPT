@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest'
 import { deflateSync, inflateSync } from 'node:zlib'
 import { pdfImageFromPng } from './pdf-png'
+import { rgbReferenceRows } from '../../tests/png-rgb-reference'
 
 const width = 1754,
   height = 1240
@@ -63,7 +64,7 @@ function fixture(transparent = false) {
 it('不透明RGBA画布PNG保留全部RGB像素，正确还原五种逐行过滤，不采样或删正文', () => {
   const { png, rgb } = fixture()
   const result = pdfImageFromPng(png)
-  expect(inflateSync(result.bytes).equals(rgb)).toBe(true)
+  expect(Buffer.from(rgbReferenceRows(inflateSync(result.bytes), width, height)).equals(rgb)).toBe(true)
 })
 
 it('拒绝非不透明RGBA页面，不能直接丢弃实际透明像素', () => {
@@ -93,4 +94,94 @@ it('完整页面仍拒绝CRC损坏和截断，不发布损坏的PDF图像', () =
   bad[45] = bad[45]! ^ 1
   expect(() => pdfImageFromPng(bad)).toThrow('校验')
   expect(() => pdfImageFromPng(png.subarray(0, png.length - 4))).toThrow('不完整')
+})
+
+it('即使PNG块CRC正确，也拒绝损坏的zlib Adler校验，不能发布损坏压缩流', () => {
+  const { png } = fixture()
+  const length = png.readUInt32BE(33)
+  const compressed = Buffer.from(png.subarray(41, 41 + length))
+  compressed[compressed.length - 1] = compressed[compressed.length - 1]! ^ 1
+  const corrupted = Buffer.concat([
+    png.subarray(0, 33),
+    chunk('IDAT', compressed),
+    chunk('IEND', new Uint8Array())
+  ])
+  expect(() => pdfImageFromPng(corrupted)).toThrow()
+})
+
+it('五种过滤的首尾像素均须逐一证明不透明，包括页面最后一个像素', () => {
+  const { png } = fixture()
+  const encoded = inflateSync(png.subarray(41, 41 + png.readUInt32BE(33)))
+  for (const y of [0, 1, 2, 3, 4, 1235, 1236, 1237, 1238, 1239]) {
+    for (const x of [0, 1, width - 1]) {
+      const changed = Buffer.from(encoded)
+      const alpha = y * (width * 4 + 1) + 1 + x * 4 + 3
+      changed[alpha] = changed[alpha]! ^ 1
+      const invalid = Buffer.concat([
+        png.subarray(0, 33),
+        chunk('IDAT', deflateSync(changed)),
+        chunk('IEND', new Uint8Array())
+      ])
+      expect(() => pdfImageFromPng(invalid), `alpha ${x},${y}`).toThrow(/不透明|透明/)
+    }
+  }
+})
+
+it('RGB和RGBA完整流均拒绝隐藏尾部、串接流、截断、错误行长和过滤码', () => {
+  const { png, rgb } = fixture()
+  const rgba = inflateSync(png.subarray(41, 41 + png.readUInt32BE(33)))
+  for (const [colorType, rows, stride] of [
+    [2, rgb, width * 3 + 1],
+    [6, rgba, width * 4 + 1]
+  ] as const) {
+    const header = Buffer.from(png.subarray(16, 29))
+    header[9] = colorType
+    const valid = deflateSync(rows)
+    const wrongAdler = Buffer.from(valid)
+    wrongAdler[wrongAdler.length - 1] = wrongAdler[wrongAdler.length - 1]! ^ 1
+    const badFilter = Buffer.from(rows)
+    badFilter[(height - 1) * stride] = 5
+    const corruptions = [
+      wrongAdler,
+      Buffer.concat([valid.subarray(0, -4), Buffer.from([0]), valid.subarray(-4)]),
+      Buffer.concat([valid.subarray(0, -4), deflateSync(Buffer.from('hidden')), valid.subarray(-4)]),
+      Buffer.concat([valid.subarray(0, -5), valid.subarray(-4)]),
+      deflateSync(rows.subarray(0, -1)),
+      deflateSync(Buffer.concat([rows, Buffer.from([0])])),
+      deflateSync(badFilter),
+      Buffer.concat([Buffer.from([0x78, 0x20]), valid.subarray(2)])
+    ]
+    for (const [index, compressed] of corruptions.entries()) {
+      const invalid = Buffer.concat([
+        png.subarray(0, 8),
+        chunk('IHDR', header),
+        chunk('IDAT', compressed),
+        chunk('IEND', new Uint8Array())
+      ])
+      expect(() => pdfImageFromPng(invalid), `${colorType} corruption ${index}`).toThrow()
+    }
+  }
+})
+
+it('不能静默忽略透明颜色、重复头、未知关键块或断开的IDAT序列', () => {
+  const { png, rgb } = fixture()
+  const header = Buffer.from(png.subarray(16, 29))
+  header[9] = 2
+  const compressed = deflateSync(rgb)
+  const prefix = Buffer.concat([png.subarray(0, 8), chunk('IHDR', header)])
+  const idat = chunk('IDAT', compressed),
+    end = chunk('IEND', new Uint8Array())
+  const invalids = [
+    Buffer.concat([prefix, chunk('tRNS', Buffer.alloc(6)), idat, end]),
+    Buffer.concat([prefix, chunk('IHDR', header), idat, end]),
+    Buffer.concat([prefix, chunk('ABCD', Buffer.alloc(0)), idat, end]),
+    Buffer.concat([
+      prefix,
+      chunk('IDAT', compressed.subarray(0, 5)),
+      chunk('tEXt', Buffer.from('a\0b')),
+      chunk('IDAT', compressed.subarray(5)),
+      end
+    ])
+  ]
+  for (const invalid of invalids) expect(() => pdfImageFromPng(invalid)).toThrow()
 })
