@@ -258,6 +258,25 @@ export function MobileApp({
   const viewport = useVisibleViewport()
   const [selectedCharacter, setSelectedCharacter] = useState('')
   const [savedDocument, setSavedDocument] = useState<SavedDocument>()
+  const [savedInteraction, setSavedInteraction] = useState(0)
+  const [savedFading, setSavedFading] = useState(false)
+  useLayoutEffect(() => {
+    if (savedDocument) window.scrollTo(0, 0)
+  }, [savedDocument])
+  useEffect(() => {
+    if (!savedDocument) return
+    setSavedFading(false)
+    const fade = setTimeout(() => setSavedFading(true), 3000)
+    // Hiding this notice never removes the published file or its archive entry.
+    // Identity guards prevent an older dismissal from hiding a newer save.
+    const dismiss = setTimeout(() => {
+      setSavedDocument((current) => (current === savedDocument ? undefined : current))
+    }, 3300)
+    return () => {
+      clearTimeout(fade)
+      clearTimeout(dismiss)
+    }
+  }, [savedDocument, savedInteraction])
   const pdfController = useRef<AbortController | undefined>(undefined)
   const [pdfProgress, setPdfProgress] = useState<PdfProgress>()
   const [pdfCancelling, setPdfCancelling] = useState(false)
@@ -1450,7 +1469,13 @@ export function MobileApp({
         aria-hidden={confirmation ? true : undefined}
       >
         {savedDocument && (
-          <section className="panel recent-saved">
+          <section
+            className={`panel recent-saved${savedFading ? ' is-fading' : ''}`}
+            onClickCapture={() => {
+              setSavedFading(false)
+              setSavedInteraction((value) => value + 1)
+            }}
+          >
             <div className="recent-saved-title">
               <p>最近保存：{savedDocument.name}</p>
               <RemoveButton label="关闭最近保存" onClick={() => setSavedDocument(undefined)} />
