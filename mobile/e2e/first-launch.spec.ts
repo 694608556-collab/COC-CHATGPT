@@ -2,7 +2,10 @@ import { expect, test } from '@playwright/test'
 
 test('首次启动渐入渐出不超过两秒，修改／导入／应用内清空及重开均不重播', async ({ page }, info) => {
   page.on('dialog', (dialog) => dialog.accept())
-  await page.clock.install()
+  await page.clock.install({ time: new Date('2026-10-24T00:00:00Z') })
+  // Keep asset loading and screenshots outside timer advancement; runFor below
+  // still checks the original 1600ms lifetime without extending its deadline.
+  await page.clock.pauseAt(new Date('2026-10-24T00:00:01Z'))
   await page.goto('/?first-launch-preview=1')
   const intro = page.getByRole('region', { name: '首次启动欢迎页' })
   await expect(intro).toBeVisible()
@@ -31,6 +34,7 @@ test('首次启动渐入渐出不超过两秒，修改／导入／应用内清�
   await page.screenshot({ path: info.outputPath('first-launch.png') })
   await page.clock.runFor(1200)
   await expect(intro).toHaveCount(0)
+  await page.clock.resume()
   await page.getByRole('button', { name: '选择并确认保存位置' }).click()
   await page.getByRole('button', { name: '载入公开测试数据' }).click()
   await page.getByRole('button', { name: '确认覆盖并导入' }).click()
