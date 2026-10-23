@@ -167,10 +167,10 @@ extension IOSNativeChecks {
         try require(!FileManager.default.fileExists(atPath: success.directory.path), "kernel-backed commit removes private stages before publication")
         _ = try store.importTableStream(success); try success.close()
         let saved = try store.rows("SELECT id FROM records WHERE json_extract(metadata,'$.name')='Kernel完整正文'")
-        try require(try saved.count == 1 && logbookObject(store.bodyText(saved[0][0]!))["manualContent"] as? String == manual, "record kernel writable owner commits the entire independent 334KiB body")
+        try require(try saved.count == 1 && logbookObject(store.bodyText(saved[0][0]))["manualContent"] as? String == manual, "record kernel writable owner commits the entire independent 334KiB body")
         try require(Array(try store.rows("SELECT id,body FROM records ORDER BY position").prefix(originalBodies.count)) == originalBodies, "record kernel commit preserves all previous raw bodies byte for byte")
         let reopened = try LogbookStore(url: directory.appendingPathComponent("state.sqlite"), available: { 1024 * 1024 * 1024 })
-        try require(try reopened.revision() == 3 && logbookObject(reopened.bodyText(saved[0][0]!))["manualContent"] as? String == manual, "complete kernel-backed body and revision survive restart")
+        try require(try reopened.revision() == 3 && logbookObject(reopened.bodyText(saved[0][0]))["manualContent"] as? String == manual, "complete kernel-backed body and revision survive restart")
         print("PUBLIC_IOS_RECORD_KERNEL cases=\(manifest.count) fullSource=true strictUTF8=true full334KiBBody=true sourceCandidateSHA=true CAS=true authorizationRollback=true SQLRollback=true phone=false")
     }
 
