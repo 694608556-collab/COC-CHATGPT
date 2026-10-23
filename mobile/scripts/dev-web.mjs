@@ -82,9 +82,9 @@ const proxy = http.createServer(async (request, response) => {
             const part = await reader.read()
             if (part.done) break
             length += part.value.length
-            if (length > 64 * 1024 * 1024) {
+            if (!Number.isSafeInteger(length)) {
               await reader.cancel()
-              throw new Error('Body too large')
+              throw new Error('Response length cannot be represented exactly')
             }
             chunks.push(part.value)
           }
