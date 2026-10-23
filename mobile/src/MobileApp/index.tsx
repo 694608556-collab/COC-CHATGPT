@@ -51,7 +51,7 @@ import { checkPdfCancellation } from '../data/pdf'
 import type { PdfProgress } from '../data/pdf'
 import type { TablePreview } from '../data/tables'
 import type { NativeTablePreview } from '../data/table-stream-native'
-import { previewNativeTable, confirmNativeTable, previewNativeCoc7 } from '../data/table-stream-client'
+import { previewNativeTable, confirmNativeTable, previewNativeCoc7, warmTableImportWorker } from '../data/table-stream-client'
 import { TableStreamList } from './components/TableStreamList'
 import { tablePreviewBaseline, restoreTableBodies } from '../data/table-preview'
 import { previewCoc7Import } from '../data/coc7-import'
@@ -116,10 +116,17 @@ export function MobileApp({
   const [searchingModule, setSearchingModule] = useState('')
   const streamedSearch = native?.bodySearchStreamVersion === 1
   useEffect(() => {
+    // Compile before the overview/file picker finishes; no file is opened.
+    const timer = window.setTimeout(warmTableImportWorker, 0)
+    return () => window.clearTimeout(timer)
+  }, [])
+  useEffect(() => {
     if (!streamedSearch) return
     // Compile off the UI thread after the native overview is visible. This
     // prepares code only; typing still never reads or searches saved bodies.
-    const timer = window.setTimeout(warmBodySearchWorker, 0)
+    const timer = window.setTimeout(() => {
+      warmBodySearchWorker()
+    }, 0)
     return () => window.clearTimeout(timer)
   }, [streamedSearch])
   function replaceDeferred(ids: Set<string>) {
@@ -782,6 +789,7 @@ export function MobileApp({
         const selected = await port.openBackup({
           kind: 'character-table',
           stream: true,
+          coc7Template: true,
           expectedRevision: revision
         })
         if (selected.cancelled) return

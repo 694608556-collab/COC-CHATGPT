@@ -11,8 +11,16 @@ public final class PublicIoGrantActivity extends android.app.Activity {
         java.io.File directory=new java.io.File(getFilesDir(),"public-io/"+id);
         if(directory.exists()||!directory.mkdirs())throw new IllegalStateException("Refuse existing public fixture directory");
         try{
-            for(String name:new String[]{"public-io-library.json","public-io-card.xlsx","public-io-card.xls","public-io-table.csv","public-io-table.xlsx","public-io-table.xls"}){
-                try(java.io.InputStream input=getAssets().open(name);java.io.OutputStream output=new java.io.FileOutputStream(new java.io.File(directory,name))){byte[] buffer=new byte[65536];int count;while((count=input.read(buffer))!=-1)output.write(buffer,0,count);}
+            for(String name:new String[]{"public-io-library.json","public-io-card.xlsx","public-io-card-spill.xlsx","public-io-card.xls","public-io-table.csv","public-io-table.xlsx","public-io-table.xls"}){
+                // Optional user-selected card is copied into this test UID at
+                // runtime by the local runner. It is never an APK asset.
+                boolean localCard=getIntent().getBooleanExtra("localPrivateCard",false)&&name.equals("public-io-card.xlsx");
+                boolean localTable=getIntent().getBooleanExtra("localPrivateTable",false)&&name.equals("public-io-table.xlsx");
+                if(localTable){
+                    java.io.File marker=new java.io.File(getFilesDir(),"local-table-owner.txt");if(!marker.createNewFile())throw new IllegalStateException("Refuse existing private table ownership marker");
+                    try(java.io.OutputStream output=new java.io.FileOutputStream(marker)){output.write(id.getBytes(java.nio.charset.StandardCharsets.UTF_8));}
+                }
+                try(java.io.InputStream input=localCard||localTable?new java.io.FileInputStream(new java.io.File(getFilesDir(),localTable?"local-table-input.xlsx":"local-card-input.xlsx")):getAssets().open(name);java.io.OutputStream output=new java.io.FileOutputStream(new java.io.File(directory,name))){byte[] buffer=new byte[65536];int count;while((count=input.read(buffer))!=-1)output.write(buffer,0,count);}
             }
         }catch(java.io.IOException error){throw new IllegalStateException("Public fixture preparation failed",error);}
         grantUriPermission(target,android.net.Uri.parse(value),android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION|android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION|android.content.Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION|android.content.Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);

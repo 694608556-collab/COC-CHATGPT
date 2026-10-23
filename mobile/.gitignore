@@ -3,6 +3,7 @@ www/
 android/.gradle/
 android/build/
 android/app/build/
+android/app/.cxx/
 android/capacitor-cordova-android-plugins/build/
 android/local.properties
 *.keystore

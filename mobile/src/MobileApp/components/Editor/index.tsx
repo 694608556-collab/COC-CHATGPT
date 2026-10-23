@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useVisibleViewport, viewportRect } from '../../useVisibleViewport'
 import type { CharacterData, ModuleRecord, SessionRecord } from '../../../../../src/shared/types'
@@ -20,6 +20,8 @@ import { SystemMessage } from '../SystemMessage'
 import { SelectField } from '../SelectField'
 import { NameSuggest } from './components/NameSuggest'
 import type { Coc7ImportSummary } from '../../../data/coc7-import'
+import { EditorDetails } from './components/EditorDetails'
+declare const __COC_IMPORT_TEST_OBSERVER__: boolean
 
 export function Editor(props: {
   initial: Edit
@@ -31,6 +33,11 @@ export function Editor(props: {
   toolbarTarget: HTMLElement | null
   importSummary?: Coc7ImportSummary
 }) {
+  const measured = typeof __COC_IMPORT_TEST_OBSERVER__ !== 'undefined' && __COC_IMPORT_TEST_OBSERVER__
+  const renderStarted = measured ? performance.now() : 0
+  useLayoutEffect(() => {
+    if (measured) (globalThis as unknown as { __publicIoObserveEditor?: (milliseconds: number) => void }).__publicIoObserveEditor?.(performance.now() - renderStarted)
+  })
   // 在线正文由存储边界保留；草稿及每次输入的脏检查不复制/编码这部分数据。
   const [original] = useState<Edit>(() => {
     const initial =
@@ -570,8 +577,8 @@ export function Editor(props: {
                 )}
               </div>
               {field('伤害加值', c.derived.db, (db) => character({ ...c, derived: { ...c.derived, db } }))}
-              <details open={importIssues.some((issue) => issue.key.startsWith('skill:')) || undefined}>
-                <summary>技能</summary>
+              <EditorDetails title="技能" reveal={importIssues.some((issue) => issue.key.startsWith('skill:'))}>
+                {() => <>
                 <button
                   type="button"
                   className="inline-add"
@@ -644,9 +651,10 @@ export function Editor(props: {
                     </div>
                   ))}
                 </div>
-              </details>
-              <details>
-                <summary>武器战斗表</summary>
+                </>}
+              </EditorDetails>
+              <EditorDetails title="武器战斗表">
+                {() => <>
                 {c.weapons.map((weapon, index) => (
                   <section key={index} className="pair-editor">
                     <div className="edit-grid">
@@ -672,7 +680,8 @@ export function Editor(props: {
                 >
                   添加武器
                 </button>
-              </details>
+                </>}
+              </EditorDetails>
               <div className="section-heading-with-action">
                 <h3>财产与装备</h3>
                 <button

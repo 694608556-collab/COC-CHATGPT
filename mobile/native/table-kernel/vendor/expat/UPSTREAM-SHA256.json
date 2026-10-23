@@ -1,0 +1,135 @@
+{
+  "version": "2.9.0",
+  "archiveSHA256": "1e6371862cc31999b368c3b89b49994f0677e1bab5f1b2b85ae3741f5d803051",
+  "release": "https://github.com/libexpat/libexpat/releases/tag/R_2_9_0",
+  "files": [
+    {
+      "path": "ascii.h",
+      "sha256": "5ce49460794894b78f97060f634c129d13f2e9cc9b8dacd829f4be2dbc6e0649"
+    },
+    {
+      "path": "asciitab.h",
+      "sha256": "5792cb56f285c8876b988d875a70d49019bc7e6d5ebcd0f8224b24e695301832"
+    },
+    {
+      "path": "expat.h",
+      "sha256": "805f17ae5f597eeb9f058f60428a1a62268de242a096af17cbcc2e17af111bad"
+    },
+    {
+      "path": "expat_external.h",
+      "sha256": "77a02ad7ddc33fef8ae5876f8946d7ddb8fd9172a3f63d4c01b0e62211d386b5"
+    },
+    {
+      "path": "fallthrough.h",
+      "sha256": "5e42477487bca7e7caac6b832ab940f39a1a20b8765c945374e4f6c2670f55b6"
+    },
+    {
+      "path": "hash_table.h",
+      "sha256": "ad93851f86df1f4e8f85488dbac53cab3539e59d701ad747c7beea354d69e0dc"
+    },
+    {
+      "path": "iasciitab.h",
+      "sha256": "a9cd6f2cf5199ae3c29d22ee4913736fcd984f62132146a0352c88549700e83f"
+    },
+    {
+      "path": "internal.h",
+      "sha256": "9dd01acd513ff6143781e1c01f5738126a512b20f42600f9523ec95e2dd4dcf1"
+    },
+    {
+      "path": "latin1tab.h",
+      "sha256": "b0daf8a75c690e895421f765ddb2ae2fbc1ba14694e06a3215dba84f1ff3427d"
+    },
+    {
+      "path": "memory_sanitizer.h",
+      "sha256": "377ca054fdc531360f42a5cb7c522bcbf88b6c67aebc2e29544c37d14e836bde"
+    },
+    {
+      "path": "nametab.h",
+      "sha256": "8f78e64f11e2b23df8b32cb5528cfeda6215acd6abf6bcf1ad59fdc7b1ffd105"
+    },
+    {
+      "path": "random_arc4random.h",
+      "sha256": "dd1a23b22604b61e1942e9fccdefe4d876cdf55477cd2e61904e50af162c15bf"
+    },
+    {
+      "path": "random_arc4random_buf.h",
+      "sha256": "fccc4650a76f0b4df0b1123abeb248087a22d4eba9acbd1188cd44e21de4377b"
+    },
+    {
+      "path": "random_dev_urandom.h",
+      "sha256": "65a0bf3666927824029dd52dc4b6af3218719999ab9f45db8d8406645960f5ab"
+    },
+    {
+      "path": "random_getentropy.h",
+      "sha256": "8a122afb95decf1fcf960cf92004d0305d7c9154f84c1ac739e67ef554e02e59"
+    },
+    {
+      "path": "random_getrandom.h",
+      "sha256": "06738fafa3ec5b0148a699efeaa55aa80b8956b78a95bf5f78fcd9e0be998c48"
+    },
+    {
+      "path": "random_rand_s.h",
+      "sha256": "941134a3796e544bf44c428cd1e1553506c9f344a5c0c4479a8a819745a0c0ff"
+    },
+    {
+      "path": "siphash.h",
+      "sha256": "12ecc9915bccb793ea8bb543cc7d002e226f4e4d6b97ec9839dca41cbe4e2e27"
+    },
+    {
+      "path": "utf8tab.h",
+      "sha256": "3fa349a3a19143366e80a58d9aa950152ef9cd7903f557f971051410b47f335c"
+    },
+    {
+      "path": "winconfig.h",
+      "sha256": "0ab6446eb98abc492ae341ef7607b535e44dedf52633fdc7c6e1a1361aec3922"
+    },
+    {
+      "path": "xcs.h",
+      "sha256": "866a6cadbb9eaaaebefe08ee4f3de72a00ffdf77a6da3408605dfc16803f0bd3"
+    },
+    {
+      "path": "xmlrole.h",
+      "sha256": "8a0b61cd6efcd7427acbc86759e9013e7a61755097a1f82cbb2a79c011af5ee5"
+    },
+    {
+      "path": "xmltok.h",
+      "sha256": "623dea24bc27712e2e205a0c0517c79e211234f8d1051fe46d780839f754cf9e"
+    },
+    {
+      "path": "xmltok_impl.h",
+      "sha256": "a5053c69219d12788088de9bd670537e1c784302766c331afe6b253460d0417d"
+    },
+    {
+      "path": "xmlparse.c",
+      "sha256": "899afeaddf424a6f4bf9a0a77159248b485bf5c072475d547ef16c2942a86dd5"
+    },
+    {
+      "path": "xmlrole.c",
+      "sha256": "b1ad87cc3c0d4722358a7dfb1642df7f62066d1613a0a56dc9289e7112fb3f0c"
+    },
+    {
+      "path": "xmltok.c",
+      "sha256": "44baab2a4970749f6f29992bbbc1b3c62239ef9ec2a20de96332ef4659b9e32d"
+    },
+    {
+      "path": "random_dev_urandom.c",
+      "sha256": "4d2a204c94285b0c459397619acfca5a8f5d690fbd8f419ac45879074e6afebd"
+    },
+    {
+      "path": "COPYING",
+      "sha256": "31b15de82aa19a845156169a17a5488bf597e561b2c318d159ed583139b25e87"
+    },
+    {
+      "path": "xmltok_impl.c",
+      "sha256": "857d4d0984aaaca0ff6c907f0e9abf26c476fd80f6cb85896c2aa1d78eb66ae1"
+    },
+    {
+      "path": "xmltok_ns.c",
+      "sha256": "ea723a3470d3eed5c4a4e873bec2f996c605326fad25709b45452664261c5465"
+    },
+    {
+      "path": "xcs.c",
+      "sha256": "15759b35a51a35c59b2b8f5b07057578e3505dbbce57a5adaae9f2d113b4b852"
+    }
+  ]
+}

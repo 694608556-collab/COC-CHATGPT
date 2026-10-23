@@ -7,6 +7,7 @@ import { previewNativeTable, previewNativeCoc7 } from './table-stream-client'
 import type { TableStreamPort, NativeTableSource } from './table-stream-native'
 import { decodeBase64, encodeBase64 } from './bytes'
 import { publicCoc7Workbook } from '../../test-fixtures/coc7'
+import { StreamSha256 } from './stream-sha256'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -143,6 +144,10 @@ it.each([1, 114])('%i场小表预览不能因逐字符串串行原生往返累�
 })
 
 it('约700KB七版角色卡预览不能因工作簿目录和字符串原生往返累积等待', async () => {
+  // Exercise the complete JS-SHA fallback even on a host with WebCrypto.
+  // Native SHA byte coverage/failure/cancellation has independent proof tests.
+  vi.stubGlobal('crypto', { randomUUID: globalThis.crypto.randomUUID.bind(globalThis.crypto) })
+  const hashed = vi.spyOn(StreamSha256.prototype, 'update')
   const book = publicCoc7Workbook()
   XLSX.utils.book_append_sheet(
     book,
@@ -170,6 +175,8 @@ it('约700KB七版角色卡预览不能因工作簿目录和字符串原生往�
     counters.nativeReads + counters.nativeWrites,
     'small card must avoid serial native directory/string requests'
   ).toBeLessThanOrEqual(20)
+  expect(counters.nativeWrites, 'a complete resident character string index must not require native persistence').toBe(0)
+  expect(hashed.mock.calls.reduce((sum, [chunk]) => sum + chunk.length, 0), 'immutable private XLSX bytes must be fully hashed once, not once for each ZIP pass').toBe(bytes.length)
   expect(port.commitTableStream).not.toHaveBeenCalled()
 })
 

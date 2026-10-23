@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.22)
+project(coc_table_native LANGUAGES C CXX)
+add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../../../../../native/table-kernel" "${CMAKE_CURRENT_BINARY_DIR}/table-kernel")
+add_library(coc_table_native SHARED table-kernel-jni.cpp)
+target_compile_features(coc_table_native PRIVATE cxx_std_17)
+target_link_libraries(coc_table_native PRIVATE coc_table_kernel)

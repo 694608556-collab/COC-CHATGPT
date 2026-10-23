@@ -5,6 +5,27 @@ import type { TableStreamJob } from './table-stream-job'
 import { checkStreamCancelled } from './stream-json'
 import { encodeBase64, decodeBase64 } from './bytes'
 import { capacity } from './capacity'
+import { projectCoc7WorksheetDOM } from './table-dom-worksheet'
+import { previewKernelCoc7 } from './table-kernel-preview'
+
+let preparedWorker: { worker: Worker; busy: boolean } | undefined
+function prepareTableWorker() {
+  if (typeof document === 'undefined' || typeof Worker === 'undefined') return
+  if (!preparedWorker) {
+    const entry = { worker: new Worker('table-stream-worker.js'), busy: false }
+    preparedWorker = entry
+    entry.worker.onerror = () => discardTableWorker(entry.worker)
+  }
+  return preparedWorker
+}
+function discardTableWorker(worker: Worker) {
+  if (preparedWorker?.worker === worker) preparedWorker = undefined
+  worker.terminate()
+}
+/** Compile computation code while idle; never select, read, or stage a file. */
+export function warmTableImportWorker() {
+  try { prepareTableWorker() } catch { /* Explicit import reports startup errors. */ }
+}
 
 function required(port: TableStreamPort): Required<TableStreamPort> {
   for (const method of [
@@ -56,12 +77,16 @@ async function run(job: TableStreamJob, port: Required<TableStreamPort>, id: str
     )
   }
   if (typeof Worker === 'undefined') throw new Error('此环境缺少后台表格处理能力。')
-  const worker = new Worker('table-stream-worker.js'),
+  const prepared = prepareTableWorker()
+  const shared = prepared && !prepared.busy ? prepared : undefined
+  if (shared) shared.busy = true
+  const worker = shared?.worker ?? new Worker('table-stream-worker.js'),
     inFlight = new Set<Promise<void>>()
   let active = true,
+    succeeded = false,
     abort: (() => void) | undefined
   try {
-    return await new Promise<Awaited<ReturnType<typeof performTableStreamJob>>>((resolve, reject) => {
+    const result = await new Promise<Awaited<ReturnType<typeof performTableStreamJob>>>((resolve, reject) => {
       abort = () => reject(new Error('表格导入已取消。'))
       signal?.addEventListener('abort', abort, { once: true })
       if (signal?.aborted) {
@@ -69,6 +94,7 @@ async function run(job: TableStreamJob, port: Required<TableStreamPort>, id: str
         return
       }
       worker.onmessage = ({ data }) => {
+        if (!active) return
         if (data.type === 'done') {
           resolve(data.result)
           return
@@ -77,11 +103,13 @@ async function run(job: TableStreamJob, port: Required<TableStreamPort>, id: str
           reject(new Error(data.error))
           return
         }
-        if (data.type !== 'chunk' && data.type !== 'read-string') return
+        if (data.type !== 'chunk' && data.type !== 'read-string' && data.type !== 'project-sheet') return
         const task = (async () => {
           try {
             const result =
-              data.type === 'chunk'
+              data.type === 'project-sheet'
+                ? await projectCoc7WorksheetDOM(data.worksheet, signal)
+                : data.type === 'chunk'
                 ? await port.appendTableStage({ id, key: data.key, index: data.index, base64: data.base64 })
                 : await port.readTableString({ id, stringIndex: data.stringIndex, offset: data.offset })
             if (active) worker.postMessage({ type: 'reply', request: data.request, result })
@@ -103,13 +131,20 @@ async function run(job: TableStreamJob, port: Required<TableStreamPort>, id: str
       worker.onerror = () => reject(new Error('表格后台处理失败，尚未确认导入。'))
       worker.postMessage({ type: 'start', job })
     })
+    checkStreamCancelled(signal)
+    succeeded = true
+    return result
   } finally {
     active = false
     if (abort) signal?.removeEventListener('abort', abort)
-    worker.terminate()
+    worker.onmessage = null
     // Settle already-dispatched native writes before releasing their owner.
     // Android's older system WebViews have Promise.all but not allSettled.
     await Promise.all(Array.from(inFlight, (task) => task.catch(() => undefined)))
+    if (succeeded && shared && preparedWorker === shared) {
+      shared.busy = false
+      worker.onerror = () => discardTableWorker(worker)
+    } else discardTableWorker(worker)
   }
 }
 export async function previewNativeTable(
@@ -138,6 +173,7 @@ export async function previewNativeTable(
         name: source.name,
         format: source.format,
         kind,
+        recordsKernel: kind === 'records' && source.format === 'xlsx' ? source.recordsKernel : undefined,
         maximumStageBytes: source.maximumStageBytes
       },
       device,
@@ -184,6 +220,18 @@ export async function previewNativeCoc7(
 ) {
   try {
     const device = required(port)
+    if (source.format !== 'xlsx') throw new Error('请选择七版角色卡的 XLSX 文件。')
+    checkStreamCancelled(signal)
+    if (source.coc7Kernel) {
+      if (!Number.isSafeInteger(source.bytes) || source.bytes < 1 || !/^[0-9a-f]{64}$/.test(source.sha256) ||
+          !Number.isSafeInteger(source.maximumStageBytes) || source.maximumStageBytes < 1 ||
+          source.coc7Kernel.source.bytes !== source.bytes || source.coc7Kernel.source.sha256 !== source.sha256)
+        throw new Error('原生角色卡来源完整证明不一致。')
+      const draft = await previewKernelCoc7(source.coc7Kernel.payload)
+      checkStreamCancelled(signal)
+      await device.cancelTableStage({ id: source.id, requireCurrent: true })
+      return draft
+    }
     const result = await run(
       {
         source: {
@@ -202,7 +250,7 @@ export async function previewNativeCoc7(
       signal
     )
     checkStreamCancelled(signal)
-    if (!result.draft) throw new Error('未生成完整角色草稿。')
+    if (!('draft' in result) || !result.draft) throw new Error('未生成完整角色草稿。')
     await device.cancelTableStage({ id: source.id })
     return result.draft
   } catch (error) {

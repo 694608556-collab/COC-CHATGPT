@@ -12,6 +12,10 @@ import java.io.FileNotFoundException;
 
 /** Instrumentation-only real files, confined to this test APK's public UUID directories. */
 public final class PublicIoProvider extends DocumentsProvider {
+    private final java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicInteger> sourceOpens=new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<String,Long> firstSourceOpen=new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicInteger> documentOpens=new java.util.concurrent.ConcurrentHashMap<>();
+    private String owner(String id){int slash=id.indexOf('/');return slash<0?id:id.substring(0,slash);}
     public static final String AUTHORITY="coc.logbook.public.iotest55";
     @Override public boolean onCreate(){return true;}
     private File file(String id)throws FileNotFoundException{
@@ -34,6 +38,9 @@ public final class PublicIoProvider extends DocumentsProvider {
                 case Document.COLUMN_MIME_TYPE:row.add(value.isDirectory()?Document.MIME_TYPE_DIR:"application/octet-stream");break;
                 case Document.COLUMN_SIZE:row.add(value.length());break;
                 case Document.COLUMN_LAST_MODIFIED:row.add(value.lastModified());break;
+                case "public_source_opens":row.add(sourceOpens.getOrDefault(owner(id),new java.util.concurrent.atomic.AtomicInteger()).get());break;
+                case "public_first_open_elapsed":row.add(firstSourceOpen.getOrDefault(owner(id),0L));break;
+                case "public_document_opens":row.add(documentOpens.getOrDefault(id,new java.util.concurrent.atomic.AtomicInteger()).get());break;
                 case Document.COLUMN_FLAGS:row.add(value.isDirectory()?Document.FLAG_DIR_SUPPORTS_CREATE:Document.FLAG_SUPPORTS_WRITE|Document.FLAG_SUPPORTS_DELETE);break;
                 default:row.add(null);
             }
@@ -49,5 +56,5 @@ public final class PublicIoProvider extends DocumentsProvider {
         try{if(!directory.isDirectory()||!value.createNewFile())throw new Exception();return parent+"/"+name;}catch(Exception error){throw new FileNotFoundException("Cannot create public test file");}
     }
     @Override public void deleteDocument(String id)throws FileNotFoundException{if(!file(id).delete())throw new FileNotFoundException("Cannot delete public test file");}
-    @Override public ParcelFileDescriptor openDocument(String id,String mode,CancellationSignal signal)throws FileNotFoundException{return ParcelFileDescriptor.open(file(id),ParcelFileDescriptor.parseMode(mode));}
+    @Override public ParcelFileDescriptor openDocument(String id,String mode,CancellationSignal signal)throws FileNotFoundException{firstSourceOpen.putIfAbsent(owner(id),android.os.SystemClock.elapsedRealtime());sourceOpens.computeIfAbsent(owner(id),key->new java.util.concurrent.atomic.AtomicInteger()).incrementAndGet();documentOpens.computeIfAbsent(id,key->new java.util.concurrent.atomic.AtomicInteger()).incrementAndGet();return ParcelFileDescriptor.open(file(id),ParcelFileDescriptor.parseMode(mode));}
 }

@@ -55,8 +55,26 @@ public final class LogbookPlugin extends Plugin {
     private final NetworkQueue networkQueue = new NetworkQueue();
     private final java.util.concurrent.ExecutorService backupWriter = java.util.concurrent.Executors.newSingleThreadExecutor();
     private static final java.util.concurrent.atomic.AtomicBoolean backupRunning = new java.util.concurrent.atomic.AtomicBoolean();
-    @Override public void load() { database = new LogbookDatabase(getContext()); archives = new ArchiveRegistry(getContext()); }
+    private final android.os.CancellationSignal importWarmCancellation=new android.os.CancellationSignal();
+    private final TableCodeWarm tableCodeWarm=new TableCodeWarm();
+    @Override public void load() {
+        database = new LogbookDatabase(getContext()); archives = new ArchiveRegistry(getContext());
+        tableCodeWarm.start();
+        Thread warm=new Thread(()->{
+            try{
+                NativeTableKernel.warmCode();
+                String tree=prefs().getString("tree","");if(tree.isEmpty()||importWarmCancellation.isCanceled())return;
+                requireArchivePermission(tree);Uri uri=Uri.parse(tree);if(!DocumentsContract.isTreeUri(uri))return;
+                Uri root=DocumentsContract.buildDocumentUriUsingTree(uri,DocumentsContract.getTreeDocumentId(uri));
+                // Metadata only, like the directory already shown by a file
+                // picker. Never enumerate/open files or cache authorization.
+                try(Cursor cursor=getContext().getContentResolver().query(root,new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID},null,null,null,importWarmCancellation)){if(cursor!=null)cursor.moveToFirst();}
+            }catch(Exception|OutOfMemoryError optionalWarmupUnavailable){}
+        },"coc-import-code-warm");warm.setDaemon(true);warm.start();
+    }
     @Override protected void handleOnDestroy() {
+        tableCodeWarm.cancel();
+        importWarmCancellation.cancel();
         networkQueue.close(); backupWriter.shutdown();
         execute(() -> { try { if (tableSession != null) tableSession.close(); if (backupSession != null) backupSession.close(); if (fetchBatch != null) fetchBatch.close(); if (snapshotUpload != null) snapshotUpload.close(); if (readLease != null) readLease.close(); if (textPdfJobs != null) textPdfJobs.close(); if (pdfSpool != null) pdfSpool.close(); } catch (Exception ignored) { } finally { if (archives != null) archives.close(); } });
         if (database != null) database.close();
@@ -330,6 +348,7 @@ public final class LogbookPlugin extends Plugin {
         return intent;
     }
     @PluginMethod public void openBackup(PluginCall call) {
+        tableCodeWarm.cancel();
         if(importPickerPending||backupSession!=null||tableSession!=null||fetchBatch!=null||snapshotUpload!=null&&snapshotUpload.active()){call.reject("已有文件或批量任务，请先结束当前任务。");return;}
         importPickerPending=true;
         try{startActivityForResult(call, importDocumentIntent(call.getString("kind", "backup")), "backupChosen");}
@@ -366,19 +385,42 @@ public final class LogbookPlugin extends Plugin {
         if(database.revision()!=owner.revision)throw new IllegalStateException("数据已变化，请重新预览；原数据保留。");
     }
     private void rejectTable(PluginCall call,TableSession owner,Throwable error){
+        // require() can fail before the caller's assignment finishes. Only
+        // the exact lease token may recover that owner for failure cleanup.
+        if(owner==null&&tableSession!=null&&tableSession.id.equals(call.getString("id","")))owner=tableSession;
         String cleanup="";
         if(owner!=null&&tableSession==owner)try{owner.close();tableSession=null;}catch(Exception failure){error.addSuppressed(failure);cleanup=" 私有暂存清理失败，请重开应用后重试。";}
         call.reject("表格操作未完成："+(error instanceof OutOfMemoryError?"手机可用内存不足；原数据未改变。":error.getMessage())+cleanup,error instanceof Exception?(Exception)error:new IllegalStateException("表格处理内存不足。",error));
     }
     private void openTableStream(PluginCall call,Uri document){
-        TableSession owner=null;try{
+        TableSession owner=null;long importStart=System.nanoTime();JSONObject importTiming=(getContext().getApplicationInfo().flags&android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)!=0&&Boolean.TRUE.equals(call.getBoolean("measureImport",false))?new JSONObject():null;try{
             if(tableSession!=null||backupSession!=null||fetchBatch!=null||snapshotUpload!=null&&snapshotUpload.active())throw new IllegalStateException("已有文件或批量任务，请先结束当前任务。");
             long revision=backupExpected(call);if(revision!=database.revision())throw new IllegalStateException("数据已变化，请重新选择。");
             String tree=prefs().getString("tree","");requireArchivePermission(tree);
-            owner=new TableSession(new java.io.File(getContext().getCacheDir(),"table-stream-staging"),tree,revision,call.getString("kind",""),displayName(document),null);tableSession=owner;
+            if(importTiming!=null)importTiming.put("leasePreflightMs",(System.nanoTime()-importStart)/1000000.0);long nameStart=System.nanoTime();String documentName=displayName(document);
+            if(importTiming!=null)importTiming.put("documentNameMs",(System.nanoTime()-nameStart)/1000000.0);long constructorStart=System.nanoTime();
+            boolean prepareRecord="record-table".equals(call.getString("kind",""));
+            owner=new TableSession(new java.io.File(getContext().getCacheDir(),"table-stream-staging"),tree,revision,call.getString("kind",""),documentName,null,prepareRecord||Boolean.TRUE.equals(call.getBoolean("coc7Template",false)));tableSession=owner;
+            if(importTiming!=null)importTiming.put("ownerConstructorMs",(System.nanoTime()-constructorStart)/1000000.0);
+            if(importTiming!=null)importTiming.put("ownerSetupMs",(System.nanoTime()-importStart)/1000000.0);long captureStart=System.nanoTime();
             BackupSession.Proof proof;try(InputStream input=getContext().getContentResolver().openInputStream(document)){proof=owner.capture(input);}
+            if(importTiming!=null)importTiming.put("captureSealMs",(System.nanoTime()-captureStart)/1000000.0);
             checkTableLocation(owner);JSObject source=new JSObject();source.put("id",owner.id);source.put("revision",revision);source.put("fileUri",Uri.fromFile(owner.source).toString());source.put("name",owner.name);source.put("format",owner.format);source.put("bytes",proof.bytes);source.put("sha256",proof.sha256);source.put("maximumStageBytes",owner.maximumStageBytes);
+            if(Boolean.TRUE.equals(call.getBoolean("coc7Template",false))){JSONObject kernel=owner.inspectCoc7Kernel(importTiming);checkTableLocation(owner);if(kernel!=null)source.put("coc7Kernel",kernel);}
+            if(prepareRecord){JSONObject kernel=owner.inspectRecordsKernel(importTiming);checkTableLocation(owner);if(kernel!=null)source.put("recordsKernel",kernel);}
+            if(importTiming!=null){importTiming.put("beforeResolveMs",(System.nanoTime()-importStart)/1000000.0);source.put("importTiming",importTiming);}
             JSObject out=new JSObject();out.put("cancelled",false);out.put("tableSource",source);call.resolve(out);
+            if(prepareRecord){
+                final TableSession preparing=owner;final boolean measurePreparation=importTiming!=null;
+                // This remains inside the actual import interval. Serial
+                // bridge execution orders it before later append/finish calls,
+                // while the JS worker reads and parses the captured source.
+                try{execute(()->{
+                    if(tableSession!=preparing)return;
+                    try{preparing.prepareSeed(database,emptySnapshot().getJSONObject("settings"),()->checkTableLocation(preparing),measurePreparation);}
+                    catch(Exception|OutOfMemoryError error){preparing.preparationFailed(error);}
+                });}catch(Exception|OutOfMemoryError error){preparing.preparationFailed(error);}
+            }
         }catch(Exception|OutOfMemoryError error){rejectTable(call,owner,error);}
     }
     @PluginMethod public void appendTableStage(PluginCall call){
@@ -396,7 +438,8 @@ public final class LogbookPlugin extends Plugin {
     @PluginMethod public void finishTablePreview(PluginCall call){
         execute(()->{TableSession owner=null;try{
             owner=tableOwner(call);checkTableLocation(owner);JSONObject proof=call.getObject("candidate");if(proof==null)throw new IllegalArgumentException("表格候选证明缺失。");
-            JSONObject preview=owner.preview(database,BackupSession.requestProof(proof),emptySnapshot().getJSONObject("settings"));checkTableLocation(owner);call.resolve(new JSObject(preview.toString()));
+            boolean measure=(getContext().getApplicationInfo().flags&android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)!=0&&Boolean.TRUE.equals(call.getBoolean("measureImport",false));
+            JSONObject preview=owner.preview(database,BackupSession.requestProof(proof),emptySnapshot().getJSONObject("settings"),measure);checkTableLocation(owner);call.resolve(new JSObject(preview.toString()));
         }catch(Exception|OutOfMemoryError error){rejectTable(call,owner,error);}});
     }
     @PluginMethod public void readTablePreview(PluginCall call){
@@ -416,8 +459,10 @@ public final class LogbookPlugin extends Plugin {
         }catch(Exception|OutOfMemoryError error){if(committed)call.reject("表格已导入，但返回确认失败；请重新读取数据，勿重复导入。");else rejectTable(call,owner,error);}});
     }
     @PluginMethod public void cancelTableStage(PluginCall call){
-        execute(()->{try{if(tableSession!=null&&tableSession.id.equals(call.getString("id",""))){tableSession.close();tableSession=null;}call.resolve();}
-        catch(Exception|OutOfMemoryError error){call.reject("表格私有暂存清理失败；原数据未改变。",error instanceof Exception?(Exception)error:new IllegalStateException(error));}});
+        execute(()->{TableSession owner=null;boolean current=Boolean.TRUE.equals(call.getBoolean("requireCurrent",false));try{
+            if(current){owner=tableOwner(call);checkTableLocation(owner);}else if(tableSession!=null&&tableSession.id.equals(call.getString("id","")))owner=tableSession;
+            if(owner!=null){owner.close();if(tableSession==owner)tableSession=null;}call.resolve();
+        }catch(Exception|OutOfMemoryError error){if(current)rejectTable(call,owner,error);else call.reject("表格私有暂存清理失败；原数据未改变。",error instanceof Exception?(Exception)error:new IllegalStateException(error));}});
     }
     private long backupExpected(PluginCall call)throws Exception{
         Object raw=call.getData().opt("expectedRevision");

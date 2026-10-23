@@ -29,7 +29,7 @@ public final class PublicIoTimingTest {
         Choice(String outputId){this.outputId=outputId;}
         final AtomicReference<String> name=new AtomicReference<>("public-io-card.xlsx");
         @JavascriptInterface public void select(String value){
-            if(value!=null&&value.matches("public-io-(card\\.(xlsx|xls)|table\\.(csv|xlsx|xls))")){name.set(value);return;}
+            if(value!=null&&value.matches("public-io-(card\\.(xlsx|xls)|card-spill\\.xlsx|table\\.(csv|xlsx|xls))")){name.set(value);return;}
             Uri uri=Uri.parse(value==null?"":value);
             if("com.android.externalstorage.documents".equals(uri.getAuthority())&&DocumentsContract.isDocumentUri(InstrumentationRegistry.getInstrumentation().getTargetContext(),uri)&&DocumentsContract.getDocumentId(uri).startsWith(outputId+"/")&&DocumentsContract.getTreeDocumentId(uri).equals(outputId)){name.set(value);return;}
             throw new IllegalArgumentException("Refuse private fixture");
@@ -56,7 +56,7 @@ public final class PublicIoTimingTest {
         else if(expected instanceof org.json.JSONArray){assertTrue(actual instanceof org.json.JSONArray);org.json.JSONArray left=(org.json.JSONArray)expected,right=(org.json.JSONArray)actual;assertEquals(left.length(),right.length());for(int i=0;i<left.length();i++)sameJson(left.get(i),right.get(i));}
         else assertEquals(expected,actual);
     }
-    private void checkComplete(Context target,Context tests,JSONObject result,Uri tree)throws Exception{
+    private void checkOriginalBodies(Context target,Context tests,JSONObject result)throws Exception{
         try(LogbookDatabase database=new LogbookDatabase(target)){
             org.json.JSONArray original=new JSONObject(asset(tests,"public-io-library.json")).getJSONArray("records");
             for(int i=0;i<original.length();i++){
@@ -65,6 +65,10 @@ public final class PublicIoTimingTest {
                 assertEquals(row.getString("id"),saved.getString("id"));sameJson(row.getJSONObject("rawContent"),saved.getJSONObject("rawContent"));
             }
         }
+        result.put("completeOriginalBodiesVerified",78);
+    }
+    private void checkComplete(Context target,Context tests,JSONObject result,Uri tree)throws Exception{
+        checkOriginalBodies(target,tests,result);
         org.json.JSONArray documents=result.getJSONArray("documents");assertTrue("Complete output matrix",documents.length()>=31);
         for(int i=0;i<documents.length();i++){
             JSONObject file=documents.getJSONObject(i);Uri uri=Uri.parse(file.getString("uri"));assertEquals(tree.getAuthority(),uri.getAuthority());assertTrue(DocumentsContract.getDocumentId(uri).startsWith(DocumentsContract.getTreeDocumentId(tree)+"/"));
@@ -79,6 +83,12 @@ public final class PublicIoTimingTest {
         assertFalse("Never replace an existing test database",target.getDatabasePath("coc-logbook.sqlite").exists());
         android.content.SharedPreferences prefs=target.getSharedPreferences("archive-location",0);assertFalse("Never replace an existing test grant",prefs.contains("tree"));
         String id="public-"+UUID.randomUUID();
+        boolean localPrivateCard="true".equals(InstrumentationRegistry.getArguments().getString("localPrivateCard"));
+        boolean localPrivateTable="true".equals(InstrumentationRegistry.getArguments().getString("localPrivateTable"));
+        assertFalse("Private card and table modes must be separate",localPrivateCard&&localPrivateTable);
+        String privateTableProof=InstrumentationRegistry.getArguments().getString("expectedTableProofBase64","");
+        JSONObject expectedTableProof=localPrivateTable?new JSONObject(new String(java.util.Base64.getDecoder().decode(privateTableProof),StandardCharsets.UTF_8)):null;
+        assertTrue("Runtime private table complete proof is required",!localPrivateTable||expectedTableProof!=null&&expectedTableProof.optInt("version")==1&&expectedTableProof.has("source")&&expectedTableProof.has("candidate")&&expectedTableProof.has("valuesSha256"));
         Uri tree=DocumentsContract.buildTreeDocumentUri(PublicIoProvider.AUTHORITY,id);int modes=Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
         String outputId="primary:Download/COC-PublicIO-"+id;
         Uri outputTree=DocumentsContract.buildTreeDocumentUri("com.android.externalstorage.documents",outputId);
@@ -88,7 +98,7 @@ public final class PublicIoTimingTest {
         java.util.Map<File,File> preservedRegistry=new java.util.LinkedHashMap<>();
         for(String suffix:new String[]{"","-journal","-wal","-shm"}){File original=target.getDatabasePath("archive-index.db"+suffix);if(original.exists()){File saved=new File(registryEvidence,"before-archive-index.db"+suffix);assertTrue(original.renameTo(saved));preservedRegistry.put(original,saved);}}
         try{
-            Intent grant=new Intent().setComponent(new android.content.ComponentName(tests.getPackageName(),PublicIoGrantActivity.class.getName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("publicTarget",target.getPackageName()).putExtra("publicUri",tree.toString());tests.startActivity(grant);
+            Intent grant=new Intent().setComponent(new android.content.ComponentName(tests.getPackageName(),PublicIoGrantActivity.class.getName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("publicTarget",target.getPackageName()).putExtra("publicUri",tree.toString()).putExtra("localPrivateCard",localPrivateCard).putExtra("localPrivateTable",localPrivateTable);tests.startActivity(grant);
             long deadline=System.currentTimeMillis()+20000;
             while(!granted){try{target.getContentResolver().takePersistableUriPermission(tree,modes);granted=true;}catch(SecurityException pending){assertTrue("Public I/O grant timeout",System.currentTimeMillis()<deadline);Thread.sleep(100);}}
             assertTrue(prefs.edit().putString("tree",tree.toString()).putString("label","公开计时测试目录").commit());
@@ -104,7 +114,8 @@ public final class PublicIoTimingTest {
                 scenario.onActivity(activity->{activity.getBridge().getWebView().addJavascriptInterface(choice,"PublicIoChoice");activity.getBridge().getWebView().reload();});
                 deadline=System.currentTimeMillis()+90000;
                 while(!"true".equals(evaluate(scenario,"!!window.Capacitor && typeof window.Capacitor.nativePromise==='function' && !!document.querySelector('.module-body-search input') && typeof PublicIoChoice !== 'undefined'"))){assertTrue("Public UI readiness timeout",System.currentTimeMillis()<deadline);Thread.sleep(100);}
-                String mode=InstrumentationRegistry.getArguments().getString("publicIoMode","baseline");assertTrue(mode.equals("baseline")||mode.equals("complete")||mode.equals("imports")||mode.equals("matrix"));
+                String mode=InstrumentationRegistry.getArguments().getString("publicIoMode","baseline");assertTrue(mode.equals("baseline")||mode.equals("complete")||mode.equals("imports")||mode.equals("cards")||mode.equals("matrix")||mode.equals("tables")||mode.equals("private-table"));
+                assertEquals("Private table mode must have runtime input and complete proof",mode.equals("private-table"),localPrivateTable);
                 if(mode.equals("complete")||mode.equals("matrix")){
                     try(android.os.ParcelFileDescriptor shell=instrumentation.getUiAutomation().executeShellCommand("mkdir -p /sdcard/Download/COC-PublicIO-"+id);InputStream input=new android.os.ParcelFileDescriptor.AutoCloseInputStream(shell);ByteArrayOutputStream output=new ByteArrayOutputStream()){byte[] bytes=new byte[1024];int count;while((count=input.read(bytes))!=-1)output.write(bytes,0,count);assertEquals("Public output folder creation must succeed","",output.toString("UTF-8").trim());}
                     assertTrue(prefs.edit().putString("created-documents","[]").commit());
@@ -117,14 +128,52 @@ public final class PublicIoTimingTest {
                     assertEquals(outputTree.toString(),prefs.getString("tree",""));outputGranted=true;
                     Thread.sleep(300);
                 }
-                evaluate(scenario,"window.__publicIoConfig={mode:"+JSONObject.quote(mode)+"};");
-                evaluate(scenario,asset(tests,"public-io-webview.js"));
+                assertTrue("Private local card must only run imports",!localPrivateCard||mode.equals("imports"));
+                String expectedName=localPrivateCard?new String(java.util.Base64.getDecoder().decode(InstrumentationRegistry.getArguments().getString("expectedCardNameBase64","")),StandardCharsets.UTF_8):"公开七版调查员";
+                assertTrue("Complete expected card name is required",expectedName!=null&&!expectedName.trim().isEmpty());
+                String expectedProof=InstrumentationRegistry.getArguments().getString("expectedCardProof","");
+                assertTrue("Full local draft proof is required",!localPrivateCard||expectedProof.matches("[a-f0-9]{64}"));
+                evaluate(scenario,"window.__publicIoConfig={mode:"+JSONObject.quote(mode)+",localPrivateCard:"+localPrivateCard+",expectedCardName:"+JSONObject.quote(expectedName)+",expectedCardProof:"+JSONObject.quote(expectedProof)+",localPrivateTable:"+localPrivateTable+",expectedTableProof:"+(expectedTableProof==null?"null":expectedTableProof.toString())+"};");
+                long explicitActionsStarted=android.os.SystemClock.elapsedRealtime();evaluate(scenario,asset(tests,"public-io-webview.js"));
                 deadline=System.currentTimeMillis()+15*60*1000;String result;
                 while("null".equals(result=evaluate(scenario,"window.__publicIoResult || null"))){assertTrue("Public complete I/O timeout at "+evaluate(scenario,"window.__publicIoStage || ''"),System.currentTimeMillis()<deadline);Thread.sleep(250);}
                 JSONObject checked=new JSONObject(result);checked.put("deviceModel",android.os.Build.MODEL);checked.put("androidApi",android.os.Build.VERSION.SDK_INT);checked.put("webViewVersion",android.webkit.WebView.getCurrentWebViewPackage().versionName);checked.put("physicalPhone",!android.os.Build.MODEL.toLowerCase(java.util.Locale.ROOT).contains("sdk"));
                 if(checked.getBoolean("passed")&&(mode.equals("complete")||mode.equals("matrix")))checkComplete(target,tests,checked,outputTree);
+                if(checked.getBoolean("passed")&&(mode.equals("tables")||mode.equals("private-table")))checkOriginalBodies(target,tests,checked);
                 android.os.Bundle evidence=new android.os.Bundle();evidence.putString("public_io_result",checked.toString());instrumentation.sendStatus(0,evidence);
                 System.out.println("PUBLIC_IO_TIMING "+checked);assertTrue(checked.toString(),checked.getBoolean("passed"));
+                // Query AFTER all measurements so the assertion itself cannot
+                // warm a provider. Startup must open no input contents, and
+                // all three private-card attempts must freshly read the file.
+                try(android.database.Cursor access=target.getContentResolver().query(DocumentsContract.buildDocumentUriUsingTree(tree,id),new String[]{"public_first_open_elapsed"},null,null,null)){
+                    assertNotNull(access);assertTrue(access.moveToFirst());long first=access.getLong(0);assertTrue("Warmup must not open input contents",first==0||first>=explicitActionsStarted);
+                }
+                if(localPrivateCard&&mode.equals("imports"))try(android.database.Cursor access=target.getContentResolver().query(DocumentsContract.buildDocumentUriUsingTree(tree,id+"/public-io-card.xlsx"),new String[]{"public_document_opens"},null,null,null)){
+                    assertNotNull(access);assertTrue(access.moveToFirst());assertEquals("Every attempt must read the actual private input",3,access.getInt(0));
+                }
+                if(mode.equals("tables"))for(String extension:new String[]{"csv","xlsx","xls"})try(android.database.Cursor access=target.getContentResolver().query(DocumentsContract.buildDocumentUriUsingTree(tree,id+"/public-io-table."+extension),new String[]{"public_document_opens"},null,null,null)){
+                    assertNotNull(access);assertTrue(access.moveToFirst());assertEquals("Every table attempt must read the actual full input",3,access.getInt(0));
+                }
+                if(localPrivateTable)try(android.database.Cursor access=target.getContentResolver().query(DocumentsContract.buildDocumentUriUsingTree(tree,id+"/public-io-table.xlsx"),new String[]{"public_document_opens"},null,null,null)){
+                    assertNotNull(access);assertTrue(access.moveToFirst());assertEquals("Every private table preview must freshly read the complete selected file",3,access.getInt(0));
+                }
+                org.json.JSONArray measurements=checked.getJSONArray("results");int characterSamples=0,tableSamples=0;
+                for(int i=0;i<measurements.length();i++){
+                    JSONObject sample=measurements.getJSONObject(i);
+                    if(sample.getString("operation").startsWith("character-import-xlsx-")){
+                        characterSamples++;
+                        assertTrue("Character import must visibly respond within 100ms: "+sample,sample.getDouble("responseMs")<=100);
+                        assertTrue("Complete ~700KB character draft must be ready within 500ms: "+sample,sample.getDouble("totalMs")<=500);
+                    }
+                    if((mode.equals("tables")||mode.equals("private-table"))&&sample.getString("operation").startsWith("record-table-import-preview-")){
+                        tableSamples++;
+                        assertTrue("Table import must visibly respond within 100ms: "+sample,sample.getDouble("responseMs")<=100);
+                        assertTrue("Complete table preview must be ready within 500ms: "+sample,sample.getDouble("totalMs")<=500);
+                    }
+                }
+                if(!mode.equals("matrix")&&!mode.equals("tables")&&!mode.equals("private-table"))assertEquals("All three character runs are required",3,characterSamples);
+                if(mode.equals("tables"))assertEquals("All formats need their first and two subsequent previews",9,tableSamples);
+                if(mode.equals("private-table"))assertEquals("Private table requires its first and two subsequent complete previews",3,tableSamples);
             }
         }finally{
             if(monitor!=null)instrumentation.removeMonitor(monitor);

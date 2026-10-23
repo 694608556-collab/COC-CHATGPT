@@ -1,8 +1,11 @@
 import { build } from 'esbuild'
 import { mkdir, copyFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import './check-table-kernel-vendor.mjs'
 
 await mkdir('www', { recursive: true })
+await mkdir('www/licenses', { recursive: true })
+await copyFile('native/table-kernel/vendor/expat/COPYING', 'www/licenses/expat.txt')
 await copyFile('../build/icon.png', 'www/icon.png')
 await build({
   entryPoints: {
@@ -22,7 +25,10 @@ await build({
   format: 'iife',
   jsx: 'automatic',
   minify: true,
-  define: { 'process.env.NODE_ENV': '"production"' }
+  define: {
+    'process.env.NODE_ENV': '"production"',
+    '__COC_IMPORT_TEST_OBSERVER__': process.env.COC_PUBLIC_IO_TEST === '1' ? 'true' : 'false'
+  }
 })
 // Keep the WebView inside system/cutout insets via Capacitor SystemBars on all engine versions.
 // Generated HTML only loads packaged local assets: there is no remote dev server or sample embedded in the APK.
