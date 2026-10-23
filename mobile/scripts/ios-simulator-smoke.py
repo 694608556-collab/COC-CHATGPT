@@ -78,7 +78,6 @@ def required_public_io_is_delegated(job, environment, workflow, reusable):
         'python3 scripts/ios-public-io-check.py',
         'python3 scripts/test-character-import-acceptance.py',
         'python3 scripts/test-table-import-acceptance.py',
-        'python3 scripts/ios-cold-table-check.py',
         'python3 scripts/test-ios-cold-tables.py',
     ]
     steps = re.split(r'^      - ', io, flags=re.MULTILINE)[1:]
@@ -86,6 +85,33 @@ def required_public_io_is_delegated(job, environment, workflow, reusable):
         matching = [step for step in steps if re.search(r'(?m)^\s*run:.*' + re.escape(command_text) + r'(?:\s|$)', step)]
         if len(matching) != 1 or re.search(r'^\s*(?:if|continue-on-error):', matching[0], re.MULTILINE):
             raise RuntimeError('Required complete I/O or performance check missing/conditional: ' + command_text)
+    cold = _job_block(reusable, 'cold-tables')
+    required_cold = ['    runs-on: xcode-27', '      fail-fast: false',
+                     '        first: [csv, xlsx, xls]',
+                     '        run: python3 scripts/ios-public-io-check.py --table-first ${{ matrix.first }}',
+                     '          name: ios-cold-table-${{ matrix.first }}']
+    if (any(cold.splitlines().count(line) != 1 for line in required_cold)
+            or re.search(r'^    (?:if|needs|continue-on-error):', cold, re.MULTILINE)
+            or 'continue-on-error:' in cold):
+        raise RuntimeError('Every cold format requires its own mandatory independent runner')
+    for step in re.split(r'^      - ', cold, flags=re.MULTILINE)[1:]:
+        if 'run:' in step and re.search(r'^\s*if:', step, re.MULTILINE):
+            raise RuntimeError('Cold format execution cannot be conditional')
+    aggregate = _job_block(reusable, 'complete-io')
+    required_aggregate = ['    runs-on: ubuntu-latest',
+        '    needs: [public-io-feedback, cold-tables]', '    if: ${{ always() }}',
+        '          IO_RESULT: ${{ needs.public-io-feedback.result }}',
+        '          COLD_RESULT: ${{ needs.cold-tables.result }}',
+        '        run: test "$IO_RESULT" = success && test "$COLD_RESULT" = success',
+        '          pattern: ios-cold-table-*', '          path: mobile/ios/build',
+        '          merge-multiple: true',
+        '        run: python3 scripts/ios-cold-table-check.py --aggregate-only']
+    if (any(aggregate.splitlines().count(line) != 1 for line in required_aggregate)
+            or 'continue-on-error:' in aggregate):
+        raise RuntimeError('Full I/O and all independently verified cold matrices must succeed')
+    for step in re.split(r'^      - ', aggregate, flags=re.MULTILINE)[1:]:
+        if ('run:' in step or 'actions/download-artifact@v4' in step) and re.search(r'^\s*if:', step, re.MULTILINE):
+            raise RuntimeError('Required cold table aggregation cannot be conditional')
     return True
 
 

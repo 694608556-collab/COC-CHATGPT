@@ -102,6 +102,23 @@ class IndependentReadback(unittest.TestCase):
 
 
 class ColdRunner(unittest.TestCase):
+    def test_aggregate_only_requires_all_independent_reports_without_launching_children(self):
+        for broken in (None, 'missing', 'duplicate', 'corrupt'):
+            with self.subTest(broken=broken), tempfile.TemporaryDirectory() as folder, contextlib.chdir(folder):
+                pathlib.Path('ios/build').mkdir(parents=True)
+                for first in FORMATS:
+                    value = report(first)
+                    if broken == 'missing' and first == 'xls': continue
+                    if broken == 'duplicate': value['coldSimulator'] = '00000000-0000-0000-0000-000000000001'
+                    if broken == 'corrupt' and first == 'xlsx': value['results'][0]['totalMs'] = 600.001
+                    pathlib.Path('ios/build/ios-public-io-diagnostic-table-' + first + '-result.json').write_text(json.dumps(value), encoding='utf-8')
+                with mock.patch.object(runner.subprocess, 'run', side_effect=AssertionError('Aggregation must not launch children')), contextlib.redirect_stdout(__import__('io').StringIO()):
+                    if broken:
+                        with self.assertRaises((AssertionError, FileNotFoundError)): runner.main(['--aggregate-only'])
+                    else: runner.main(['--aggregate-only'])
+                summary = json.loads(pathlib.Path('ios/build/ios-public-io-diagnostic-cold-table-matrix.json').read_text(encoding='utf-8'))
+                self.assertIs(summary['passed'], broken is None)
+
     def execute(self, fail_at=None, reused_simulator=False, corrupt_report=False, previous_success=False):
         calls = []
         with tempfile.TemporaryDirectory() as folder, contextlib.chdir(folder):

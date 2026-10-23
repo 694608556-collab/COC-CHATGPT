@@ -104,6 +104,21 @@ class RequiredIOScheduleTests(unittest.TestCase):
                 with self.subTest(command=command, replacement=replacement), self.assertRaises(RuntimeError):
                     self.delegated(reusable=changed)
 
+    def test_parallel_cold_formats_and_aggregate_cannot_be_weakened(self):
+        for before, after in [
+            ('  cold-tables:\n', '  cold-tables:\n    if: false\n'),
+            ('      fail-fast: false', '      fail-fast: true'),
+            ('        first: [csv, xlsx, xls]', '        first: [csv, xlsx]'),
+            ('--table-first ${{ matrix.first }}', '--table-first csv'),
+            ('    needs: [public-io-feedback, cold-tables]', '    needs: [public-io-feedback]'),
+            ('test "$COLD_RESULT" = success', 'true'),
+            ('--aggregate-only', '--removed-aggregate'),
+            ('        merge-multiple: true', '        merge-multiple: false'),
+        ]:
+            changed = self.reusable.replace(before, after)
+            self.assertNotEqual(changed, self.reusable)
+            with self.subTest(change=before), self.assertRaises(RuntimeError): self.delegated(reusable=changed)
+
     def execute_schedule(self, delegated=False, fail_ui=False, fail_capacity=False):
         """Exercise the real coordinator with public synthetic simulator reports."""
         calls = []

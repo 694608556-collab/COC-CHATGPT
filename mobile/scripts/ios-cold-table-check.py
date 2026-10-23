@@ -1,4 +1,5 @@
 """Three independent simulator/app processes; supplements all complete I/O gates."""
+import argparse
 import json
 import pathlib
 import subprocess
@@ -6,7 +7,10 @@ import sys
 from ios_table_readback import FORMATS, check_cold_report
 
 
-def main():
+def main(argv=()):
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--aggregate-only', action='store_true', help='Verify all reports from the required independent CI jobs without launching simulators')
+    arguments = parser.parse_args(argv)
     results = []
     summary_path = pathlib.Path('ios/build/ios-public-io-diagnostic-cold-table-matrix.json')
     summary_path.parent.mkdir(parents=True, exist_ok=True)
@@ -19,7 +23,8 @@ def main():
         for first in FORMATS:
             # A separate runner creates its own simulator and refuses an existing DB.
             # Any setup, source, content or timing failure stops; nothing is retried.
-            subprocess.run([sys.executable, 'scripts/ios-public-io-check.py', '--table-first', first], check=True)
+            if not arguments.aggregate_only:
+                subprocess.run([sys.executable, 'scripts/ios-public-io-check.py', '--table-first', first], check=True)
             path = pathlib.Path('ios/build/ios-public-io-diagnostic-table-' + first + '-result.json')
             result = json.loads(path.read_text(encoding='utf-8'))
             check_cold_report(result, first)
@@ -39,4 +44,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    main(sys.argv[1:])

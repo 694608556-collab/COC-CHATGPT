@@ -31,8 +31,6 @@ jobs:
       # execution remains available for feedback and never replaces full CI.
       - name: Exercise every complete public I/O assertion in a fresh simulator
         run: python3 scripts/ios-public-io-check.py
-      - name: Verify each first table format in its own fresh simulator
-        run: python3 scripts/ios-cold-table-check.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -40,4 +38,66 @@ jobs:
           path: |
             mobile/ios/build/ios-public-io-diagnostic-*.json
             mobile/ios/build/public-io-diagnostic*-build.log
+          if-no-files-found: ignore
+  cold-tables:
+    runs-on: xcode-27
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        first: [csv, xlsx, xls]
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.3.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: mobile/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck && pnpm ios:sync && node scripts/check-release-web.mjs
+      - run: python3 scripts/test-ios-ci-scheduling.py && python3 scripts/test-ios-cold-tables.py
+      # Each format gets a fresh runner, simulator, application and database.
+      # It still executes all nine previews and the independent complete readback.
+      - name: Verify every cold and repeated preview with complete original bodies
+        run: python3 scripts/ios-public-io-check.py --table-first ${{ matrix.first }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-cold-table-${{ matrix.first }}
+          path: |
+            mobile/ios/build/ios-public-io-diagnostic-*.json
+            mobile/ios/build/public-io-diagnostic*-build.log
+          if-no-files-found: error
+  complete-io:
+    runs-on: ubuntu-latest
+    needs: [public-io-feedback, cold-tables]
+    if: ${{ always() }}
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require full I/O and every independent cold format
+        env:
+          IO_RESULT: ${{ needs.public-io-feedback.result }}
+          COLD_RESULT: ${{ needs.cold-tables.result }}
+        run: test "$IO_RESULT" = success && test "$COLD_RESULT" = success
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ios-cold-table-*
+          path: mobile/ios/build
+          merge-multiple: true
+      - name: Require all three distinct simulators and every full readback
+        run: python3 scripts/ios-cold-table-check.py --aggregate-only
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-complete-cold-table-matrix
+          path: mobile/ios/build/ios-public-io-diagnostic-cold-table-matrix.json
           if-no-files-found: ignore
