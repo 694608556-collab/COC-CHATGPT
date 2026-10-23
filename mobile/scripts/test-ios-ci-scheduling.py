@@ -183,8 +183,15 @@ class RequiredIOScheduleTests(unittest.TestCase):
 
 
 class CompleteIOPreparationTests(unittest.TestCase):
-    def execute(self, fail=None, content_passed=True):
+    DEVICE = '00000000-0000-0000-0000-000000000001'
+    BOOT_OUTPUT = 'Waiting for SpringBoard\n' + ('public boot detail\n' * 5000) + 'Finished\n'
+
+    def execute(self, fail=None, content_passed=True, health_failure=False,
+                diagnostic_write_failure=False, device_id=DEVICE, runtime_version='27.0'):
         calls = []
+        self.failure = None
+        self.error = None
+        self.diagnostics = {}
         with tempfile.TemporaryDirectory(prefix='coc-public-io-schedule-') as directory:
             base = pathlib.Path(directory)
             container = base / 'public-container'
@@ -192,16 +199,22 @@ class CompleteIOPreparationTests(unittest.TestCase):
 
             def fake_command(*args, **kwargs):
                 calls.append((args, kwargs))
+                if kwargs.get('timeout') == 10:
+                    if health_failure:
+                        raise subprocess.TimeoutExpired(args, 10)
+                    return 'public runner diagnostic\n'
+                if args[:3] == ('xcrun', 'simctl', 'bootstatus') and kwargs.get('log'):
+                    kwargs['log'].write(self.BOOT_OUTPUT)
                 if fail and args[:len(fail)] == fail:
-                    if fail == ('xcrun', 'simctl', 'get_app_container'):
-                        raise subprocess.TimeoutExpired(args, 60)
+                    if fail[:2] == ('xcrun', 'simctl'):
+                        raise subprocess.TimeoutExpired(args, kwargs.get('timeout', 60))
                     raise subprocess.CalledProcessError(1, args)
                 if args[:4] == ('xcrun', 'simctl', 'list', 'runtimes'):
-                    return json.dumps({'runtimes': [{'isAvailable': True, 'identifier': 'public-iOS-27', 'version': '27.0'}]})
+                    return json.dumps({'runtimes': [{'isAvailable': True, 'identifier': 'public-iOS-27', 'version': runtime_version}]})
                 if args[:4] == ('xcrun', 'simctl', 'list', 'devicetypes'):
                     return json.dumps({'devicetypes': [{'name': 'iPhone 14 Pro', 'identifier': 'public-phone'}]})
                 if args[:3] == ('xcrun', 'simctl', 'create'):
-                    return '00000000-0000-0000-0000-000000000001'
+                    return device_id
                 if args[:3] == ('xcrun', 'simctl', 'get_app_container'):
                     return str(container)
                 if args[:2] == ('node', 'scripts/public-io-fixtures.mjs'):
@@ -212,40 +225,71 @@ class CompleteIOPreparationTests(unittest.TestCase):
                     (container / 'tmp/ios-scale-result.json').write_text(json.dumps({'passed': content_passed}), encoding='utf-8')
                 return ''
 
-            with contextlib.chdir(base), contextlib.redirect_stdout(io.StringIO()), mock.patch.object(PUBLIC_IO, 'command', fake_command):
-                if fail or not content_passed:
-                    with self.assertRaises((subprocess.CalledProcessError, subprocess.TimeoutExpired, RuntimeError)):
+            original_write = pathlib.Path.write_text
+
+            def write_text(path, *args, **kwargs):
+                if diagnostic_write_failure and (path.name.startswith('ios-public-io-diagnostic-health-') or path.name == 'ios-public-io-diagnostic-bootstatus.json'):
+                    raise OSError('public diagnostic storage unavailable')
+                return original_write(path, *args, **kwargs)
+
+            with contextlib.chdir(base), contextlib.redirect_stdout(io.StringIO()), \
+                    mock.patch.object(PUBLIC_IO, 'command', fake_command), \
+                    mock.patch.object(pathlib.Path, 'write_text', write_text), \
+                    mock.patch.dict(os.environ, {'ImageOS': 'public-image', 'ImageVersion': 'public-version', 'PUBLIC_TEST_SECRET': 'never-collect-this'}):
+                if fail or not content_passed or device_id != self.DEVICE or runtime_version != '27.0':
+                    with self.assertRaises((subprocess.CalledProcessError, subprocess.TimeoutExpired, RuntimeError, ValueError)) as caught:
                         PUBLIC_IO.main()
-                    failure = json.loads((base / 'ios/build/ios-public-io-diagnostic-failure.json').read_text(encoding='utf-8'))
-                    self.assertIs(failure['passed'], False)
+                    self.error = caught.exception
+                    self.failure = json.loads((base / 'ios/build/ios-public-io-diagnostic-failure.json').read_text(encoding='utf-8'))
+                    self.assertIs(self.failure['passed'], False)
                 else:
                     PUBLIC_IO.main()
+                self.diagnostics = {path.name: json.loads(path.read_text(encoding='utf-8')) for path in (base / 'ios/build').glob('ios-public-io-diagnostic-*.json')}
         return calls
 
-    def test_build_and_public_fixture_generation_finish_before_simulator_boot(self):
+    def test_booted_owned_device_is_the_only_build_and_install_target(self):
+        # Replace the disproven build-before-boot hypothesis with a behavioral
+        # contract that rejects generic, foreign or not-yet-booted targets.
         calls = self.execute()
         commands = [args for args, _ in calls]
-        build = next(i for i, args in enumerate(commands) if args[0] == 'xcodebuild')
+        build = next(i for i, args in enumerate(commands) if args[:2] == ('xcodebuild', '-project'))
         fixtures = next(i for i, args in enumerate(commands) if args[:2] == ('node', 'scripts/public-io-fixtures.mjs'))
+        create = next(i for i, args in enumerate(commands) if args[:3] == ('xcrun', 'simctl', 'create'))
         boot = next(i for i, args in enumerate(commands) if args[:3] == ('xcrun', 'simctl', 'boot'))
-        self.assertLess(build, boot)
-        self.assertLess(fixtures, boot)
-        self.assertEqual(commands[build][commands[build].index('-destination') + 1], 'generic/platform=iOS Simulator')
+        ready = next(i for i, args in enumerate(commands) if args[:3] == ('xcrun', 'simctl', 'bootstatus'))
+        install = next(i for i, args in enumerate(commands) if args[:3] == ('xcrun', 'simctl', 'install'))
+        container = next(i for i, args in enumerate(commands) if args[:3] == ('xcrun', 'simctl', 'get_app_container'))
+        self.assertLess(create, boot)
+        self.assertLess(boot, ready)
+        self.assertLess(ready, build)
+        self.assertLess(build, install)
+        self.assertLess(install, container)
+        self.assertLess(container, fixtures)
+        self.assertEqual(commands[create][-2:], ('public-phone', 'public-iOS-27'))
+        self.assertEqual(commands[build][commands[build].index('-destination') + 1], 'platform=iOS Simulator,id=' + self.DEVICE)
+        for args in commands:
+            if args[:2] == ('xcrun', 'simctl') and args[2] in ('boot', 'bootstatus', 'install', 'get_app_container', 'launch', 'terminate', 'shutdown'):
+                self.assertEqual(args[3], self.DEVICE)
 
     def test_setup_retains_timeouts_and_runs_full_io_and_independent_gate_once(self):
         calls = self.execute()
-        expected = {'boot': 300, 'bootstatus': 300, 'install': 120, 'get_app_container': 60}
+        expected = {'boot': 300, 'bootstatus': 300, 'install': 120, 'get_app_container': 60, 'launch': 120, 'terminate': 60, 'shutdown': 45}
         for args, options in calls:
-            if args[0] == 'xcodebuild': self.assertEqual(options['timeout'], 900)
+            if args[:2] == ('xcodebuild', '-project'): self.assertEqual(options['timeout'], 900)
             if args[:2] == ('xcrun', 'simctl') and args[2] in expected:
                 self.assertEqual(options.get('timeout', 60), expected[args[2]])
         self.assertEqual(sum('--coc-public-io' in args for args, _ in calls), 1)
         self.assertEqual(sum(args[:2] == ('python3', 'scripts/check-public-io.py') for args, _ in calls), 1)
+        self.assertEqual(sum(args[:2] == ('node', 'scripts/public-io-fixtures.mjs') for args, _ in calls), 1)
+        self.assertEqual(sum(args[:2] == ('python3', 'scripts/ios-public-io-fixture.py') for args, _ in calls), 1)
 
-    def test_build_failure_never_boots_or_executes_tests(self):
-        calls = self.execute(fail=('xcodebuild',))
-        self.assertFalse(any(args[:3] == ('xcrun', 'simctl', 'boot') for args, _ in calls))
+    def test_build_failure_cleans_up_owned_device_without_install_or_test_execution(self):
+        calls = self.execute(fail=('xcodebuild', '-project'))
+        self.assertEqual(sum(args[:3] == ('xcrun', 'simctl', 'boot') for args, _ in calls), 1)
+        self.assertEqual(sum(args[:3] == ('xcrun', 'simctl', 'shutdown') for args, _ in calls), 1)
+        self.assertFalse(any(args[:3] == ('xcrun', 'simctl', 'install') for args, _ in calls))
         self.assertFalse(any('--coc-public-io' in args for args, _ in calls))
+        self.assertEqual(self.failure['phase'], 'build')
 
     def test_container_timeout_is_not_retried_or_counted_as_performance_success(self):
         calls = self.execute(fail=('xcrun', 'simctl', 'get_app_container'))
@@ -258,6 +302,69 @@ class CompleteIOPreparationTests(unittest.TestCase):
 
     def test_independent_proof_or_performance_failure_remains_a_failed_run(self):
         calls = self.execute(fail=('python3', 'scripts/check-public-io.py'))
+        self.assertEqual(sum(args[:2] == ('python3', 'scripts/check-public-io.py') for args, _ in calls), 1)
+
+    def test_full_bootstatus_output_is_retained_without_truncation(self):
+        self.execute()
+        self.assertEqual(self.diagnostics['ios-public-io-diagnostic-bootstatus.json'], {'device': self.DEVICE, 'output': self.BOOT_OUTPUT})
+
+    def test_bootstatus_timeout_retains_output_and_prevents_build_or_install(self):
+        calls = self.execute(fail=('xcrun', 'simctl', 'bootstatus'))
+        self.assertEqual(self.failure['phase'], 'bootstatus')
+        self.assertEqual(self.diagnostics['ios-public-io-diagnostic-bootstatus.json']['output'], self.BOOT_OUTPUT)
+        self.assertFalse(any(args[:2] == ('xcodebuild', '-project') for args, _ in calls))
+        self.assertFalse(any(args[:3] == ('xcrun', 'simctl', 'install') for args, _ in calls))
+        self.assertEqual(sum(args[:3] == ('xcrun', 'simctl', 'shutdown') for args, _ in calls), 1)
+
+    def test_public_health_evidence_contains_only_allowlisted_metadata(self):
+        calls = self.execute()
+        health = self.diagnostics['ios-public-io-diagnostic-health-startup.json']
+        self.assertEqual(set(health['image']), {'ImageOS', 'ImageVersion', 'RUNNER_OS', 'RUNNER_ARCH'})
+        self.assertEqual(health['image']['ImageVersion'], 'public-version')
+        self.assertEqual(health['runtime']['version'], '27.0')
+        for name in ('xcode', 'runtimes', 'memory', 'processes', 'disk'):
+            self.assertIn('output', health[name])
+        self.assertNotIn('never-collect-this', json.dumps(self.diagnostics))
+        probes = [args for args, options in calls if options.get('timeout') == 10]
+        self.assertEqual(probes, [('xcodebuild', '-version'), ('xcrun', 'simctl', 'runtime', 'list'), ('vm_stat',), ('ps', '-axo', 'pid,ppid,stat,%cpu,%mem,rss,comm'), ('df', '-k', '.')])
+
+    def test_failed_health_commands_do_not_mask_original_install_timeout(self):
+        calls = self.execute(fail=('xcrun', 'simctl', 'install'), health_failure=True)
+        self.assertIsInstance(self.error, subprocess.TimeoutExpired)
+        self.assertEqual(self.error.cmd[:3], ('xcrun', 'simctl', 'install'))
+        self.assertEqual(self.error.timeout, 120)
+        self.assertEqual(self.failure['phase'], 'install')
+        self.assertFalse(any('--coc-public-io' in args for args, _ in calls))
+        self.assertEqual(sum(args[:3] == ('xcrun', 'simctl', 'install') for args, _ in calls), 1)
+        for phase in ('startup', 'failure'):
+            health = self.diagnostics['ios-public-io-diagnostic-health-' + phase + '.json']
+            for name in ('xcode', 'runtimes', 'memory', 'processes', 'disk'):
+                self.assertIn('error', health[name])
+
+    def test_failed_diagnostic_writes_do_not_mask_original_proof_failure(self):
+        calls = self.execute(fail=('python3', 'scripts/check-public-io.py'), diagnostic_write_failure=True)
+        self.assertIsInstance(self.error, subprocess.CalledProcessError)
+        self.assertEqual(self.error.cmd[:2], ('python3', 'scripts/check-public-io.py'))
+        self.assertEqual(sum(args[:2] == ('python3', 'scripts/check-public-io.py') for args, _ in calls), 1)
+
+    def test_unavailable_requested_runtime_never_falls_back_or_builds(self):
+        calls = self.execute(runtime_version='27.1')
+        self.assertEqual(self.failure['phase'], 'environment')
+        self.assertRegex(str(self.error), 'Required iOS 27.0 runtime unavailable')
+        self.assertFalse(any(args[:3] == ('xcrun', 'simctl', 'create') for args, _ in calls))
+        self.assertFalse(any(args[:2] == ('xcodebuild', '-project') for args, _ in calls))
+
+    def test_invalid_device_identifier_never_reaches_boot_build_or_install(self):
+        calls = self.execute(device_id='booted')
+        self.assertEqual(self.failure['phase'], 'create')
+        self.assertFalse(any(args[:3] == ('xcrun', 'simctl', 'boot') for args, _ in calls))
+        self.assertFalse(any(args[:2] == ('xcodebuild', '-project') for args, _ in calls))
+        self.assertFalse(any(args[:3] == ('xcrun', 'simctl', 'install') for args, _ in calls))
+        self.assertFalse(any(args[:3] == ('xcrun', 'simctl', 'shutdown') for args, _ in calls))
+
+    def test_health_probe_failure_does_not_skip_any_acceptance_gate(self):
+        calls = self.execute(health_failure=True)
+        self.assertEqual(sum('--coc-public-io' in args for args, _ in calls), 1)
         self.assertEqual(sum(args[:2] == ('python3', 'scripts/check-public-io.py') for args, _ in calls), 1)
 
 
