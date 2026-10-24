@@ -57,16 +57,36 @@ def required_public_io_is_delegated(job, environment, workflow, reusable):
         raise RuntimeError('Complete I/O must be an unconditional parallel reusable job')
     gate = _job_block(workflow, 'ios-complete')
     required_gate = [
-        '    needs: [ios, complete-public-io]',
+        '    needs: [ios-native, ios, complete-public-io]',
         '    if: ${{ always() }}',
-        '          NATIVE_RESULT: ${{ needs.ios.result }}',
+        '          NATIVE_RESULT: ${{ needs.ios-native.result }}',
+        '          UI_RESULT: ${{ needs.ios.result }}',
         '          IO_RESULT: ${{ needs.complete-public-io.result }}',
-        '        run: test "$NATIVE_RESULT" = success && test "$IO_RESULT" = success',
+        '        run: test "$NATIVE_RESULT" = success && test "$UI_RESULT" = success && test "$IO_RESULT" = success',
     ]
     if (any(gate.splitlines().count(line) != 1 for line in required_gate)
             or 'continue-on-error:' in gate
             or re.search(r'^\s{6,}(?:- )?if:', gate, re.MULTILINE)):
-        raise RuntimeError('Full iOS acceptance must require success from both independent jobs')
+        raise RuntimeError('Full iOS acceptance must require success from native, system UI and independent I/O jobs')
+    native = _job_block(workflow, 'ios-native')
+    ui = _job_block(workflow, 'ios')
+    for block in [native, ui]:
+        if (block.splitlines().count('    runs-on: xcode-27') != 1
+                or re.search(r'^    (?:if|needs|continue-on-error):', block, re.MULTILINE)):
+            raise RuntimeError('Native and system UI must run unconditionally on independent fresh hosts')
+    for required in ['pnpm typecheck && pnpm test', 'ios/build/native-checks ios/build/native-sample.json',
+                     'node scripts/check-backup-stream.mjs', 'node scripts/check-table-stream.mjs',
+                     'node scripts/check-single-record-stream.mjs', 'bash scripts/package-ios.sh']:
+        steps = re.split(r'^      - ', native, flags=re.MULTILINE)[1:]
+        matches = [step for step in steps if required in step]
+        if len(matches) != 1 or re.search(r'^\s*(?:if|continue-on-error):', matches[0], re.MULTILINE):
+            raise RuntimeError('Complete native, capacity or device build check missing/conditional: ' + required)
+    if ui.count('python3 scripts/ios-simulator-smoke.py --required-public-io-job complete-public-io') != 1:
+        raise RuntimeError('The complete original system UI coordinator must remain required')
+    ui_steps = re.split(r'^      - ', ui, flags=re.MULTILINE)[1:]
+    ui_command = [step for step in ui_steps if 'python3 scripts/ios-simulator-smoke.py --required-public-io-job complete-public-io' in step]
+    if re.search(r'^\s*(?:if|continue-on-error):', ui_command[0], re.MULTILINE):
+        raise RuntimeError('The complete system UI coordinator cannot be conditional')
     header = reusable.split('\njobs:\n', 1)[0]
     if not re.search(r'^  workflow_call:[ \t]*$', header, re.MULTILINE) or re.search(r'^  push:', header, re.MULTILINE):
         raise RuntimeError('Complete I/O must be callable without a duplicate push run')

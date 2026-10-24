@@ -21,6 +21,22 @@ IO_SPEC.loader.exec_module(PUBLIC_IO)
 
 
 class RequiredIOScheduleTests(unittest.TestCase):
+    def test_native_and_ui_are_independent_mandatory_jobs(self):
+        for name in ['ios-native', 'ios']:
+            block = SMOKE._job_block((ROOT / '.github/workflows/ios-check.yml').read_text(encoding='utf-8'), name)
+            self.assertEqual(block.splitlines().count('    runs-on: xcode-27'), 1)
+            self.assertNotRegex(block, r'^    (?:if|needs|continue-on-error):')
+
+    def test_independent_native_and_ui_cannot_be_optional_or_serialized(self):
+        for name in ['ios-native', 'ios']:
+            for option in ['if: false', 'needs: complete-public-io', 'continue-on-error: true']:
+                changed = self.workflow.replace('  ' + name + ':\n', '  ' + name + ':\n    ' + option + '\n')
+                with self.subTest(job=name, option=option), self.assertRaises(RuntimeError):
+                    self.delegated(workflow=changed)
+        changed = self.workflow.replace('      - name: Check fresh native WKWebView startup', '      - if: false\n        name: Check fresh native WKWebView startup')
+        with self.assertRaises(RuntimeError):
+            self.delegated(workflow=changed)
+
     def setUp(self):
         self.workflow = (ROOT / '.github/workflows/ios-check.yml').read_text(encoding='utf-8')
         self.reusable = (ROOT / '.github/workflows/ios-public-io-check.yml').read_text(encoding='utf-8')
@@ -59,7 +75,9 @@ class RequiredIOScheduleTests(unittest.TestCase):
     def test_missing_or_weakened_aggregate_gate_is_rejected(self):
         for before, after in [
             ('  ios-complete:\n', '  removed-complete:\n'),
-            ('needs: [ios, complete-public-io]', 'needs: [ios]'),
+            ('needs: [ios-native, ios, complete-public-io]', 'needs: [ios]'),
+            ('test \"$UI_RESULT\" = success', 'true'),
+            ('  ios-native:\n', '  removed-native:\n'),
             ('if: ${{ always() }}', 'if: ${{ success() }}'),
             ('test "$NATIVE_RESULT" = success', 'true'),
             ('test "$IO_RESULT" = success', 'true'),

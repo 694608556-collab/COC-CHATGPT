@@ -19,10 +19,10 @@ jobs:
   # native/UI suites, avoiding a second simulator on their exhausted host.
   complete-public-io:
     uses: ./.github/workflows/ios-public-io-check.yml
-  ios:
+  ios-native:
     runs-on: xcode-27
-    # Expanded UI suites retain their own 900s process limits and exact 10s
-    # assertions. Leave room for all required groups plus the scale fixture.
+    # Full native/large-file checks keep their limits; system UI runs in
+    # parallel on a fresh host, before these workloads consume host memory.
     timeout-minutes: 65
     defaults:
       run:
@@ -70,6 +70,33 @@ jobs:
             mobile/ios/build/INSTALL-IPA.txt
             mobile/ios/build/xcode-version.txt
           retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ios-native-build-diagnostics
+          path: mobile/ios/build/*.log
+          if-no-files-found: ignore
+  # Preserve every original startup/system-UI/capacity assertion on a fresh
+  # independent Mac, rather than inheriting native capacity-test pressure.
+  ios:
+    runs-on: xcode-27
+    timeout-minutes: 65
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.3.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: mobile/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck && pnpm ios:sync && node scripts/check-release-web.mjs
+      - run: node scripts/ios-native-fixture.mjs
       - name: Check fresh native WKWebView startup in cloud simulator
         run: |
           gem install --user-install xcodeproj --no-document
@@ -105,16 +132,17 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: ios-build-diagnostics
+          name: ios-ui-build-diagnostics
           path: mobile/ios/build/*.log
           if-no-files-found: ignore
   ios-complete:
-    needs: [ios, complete-public-io]
+    needs: [ios-native, ios, complete-public-io]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
       - name: Require native, system UI and complete I/O success
         env:
-          NATIVE_RESULT: ${{ needs.ios.result }}
+          NATIVE_RESULT: ${{ needs.ios-native.result }}
+          UI_RESULT: ${{ needs.ios.result }}
           IO_RESULT: ${{ needs.complete-public-io.result }}
-        run: test "$NATIVE_RESULT" = success && test "$IO_RESULT" = success
+        run: test "$NATIVE_RESULT" = success && test "$UI_RESULT" = success && test "$IO_RESULT" = success
