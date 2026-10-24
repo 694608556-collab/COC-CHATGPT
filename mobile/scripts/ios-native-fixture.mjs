@@ -1,3 +1,4 @@
+import { deflateSync } from 'node:zlib'
 import { build } from 'esbuild'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
@@ -20,3 +21,7 @@ writeFileSync('ios/build/native-sample.json',JSON.stringify(sample));`,
 await writeFile('ios/build/native-fixture.mjs', result.outputFiles[0].text)
 const generated = spawnSync(process.execPath, ['ios/build/native-fixture.mjs'], { stdio: 'inherit' })
 if (generated.status !== 0) process.exit(generated.status ?? 1)
+
+// Public repetitive bytes exercise independent native zlib decoding. Never a private input.
+await writeFile('ios/build/upload-window.json', JSON.stringify({ rawBytes: 2 * 1024 * 1024,
+  base64: deflateSync(Buffer.alloc(2 * 1024 * 1024, 65), { level: 1 }).toString('base64') }))

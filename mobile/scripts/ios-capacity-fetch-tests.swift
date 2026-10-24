@@ -56,3 +56,57 @@ extension IOSNativeChecks {
         print("PUBLIC_IOS_CAPACITY_FETCH records=96 nativeSQLite=true opaqueTokens=true lowSpaceRollback=true migrationV1=true physicalPhone=false")
     }
 }
+
+extension IOSNativeChecks {
+    static func encodedUploadChecks(root: URL, fixture: LogbookJSON) throws {
+        let directory = root.appendingPathComponent("encoded-upload")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let window = try logbookObject(String(contentsOfFile: "ios/build/upload-window.json", encoding: .utf8))
+        let rawBytes = window["rawBytes"] as! Int
+        let wire = Data(base64Encoded: window["base64"] as! String)!
+        let raw = Data(repeating: 65, count: rawBytes)
+        func upload(_ bytes: Int, _ hash: String = String(repeating: "0", count: 64)) throws -> LogbookSnapshotUpload {
+            try LogbookSnapshotUpload(directory: directory, expected: 0, bytes: bytes, sha256: hash, available: { 32 * 1024 * 1024 * 1024 })
+        }
+        // 68MiB of complete original data plus identity tail. The transport
+        // window is bounded, while total content remains unlimited.
+        let large = try upload(rawBytes * 34 + 3)
+        for index in 0..<34 { try large.appendEncoded(index: index, encoding: "zlib", rawBytes: rawBytes, base64: wire.base64EncodedString()) }
+        try large.appendEncoded(index: 34, encoding: "identity", rawBytes: 3, base64: Data([0, 1, 2]).base64EncodedString())
+        let data = try Data(contentsOf: large.url)
+        var expected = Data(); for _ in 0..<34 { expected.append(raw) }; expected.append(contentsOf: [0, 1, 2])
+        try require(data.count > 64 * 1024 * 1024 && data == expected, "encoded upload retains every byte above64MiB")
+        try large.close()
+        var single = fixture; single["records"] = [(fixture["records"] as! [LogbookJSON])[0]]
+        let candidate = try logbookData(single)
+        let valid = try upload(candidate.count, LogbookArchive.digest(candidate))
+        for (index, start) in stride(from: 0, to: candidate.count, by: 262144).enumerated() {
+            let part = candidate.subdata(in: start..<min(start + 262144, candidate.count))
+            try valid.appendEncoded(index: index, encoding: "identity", rawBytes: part.count, base64: part.base64EncodedString())
+        }
+        try require(try logbookData(valid.snapshot()) == logbookData(single), "encoded upload keeps complete schema and hash validation")
+        try valid.close()
+        var corrupt = wire; corrupt[corrupt.count - 1] ^= 1
+        var tail = wire; tail.append(0)
+        var concat = wire; concat.append(wire)
+        for (encoding, count, bytes, index) in [
+            ("zlib", rawBytes, corrupt, 0), ("zlib", rawBytes, Data(wire.dropLast()), 0),
+            ("zlib", rawBytes, tail, 0), ("zlib", rawBytes, concat, 0),
+            ("zlib", rawBytes - 1, wire, 0), ("zlib", rawBytes + 1, wire, 0),
+            ("zlib", 2 * 1024 * 1024 + 1, wire, 0), ("identity", rawBytes, wire, 0),
+            ("unknown", rawBytes, wire, 0), ("zlib", rawBytes, wire, 1)] {
+            let denied = try upload(rawBytes + 1)
+            try rejects("encoded malformed stream, length, encoding or ordinal") { try denied.appendEncoded(index: index, encoding: encoding, rawBytes: count, base64: bytes.base64EncodedString()) }
+            try require(!FileManager.default.fileExists(atPath: denied.url.path), "failed encoded upload deletes only private staging")
+            try rejects("failed lease cannot resume") { try denied.append(index: 0, base64: Data([65]).base64EncodedString()) }
+        }
+        let wrongHash = try upload(candidate.count)
+        for (index, start) in stride(from: 0, to: candidate.count, by: 262144).enumerated() {
+            let part = candidate.subdata(in: start..<min(start + 262144, candidate.count))
+            try wrongHash.appendEncoded(index: index, encoding: "identity", rawBytes: part.count, base64: part.base64EncodedString())
+        }
+        try rejects("encoded complete upload still requires full SHA256") { _ = try wrongHash.snapshot() }
+        try wrongHash.close()
+        print("PUBLIC_IOS_ENCODED_UPLOAD above64MiB=true corruption=true exactLength=true ordinal=true fullHash=true cleanup=true physicalPhone=false")
+    }
+}

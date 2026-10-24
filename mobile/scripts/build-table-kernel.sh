@@ -18,3 +18,6 @@ objects+=("$output/search-json.o")
 xcrun ar rcs "$output/libcoc_table_kernel.a" "${objects[@]}"
 xcrun clang++ -O3 -std=c++17 -I"$root" tests/table-kernel-cli.cpp "$output/libcoc_table_kernel.a" -lz -o "$output/coc-table-kernel-probe"
 xcrun clang++ -O3 -std=c++17 -I"$root" tests/search-json-cli.cpp "$output/libcoc_table_kernel.a" -lz -o "$output/coc-search-json-probe"
+
+xcrun clang++ -O3 -std=c++17 -I"$root" tests/upload-codec-cli.cpp "$output/libcoc_table_kernel.a" -lz -o "$output/coc-upload-codec-probe"
+"$output/coc-upload-codec-probe"

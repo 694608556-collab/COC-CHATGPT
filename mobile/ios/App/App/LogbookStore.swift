@@ -667,13 +667,43 @@ final class LogbookSnapshotUpload {
         try LogbookCapacity.require(available: available, additional: chunk.count)
         try output.write(contentsOf: chunk); written += chunk.count; self.index += 1
     }
+    /// Bounded transport decoding preserves the original complete upload hash,
+    /// ordinal, space checks and final schema/CAS validation. No content quota.
+    func appendEncoded(index: Int, encoding: String, rawBytes: Int, base64: String) throws {
+        do {
+            guard index == self.index, output != nil, rawBytes > 0,
+                  rawBytes <= 2 * 1024 * 1024, rawBytes <= bytes - written,
+                  base64.utf8.count <= LogbookLimits.encodedChunkBytes,
+                  let wire = Data(base64Encoded: base64), !wire.isEmpty,
+                  wire.count <= LogbookLimits.transferChunkBytes else { throw LogbookFailure("暂存片段缺失、乱序或长度无效。") }
+            var chunk: Data
+            if encoding == "identity" {
+                guard rawBytes == wire.count else { throw LogbookFailure("原始片段长度不符。") }
+                chunk = wire
+            } else if encoding == "zlib" {
+                chunk = Data(count: rawBytes)
+                let complete = wire.withUnsafeBytes { source in
+                    chunk.withUnsafeMutableBytes { target in
+                        coc_upload_inflate(source.bindMemory(to: UInt8.self).baseAddress, wire.count,
+                                           target.bindMemory(to: UInt8.self).baseAddress, rawBytes)
+                    }
+                }
+                guard complete == 1 else { throw LogbookFailure("压缩片段损坏或展开长度不符。") }
+            } else { throw LogbookFailure("不支持的暂存编码。") }
+            try LogbookCapacity.require(available: available, additional: chunk.count)
+            try output!.write(contentsOf: chunk); written += chunk.count; self.index += 1
+        } catch {
+            try? close()
+            throw error
+        }
+    }
     func snapshot() throws -> LogbookJSON {
         guard written == bytes, let output else { throw LogbookFailure("暂存尚未取齐。") }
         try output.synchronize(); try output.close(); self.output = nil
         let data = try Data(contentsOf: url)
         guard data.count == bytes, LogbookArchive.digest(data) == sha256,
               let text = String(data: data, encoding: .utf8) else { throw LogbookFailure("暂存长度、摘要或 UTF-8 校验失败。") }
-        let value = try LogbookBackupJSON.object(data)
+        let value = try LogbookBackupJSON.uploadObject(data)
         try LogbookValidation.snapshot(value)
         guard let records = value["records"] as? [LogbookJSON], records.count == 1 else { throw LogbookFailure("每次只能暂存一场检测结果。") }
         recordJSON = try LogbookBackupJSON.singleRecord(data)

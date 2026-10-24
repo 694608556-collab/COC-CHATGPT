@@ -1,6 +1,6 @@
 import { addStreamBytes } from './stream-json'
 import { Unzlib } from 'fflate'
-import { decodeBase64 } from './bytes'
+import { decodeBase64, encodeUtf8 } from './bytes'
 import { normalizeSeaResponse } from './sea-parser'
 import type { NormalizedLog } from '../../../src/shared/types'
 
@@ -8,7 +8,7 @@ import type { NormalizedLog } from '../../../src/shared/types'
  * 在工作线程解压、规范化并计算海豹正文摘要；不执行网络或写入。
  * @param text - 已通过网络来源／状态检查的原始响应 JSON。
  * @param sourceUrl - 原始场次链接，用于完整保留正文来源。
- * @returns 全部消息及原始字段；解压、格式或摘要失败时拒绝；按实际运行内存处理，不截断正文。
+ * @returns 全部消息及原始字段；实际内存不足、格式错误或摘要失败时拒绝，不截断正文。
  */
 export async function decodeSeaResponse(text: string, sourceUrl?: string): Promise<NormalizedLog> {
   let payload: unknown = JSON.parse(text)
@@ -35,9 +35,7 @@ export async function decodeSeaResponse(text: string, sourceUrl?: string): Promi
     payload = { ...payload, ...JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) }
   }
   const log = normalizeSeaResponse(payload, sourceUrl)
-  const hash = new Uint8Array(
-    await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(payload)))
-  )
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', encodeUtf8(JSON.stringify(payload))))
   log.responseHash = Array.from(hash, (b) => b.toString(16).padStart(2, '0')).join('')
   return log
 }

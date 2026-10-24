@@ -18,7 +18,7 @@ export interface FetchProgress {
  * 限量并发获取正文，结果保持输入顺序；不写库、不生成备份。
  * @param port - 已有日志网络接口，仍受原生来源、超时和大小限制。
  * @param records - 不重复且只含在线场次的只读输入；原对象不修改。
- * @param options - 内部并发取值 2–4，默认 3；进度只表示内存内结果。
+ * @param options - 内部流水线槽位取值 2–4、6、8 或 12，默认 3；Android 槽位含下载、等待和两份后台正文。
  * @returns 全部获取完成后的新场次；意外异常等待在途任务结束后整批拒绝，调用方不得提交部分结果。
  */
 export async function fetchRecords(
@@ -26,20 +26,24 @@ export async function fetchRecords(
   records: readonly SessionRecord[],
   options: {
     /** 内部网络／解析流水线槽位数；不是界面设置。 */
-    concurrency?: 2 | 3 | 4
+    concurrency?: 2 | 3 | 4 | 6 | 8 | 12
     /** 只读进度通知，不应执行持久化。 */
     onProgress?: (progress: FetchProgress) => void
     /** 单场已解析结果；仅用于界面进度，不表示已提交。 */
     onResult?: (record: SessionRecord) => void
-    /** Native disk staging; await before releasing this slot's body. */
+    /** Android disk staging; await before releasing this slot's body. */
     stageResult?: (record: SessionRecord) => Promise<void>
-    /** Keep metadata only after successful staging. Requires stageResult. */
+    /** 自带完整获取/暂存的流水线；resolve 前不得释放槽位或发布进度。 */
+    fetchAndStage?: (record: SessionRecord) => Promise<SessionRecord>
+    /** 成功暂存后只保留元数据；必须提供 stageResult 或 fetchAndStage。 */
     releaseBodies?: boolean
   } = {}
 ): Promise<SessionRecord[]> {
   const concurrency = options.concurrency ?? 3
-  if (options.releaseBodies && !options.stageResult) throw new Error('缺少正文暂存接口。')
-  if (![2, 3, 4].includes(concurrency)) throw new Error('正文并发数量必须为 2–4。')
+  if (options.releaseBodies && !options.stageResult && !options.fetchAndStage)
+    throw new Error('缺少正文暂存接口。')
+  if (![2, 3, 4, 6, 8, 12].includes(concurrency))
+    throw new Error('正文流水线槽位必须为 2、3、4、6、8 或 12。')
   if (
     new Set(records.map((record) => record.id)).size !== records.length ||
     records.some((record) => record.sourceType !== 'online')
@@ -56,7 +60,9 @@ export async function fetchRecords(
     while (!rejected && cursor < records.length) {
       const index = cursor++
       try {
-        const next = await fetchRecord(port, records[index]!)
+        const next = await (options.fetchAndStage
+          ? options.fetchAndStage(records[index]!)
+          : fetchRecord(port, records[index]!))
         await options.stageResult?.(next)
         const visible = options.releaseBodies
           ? (({ rawContent, manualContent, ...metadata }) => metadata)(next)

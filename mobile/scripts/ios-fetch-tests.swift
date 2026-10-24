@@ -2,6 +2,7 @@ import Foundation
 
 /// Public in-memory responses only; requests never leave URLProtocol or reach a log server.
 final class PublicFetchProtocol: URLProtocol {
+    static let boundedGate = DispatchSemaphore(value: 0)
     private let lock = NSLock()
     private var stopped = false
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -12,6 +13,7 @@ final class PublicFetchProtocol: URLProtocol {
         let key = query.first(where: { $0.name == "key" })?.value ?? "public"
         let delay = key.contains("slow") ? 0.08 : key.contains("medium") ? 0.02 : 0
         DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [self] in
+            if key.contains("bounded") { _ = Self.boundedGate.wait(timeout: .now() + 5) }
             lock.lock(); let active = !stopped; lock.unlock()
             guard active else { return }
             if key.contains("network-error") { client?.urlProtocol(self, didFailWithError: URLError(.timedOut)); return }
@@ -88,6 +90,7 @@ final class PublicFetchProtocol: URLProtocol {
     static func main() throws {
         let sessions = Counter()
         let fetch = LogbookFetch { configuration, delegate, queue in
+            precondition(configuration.httpMaximumConnectionsPerHost == 6)
             precondition(configuration.timeoutIntervalForRequest == 15 && configuration.timeoutIntervalForResource == 60)
             precondition(configuration.urlCache == nil && configuration.urlCredentialStorage == nil && configuration.httpCookieStorage == nil && !configuration.httpShouldSetCookies)
             sessions.increment()
@@ -113,10 +116,15 @@ final class PublicFetchProtocol: URLProtocol {
                     lock.lock(); precondition(results[index] == nil); results[index] = value; lock.unlock(); ready.leave()
                 }
             }
+            if keys.contains(where: { $0.contains("bounded") }) { for _ in keys { PublicFetchProtocol.boundedGate.signal() } }
             guard ready.wait(timeout: .now() + 10) == .success else { throw LogbookFailure("Public parallel requests timed out") }
             return keys.indices.map { results[$0]! }
         }
         func rejected(_ result: Result<LogbookJSON, Error>) -> Bool { if case .failure = result { return true }; return false }
+        // All twelve submissions are pending before the delayed first result.
+        // Six run and six wait; only the thirteenth must be rejected.
+        let bounded = try batch((0..<13).map { "public-slow-bounded-\($0)" })
+        guard bounded.prefix(12).allSatisfy({ !rejected($0) }), rejected(bounded[12]) else { throw LogbookFailure("Native pending request bound must be twelve") }
         let parallelKeys = ["public-slow-first", "public-fast-second", "public-medium-third"]
         let parallel = try batch(parallelKeys)
         for index in parallel.indices { guard try parallel[index].get()["text"] as? String == parallelKeys[index] else { throw LogbookFailure("Parallel response buffers crossed") } }
@@ -135,9 +143,9 @@ final class PublicFetchProtocol: URLProtocol {
             guard denied else { throw LogbookFailure("Untrusted initial request accepted") }
         }
         let closing = DispatchGroup(), completed = Counter()
-        for _ in 0..<3 { closing.enter(); fetch.start(URL(string: "https://dice-api.weizaima.com/dice/api/load_data?key=public-slow-close")!) { result in precondition(rejected(result)); completed.increment(); closing.leave() } }
+        for _ in 0..<12 { closing.enter(); fetch.start(URL(string: "https://dice-api.weizaima.com/dice/api/load_data?key=public-slow-close")!) { result in precondition(rejected(result)); completed.increment(); closing.leave() } }
         fetch.close()
-        guard closing.wait(timeout: .now() + 5) == .success, completed.count == 3, rejected(try batch(["public-after-close"])[0]), sessions.count == 1 else { throw LogbookFailure("Session teardown did not settle each task exactly once") }
+        guard closing.wait(timeout: .now() + 5) == .success, completed.count == 12, rejected(try batch(["public-after-close"])[0]), sessions.count == 1 else { throw LogbookFailure("Session teardown did not settle each task exactly once") }
         print("iOS native network: 114-request reuse, concurrent isolation, HTTP errors, redirects, UTF-8, complete response above64MiB, trust and teardown passed; no real network or phone tested.")
         try profileStorage()
     }

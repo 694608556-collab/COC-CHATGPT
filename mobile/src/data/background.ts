@@ -1,6 +1,8 @@
 import { runWorkerJob } from './worker-channel'
-import { performSnapshotJob } from './snapshot-job'
+import type { FetchWorkerChannel } from './worker-channel'
+import { performSnapshotJob, createSnapshotJobSession } from './snapshot-job'
 import type { SnapshotJob } from './snapshot-job'
+import type { FetchUpload } from './snapshot-job'
 import type { TablePreview } from './tables'
 import type { ImportPreview, MobileSnapshot } from './types'
 import type { NormalizedLog, ModuleRecord, SessionRecord, FilterPreset } from '../../../src/shared/types'
@@ -10,13 +12,16 @@ import { isExportSourceJob } from './export-source'
 import type { ExportSourceJob, ExportSource, ExportArchiveReference } from './export-source'
 import { combinedExportName } from '../../../src/shared/export-filenames'
 import type { TablePhaseTiming } from './table-timing'
+import type { UploadWireChunk } from './upload-transfer'
 
 // 解析一次只向 Worker 投递一份响应，避免并发下载后在 Worker／桥接间堆积多份大对象。
 let seaQueue: Promise<void> = Promise.resolve()
+// Node 验证与实机的独立 Worker 租约状态一致，不与表格/备份的默认租约混用。
+const fetchSessions = new Map<FetchWorkerChannel, ReturnType<typeof createSnapshotJobSession>>()
 
 /**
  * 将海豹解压／解析排入单通道后台任务，不在界面同步降级解析。
- * @param text - 完整网络响应 JSON；仅当前最多 2–4 个流水线槽位持有。
+ * @param text - 完整网络响应 JSON；由调用方的有限流水线槽位持有。
  * @param sourceUrl - 正文的原场次来源地址。
  * @returns 完整正文及摘要；失败释放解析槽位并拒绝，调用方保留旧正文。
  */
@@ -32,11 +37,23 @@ export function parseSeaInBackground(text: string, sourceUrl?: string): Promise<
 /**
  * 投递到本地打包的工作线程，避免界面处理整份正文。
  * @param job - 不包含写入/确认操作的任务。
+ * @param fetchChannel - 可选的独立正文槽位；其上传分段和关闭必须使用同一通道。
  * @returns 只读结果；工作线程失败拒绝，不降级为阻塞界面的计算。
  */
-async function runJob<T>(job: SnapshotJob | ExportJob | ExportSourceJob): Promise<T> {
+async function runJob<T>(
+  job: SnapshotJob | ExportJob | ExportSourceJob,
+  fetchChannel?: FetchWorkerChannel
+): Promise<T> {
   // Node-only storage tests reuse the same algorithm; browser/Android must use a real worker.
   if (typeof document === 'undefined') {
+    if (fetchChannel) {
+      let session = fetchSessions.get(fetchChannel)
+      if (!session) {
+        session = createSnapshotJobSession()
+        fetchSessions.set(fetchChannel, session)
+      }
+      return session(job as SnapshotJob) as Promise<T>
+    }
     return (
       isExportSourceJob(job)
         ? await (await import('./export-source')).performExportSourceJob(job)
@@ -45,7 +62,7 @@ async function runJob<T>(job: SnapshotJob | ExportJob | ExportSourceJob): Promis
           : await performSnapshotJob(job)
     ) as T
   }
-  const channel = job.type === 'export' || isExportSourceJob(job) ? 'export' : 'snapshot'
+  const channel = fetchChannel ?? (job.type === 'export' || isExportSourceJob(job) ? 'export' : 'snapshot')
   return runWorkerJob<T>(channel, job)
 }
 
@@ -183,13 +200,50 @@ export function prepareUploadInBackground(snapshot: MobileSnapshot): Promise<{
   return runJob({ type: 'prepare-upload', snapshot })
 }
 
-/** @param id - 后台上传租约。 @param index - 零起顺序分段序号。 @returns 最多 256 KiB 原始字节的 Base64。 */
-export function uploadChunkInBackground(id: string, index: number): Promise<string> {
-  return runJob({ type: 'upload-chunk', id, index })
+/**
+ * 在同一 Worker 内解析、校验并保留上传字节，正文不经过主线程。
+ * @param snapshot - 含完整关联元数据的候选基线。
+ * @param record - 去除旧正文的当前在线场次。
+ * @param text - 受信任响应，缺失代表已分类的网络失败。
+ * @param channel - 可选独立正文槽位，允许下一场处理与当前原生上传重叠。
+ * @param losslessTransfer - 仅当原生支持时启用无损分段传输。
+ * @returns 无正文的场次元数据及同一完整上传租约；不写原生数据。
+ */
+export function prepareFetchUploadInBackground(
+  snapshot: MobileSnapshot,
+  record: SessionRecord,
+  text?: string,
+  channel?: FetchWorkerChannel,
+  losslessTransfer = false
+): Promise<FetchUpload> {
+  // 当前只上传一场；即使界面已加载其他正文，也不能把它们复制进 Worker。
+  return runJob(
+    { type: 'prepare-fetch-upload', snapshot: { ...snapshot, records: [] }, record, text, losslessTransfer },
+    channel
+  )
 }
-/** @param id - 本次后台上传租约。 @returns 幂等释放字节确认；不影响其他租约。 */
-export function closeUploadInBackground(id: string): Promise<void> {
-  return runJob({ type: 'upload-close', id })
+
+/** @param id - 后台上传租约。 @param index - 零起顺序分段序号。 @param channel - 准备正文时使用的槽位。 @returns 最多 256 KiB 原始字节的 Base64。 */
+export function uploadChunkInBackground(
+  id: string,
+  index: number,
+  channel?: FetchWorkerChannel
+): Promise<string> {
+  return runJob({ type: 'upload-chunk', id, index }, channel)
+}
+/** @param id - 当前后台上传租约。 @param index - 有序传输段索引。
+ * @param channel - 准备正文时使用的独立槽位。 @returns 当前一段的编码、展开长度及完整传输字节，不释放租约。
+ */
+export function uploadTransferInBackground(
+  id: string,
+  index: number,
+  channel: FetchWorkerChannel
+): Promise<UploadWireChunk> {
+  return runJob({ type: 'upload-transfer', id, index }, channel)
+}
+/** @param id - 本次后台上传租约。 @param channel - 准备正文时使用的槽位。 @returns 幂等释放字节确认；不影响其他租约。 */
+export function closeUploadInBackground(id: string, channel?: FetchWorkerChannel): Promise<void> {
+  return runJob({ type: 'upload-close', id }, channel)
 }
 
 /** 后台解析表格并生成独立预览；不改变业务库。

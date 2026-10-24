@@ -21,6 +21,14 @@ import Darwin
             try rejects("strict native candidate JSON grammar") { _ = try LogbookBackupJSON.object(Data(json.utf8)) }
         }
         try rejects("strict native candidate UTF-8") { _ = try LogbookBackupJSON.object(Data([123,34,120,34,58,34,192,175,34,125])) }
+        for budget in [0, 256 * MiB] {
+            for text in [#"{"x":1,}"#, #"{"x":[1,]}"#, #"{"x":01}"#, #"{"x":true}tail"#, #"{"x":NaN}"#, #"{"x":1,"\u0078":2}"#] {
+                try rejects("upload strict proof and zero-memory fallback") { _ = try LogbookBackupJSON.uploadObject(Data(text.utf8), budget: budget) }
+            }
+            try rejects("upload proof invalid UTF8 and fallback") { _ = try LogbookBackupJSON.uploadObject(Data([123,34,120,34,58,34,192,175,34,125]), budget: budget) }
+            let publicData = Data(#"{"escaped":"\uD83D\uDE00","number":-1.25e+2,"nested":[true,false,null,{}]}"#.utf8)
+            try require(try logbookData(LogbookBackupJSON.uploadObject(publicData, budget: budget)) == logbookData(LogbookBackupJSON.object(publicData)), "same complete strict object with native admission or fallback")
+        }
         let strictValid = try LogbookBackupJSON.object(Data(#"{"escaped":"\uD83D\uDE00","number":-1.25e+2,"nested":[true,false,null,{}]}"#.utf8))
         try require(strictValid["escaped"] as? String == "😀" && (strictValid["number"] as? NSNumber)?.doubleValue == -125, "strict native grammar retains valid Unicode and numeric forms")
         try require(try LogbookCapacity.remaining(64 * MiB) == 0, "minimum free-space reserve")
@@ -60,6 +68,7 @@ import Darwin
         try searchProjectionChecks(root: root, fixture: fixture)
         try capacityDatabaseChecks(root: root, fixture: fixture)
         try capacityFetchChecks(root: root, fixture: fixture)
+        try encodedUploadChecks(root: root, fixture: fixture)
         try tableStreamChecks(root: root, fixture: fixture)
         try tableKernelChecks(root: root)
         let store = try LogbookStore(url: root.appendingPathComponent("db/state.sqlite"))

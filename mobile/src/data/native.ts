@@ -69,6 +69,17 @@ export interface LogbookPort extends BackupStreamPort, TableStreamPort {
   }): Promise<{ id: string }>
   /** @param options - 顺序序号与至多 256 KiB 字节的 Base64。 @returns 暂存确认；乱序/重复拒绝。 */
   appendSnapshotEdit?(options: { id: string; index: number; base64: string }): Promise<void>
+  /** 无损传输接口；保留原完整长度/摘要、顺序、授权及 CAS，原生独立验证解压流和展开长度。
+   * @param options - 当前上传 ID、顺序号、编码和单段精确展开字节数，传输字节仍最多 256KiB。
+   * @returns 此段完整暂存确认；任何损坏使当前上传失效，不能发布部分正文。
+   */
+  appendSnapshotEditEncoded?(options: {
+    id: string
+    index: number
+    encoding: 'identity' | 'zlib'
+    rawBytes: number
+    base64: string
+  }): Promise<void>
   /** @param options - 本次完整上传 ID。 @returns 回读/语法/结构/授权/CAS/事务通过后的版本。 */
   finishSnapshotEdit?(options: { id: string }): Promise<{ revision: number }>
   /** @param options - 本次上传 ID。 @returns 幂等清理确认，不删除别人的暂存或已提交数据。 */

@@ -21,6 +21,8 @@ final class LogbookFetch: NSObject, URLSessionDataDelegate {
     }()
     private var session: URLSession?
     private var pending: [Int: Pending] = [:]
+    private var running = Set<Int>()
+    private var waiting: [URLSessionTask] = []
     private var closed = false
     init(makeSession: @escaping SessionFactory = { URLSession(configuration: $0, delegate: $1, delegateQueue: $2) }) {
         self.makeSession = makeSession
@@ -34,8 +36,10 @@ final class LogbookFetch: NSObject, URLSessionDataDelegate {
         guard trusted(url), url.host == "dice-api.weizaima.com", url.path == "/dice/api/load_data" else { completion(.failure(LogbookFailure("不支持此日志请求。"))); return }
         lock.lock()
         guard !closed else { lock.unlock(); completion(.failure(LogbookFailure("日志请求通道已关闭。"))); return }
+        guard pending.count < 12 else { lock.unlock(); completion(.failure(LogbookFailure("日志请求队列已满。"))); return }
         if session == nil {
             let configuration = URLSessionConfiguration.ephemeral
+            configuration.httpMaximumConnectionsPerHost = 6
             configuration.timeoutIntervalForRequest = 15; configuration.timeoutIntervalForResource = 60
             // Share connections only; never share cached responses, cookies or credentials across checks.
             configuration.urlCache = nil; configuration.urlCredentialStorage = nil
@@ -46,21 +50,37 @@ final class LogbookFetch: NSObject, URLSessionDataDelegate {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         let task = session!.dataTask(with: request)
         pending[task.taskIdentifier] = Pending(completion)
+        let startNow = running.count < 6
+        if startNow { running.insert(task.taskIdentifier) } else { waiting.append(task) }
         lock.unlock()
-        task.resume()
+        if startNow { task.resume() }
     }
     /// Explicit plugin teardown breaks URLSession's strong reference to its delegate.
     func close() {
         lock.lock()
         closed = true
         let current = session; session = nil
-        let abandoned = Array(pending.values); pending.removeAll()
+        let abandoned = Array(pending.values); pending.removeAll(); running.removeAll(); waiting.removeAll()
         lock.unlock()
         current?.invalidateAndCancel()
         for request in abandoned { request.completion(.failure(LogbookFailure("日志请求通道已关闭。"))) }
     }
+    /// Settle ownership exactly once and admit one queued request. A completed
+    /// response releases its network slot before parsing or native upload.
+    private func take(_ task: URLSessionTask) -> Pending? {
+        lock.lock()
+        let request = pending.removeValue(forKey: task.taskIdentifier)
+        let active = running.remove(task.taskIdentifier) != nil
+        var next: URLSessionTask?
+        if active && !closed && !waiting.isEmpty {
+            next = waiting.removeFirst(); running.insert(next!.taskIdentifier)
+        }
+        lock.unlock()
+        next?.resume()
+        return request
+    }
     private func fail(_ task: URLSessionTask, _ message: String) {
-        lock.lock(); let request = pending.removeValue(forKey: task.taskIdentifier); lock.unlock()
+        let request = take(task)
         task.cancel()
         request?.completion(.failure(LogbookFailure(message)))
     }
@@ -90,7 +110,7 @@ final class LogbookFetch: NSObject, URLSessionDataDelegate {
         lock.unlock()
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        lock.lock(); let state = pending.removeValue(forKey: task.taskIdentifier); lock.unlock()
+        let state = take(task)
         guard let state else { return }
         if let error { state.completion(.failure(error)); return }
         guard let response = state.response, let url = response.url, let text = String(data: state.bytes, encoding: .utf8) else { state.completion(.failure(LogbookFailure("日志响应不是有效 UTF-8。"))); return }

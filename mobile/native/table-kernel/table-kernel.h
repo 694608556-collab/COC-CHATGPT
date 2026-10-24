@@ -17,6 +17,11 @@ char *coc_table_kernel_records(const uint8_t *source, size_t bytes,
 /* Code/allocator initialization with literal public numeric XML only. No
  * user input, file capability, retained source, or business data is touched. */
 void coc_table_kernel_warm(void);
+/* Decode one lossless upload window, never an entire-content quota. Returns 1
+ * only for the exact declared output, complete checksum and consumed input.
+ * Caller owns both bounded buffers and still verifies the full upload hash. */
+int coc_upload_inflate(const uint8_t *wire, size_t wire_bytes,
+                       uint8_t *output, size_t expected_bytes);
 #ifdef __cplusplus
 }
 #endif

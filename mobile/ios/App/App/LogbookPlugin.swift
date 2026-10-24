@@ -10,7 +10,7 @@ import os
 public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate, QLPreviewControllerDataSource, QLPreviewControllerDelegate {
     public let identifier = "LogbookPlugin"
     public let jsName = "Logbook"
-    public let pluginMethods: [CAPPluginMethod] = ["appendTableStage", "readTableString", "finishTablePreview", "readTablePreview", "commitTableStream", "cancelTableStage", "createSearchSource", "appendBackupStage", "finishBackupPreview", "commitBackupRestore", "cancelBackupStage", "createBackupStream", "finishBackupExport", "beginFetchBatch", "stageFetchResult", "finishFetchBatch", "cancelFetchBatch", "beginSnapshotEdit", "appendSnapshotEdit", "cancelSnapshotEdit", "claimFirstLaunchIntro", "getOverview", "getState", "getStatus", "getRecordContent", "commitSettings", "commitModule", "commitEntity", "commitAction", "commitTable", "commitTableDelta", "commitEdit", "commitRestore", "selectArchive", "openBackup", "writeArchive", "readDocument", "listDocuments", "openDocument", "shareDocument", "fetchLog", "automaticBackup"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise)! }
+    public let pluginMethods: [CAPPluginMethod] = ["appendTableStage", "readTableString", "finishTablePreview", "readTablePreview", "commitTableStream", "cancelTableStage", "createSearchSource", "appendBackupStage", "finishBackupPreview", "commitBackupRestore", "cancelBackupStage", "createBackupStream", "finishBackupExport", "beginFetchBatch", "stageFetchResult", "finishFetchBatch", "cancelFetchBatch", "beginSnapshotEdit", "appendSnapshotEdit", "appendSnapshotEditEncoded", "cancelSnapshotEdit", "claimFirstLaunchIntro", "getOverview", "getState", "getStatus", "getRecordContent", "commitSettings", "commitModule", "commitEntity", "commitAction", "commitTable", "commitTableDelta", "commitEdit", "commitRestore", "selectArchive", "openBackup", "writeArchive", "readDocument", "listDocuments", "openDocument", "shareDocument", "fetchLog", "automaticBackup"].map { CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise)! }
     private let work = DispatchQueue(label: "coc.logbook.storage", qos: .userInitiated)
     private let backupWriter = DispatchQueue(label: "coc.logbook.automatic-backup", qos: .utility)
     private let logFetch = LogbookFetch()
@@ -429,6 +429,16 @@ public final class LogbookPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerD
             guard let upload = self.snapshotUpload, call.getString("id") == upload.id,
                   let index = call.getInt("index"), let base64 = call.getString("base64") else { throw LogbookFailure("正文暂存标识无效。") }
             try upload.append(index: index, base64: base64)
+            return [:]
+        }
+    }
+    @objc func appendSnapshotEditEncoded(_ call: CAPPluginCall) {
+        run(call) { _, _ in
+            guard let upload = self.snapshotUpload, call.getString("id") == upload.id,
+                  let index = call.getInt("index"), let encoding = call.getString("encoding"),
+                  let rawBytes = call.getInt("rawBytes"), let base64 = call.getString("base64") else { throw LogbookFailure("正文暂存标识或编码无效。") }
+            do { try upload.appendEncoded(index: index, encoding: encoding, rawBytes: rawBytes, base64: base64) }
+            catch { self.snapshotUpload = nil; throw error }
             return [:]
         }
     }

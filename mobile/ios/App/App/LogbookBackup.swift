@@ -59,6 +59,36 @@ struct LogbookSearchUnavailable: Error {}
 enum LogbookBackupJSON {
     /// Foundation accepts some non-standard JSON (including trailing commas).
     /// Validate complete strict grammar before constructing one bounded object.
+    /// Same complete grammar, UTF-8 and decoded duplicate-key proof on the
+    /// immutable private upload. Zero memory, unsupported input or allocation
+    /// failure selects the complete original reader; semantic checks stay at
+    /// the caller and the entire original data reaches Foundation unchanged.
+    static func uploadObject(_ data: Data, budget: Int? = nil) throws -> LogbookJSON {
+        let memory: Int
+        if let budget { memory = budget }
+        else {
+            #if os(iOS)
+            let process = UInt64(os_proc_available_memory())
+            #if targetEnvironment(simulator)
+            memory = LogbookSearchMemory.available(process: process, simulator: true)
+            #else
+            memory = LogbookSearchMemory.available(process: process, simulator: false)
+            #endif
+            #else
+            memory = LogbookSearchMemory.available(process: 0, simulator: true)
+            #endif
+        }
+        if memory > 0 && data.count <= memory / 4 {
+            let checked = data.withUnsafeBytes { raw in
+                coc_search_json_check(raw.bindMemory(to: UInt8.self).baseAddress, data.count, UInt64(memory / 3), 0)
+            }
+            if checked == 1 {
+                guard let value = try JSONSerialization.jsonObject(with: data) as? LogbookJSON else { throw LogbookFailure("恢复JSON必须为对象。") }
+                return value
+            }
+        }
+        return try object(data)
+    }
     static func object(_ data: Data) throws -> LogbookJSON {
         try data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) throws -> Void in
             let bytes = raw.bindMemory(to: UInt8.self)

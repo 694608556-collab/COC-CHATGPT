@@ -924,3 +924,21 @@ extern "C" void coc_table_kernel_warm(void) {
   } catch (...) {
   }
 }
+
+extern "C" int coc_upload_inflate(const uint8_t *wire, size_t wire_bytes,
+                                 uint8_t *output, size_t expected_bytes) {
+  if (!wire || !output || !wire_bytes || wire_bytes > 256 * 1024 ||
+      !expected_bytes || expected_bytes > 2 * 1024 * 1024)
+    return 0;
+  z_stream stream{};
+  if (inflateInit(&stream) != Z_OK) return 0;
+  stream.next_in = const_cast<Bytef *>(wire);
+  stream.avail_in = static_cast<uInt>(wire_bytes);
+  stream.next_out = output;
+  stream.avail_out = static_cast<uInt>(expected_bytes);
+  const int status = inflate(&stream, Z_FINISH);
+  const bool complete = status == Z_STREAM_END && stream.total_in == wire_bytes &&
+                        stream.total_out == expected_bytes && stream.avail_in == 0;
+  inflateEnd(&stream);
+  return complete ? 1 : 0;
+}

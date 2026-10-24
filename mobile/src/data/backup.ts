@@ -260,6 +260,24 @@ async function previewBounded(bytes: Uint8Array): Promise<ImportPreview> {
       if (hash !== item.hash.toLowerCase()) throw new Error('ZIP 文件摘要校验失败。')
     }
   } else input = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+  return validateParsedSnapshot(input, zipFiles)
+}
+
+/** 校验内部已解码的 JSON 值，复用备份入口的全部实体、正文、设置和关联检查。
+ * @param input - JSON 解析或 Worker 结构化复制得到的候选值；文件字节仍由原入口严格解码。
+ * @returns 与字节入口相同的规范快照及预览；不写入数据，不持有文件权限。
+ */
+export function validateSnapshotValue(input: unknown): Promise<ImportPreview> {
+  return validateParsedSnapshot(input)
+}
+
+/** @param input - 已解码候选值。 @param zipFiles - 已经过容器及清单摘要校验的 ZIP 文件。
+ * @returns 完整规范预览；两种输入入口共用此处所有业务校验。
+ */
+async function validateParsedSnapshot(
+  input: unknown,
+  zipFiles?: Record<string, Uint8Array>
+): Promise<ImportPreview> {
   if (!input || typeof input !== 'object') throw new Error('备份结构校验失败。')
   let root = input as Record<string, unknown>
   const androidEnvelope = root.format === 'coc.logbook.android'

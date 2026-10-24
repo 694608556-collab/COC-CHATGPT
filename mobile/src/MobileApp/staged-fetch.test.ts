@@ -55,7 +55,7 @@ it('已有50模组1000场时检测20场：不读取旧正文，只逐场上传�
       return { revision: 8, exportedAt: 'saved' }
     },
     async cancelFetchBatch() {
-      throw new Error('已提交批次不应再次取消')
+      throw new Error('已提交成功，不应再次取消批次')
     },
     async fetchLog({ url }: { url: string }) {
       return {
@@ -85,4 +85,48 @@ it('已有50模组1000场时检测20场：不读取旧正文，只逐场上传�
   expect([begun, staged, finished, uploads]).toEqual([1, 20, 1, 20])
   expect(result.saved?.revision).toBe(8)
   expect(result.fetched.every((r) => r.rawContent === undefined)).toBe(true)
+})
+
+it('提交前上传失败仍取消批次，不发布结果或修改输入', async () => {
+  const snapshot = (await previewBackup(new TextEncoder().encode(JSON.stringify(exampleBackup())))).snapshot
+  const original = JSON.stringify(snapshot)
+  let cancelled = 0,
+    committed = 0
+  const port = {
+    async beginFetchBatch() {
+      return { id: 'failed-public-batch' }
+    },
+    async beginSnapshotEdit() {
+      throw new Error('公开模拟磁盘不足')
+    },
+    async appendSnapshotEdit() {},
+    async stageFetchResult() {},
+    async cancelSnapshotEdit() {},
+    async finishFetchBatch() {
+      committed++
+      return { revision: 2, exportedAt: 'unexpected' }
+    },
+    async cancelFetchBatch() {
+      cancelled++
+    },
+    async fetchLog({ url }: { url: string }) {
+      return {
+        url,
+        status: 200,
+        text: JSON.stringify({ messages: [{ nickname: 'public', content: '公开正文' }] })
+      }
+    }
+  } as unknown as LogbookPort
+  await expect(
+    stagedFetch(
+      port,
+      snapshot,
+      [snapshot.records[0]!.id],
+      1,
+      () => {},
+      () => {}
+    )
+  ).rejects.toThrow('公开模拟磁盘不足')
+  expect([cancelled, committed]).toEqual([1, 0])
+  expect(JSON.stringify(snapshot)).toBe(original)
 })
