@@ -25,6 +25,11 @@ import Darwin
             for text in [#"{"x":1,}"#, #"{"x":[1,]}"#, #"{"x":01}"#, #"{"x":true}tail"#, #"{"x":NaN}"#, #"{"x":1,"\u0078":2}"#] {
                 try rejects("upload strict proof and zero-memory fallback") { _ = try LogbookBackupJSON.uploadObject(Data(text.utf8), budget: budget) }
             }
+            for text in [#"{"\u00e9":1,"e\u0301":2}"#, #"{"nested":{"é":1,"e\u0301":2}}"#, #"{"\u212b":1,"A\u030a":2}"#] {
+                try rejects("upload retains Swift canonical-equivalent duplicate key rejection") { _ = try LogbookBackupJSON.uploadObject(Data(text.utf8), budget: budget) }
+            }
+            let unicodeKeys = Data(#"{"é":1,"nested":{"中文😀":"保留完整值"}}"#.utf8)
+            try require(try logbookData(LogbookBackupJSON.uploadObject(unicodeKeys, budget: budget)) == logbookData(LogbookBackupJSON.object(unicodeKeys)), "valid Unicode keys use complete fallback without content rejection")
             try rejects("upload proof invalid UTF8 and fallback") { _ = try LogbookBackupJSON.uploadObject(Data([123,34,120,34,58,34,192,175,34,125]), budget: budget) }
             let publicData = Data(#"{"escaped":"\uD83D\uDE00","number":-1.25e+2,"nested":[true,false,null,{}]}"#.utf8)
             try require(try logbookData(LogbookBackupJSON.uploadObject(publicData, budget: budget)) == logbookData(LogbookBackupJSON.object(publicData)), "same complete strict object with native admission or fallback")

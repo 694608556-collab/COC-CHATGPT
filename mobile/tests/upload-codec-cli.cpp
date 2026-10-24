@@ -1,6 +1,7 @@
 #include "table-kernel.h"
 #include <zlib.h>
 #include <algorithm>
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
@@ -40,5 +41,15 @@ int main() {
   auto tooLarge = encoded(random);
   require(tooLarge.size() > 256 * 1024);
   require(coc_upload_inflate(tooLarge.data(), tooLarge.size(), target.data(), target.size()) == 0);
+  for(const char *json : {"{\"ascii\":1,\"nested\":{\"escaped\\u0061\":\"中文😀\"}}", "{}"}) {
+    require(coc_upload_json_check(reinterpret_cast<const uint8_t *>(json), std::strlen(json), 64 * 1024 * 1024) == 1);
+  }
+  for(const char *json : {"{\"\\u00e9\":1,\"e\\u0301\":2}", "{\"中文\":1}", "{\"nested\":{\"\\u212b\":1}}", "{\"a\":1,\"\\u0061\":2}", "{\"a\":1,}"}) {
+    require(coc_upload_json_check(reinterpret_cast<const uint8_t *>(json), std::strlen(json), 64 * 1024 * 1024) == 0);
+  }
+  const char *canonical = "{\"\\u00e9\":1,\"e\\u0301\":2}";
+  // This observes the insufficient old admission proof, without changing the
+  // existing search API or weakening the Swift duplicate-key contract.
+  require(coc_search_json_check(reinterpret_cast<const uint8_t *>(canonical), std::strlen(canonical), 64 * 1024 * 1024, 0) == 1);
   std::printf("{\"uploadCodecChecks\":%d,\"passed\":true}\n", checks);
 }

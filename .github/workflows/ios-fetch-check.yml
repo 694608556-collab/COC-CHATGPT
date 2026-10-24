@@ -2,7 +2,7 @@ name: iOS native fetch isolation
 on:
   push:
     branches: [codex/ios-ipa-adaptation]
-    paths: ['mobile/ios/App/App/LogbookFetch.swift', 'mobile/ios/App/App/LogbookPlugin.swift', 'mobile/ios/App/App/LogbookStore.swift', 'mobile/ios/App/App/LogbookValidation.swift', 'mobile/ios/App/App/LogbookMutations.swift', 'mobile/ios/App/App/LogbookArchive.swift', 'mobile/ios/App/App/LogbookBackup.swift', 'mobile/ios/App/App/LogbookTable.swift', 'mobile/native/table-kernel/**', 'mobile/scripts/build-table-kernel.sh', 'mobile/scripts/ios-fetch-tests.swift', 'mobile/tests/upload-codec-cli.cpp', '.github/workflows/ios-fetch-check.yml']
+    paths: ['mobile/ios/App/App/LogbookFetch.swift', 'mobile/ios/App/App/LogbookPlugin.swift', 'mobile/ios/App/App/LogbookStore.swift', 'mobile/ios/App/App/LogbookValidation.swift', 'mobile/ios/App/App/LogbookMutations.swift', 'mobile/ios/App/App/LogbookArchive.swift', 'mobile/ios/App/App/LogbookBackup.swift', 'mobile/ios/App/App/LogbookTable.swift', 'mobile/native/table-kernel/**', 'mobile/scripts/build-table-kernel.sh', 'mobile/scripts/ios-fetch-tests.swift', 'mobile/scripts/ios-upload-key-tests.swift', 'mobile/tests/upload-codec-cli.cpp', '.github/workflows/ios-fetch-check.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -20,9 +20,9 @@ jobs:
           patterns = ast.literal_eval(re.search(r'paths:\s*(\[.*?\])', source, re.S).group(1))
           dependencies = ['LogbookFetch', 'LogbookPlugin', 'LogbookStore', 'LogbookValidation', 'LogbookMutations', 'LogbookArchive', 'LogbookBackup', 'LogbookTable']
           changes = ['mobile/ios/App/App/' + name + '.swift' for name in dependencies]
-          changes += ['mobile/native/table-kernel/search-json.cpp', 'mobile/native/table-kernel/search-json.h', 'mobile/scripts/build-table-kernel.sh', 'mobile/scripts/ios-fetch-tests.swift', 'mobile/tests/upload-codec-cli.cpp']
+          changes += ['mobile/native/table-kernel/search-json.cpp', 'mobile/native/table-kernel/search-json.h', 'mobile/scripts/build-table-kernel.sh', 'mobile/scripts/ios-fetch-tests.swift', 'mobile/scripts/ios-upload-key-tests.swift', 'mobile/tests/upload-codec-cli.cpp']
           assert all(any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns) for path in changes), 'Native dependency changes must run fetch regression'
-          print('All thirteen native dependency trigger examples passed')
+          print('All fourteen native dependency trigger examples passed')
           PY
       - name: Run public native URLSession regression
         working-directory: mobile
@@ -31,6 +31,16 @@ jobs:
           bash scripts/build-table-kernel.sh
           swiftc -O -swift-version 5 -import-objc-header native/table-kernel/table-kernel.h ios/App/App/LogbookStore.swift ios/App/App/LogbookValidation.swift ios/App/App/LogbookMutations.swift ios/App/App/LogbookArchive.swift ios/App/App/LogbookBackup.swift ios/App/App/LogbookTable.swift ios/App/App/LogbookFetch.swift scripts/ios-fetch-tests.swift ios/build/table-kernel-host/libcoc_table_kernel.a -Xlinker -lc++ -lz -o ios/build/fetch-checks
           ios/build/fetch-checks
+      - name: Preserve original Swift Unicode key validation
+        working-directory: mobile
+        run: |
+          mkdir -p ios/build/unicode-baseline
+          git fetch --no-tags --depth=1 origin a25226c6772b34c1617e6172ed8a5e4c136c18e1
+          git show a25226c6772b34c1617e6172ed8a5e4c136c18e1:mobile/ios/App/App/LogbookBackup.swift > ios/build/unicode-baseline/LogbookBackup.swift
+          swiftc -O -swift-version 5 -import-objc-header native/table-kernel/table-kernel.h ios/App/App/LogbookStore.swift ios/App/App/LogbookValidation.swift ios/App/App/LogbookMutations.swift ios/App/App/LogbookArchive.swift ios/build/unicode-baseline/LogbookBackup.swift ios/App/App/LogbookTable.swift scripts/ios-upload-key-tests.swift ios/build/table-kernel-host/libcoc_table_kernel.a -Xlinker -lc++ -lz -o ios/build/unicode-baseline-checks
+          ios/build/unicode-baseline-checks --observe-baseline
+          swiftc -O -swift-version 5 -import-objc-header native/table-kernel/table-kernel.h ios/App/App/LogbookStore.swift ios/App/App/LogbookValidation.swift ios/App/App/LogbookMutations.swift ios/App/App/LogbookArchive.swift ios/App/App/LogbookBackup.swift ios/App/App/LogbookTable.swift scripts/ios-upload-key-tests.swift ios/build/table-kernel-host/libcoc_table_kernel.a -Xlinker -lc++ -lz -o ios/build/unicode-upload-checks
+          ios/build/unicode-upload-checks
       - name: Compare identical public storage workload with previous release source
         working-directory: mobile
         run: |

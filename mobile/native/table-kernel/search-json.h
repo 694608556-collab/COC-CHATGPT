@@ -9,6 +9,11 @@ extern "C" {
  * including resource exhaustion; this API never grants write authority. */
 int coc_search_json_check(const uint8_t *source, size_t bytes,
                           uint64_t resident_budget, int metadata);
+/* Upload-only admission additionally proves that every decoded key is ASCII.
+ * Unicode keys request the unchanged Swift reader, whose key set includes
+ * canonical equivalence. Zero is complete fallback, never content rejection. */
+int coc_upload_json_check(const uint8_t *source, size_t bytes,
+                          uint64_t resident_budget);
 /* Read-only rawContent projection: validate EVERY original byte/key/value,
  * replace only messages[].raw with null, and preserve all searchable fields.
  * The original database is never modified. Free a successful result with free().

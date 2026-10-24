@@ -59,6 +59,8 @@ struct LogbookSearchUnavailable: Error {}
 enum LogbookBackupJSON {
     /// Foundation accepts some non-standard JSON (including trailing commas).
     /// Validate complete strict grammar before constructing one bounded object.
+    /// ASCII-key admission preserves Swift canonical-equivalence checks for
+    /// Unicode keys by selecting the unchanged complete reader.
     /// Same complete grammar, UTF-8 and decoded duplicate-key proof on the
     /// immutable private upload. Zero memory, unsupported input or allocation
     /// failure selects the complete original reader; semantic checks stay at
@@ -80,7 +82,7 @@ enum LogbookBackupJSON {
         }
         if memory > 0 && data.count <= memory / 4 {
             let checked = data.withUnsafeBytes { raw in
-                coc_search_json_check(raw.bindMemory(to: UInt8.self).baseAddress, data.count, UInt64(memory / 3), 0)
+                coc_upload_json_check(raw.bindMemory(to: UInt8.self).baseAddress, data.count, UInt64(memory / 3))
             }
             if checked == 1 {
                 guard let value = try JSONSerialization.jsonObject(with: data) as? LogbookJSON else { throw LogbookFailure("恢复JSON必须为对象。") }

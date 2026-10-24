@@ -48,6 +48,7 @@ class Parser {
   const bool compact;
   const bool semantic;
   const bool body_projection;
+  const bool ascii_keys;
   std::vector<uint8_t> output;
   struct Key {size_t start, bytes; bool escaped; uint64_t hash;};
   static bool space(unsigned c) { return c == 32 || c == 9 || c == 10 || c == 13; }
@@ -276,7 +277,15 @@ class Parser {
     if (p < n && s[p] == '}') { ++p;if(semantic&&(context==Context::raw_content||context==Context::image))throw Unavailable{};if(compact&&context==Context::message)tuple(object_begin,present,fields);return; }
     for (;;) {
       skip(); const size_t start=p;bool escaped=false;string(nullptr,&escaped);
-      Key key{start,p-start,escaped,0};key.hash=key_hash(key);const size_t units=key.bytes;
+      Key key{start,p-start,escaped,0};
+      // Swift String key sets also compare canonical Unicode equivalents.
+      // Admit only ASCII keys for upload acceleration; any other key asks the
+      // unchanged Swift reader to perform its complete original validation.
+      if(ascii_keys){
+        if(escaped){for(auto unit:decoded(key))if(unit>127)throw Unavailable{};}
+        else {for(size_t at=start+1;at<p-1;++at)if(s[at]>127)throw Unavailable{};}
+      }
+      key.hash=key_hash(key);const size_t units=key.bytes;
       if (units > (budget - n) / 2 || key_memory > budget - n - units * 2 || budget - n - units * 2 - key_memory < 96) throw Unavailable{};
       const size_t cost = units * 2 + 96;
       if(small_count<small.size()){
@@ -345,8 +354,8 @@ class Parser {
     }
   }
 public:
-  Parser(const uint8_t *source, size_t bytes, uint64_t available, bool is_metadata, bool project,bool is_compact=false,bool is_semantic=false,bool is_body=false)
-      : s(source), n(bytes), budget(size_t(available > std::numeric_limits<size_t>::max() ? std::numeric_limits<size_t>::max() : available)), metadata(is_metadata), projection(project),compact(is_compact),semantic(is_semantic),body_projection(is_body) {
+  Parser(const uint8_t *source, size_t bytes, uint64_t available, bool is_metadata, bool project,bool is_compact=false,bool is_semantic=false,bool is_body=false,bool is_ascii_keys=false)
+      : s(source), n(bytes), budget(size_t(available > std::numeric_limits<size_t>::max() ? std::numeric_limits<size_t>::max() : available)), metadata(is_metadata), projection(project),compact(is_compact),semantic(is_semantic),body_projection(is_body),ascii_keys(is_ascii_keys) {
     if (!s || !n || n > budget / 3) throw Unavailable{};
   }
   std::vector<uint8_t> run() {
@@ -362,6 +371,10 @@ public:
 
 extern "C" int coc_search_json_check(const uint8_t *source, size_t bytes, uint64_t available, int metadata) {
   try { Parser(source, bytes, available, metadata != 0, false).run(); return 1; }
+  catch (...) { return 0; }
+}
+extern "C" int coc_upload_json_check(const uint8_t *source, size_t bytes, uint64_t available) {
+  try { Parser(source, bytes, available, false, false, false, false, false, true).run(); return 1; }
   catch (...) { return 0; }
 }
 extern "C" uint8_t *coc_search_json_project(const uint8_t *source, size_t bytes, uint64_t available, size_t *length) {
