@@ -16,11 +16,7 @@ import { createVerifiedTableReplay } from './verified-table-source'
 import type { Coc7WorksheetRequest, WorksheetCell } from './table-dom-worksheet'
 import { readKernelRecordsGrid } from './table-kernel-records'
 import type { RecordsKernelSource } from './table-kernel-records'
-import { encodeUtf8 } from './bytes'
-
-// An encoding crossover in UTF-16 code units, never a content or staging limit.
-// Small records avoid per-row Blob/reader setup; larger rows keep every byte.
-const candidateBlobThreshold = 16 * 1024
+import { encodeTableCandidate } from './table-candidate-encoding'
 // Only queued UTF-16 text is bounded; oversized complete lines keep the full
 // existing encoder. This never limits a row, input, candidate or staged file.
 const candidateTextBudget = 256 * 1024
@@ -214,8 +210,8 @@ export async function performTableStreamJob(
     checkStreamCancelled(signal)
     const encodeStart = measureRecords && key === 'candidate' ? performance.now() : 0
     const bytes =
-      job.kind === 'records' && key === 'candidate' && text.length >= candidateBlobThreshold
-        ? encodeUtf8(text)
+      job.kind === 'records' && key === 'candidate'
+        ? encodeTableCandidate(text)
         : encoder.encode(text)
     if (measureRecords && key === 'candidate')
       timing.jsCandidateUtf8Ms = (timing.jsCandidateUtf8Ms ?? 0) + performance.now() - encodeStart

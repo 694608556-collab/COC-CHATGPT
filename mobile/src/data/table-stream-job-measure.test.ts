@@ -6,12 +6,16 @@ import type { TableStreamJob } from './table-stream-job'
 import { publicCoc7Workbook } from '../../test-fixtures/coc7'
 import { StreamSha256 } from './stream-sha256'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
 
 it('bounded candidate text is encoded together without changing a complete row or its order', async () => {
   const reference = await complete(false, '公开中😀完整正文'.repeat(3000))
   const { job } = fixture(true, '公开中😀完整正文'.repeat(3000)),
     seen: Blob[] = []
+  const encoded = vi.spyOn(TextEncoder.prototype, 'encode')
   vi.stubGlobal(
     'FileReaderSync',
     class {
@@ -31,10 +35,13 @@ it('bounded candidate text is encoded together without changing a complete row o
       throw Error('Unexpected SST')
     }
   )
-  expect(seen).toHaveLength(1)
-  expect(new Uint8Array(await seen[0]!.arrayBuffer())).toEqual(Uint8Array.from(reference.bytes))
+  // The same complete queued candidate is now encoded in-process, avoiding
+  // the cold file-service hop; row order, bytes and full SHA stay identical.
+  expect(encoded.mock.calls.filter(([text]) => text === reference.bytes.toString('utf8'))).toHaveLength(1)
+  expect(seen).toHaveLength(0)
   expect(Buffer.concat(chunks)).toEqual(reference.bytes)
   expect(result.candidate).toEqual(reference.result.candidate)
+  encoded.mockRestore()
 })
 
 it.each([256 * 1024 - 1, 256 * 1024, 256 * 1024 + 1])(
@@ -548,8 +555,8 @@ it.each([false, true])(
   }
 )
 
-it.each([16383, 16384])(
-  'candidate encoding changes implementation only at the internal %s-code-unit boundary',
+it.each([16383, 16384, 1024 * 1024 - 1, 1024 * 1024])(
+  'complete %s-code-unit candidates preserve bytes across queued and oversized line encoders',
   async (length) => {
     const reference = await complete(false, 'x')
     const overhead = reference.bytes.toString('utf8').length - 1
@@ -557,52 +564,56 @@ it.each([16383, 16384])(
     const baseline = await complete(false, body)
     const completeText = baseline.bytes.toString('utf8')
     expect(completeText.length).toBe(length)
-    const expected = new TextEncoder().encode(completeText),
-      received: Blob[] = []
+    const received: Blob[] = []
+    const oversized = completeText.split(/(?<=\n)/).filter((text) => text.length >= 1024 * 1024)
     vi.stubGlobal(
       'FileReaderSync',
       class {
         /** @param blob Complete candidate line. @returns Independently encoded public bytes. */
         readAsArrayBuffer(blob: Blob) {
           received.push(blob)
-          return expected.buffer
+          return new TextEncoder().encode(oversized[received.length - 1]!).buffer
         }
       }
     )
     const actual = await complete(false, body)
-    expect(actual.bytes).toEqual(baseline.bytes)
+    expect(actual.bytes.equals(baseline.bytes)).toBe(true)
     expect(actual.result.candidate).toEqual(baseline.result.candidate)
-    expect(received).toHaveLength(length >= 16384 ? 1 : 0)
-    for (const blob of received) expect(new Uint8Array(await blob.arrayBuffer())).toEqual(expected)
+    expect(received).toHaveLength(oversized.length)
+    for (const [index, blob] of received.entries())
+      expect(Buffer.from(await blob.arrayBuffer()).equals(Buffer.from(oversized[index]!, 'utf8'))).toBe(true)
   }
 )
 
 it('large Worker Blob candidates preserve full multi-chunk Unicode, lone surrogates, CRLF, NUL and SHA', async () => {
-  const body = '公开正文😀\r\n'.repeat(25000) + '\0\ufeff\ud800x\udc00\r\n完整尾部'
+  const body = '公开正文😀\r\n'.repeat(150000) + '\0\ufeff\ud800x\udc00\r\n完整尾部'
   const baseline = await complete(true, body)
-  const expected = Uint8Array.from(baseline.bytes),
-    received: Blob[] = []
+  const received: Blob[] = []
+  const oversized = baseline.bytes
+    .toString('utf8')
+    .split(/(?<=\n)/)
+    .filter((text) => text.length >= 1024 * 1024)
   vi.stubGlobal(
     'FileReaderSync',
     class {
       /** @param blob Complete original candidate line. @returns Independent standard UTF-8 bytes. */
       readAsArrayBuffer(blob: Blob) {
         received.push(blob)
-        return expected.buffer
+        return new TextEncoder().encode(oversized[received.length - 1]!).buffer
       }
     }
   )
   const actual = await complete(true, body)
   expect(actual.bytes.length).toBeGreaterThan(262144)
-  expect(actual.bytes).toEqual(baseline.bytes)
+  expect(actual.bytes.equals(baseline.bytes)).toBe(true)
   expect(actual.result.candidate).toEqual(baseline.result.candidate)
   expect(JSON.parse(actual.bytes.toString('utf8').split('\n')[0]!.slice(1)).value.manualContent).toBe(body)
   expect(received).toHaveLength(1)
-  expect(new Uint8Array(await received[0]!.arrayBuffer())).toEqual(expected)
+  expect(Buffer.from(await received[0]!.arrayBuffer()).equals(Buffer.from(oversized[0]!, 'utf8'))).toBe(true)
 })
 
 it('a failed large candidate Blob read rejects before staging and never falls back to empty or substitute bytes', async () => {
-  const { job } = fixture(true)
+  const { job } = fixture(true, '公开正文😀\r\n'.repeat(150000) + '完整尾部')
   vi.stubGlobal(
     'FileReaderSync',
     class {
