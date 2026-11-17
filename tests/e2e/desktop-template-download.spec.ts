@@ -1,3 +1,4 @@
+import { mainWindow } from './main-window'
 import * as XLSX from 'xlsx'
 import { test, expect, _electron as electron, type ElectronApplication } from '@playwright/test'
 import fs from 'node:fs'
@@ -25,7 +26,7 @@ for (const format of ['xlsx', 'csv'] as const) {
     const directory = fs.mkdtempSync(path.join(root, 'work', 'coc-template-download-'))
     const app = await launch(directory)
     try {
-      const page = await app.firstWindow()
+      const page = await mainWindow(app)
       const destination = path.join(directory, `downloaded.${format}`)
       await app.evaluate(({ BrowserWindow }, destination) => {
         const testState = globalThis as typeof globalThis & {

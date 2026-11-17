@@ -1,3 +1,4 @@
+import { mainWindow } from './main-window'
 /**
  * 0.7.1 阶段 2 验收：在真实运行的应用里验证导图节点搜索。
  *
@@ -94,7 +95,7 @@ test.describe('0.7.1 mindmap node search', () => {
     seedDatabase(path.join(dataDir, 'coc.sqlite'), MINDMAP!)
 
     const app = await launch(dataDirectory)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openMindmap(window)
 
@@ -145,7 +146,7 @@ test.describe('0.7.1 mindmap node search', () => {
     seedDatabase(path.join(dataDir, 'coc.sqlite'), MINDMAP!)
 
     const app = await launch(dataDirectory)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openMindmap(window)
 

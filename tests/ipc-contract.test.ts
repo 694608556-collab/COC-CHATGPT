@@ -17,7 +17,7 @@ describe('preload IPC contract', () => {
 
   it('maps every renderer operation to a literal main-process channel', () => {
     const preload = fs.readFileSync(path.join(root, 'src/preload/index.ts'), 'utf8')
-    const ipc = fs.readFileSync(path.join(root, 'src/main/ipc.ts'), 'utf8')
+    const ipc = fs.readFileSync(path.join(root, 'src/main/ipc.ts'), 'utf8') + fs.readFileSync(path.join(root, 'src/main/index.ts'), 'utf8')
     const channels = Array.from(preload.matchAll(/invoke\('([^']+)'/g)).map((match) => match[1]!)
     expect(channels.length).toBeGreaterThan(20)
     for (const channel of channels) expect(ipc).toContain("'" + channel + "'")

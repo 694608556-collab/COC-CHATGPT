@@ -1,3 +1,4 @@
+import { mainWindow } from './main-window'
 /**
  * 0.7.9：全模组正文搜索不能把应用搞死。
  *
@@ -151,7 +152,7 @@ test.describe('0.7.9 module-wide text search stays alive', () => {
     seed(path.join(dataDir, 'coc.sqlite'), MINDMAP!)
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
 
     // 渲染进程抛错会让整棵 React 树卸载，这里把它抓下来
     const errors: string[] = []
@@ -205,7 +206,7 @@ test.describe('0.7.9 module-wide text search stays alive', () => {
     seed(path.join(dataDir, 'coc.sqlite'), MINDMAP!)
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     const errors: string[] = []
     window.on('pageerror', (error) => errors.push(error.message))
 

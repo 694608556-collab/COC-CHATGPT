@@ -1,3 +1,4 @@
+import { mainWindow } from './main-window'
 /**
  * 0.7.2 验收：在真实应用里把 A 分组的资料全部拖到 B 分组，A 分组必须保留。
  */
@@ -223,7 +224,7 @@ test.describe('0.7.2 emptying a group by dragging', () => {
     seed(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openResources(window)
 
@@ -276,7 +277,7 @@ test.describe('0.7.2 emptying a group by dragging', () => {
     seed(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openResources(window)
 
@@ -317,7 +318,7 @@ test.describe('0.7.2 emptying a group by dragging', () => {
     seed(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openResources(window)
 
@@ -367,7 +368,7 @@ test.describe('0.7.2 emptying a group by dragging', () => {
     seed(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openResources(window)
 

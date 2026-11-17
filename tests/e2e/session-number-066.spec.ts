@@ -1,3 +1,4 @@
+import { mainWindow } from './main-window'
 /**
  * 0.6.6 回归：导入表格把场次名重排成连续编号后，新增场次不得再弹出
  * “选择下一场编号”。
@@ -95,7 +96,7 @@ test('0.6.6 no longer asks for a session number after an import renumbered the n
 
   const application = await launch(portableRoot)
   try {
-    const page = await application.firstWindow()
+    const page = await mainWindow(application)
     await expect(page.getByText('COC 跑团记录簿').first()).toBeVisible()
 
     // 升级时应留下升级前备份。

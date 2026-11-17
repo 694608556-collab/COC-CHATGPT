@@ -1,3 +1,4 @@
+import { mainWindow } from './main-window'
 import { test, expect, _electron as electron, type ElectronApplication } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -23,7 +24,7 @@ test('批量检测按模组折叠并实时统计，完成按钮退出', async ()
   const directory = fs.mkdtempSync(path.join(root, 'work', 'coc-batch-check-'))
   const app = await launch(directory)
   try {
-    const page = await app.firstWindow()
+    const page = await mainWindow(app)
     const fixtures = await page.evaluate(
       async (archiveDirectory) => {
         await window.coc.settings.update({ archiveDirectory, autoBackup: { enabled: false } })
@@ -92,7 +93,7 @@ test('仅有手动正文的模组可以选择并直接完成，不发起检测',
   const directory = fs.mkdtempSync(path.join(root, 'work', 'coc-batch-manual-'))
   const app = await launch(directory)
   try {
-    const page = await app.firstWindow()
+    const page = await mainWindow(app)
     await page.evaluate(
       async (archiveDirectory) => {
         await window.coc.settings.update({ archiveDirectory, autoBackup: { enabled: false } })

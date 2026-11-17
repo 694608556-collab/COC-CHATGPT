@@ -1,3 +1,4 @@
+import { mainWindow } from './main-window'
 /**
  * 0.8.2：卡片上移后，四个操作按钮必须仍然点得动。
  *
@@ -77,7 +78,7 @@ test.describe('0.8.2 the action buttons stay clickable after moving the icon up'
     seed(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openResources(window)
 
@@ -135,7 +136,7 @@ test.describe('0.8.2 the action buttons stay clickable after moving the icon up'
     seed(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openResources(window)
 

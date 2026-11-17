@@ -1,3 +1,4 @@
+import { mainWindow } from './main-window'
 import { _electron as electron, expect, test, type ElectronApplication } from '@playwright/test'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -31,7 +32,7 @@ test('real desktop shell persists data and isolates Node', async () => {
   const portableRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'coc-e2e-中文-'))
   let application = await launch(portableRoot)
   try {
-    let page = await application.firstWindow()
+    let page = await mainWindow(application)
 
     await expect(page.getByText('COC 跑团记录簿').first()).toBeVisible()
     // 0.6.1 起八方向缩放完全交给系统原生隐形边框，渲染层不再有任何 DOM 热区
@@ -292,7 +293,7 @@ test('real desktop shell persists data and isolates Node', async () => {
 
     expect(fs.existsSync(path.join(portableRoot, 'data', 'coc.sqlite'))).toBe(true)
     application = await launch(portableRoot)
-    page = await application.firstWindow()
+    page = await mainWindow(application)
     await expect(page.getByRole('button', { name: '暗影循迹', exact: true })).toBeVisible()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
     await page.getByRole('button', { name: '调查员角色卡' }).click()

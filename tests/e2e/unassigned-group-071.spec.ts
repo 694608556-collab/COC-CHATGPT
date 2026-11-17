@@ -1,3 +1,4 @@
+import { mainWindow } from './main-window'
 /**
  * 0.7.1 阶段 3 验收：在真实应用里删掉「未归属模组」分组，刷新后不得复活。
  *
@@ -74,7 +75,7 @@ test.describe('0.7.1 unassigned group deletion', () => {
     seedUnassigned(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openResources(window)
 
@@ -122,7 +123,7 @@ test.describe('0.7.1 unassigned group deletion', () => {
     seedUnassigned(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openResources(window)
 

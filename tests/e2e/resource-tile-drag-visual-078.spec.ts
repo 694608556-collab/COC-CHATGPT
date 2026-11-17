@@ -1,3 +1,4 @@
+import { mainWindow } from './main-window'
 /**
  * 0.7.8：拖拽资料时只该看到「图标 + 文件名」，不要整块底色，也不要全名提示框。
  *
@@ -102,7 +103,7 @@ test.describe('0.7.8 dragging a tile shows only the icon and the name', () => {
     seed(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await window.getByRole('button', { name: '资料汇总' }).click()
     await expect(window.locator('.resource-groups')).toBeVisible({ timeout: 15000 })
@@ -130,7 +131,7 @@ test.describe('0.7.8 dragging a tile shows only the icon and the name', () => {
     seed(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await window.getByRole('button', { name: '资料汇总' }).click()
     await expect(window.locator('.resource-groups')).toBeVisible({ timeout: 15000 })
@@ -165,7 +166,7 @@ test.describe('0.7.8 dragging a tile shows only the icon and the name', () => {
     seed(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await window.getByRole('button', { name: '资料汇总' }).click()
     await expect(window.locator('.resource-groups')).toBeVisible({ timeout: 15000 })
@@ -242,7 +243,7 @@ test.describe('0.7.8 dragging a tile shows only the icon and the name', () => {
     seed(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await window.getByRole('button', { name: '资料汇总' }).click()
     await expect(window.locator('.resource-groups')).toBeVisible({ timeout: 15000 })
@@ -283,7 +284,7 @@ test.describe('0.7.8 dragging a tile shows only the icon and the name', () => {
     seed(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await window.getByRole('button', { name: '资料汇总' }).click()
     await expect(window.locator('.resource-groups')).toBeVisible({ timeout: 15000 })

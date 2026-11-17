@@ -1,3 +1,4 @@
+import { mainWindow } from './main-window'
 /**
  * 0.7.1 修复验收：「资料汇总」页不得出现空白页。
  *
@@ -86,7 +87,7 @@ test.describe('0.7.1 fix: resources page never goes blank', () => {
     seedHiddenButNotEmpty(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openResources(window)
 
@@ -115,7 +116,7 @@ test.describe('0.7.1 fix: resources page never goes blank', () => {
     seedHiddenButNotEmpty(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openResources(window)
 

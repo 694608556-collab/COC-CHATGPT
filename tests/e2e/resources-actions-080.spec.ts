@@ -1,3 +1,4 @@
+import { mainWindow } from './main-window'
 /**
  * 0.8.0：拖拽时的外观必须一致，且不能出现色块。
  *
@@ -143,7 +144,7 @@ test.describe('0.8.0 dragging looks the same wherever you grab', () => {
     seed(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openResources(window)
 
@@ -241,7 +242,7 @@ test.describe('0.8.0 resource card actions', () => {
     seed(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openResources(window)
 
@@ -335,7 +336,7 @@ test.describe('0.8.0 resource card actions', () => {
     seed(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openResources(window)
 
@@ -389,7 +390,7 @@ test.describe('0.8.0 resource card actions', () => {
     seed(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openResources(window)
 
@@ -428,7 +429,7 @@ test.describe('0.8.0 resource card actions', () => {
     seed(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openResources(window)
 

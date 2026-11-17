@@ -1,3 +1,4 @@
+import { mainWindow } from './main-window'
 import { test, expect, _electron as electron, type ElectronApplication } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -34,7 +35,7 @@ test('七版导入补填、取消、同名保护和重启持久化', async () =>
   fs.writeFileSync(file, publicCoc7Bytes(book))
   let app = await launch(directory)
   try {
-    let page = await app.firstWindow()
+    let page = await mainWindow(app)
     await page.evaluate(
       async (archiveDirectory) => {
         await window.coc.settings.update({ archiveDirectory, autoBackup: { enabled: false } })
@@ -66,7 +67,7 @@ test('七版导入补填、取消、同名保护和重启持久化', async () =>
     await expect(editor).toBeHidden()
     await app.close()
     app = await launch(directory)
-    page = await app.firstWindow()
+    page = await mainWindow(app)
     const cards = await page.evaluate(async () => (await window.coc.app.snapshot()).characters)
     expect(cards).toHaveLength(2)
     expect(cards.map((card) => card.derived.hpCurrent).sort()).toEqual([0, 1])

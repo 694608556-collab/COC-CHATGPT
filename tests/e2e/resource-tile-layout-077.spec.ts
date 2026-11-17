@@ -1,3 +1,4 @@
+import { mainWindow } from './main-window'
 /**
  * 0.7.7：资料卡片的操作图标不再压住内容，卡片尺寸始终一致。
  *
@@ -116,7 +117,7 @@ test.describe('0.7.7 resource tiles keep their own icons visible', () => {
     seed(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await window.getByRole('button', { name: '资料汇总' }).click()
     await expect(window.locator('.resource-groups')).toBeVisible({ timeout: 15000 })
@@ -178,7 +179,7 @@ test.describe('0.7.7 resource tiles keep their own icons visible', () => {
     seed(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await window.getByRole('button', { name: '资料汇总' }).click()
     await expect(window.locator('.resource-groups')).toBeVisible({ timeout: 15000 })
@@ -222,7 +223,7 @@ test.describe('0.7.7 resource tiles keep their own icons visible', () => {
     seed(path.join(dataDir, 'coc.sqlite'))
 
     const app = await launch(root)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await window.getByRole('button', { name: '资料汇总' }).click()
     await expect(window.locator('.resource-groups')).toBeVisible({ timeout: 15000 })

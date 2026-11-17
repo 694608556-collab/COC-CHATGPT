@@ -1,3 +1,4 @@
+import { mainWindow } from './main-window'
 /**
  * 0.7.4 端到端验收：在真实运行的应用里验证节点文字不再溢出、压到相邻节点。
  *
@@ -127,7 +128,7 @@ test.describe('0.7.4 node text stays inside its own box', () => {
     seedDatabase(path.join(dataDir, 'coc.sqlite'), MINDMAP!)
 
     const app = await launch(dataDirectory)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openMindmap(window)
 
@@ -160,7 +161,7 @@ test.describe('0.7.4 node text stays inside its own box', () => {
     seedDatabase(path.join(dataDir, 'coc.sqlite'), MINDMAP!)
 
     const app = await launch(dataDirectory)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openMindmap(window)
     await expect(window.locator('.mindmap-canvas svg').first()).toBeVisible({ timeout: 20000 })
@@ -220,7 +221,7 @@ test.describe('0.7.4 node text stays inside its own box', () => {
     seedDatabase(path.join(dataDir, 'coc.sqlite'), MINDMAP!)
 
     const app = await launch(dataDirectory)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openMindmap(window)
     await expect(window.locator('.mindmap-canvas svg').first()).toBeVisible({ timeout: 20000 })
@@ -261,7 +262,7 @@ test.describe('0.7.4 node text stays inside its own box', () => {
     seedDatabase(path.join(dataDir, 'coc.sqlite'), MINDMAP!)
 
     const app = await launch(dataDirectory)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openMindmap(window)
     await expect(window.locator('.mindmap-canvas svg').first()).toBeVisible({ timeout: 20000 })
@@ -318,7 +319,7 @@ test.describe('0.7.4 node text stays inside its own box', () => {
     seedDatabase(path.join(dataDir, 'coc.sqlite'), MINDMAP!)
 
     const app = await launch(dataDirectory)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openMindmap(window)
     await expect(window.locator('.mindmap-canvas svg').first()).toBeVisible({ timeout: 20000 })
@@ -371,7 +372,7 @@ test.describe('0.7.4 node text stays inside its own box', () => {
     seedDatabase(path.join(dataDir, 'coc.sqlite'), MINDMAP!)
 
     const app = await launch(dataDirectory)
-    const window = await app.firstWindow()
+    const window = await mainWindow(app)
     await window.waitForLoadState('domcontentloaded')
     await openMindmap(window)
     await expect(window.locator('.mindmap-canvas svg').first()).toBeVisible({ timeout: 20000 })

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 const root = path.resolve(__dirname, '..')
 const read = (rel: string): string => fs.readFileSync(path.join(root, rel), 'utf8')
 describe('square Windows 10 window with native resizing', () => {
-  const main = read('src/main/index.ts')
+  const main = read('src/main/index.ts').split('function createWindow(): void {')[1]!.split('function runSmokeTest')[0]!
   const app = read('src/renderer/src/App.tsx')
   const styles = read('src/renderer/src/styles.css')
 

@@ -1050,15 +1050,21 @@ export default function App(): React.JSX.Element {
     setSnapshot(value)
     setAppVersion(await window.coc.app.version())
     document.documentElement.dataset.theme = value.settings.theme
-    setCacheInfo(await window.coc.backup.cacheStats())
-    // 归档目录可能因为换过 Windows 账户而失效，先探一次好让设置页给出提示
-    try {
-      setArchiveStatus(await window.coc.files.archiveStatus())
-    } catch {
-      setArchiveStatus(undefined)
-    }
     setLoading(false)
   }
+
+  // 首屏数据提交后通知主进程显示窗口，再读取缓存统计和归档状态。
+  useEffect(() => {
+    if (loading) return
+    let active = true
+    void window.coc.app.ready().then(async () => {
+      const [cache, archive] = await Promise.allSettled([window.coc.backup.cacheStats(), window.coc.files.archiveStatus()])
+      if (!active) return
+      if (cache.status === 'fulfilled') setCacheInfo(cache.value)
+      setArchiveStatus(archive.status === 'fulfilled' ? archive.value : undefined)
+    })
+    return () => { active = false }
+  }, [loading, snapshot])
 
   // 全模组正文搜索：按模组当前输入的关键词，在该模组所有场次正文里查找
   const moduleSearchHits = (module: ModuleRecord): ModuleSearchHit[] => {

@@ -105,6 +105,7 @@ export interface CocApi {
     isMaximized(): Promise<boolean>
   }
   app: {
+    ready(): Promise<void>
     snapshot(): Promise<AppSnapshot>
     version(): Promise<string>
   }

@@ -1,3 +1,4 @@
+import { mainWindow } from './main-window'
 import { test, expect, _electron as electron, type ElectronApplication } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -23,7 +24,7 @@ test('模组场次导出表格与界面重新导入保留手动正文', async ()
   const directory = fs.mkdtempSync(path.join(root, 'work', 'coc-088-table-'))
   const app = await launch(directory)
   try {
-    const page = await app.firstWindow()
+    const page = await mainWindow(app)
     const body = '公开手动正文，含"引号"\n\n下一段😀' + '长篇内容\n'.repeat(8000) + '末段'
     const entries = await page.evaluate(
       async ({ body, archiveDirectory }) => {

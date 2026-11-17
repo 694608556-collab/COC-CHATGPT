@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('coc', {
     isMaximized: () => ipcRenderer.invoke('window:is-maximized')
   },
   app: {
+    ready: () => ipcRenderer.invoke('app:renderer-ready'),
     snapshot: () => invoke('app:snapshot'),
     version: () => invoke('app:version')
   },
