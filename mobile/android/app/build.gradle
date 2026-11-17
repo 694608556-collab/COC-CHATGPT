@@ -9,7 +9,7 @@ android {
         applicationId "coc.logbook"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 55
+        versionCode 56
         versionName "1.0.8"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_static'; cppFlags '-O3' } }
