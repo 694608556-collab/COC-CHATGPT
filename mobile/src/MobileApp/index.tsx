@@ -1,4 +1,3 @@
-import { useDisplaySize } from './useDisplaySize'
 import { backupExportName } from '../../../src/shared/export-filenames'
 import { retainBodySelection } from '../data/body-cache'
 import { BodySearchCleanupError } from '../data/body-search-stream'
@@ -24,6 +23,8 @@ import { DataSettings } from './components/DataSettings'
 import { ArchiveGate } from './components/ArchiveGate'
 import { RestoreDialog } from './components/RestoreDialog'
 import { LogReader } from './components/LogReader'
+import { editBodyText } from '../data/body-text-edit'
+import { useDisplaySize } from './useDisplaySize'
 import { Editor } from './components/Editor'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { saveEdit } from '../data/edit'
@@ -139,8 +140,8 @@ export function MobileApp({
   /** Optional diagnostics sink, supplied by public fixtures only; no snapshot or body values. */
   onTableTiming?: (timing: TableConfirmTiming) => void
 }) {
-  const displaySize = useDisplaySize()
   const [native, setNative] = useState<NativeState>()
+  const displaySize = useDisplaySize()
   const nativeRef = useRef(native)
   nativeRef.current = native
   const [snapshot, setSnapshot] = useState<MobileSnapshot>(emptySnapshot)
@@ -1163,6 +1164,30 @@ export function MobileApp({
    * @param draft - 编辑页的完整草稿；存储拒绝时不关闭编辑或展示成功。
    * @returns 无返回值；失败交回编辑页显示并保留草稿。
    */
+  /** @param messageId 原消息ID。 @param text 确认后的完整文字。 @param revision 打开草稿时版本。
+   * @returns 保存后resolve，无返回值。失败抛错，沿用完整校验及CAS事务。 */
+  async function persistBodyText(messageId: string, text: string, revision: number, speaker: string): Promise<void> {
+    if (!record || !native || busyLock.current) throw new Error('正在处理其他操作，请稍后保存。')
+    if (nativeRef.current?.revision !== revision) throw new Error('数据已变化，请取消后重新打开正文。')
+    busyLock.current = true
+    setBusy(true)
+    try {
+      const current = await loadContent(snapshot.records.map((row) => row.id))
+      const original = current.records.find((row) => row.id === record.id)
+      if (!original) throw new Error('场次已不存在。')
+      const updated = { ...editBodyText(original, messageId, text, speaker), updatedAt: new Date().toISOString() }
+      await commit({
+        ...current,
+        records: current.records.map((row) => (row.id === updated.id ? updated : row))
+      })
+      setRecord(updated)
+      setNotice('正文修改已保存。')
+    } finally {
+      busyLock.current = false
+      setBusy(false)
+    }
+  }
+
   async function persistEdit(draft: Edit) {
     if (!editing || busyLock.current) return
     busyLock.current = true
@@ -1595,6 +1620,8 @@ export function MobileApp({
                       preset={snapshot.settings.filterPreset}
                       busy={busy}
                       onBack={closeReader}
+                      revision={native.revision}
+                      onSaveText={persistBodyText}
                       onEdit={() => startEdit({ kind: 'record', value: record })}
                       onFetch={() => void perform(() => probe([record.id]))}
                       onReset={() => void perform(() => act({ type: 'reset', id: record.id }))}
