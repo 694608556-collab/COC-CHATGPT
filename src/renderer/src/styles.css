@@ -912,6 +912,7 @@ th {
   gap: 15px;
   padding: 20px;
 }
+.message-editor-fields label,
 .form-grid label,
 .field-label {
   display: grid;
@@ -920,6 +921,8 @@ th {
   font-size: calc(12px * var(--display-scale, 1));
   font-weight: 650;
 }
+.message-editor-fields input,
+.message-editor-fields textarea,
 .form-grid input,
 .form-grid textarea,
 .form-grid select {
@@ -4047,3 +4050,29 @@ body[data-dragging='true'] .resource-tile[data-dragging='true'] {
 .check-grouped-results .check-module-toggle small { color: var(--muted); }
 .check-grouped-results .check-module-records .check-result-row { padding-left: 36px; }
 .check-progress { margin-right: auto; line-height: 1.6; }
+
+.message-editor-fields {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+.message-editor-fields label {
+  display: grid;
+  gap: 8px;
+}
+.message-editor-fields textarea {
+  min-height: 180px;
+  max-height: 45vh;
+  resize: vertical;
+}
+.log-preview article {
+  cursor: text;
+}
+.log-preview article:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.message-editor-fields .error-text { color: var(--danger); white-space: pre-wrap; }
+
+.message-editor-fields input, .message-editor-fields textarea { font-size: calc(13px * var(--display-scale, 1)); font-weight: 400; }

@@ -129,6 +129,14 @@ export interface CocApi {
     move(id: string, direction: -1 | 1): Promise<void>
   }
   records: {
+    /** 保存说话者及完整正文，旧版本草稿拒绝写入。 */
+    editMessage(
+      id: string,
+      messageId: string,
+      text: string,
+      speaker: string,
+      expectedUpdatedAt: string
+    ): Promise<SessionRecord>
     create(input: {
       moduleId: string
       name?: string

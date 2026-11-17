@@ -817,6 +817,7 @@ function RecordDetail({
   preset,
   initialQuery = '',
   initialMessageIndex,
+  onSave,
   onClose
 }: {
   record: SessionRecord
@@ -825,22 +826,46 @@ function RecordDetail({
   initialQuery?: string
   /** 从模组搜索点进来时，首次命中所在的消息序号 */
   initialMessageIndex?: number
+  onSave(messageId: string, text: string, speaker: string, expectedUpdatedAt: string): Promise<void>
   onClose(): void
 }): React.JSX.Element {
+  const [draft, setDraft] = useState<{ id: string; text: string; speaker: string; version: string }>()
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  /** @param id 稳定消息ID。@param text 手动段落原文。@returns 无返回值，创建完整未过滤草稿。 */
+  function beginEdit(id: string, text: string): void {
+    if (saving) return
+    const original = record.rawContent?.messages.find((message) => message.id === id)
+    setDraft({ id, text: original?.text ?? text, speaker: original?.displayName ?? '', version: record.updatedAt })
+    setSaveError('')
+  }
+  /** @returns 提交结束后resolve，失败保留草稿和错误提示。 */
+  async function saveMessage(): Promise<void> {
+    if (!draft || saving) return
+    setSaving(true)
+    setSaveError('')
+    try {
+      await onSave(draft.id, draft.text, draft.speaker, draft.version)
+      setDraft(undefined)
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : '保存失败，请重试。')
+    } finally { setSaving(false) }
+  }
   const [query, setQuery] = useState(initialQuery)
   // 点击某条结果后，把对应那条消息滚到可视区；从模组搜索进来时直接用带过来的那条
   const [activeMessage, setActiveMessage] = useState<number | undefined>(initialMessageIndex)
   const previewRef = useRef<HTMLDivElement>(null)
-  const messages = record.rawContent ? applyLogFilters(record.rawContent, preset) : []
+  const messages = record.rawContent ? applyLogFilters(record.rawContent, preset) :
+    (record.manualContent ?? '').split(/\r\n?|\n/).map((text, index) => ({
+      id: 'manual-' + index, header: '', text, images: []
+    })).filter((message) => message.text.trim().length > 0)
   const matches = countMatches(
     record.manualContent || messages.map((message) => `${message.header}\n${message.text}`).join('\n\n'),
     query
   )
   // 结果列表与模组搜索保持一致：关键词高亮 + 前后一小段原文摘要
   const results = searchRecordMessages(
-    record.manualContent
-      ? [{ header: '手动记录', text: record.manualContent }]
-      : messages.map((message) => ({ header: message.header, text: message.text })),
+    messages.map((message) => ({ header: message.header, text: message.text })),
     query
   )
 
@@ -873,7 +898,8 @@ function RecordDetail({
     )
 
   return (
-    <Modal title={record.name} onClose={onClose} roundedScroll>
+    <>
+    <Modal title={record.name} onClose={() => { if (!saving) onClose() }} roundedScroll>
       <div className="detail-meta">
         <span>来源：{record.sourceType === 'manual' ? '手动内容' : '海豹日志'}</span>
         <span>状态：{statusLabel(record.status)}</span>
@@ -929,13 +955,15 @@ function RecordDetail({
         </div>
       )}
       <div className="log-preview" ref={previewRef}>
-        {record.manualContent ? (
-          <p data-message-index={0}>{highlight(record.manualContent)}</p>
-        ) : messages.length ? (
+        {messages.length ? (
           messages.map((message, messageIndex) => (
             <article
               key={message.id}
               data-message-index={messageIndex}
+              tabIndex={0}
+              aria-label="双击编辑正文"
+              onDoubleClick={() => beginEdit(message.id, message.text)}
+              onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); beginEdit(message.id, message.text) } }}
               className={messageIndex === activeMessage ? 'message-active' : undefined}
             >
               <strong>{highlight(message.header)}</strong>
@@ -952,6 +980,20 @@ function RecordDetail({
         )}
       </div>
     </Modal>
+    {draft && <Modal title="编辑正文" onClose={() => { if (!saving) setDraft(undefined) }}>
+      <div className="message-editor-fields">
+        <label>说话者<input value={draft.speaker} disabled={saving}
+          onChange={(event) => setDraft({ ...draft, speaker: event.target.value })} /></label>
+        <label>正文内容<textarea autoFocus value={draft.text} disabled={saving}
+          onChange={(event) => setDraft({ ...draft, text: event.target.value })} /></label>
+        {saveError && <p className="error-text" role="alert">{saveError}</p>}
+      </div>
+      <footer className="modal-actions">
+        <button className="secondary" disabled={saving} onClick={() => setDraft(undefined)}>取消</button>
+        <button className="primary" disabled={saving} onClick={() => void saveMessage()}>{saving ? '保存中…' : '保存正文'}</button>
+      </footer>
+    </Modal>}
+    </>
   )
 }
 
@@ -2342,6 +2384,11 @@ export default function App(): React.JSX.Element {
               preset={snapshot.settings.filterPreset}
               initialQuery={detailQuery}
               initialMessageIndex={detailMessageIndex}
+              onSave={async (messageId, text, speaker, version) => {
+                const saved = await window.coc.records.editMessage(record.id, messageId, text, speaker, version)
+                setSnapshot((current) => ({ ...current, records: current.records.map((row) => row.id === saved.id ? saved : row) }))
+                setMessage('正文修改已保存。')
+              }}
               onClose={() => {
                 setDetailRecordId(undefined)
                 setDetailQuery('')

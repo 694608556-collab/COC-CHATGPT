@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('coc', {
     move: (id, direction) => invoke('modules:move', { id, direction })
   },
   records: {
+    editMessage: (id, messageId, text, speaker, expectedUpdatedAt) =>
+      invoke('records:edit-message', { id, messageId, text, speaker, expectedUpdatedAt }),
     create: (input) => invoke('records:create', input),
     update: (id, patch) => invoke('records:update', { id, patch }),
     delete: (id) => invoke('records:delete', { id }),

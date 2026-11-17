@@ -1,3 +1,4 @@
+import { editBodyText } from '../shared/body-text-edit'
 import { randomUUID } from 'node:crypto'
 import type { StatementSync } from 'node:sqlite'
 import type {
@@ -579,6 +580,45 @@ export class AppRepository {
       .prepare('SELECT 1 AS found FROM records WHERE module_id=? AND sequence_no=? AND id<>? LIMIT 1')
       .get(moduleId, sequenceNo, excludingId) as { found?: number } | undefined
     return Boolean(row?.found)
+  }
+
+  /**
+   * 在当前数据库版本上修改一条消息，保留完整正文及场次元数据。
+   * @param id 场次ID。
+   * @param messageId 消息稳定ID。
+   * @param text 完整新正文。
+   * @param speaker 新说话者。
+   * @param expectedUpdatedAt 打开编辑草稿时的版本，过期时拒绝写入。
+   * @returns 提交后的完整场次。
+   */
+  editMessage(
+    id: string,
+    messageId: string,
+    text: string,
+    speaker: string,
+    expectedUpdatedAt: string
+  ): SessionRecord {
+    return this.database.transaction(() => {
+      const current = this.getRecord(id)
+      if (current.updatedAt !== expectedUpdatedAt)
+        throw new AppError('MESSAGE_CONFLICT', 'DATA', '数据已变化，请取消后重新打开正文。')
+      let next: SessionRecord
+      try {
+        next = editBodyText(current, messageId, text, speaker)
+      } catch {
+        throw new AppError('MESSAGE_MISSING', 'DATA', '正文已变化，请重新打开后编辑。')
+      }
+      const updatedAt = new Date(Math.max(Date.now(), Date.parse(current.updatedAt) + 1)).toISOString()
+      this.connection
+        .prepare('UPDATE records SET raw_json=?,manual_content=?,updated_at=? WHERE id=?')
+        .run(
+          next.rawContent ? JSON.stringify(next.rawContent) : null,
+          next.manualContent ?? null,
+          updatedAt,
+          id
+        )
+      return this.getRecord(id)
+    })
   }
 
   updateRecord(

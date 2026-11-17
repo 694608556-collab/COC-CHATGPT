@@ -16,7 +16,10 @@ const api: CocApi = {
     setBounds: (bounds) => ipcRenderer.invoke('window:set-bounds', bounds),
     isMaximized: () => ipcRenderer.invoke('window:is-maximized')
   },
-  app: { snapshot: () => invoke('app:snapshot'), version: () => invoke('app:version') },
+  app: {
+    snapshot: () => invoke('app:snapshot'),
+    version: () => invoke('app:version')
+  },
   modules: {
     create: (input) => invoke('modules:create', input),
     update: (id, patch) => invoke('modules:update', { id, patch }),
@@ -24,6 +27,8 @@ const api: CocApi = {
     move: (id, direction) => invoke('modules:move', { id, direction })
   },
   records: {
+    editMessage: (id, messageId, text, speaker, expectedUpdatedAt) =>
+      invoke('records:edit-message', { id, messageId, text, speaker, expectedUpdatedAt }),
     create: (input) => invoke('records:create', input),
     update: (id, patch) => invoke('records:update', { id, patch }),
     delete: (id) => invoke('records:delete', { id }),

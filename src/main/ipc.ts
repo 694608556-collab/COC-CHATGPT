@@ -309,6 +309,7 @@ const automaticBackupChannels = new Set([
   'modules:move',
   'records:create',
   'records:update',
+  'records:edit-message',
   'records:delete',
   'records:move',
   'records:probe',
@@ -377,6 +378,18 @@ export function registerIpc(
     ({ id: moduleId, direction }) => repository.moveModule(moduleId, direction)
   )
 
+  register(
+    'records:edit-message',
+    z.object({
+      id,
+      messageId: z.string(),
+      text: z.string(),
+      speaker: z.string(),
+      expectedUpdatedAt: z.string()
+    }),
+    ({ id: recordId, messageId, text, speaker, expectedUpdatedAt }) =>
+      repository.editMessage(recordId, messageId, text, speaker, expectedUpdatedAt)
+  )
   register('records:create', recordInput, (input) => repository.createRecord(input))
   register('records:update', z.object({ id, patch: recordPatch }), ({ id: recordId, patch }) =>
     repository.updateRecord(recordId, patch)
