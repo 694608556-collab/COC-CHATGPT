@@ -3,6 +3,8 @@ import type { SavedDocument } from '../../../data/native'
 import type { MobileSnapshot } from '../../../data/types'
 import { SelectField } from '../SelectField'
 import type { SettingsPatch } from '../../../data/settings-batch'
+import { DISPLAY_SIZES } from '../../useDisplaySize'
+import { Capacitor } from '@capacitor/core'
 
 /**
  * 数据恢复/手动备份及目录管理入口；未完成能力明确列出。
@@ -17,6 +19,9 @@ export function DataSettings(props: {
   snapshot: MobileSnapshot
   busy: boolean
   settingsDisabled: boolean
+  displaySize: number
+  displaySizeError: string
+  onDisplaySize(value: number): void
   saveStatus: string
   canRetry: boolean
   onRetry(): void
@@ -143,6 +148,22 @@ export function DataSettings(props: {
         <p className="muted">保存后下次打开仍使用所选主题。</p>
       </section>
       <section className="panel settings-panel">
+        <h2>显示字号</h2>
+        <div className="edit-actions" role="group" aria-label="显示字号">
+          {DISPLAY_SIZES.map((size) => (
+            <button
+              key={size.value}
+              aria-pressed={props.displaySize === size.value}
+              onClick={() => props.onDisplaySize(size.value)}
+            >
+              {size.label}
+            </button>
+          ))}
+        </div>
+        <p className="muted">调整界面与正文显示大小，在本设备上保存。</p>
+        {props.displaySizeError && <p role="alert">{props.displaySizeError}</p>}
+      </section>
+      <section className="panel settings-panel">
         <h2>自动本地备份</h2>
         <p className="muted">
           编辑、设置、排序、删除和导入直接保存最新数据，不额外生成操作前副本。 启用自动备份后，默认至少间隔 10
@@ -203,7 +224,7 @@ export function DataSettings(props: {
           选择备份并预览
         </button>
         <button disabled={props.busy} onClick={props.onBackup}>
-          保存安卓备份
+          {Capacitor.getPlatform() === 'ios' ? '保存手机备份' : '保存安卓备份'}
         </button>
         <button disabled={props.busy} onClick={props.onZipBackup}>
           保存含归档 ZIP 备份
@@ -234,7 +255,11 @@ export function DataSettings(props: {
       <section className="panel settings-panel">
         <h2>归档位置</h2>
         <p className="location">{props.archive.label}</p>
-        <p className="muted">已通过读写验证。若使用存储卡，拔卡后需重新确认位置。</p>
+        <p className="muted">
+          {Capacitor.getPlatform() === 'ios'
+            ? '已通过读写验证。文件位置更换或授权失效后，请重新确认位置。'
+            : '已通过读写验证。若使用存储卡，拔卡后需重新确认位置。'}
+        </p>
         <button disabled={props.busy} onClick={props.onChoose}>
           更改保存位置
         </button>

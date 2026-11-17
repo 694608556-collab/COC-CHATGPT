@@ -1,3 +1,4 @@
+import { useDisplaySize } from './useDisplaySize'
 import { backupExportName } from '../../../src/shared/export-filenames'
 import { retainBodySelection } from '../data/body-cache'
 import { BodySearchCleanupError } from '../data/body-search-stream'
@@ -138,6 +139,7 @@ export function MobileApp({
   /** Optional diagnostics sink, supplied by public fixtures only; no snapshot or body values. */
   onTableTiming?: (timing: TableConfirmTiming) => void
 }) {
+  const displaySize = useDisplaySize()
   const [native, setNative] = useState<NativeState>()
   const nativeRef = useRef(native)
   nativeRef.current = native
@@ -1683,6 +1685,9 @@ export function MobileApp({
                 )}
                 {page === 'settings' && (
                   <DataSettings
+                    displaySize={displaySize.size}
+                    displaySizeError={displaySize.error}
+                    onDisplaySize={displaySize.chooseSize}
                     storageUsage={native.storageUsage}
                     expandedLibrary={native.backupStreamVersion === 1}
                     savedBodyCount={
