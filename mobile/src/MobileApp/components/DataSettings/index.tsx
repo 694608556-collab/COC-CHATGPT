@@ -3,6 +3,7 @@ import type { SavedDocument } from '../../../data/native'
 import type { MobileSnapshot } from '../../../data/types'
 import { SelectField } from '../SelectField'
 import type { SettingsPatch } from '../../../data/settings-batch'
+import { DISPLAY_SIZES } from '../../useDisplaySize'
 import { Capacitor } from '@capacitor/core'
 
 /**
@@ -18,6 +19,9 @@ export function DataSettings(props: {
   snapshot: MobileSnapshot
   busy: boolean
   settingsDisabled: boolean
+  displaySize: number
+  displaySizeError: string
+  onDisplaySize(value: number): void
   saveStatus: string
   canRetry: boolean
   onRetry(): void
@@ -142,6 +146,22 @@ export function DataSettings(props: {
           </button>
         </div>
         <p className="muted">保存后下次打开仍使用所选主题。</p>
+      </section>
+      <section className="panel settings-panel">
+        <h2>显示字号</h2>
+        <div className="edit-actions" role="group" aria-label="显示字号">
+          {DISPLAY_SIZES.map((size) => (
+            <button
+              key={size.value}
+              aria-pressed={props.displaySize === size.value}
+              onClick={() => props.onDisplaySize(size.value)}
+            >
+              {size.label}
+            </button>
+          ))}
+        </div>
+        <p className="muted">调整界面与正文显示大小，在本设备上保存。</p>
+        {props.displaySizeError && <p role="alert">{props.displaySizeError}</p>}
       </section>
       <section className="panel settings-panel">
         <h2>自动本地备份</h2>
