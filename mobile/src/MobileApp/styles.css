@@ -1925,3 +1925,20 @@ input[type='checkbox']:checked::after {
 .body-edit-backdrop {
   z-index: 145;
 }
+.modal-backdrop .restore-dialog.body-editor {
+  max-height: 100%;
+}
+.body-editor textarea {
+  width: 100%;
+  min-height: clamp(160px, 40vh, 480px);
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+.message {
+  touch-action: manipulation;
+}

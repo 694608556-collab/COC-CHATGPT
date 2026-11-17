@@ -1,8 +1,30 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
+import { useVisibleViewport } from '../../useVisibleViewport'
 import type { FilterPreset, SessionRecord } from '../../../../../src/shared/types'
 import { compileBodyQuery, matchRanges, recordMessages, searchExcerpt } from '../../../data/search'
 import { SystemMessage } from '../SystemMessage'
 import { SearchInput } from '../SearchInput'
+
+/** @param children 正文编辑弹窗。 @returns 随键盘可见区域定位的遮罩，仅编辑期间监听视口。 */
+function BodyEditorFrame({ children }: { children: ReactNode }) {
+  const bounds = useVisibleViewport()
+  return (
+    <div
+      className="modal-backdrop body-edit-backdrop"
+      style={{
+        top: bounds.top,
+        left: bounds.left,
+        width: bounds.width,
+        height: bounds.height,
+        right: 'auto',
+        bottom: 'auto'
+      }}
+    >
+      {children}
+    </div>
+  )
+}
 
 function Highlight({ text, query }: { text: string; query: string }) {
   const ranges = matchRanges(text, query)
@@ -30,6 +52,9 @@ export function LogReader(props: {
   initialQuery?: string
   preset: FilterPreset
   busy: boolean
+  revision: number
+  /** 保存单段正文，失败拒绝并由阅读器保留编辑草稿。 */
+  onSaveText(messageId: string, text: string, revision: number, speaker: string): Promise<void>
   onBack(): void
   onEdit(): void
   onFetch(): void
@@ -40,6 +65,40 @@ export function LogReader(props: {
   onExportMore(filters: FilterPreset): void
 }) {
   const filters = props.preset
+  const [bodyDraft, setBodyDraft] = useState<{
+    id: string
+    text: string
+    speaker: string
+    revision: number
+  }>()
+  const [bodyError, setBodyError] = useState('')
+  const [bodySaving, setBodySaving] = useState(false)
+  /** @param id 原消息ID。 @param text 原始文字。 @returns 无返回值，打开独立草稿。 */
+  function beginBodyEdit(id: string, text: string): void {
+    if (props.busy || bodySaving) return
+    setBodyError('')
+    const original = props.record.rawContent?.messages.find((message) => message.id === id)
+    setBodyDraft({
+      id,
+      text: original?.text ?? text,
+      speaker: original?.displayName ?? '',
+      revision: props.revision
+    })
+  }
+  /** @returns 保存结束后resolve，无返回值。失败保留草稿及错误。 */
+  async function saveBodyDraft(): Promise<void> {
+    if (!bodyDraft || bodySaving) return
+    setBodySaving(true)
+    setBodyError('')
+    try {
+      await props.onSaveText(bodyDraft.id, bodyDraft.text, bodyDraft.revision, bodyDraft.speaker)
+      setBodyDraft(undefined)
+    } catch (error) {
+      setBodyError('正文保存失败，请重试。' + (error instanceof Error ? error.message : ''))
+    } finally {
+      setBodySaving(false)
+    }
+  }
   const [query, setQuery] = useState(props.initialQuery ?? '')
   const [submittedQuery, setSubmittedQuery] = useState(props.initialQuery ?? '')
   const initialJump = useRef(!!props.initialQuery)
@@ -157,6 +216,46 @@ export function LogReader(props: {
           />
         )}
       </section>
+      {bodyDraft && (
+        <BodyEditorFrame>
+          <section
+            className="restore-dialog panel body-editor"
+            role="dialog"
+            aria-modal="true"
+            aria-label="编辑正文"
+          >
+            <h2>编辑正文</h2>
+            <div className="dialog-body">
+              <label className="field">
+                说话者
+                <input
+                  value={bodyDraft.speaker}
+                  disabled={bodySaving}
+                  onChange={(event) => setBodyDraft({ ...bodyDraft, speaker: event.target.value })}
+                />
+              </label>
+              <label className="field">
+                正文内容
+                <textarea
+                  autoFocus
+                  value={bodyDraft.text}
+                  disabled={bodySaving}
+                  onChange={(event) => setBodyDraft({ ...bodyDraft, text: event.target.value })}
+                />
+              </label>
+              {bodyError && <SystemMessage kind="error" message={bodyError} autoHide={false} />}
+            </div>
+            <div className="dialog-actions">
+              <button disabled={bodySaving} onClick={() => setBodyDraft(undefined)}>
+                取消
+              </button>
+              <button className="primary" disabled={bodySaving} onClick={() => void saveBodyDraft()}>
+                {bodySaving ? '保存中…' : '保存正文'}
+              </button>
+            </div>
+          </section>
+        </BodyEditorFrame>
+      )}
       {hasBody && (
         <>
           <form
@@ -254,7 +353,15 @@ export function LogReader(props: {
               const index = currentPage * 100 + offset
               return (
                 <article
-                  tabIndex={-1}
+                  tabIndex={0}
+                  aria-label="双击编辑正文"
+                  onDoubleClick={() => beginBodyEdit(message.id, message.text)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      beginBodyEdit(message.id, message.text)
+                    }
+                  }}
                   data-message-index={index}
                   className={
                     'message' + (selectedHit !== null && hits[selectedHit] === index ? ' search-target' : '')
