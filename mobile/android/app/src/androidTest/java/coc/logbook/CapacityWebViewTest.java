@@ -61,7 +61,7 @@ public final class CapacityWebViewTest {
         assertTrue("Never run against production",context.getPackageName().matches("coc\\.logbook\\.debug[0-9]+"));
         assertFalse("Never replace an existing debug database",context.getDatabasePath("coc-logbook.sqlite").exists());
         android.content.SharedPreferences preferences=context.getSharedPreferences("archive-location",0);assertFalse("Never replace an existing directory",preferences.contains("tree"));
-        android.net.Uri uri=android.net.Uri.parse("content://coc.logbook.public.tabletest/tree/public-"+java.util.UUID.randomUUID());
+        android.net.Uri uri=android.net.Uri.parse("content://coc.logbook.public.tabletest55231023/tree/public-"+java.util.UUID.randomUUID());
         int modes=android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION|android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
         AtomicReference<TableSession> owned=new AtomicReference<>();boolean granted=false;
         try{

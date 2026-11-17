@@ -8,6 +8,7 @@ final class NativeSearchKernel {
     private static final boolean AVAILABLE;
     static {boolean loaded;try{System.loadLibrary("coc_table_native");loaded=true;}catch(LinkageError unavailable){loaded=false;}AVAILABLE=loaded;}
     static native boolean check(byte[] original,long residentBudget,boolean metadata);
+    static boolean isAvailable(){return AVAILABLE;}
     static native byte[] project(byte[] original,long residentBudget);
     static native byte[] compact(byte[] original,long residentBudget);
     static native byte[] searchable(byte[] original,long residentBudget);

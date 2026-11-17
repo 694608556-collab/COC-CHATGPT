@@ -46,6 +46,18 @@ final class RawJson {
             else if(c=='{' || c=='[')depth++;
             else if(c=='}' || c==']'){if(--depth==0)done=true;}
             if(done){if(used>0)out.write(block,0,used);return;}
+            if(string&&!escape){
+                // Copy the current string's ordinary span without per-character cursor
+                // dispatch. Retain raw escapes, number spelling and bounded writer calls.
+                int start=position;
+                while(position<limit&&buffer[position]!='"'&&buffer[position]!='\\')position++;
+                int remaining=position-start;
+                while(remaining>0){
+                    int count=Math.min(remaining,block.length-used);
+                    System.arraycopy(buffer,start,block,used,count);used+=count;start+=count;remaining-=count;
+                    if(used==block.length){out.write(block,0,used);used=0;}
+                }
+            }
             c=read();if(c<0){if(scalar){if(used>0)out.write(block,0,used);return;}throw new EOFException();}
         }
     }

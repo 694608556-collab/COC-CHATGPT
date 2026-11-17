@@ -1,11 +1,19 @@
 import { build } from 'esbuild'
 import { mkdtemp, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
-// Use an installed JDK and a caller-supplied org.json JAR; no downloads or device access.
-if (!process.env.JAVA_HOME || !process.env.JSON_JAR) throw new Error('Set JAVA_HOME and JSON_JAR (org.json).')
+// Compile real Android search-source dependencies against the installed SDK; no downloads or device access.
+const androidJar =
+  process.env.ANDROID_JAR ??
+  [process.env.ANDROID_HOME, process.env.ANDROID_SDK_ROOT]
+    .filter(Boolean)
+    .map((root) => join(root, 'platforms/android-36/android.jar'))
+    .find(existsSync)
+if (!process.env.JAVA_HOME || !process.env.JSON_JAR || !androidJar || !existsSync(androidJar))
+  throw new Error('Set JAVA_HOME, JSON_JAR (org.json), and ANDROID_JAR (installed Android SDK).')
 const work = await mkdtemp(join(tmpdir(), 'coc-native-metadata-'))
 const sample = await build({
   stdin: {
@@ -38,12 +46,36 @@ const sources = ['JsonFields', 'RecordOverlay', 'EntityEdits', 'LogbookActions',
 )
 const javac = join(process.env.JAVA_HOME, 'bin', process.platform === 'win32' ? 'javac.exe' : 'javac')
 const java = join(process.env.JAVA_HOME, 'bin', process.platform === 'win32' ? 'java.exe' : 'java')
-const snapshotCompiled = spawnSync(javac, [
-  '-encoding', 'UTF-8', '-d', work, join(source, 'SnapshotJson.java'), join(source, 'SnapshotStream.java'),
-  resolve('tests/native/SnapshotStreamCheck.java')
-], { encoding: 'utf8' })
+const snapshotCompiled = spawnSync(
+  javac,
+  [
+    '-encoding',
+    'UTF-8',
+    '-cp',
+    process.env.JSON_JAR,
+    '-d',
+    work,
+    join(source, 'SnapshotJson.java'),
+    join(source, 'SnapshotStream.java'),
+    join(source, 'RawJson.java'),
+    join(source, 'NativeSearchKernel.java'),
+    resolve('tests/native/SnapshotStreamCheck.java')
+  ],
+  { encoding: 'utf8' }
+)
 if (snapshotCompiled.status !== 0) throw new Error(snapshotCompiled.stderr || String(snapshotCompiled.error))
-const snapshotResult = spawnSync(java, ['-Xmx96m', '-cp', work, 'coc.logbook.SnapshotStreamCheck'], { encoding: 'utf8' })
+const snapshotResult = spawnSync(
+  java,
+  [
+    '-Xmx96m',
+    '-cp',
+    work + (process.platform === 'win32' ? ';' : ':') + process.env.JSON_JAR,
+    'coc.logbook.SnapshotStreamCheck'
+  ],
+  {
+    encoding: 'utf8'
+  }
+)
 process.stdout.write(snapshotResult.stdout)
 if (snapshotResult.status !== 0) throw new Error(snapshotResult.stderr || String(snapshotResult.error))
 const pickerCompiled = spawnSync(
@@ -184,6 +216,8 @@ const backupSources = [
   'StrictBackupJson',
   'RestoreCandidate',
   'BackupSession',
+  'SearchSnapshot',
+  'NativeSearchKernel',
   'SnapshotBackupStream',
   'RawJson',
   'LogbookLimits',
@@ -194,8 +228,10 @@ const backupCompiled = spawnSync(
   [
     '-encoding',
     'UTF-8',
+    '-sourcepath',
+    resolve('android/app/src/main/java'),
     '-cp',
-    process.env.JSON_JAR,
+    [process.env.JSON_JAR, androidJar].join(separator),
     '-d',
     work,
     ...backupSources.map((name) => join(source, name + '.java')),
@@ -223,17 +259,37 @@ for (const name of ['StorageBudgetCheck', 'BackupStreamCheck', 'StrictJsonPerfor
   process.stdout.write(checked.stdout)
   if (checked.status) throw new Error(checked.stderr)
 }
-const singleRecord = spawnSync(java, [
-  '-Xmx1024m', '-cp', work + separator + process.env.JSON_JAR,
-  'coc.logbook.SingleRecordCapacityCheck', join(work, 'sample.json')
-], { encoding: 'utf8' })
+const singleRecord = spawnSync(
+  java,
+  [
+    '-Xmx1024m',
+    '-cp',
+    work + separator + process.env.JSON_JAR,
+    'coc.logbook.SingleRecordCapacityCheck',
+    join(work, 'sample.json')
+  ],
+  { encoding: 'utf8' }
+)
 process.stdout.write(singleRecord.stdout)
 if (singleRecord.status) throw new Error(singleRecord.stderr)
-const grammarCompiled = spawnSync(javac, [
-  '-encoding', 'UTF-8', '-cp', work + separator + process.env.JSON_JAR, '-d', work,
-  resolve('tests/native/SnapshotStreamGrammarCheck.java')
-], { encoding: 'utf8' })
+const grammarCompiled = spawnSync(
+  javac,
+  [
+    '-encoding',
+    'UTF-8',
+    '-cp',
+    work + separator + process.env.JSON_JAR,
+    '-d',
+    work,
+    resolve('tests/native/SnapshotStreamGrammarCheck.java')
+  ],
+  { encoding: 'utf8' }
+)
 if (grammarCompiled.status !== 0) throw new Error(grammarCompiled.stderr || String(grammarCompiled.error))
-const grammarResult = spawnSync(java, ['-Xmx96m', '-cp', work + separator + process.env.JSON_JAR, 'coc.logbook.SnapshotStreamGrammarCheck'], { encoding: 'utf8' })
+const grammarResult = spawnSync(
+  java,
+  ['-Xmx96m', '-cp', work + separator + process.env.JSON_JAR, 'coc.logbook.SnapshotStreamGrammarCheck'],
+  { encoding: 'utf8' }
+)
 process.stdout.write(grammarResult.stdout)
 if (grammarResult.status !== 0) throw new Error(grammarResult.stderr || String(grammarResult.error))

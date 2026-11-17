@@ -16,7 +16,7 @@ public final class PublicIoProvider extends DocumentsProvider {
     private final java.util.concurrent.ConcurrentHashMap<String,Long> firstSourceOpen=new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicInteger> documentOpens=new java.util.concurrent.ConcurrentHashMap<>();
     private String owner(String id){int slash=id.indexOf('/');return slash<0?id:id.substring(0,slash);}
-    public static final String AUTHORITY="coc.logbook.public.iotest55";
+    public static final String AUTHORITY="coc.logbook.public.iotest55231023";
     @Override public boolean onCreate(){return true;}
     private File file(String id)throws FileNotFoundException{
         try{

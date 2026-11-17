@@ -31,6 +31,36 @@ public final class NetworkQueueCheck {
         } finally { release.countDown(); queue.close(); }
         queue.execute(() -> { throw new AssertionError("Closed queue ran work."); }, rejected::incrementAndGet);
         if (rejected.get()!=2) throw new AssertionError("Closed queue did not reject cleanly.");
-        System.out.println("Native network queue: four checks passed (parallel, bounded, drain, closed rejection); HTTP/Android not exercised.");
+        try(NetworkQueue batchQueue=new NetworkQueue(6)) {
+            CountDownLatch batchStarted=new CountDownLatch(6),batchRelease=new CountDownLatch(1),batchDone=new CountDownLatch(10);
+            AtomicInteger batchActive=new AtomicInteger(),batchPeak=new AtomicInteger(),batchRejected=new AtomicInteger();
+            Runnable batchWork=()->{
+                int count=batchActive.incrementAndGet();batchPeak.accumulateAndGet(count,Math::max);batchStarted.countDown();
+                try{batchRelease.await(5,TimeUnit.SECONDS);}catch(InterruptedException error){Thread.currentThread().interrupt();}
+                finally{batchActive.decrementAndGet();batchDone.countDown();}
+            };
+            try {
+                for(int i=0;i<6;i++)batchQueue.execute(batchWork,batchRejected::incrementAndGet);
+                if(!batchStarted.await(2,TimeUnit.SECONDS))throw new AssertionError("Configured batch network slots did not run concurrently.");
+                for(int i=0;i<4;i++)batchQueue.execute(batchWork,batchRejected::incrementAndGet);
+                batchQueue.execute(batchWork,batchRejected::incrementAndGet);
+                if(batchPeak.get()!=6||batchRejected.get()!=1)throw new AssertionError("Configured batch queue exceeded its explicit bounds.");
+                batchRelease.countDown();if(!batchDone.await(2,TimeUnit.SECONDS))throw new AssertionError("Configured batch queue did not drain.");
+            }finally{batchRelease.countDown();}
+        }
+        try(NetworkQueue prefetched=new NetworkQueue(6,6)) {
+            CountDownLatch startedSix=new CountDownLatch(6),releaseSix=new CountDownLatch(1),doneTwelve=new CountDownLatch(12);
+            AtomicInteger running=new AtomicInteger(),maximum=new AtomicInteger(),denied=new AtomicInteger();
+            Runnable task=()->{int activeNow=running.incrementAndGet();maximum.accumulateAndGet(activeNow,Math::max);startedSix.countDown();try{releaseSix.await(5,TimeUnit.SECONDS);}catch(InterruptedException error){Thread.currentThread().interrupt();}finally{running.decrementAndGet();doneTwelve.countDown();}};
+            try {
+                for(int i=0;i<6;i++)prefetched.execute(task,denied::incrementAndGet);
+                if(!startedSix.await(2,TimeUnit.SECONDS))throw new AssertionError("Six network workers did not start.");
+                for(int i=0;i<6;i++)prefetched.execute(task,denied::incrementAndGet);
+                prefetched.execute(task,denied::incrementAndGet);
+                if(maximum.get()!=6||denied.get()!=1)throw new AssertionError("Prefetch changed the physical concurrency or queue bound.");
+                releaseSix.countDown();if(!doneTwelve.await(2,TimeUnit.SECONDS))throw new AssertionError("Prefetch did not drain all twelve jobs.");
+            }finally{releaseSix.countDown();}
+        }
+        System.out.println("Native network queue: default and both explicit bounded configurations, drain and closed rejection passed; HTTP/Android not exercised.");
     }
 }

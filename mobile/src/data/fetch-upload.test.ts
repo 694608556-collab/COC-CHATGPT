@@ -1,11 +1,45 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { performSnapshotJob } from './snapshot-job'
+import { performSnapshotJob, createSnapshotJobSession } from './snapshot-job'
 import { fetchRecord } from './network'
 import { previewBackup } from './backup'
 import { exampleBackup } from './fixtures'
 import { decodeBase64 } from './bytes'
 
 afterEach(() => vi.useRealTimers())
+
+it('两个后台会话并行保留完整字节，同名租约的释放不会影响另一槽位', async () => {
+  const snapshot = (await previewBackup(new TextEncoder().encode(JSON.stringify(exampleBackup())))).snapshot
+  const { rawContent, manualContent, ...record } = snapshot.records[0]!
+  const sessions = [createSnapshotJobSession(), createSnapshotJobSession()]
+  const leases = (await Promise.all(
+    sessions.map((run, index) =>
+      run({
+        type: 'prepare-fetch-upload',
+        snapshot,
+        record,
+        text: JSON.stringify({ messages: [{ content: ('公开槽位' + index + '中文😀').repeat(20000) }] })
+      })
+    )
+  )) as Array<{ id: string; count: number; sha256: string; bytes: number }>
+  expect(leases[0]!.id).toBe(leases[1]!.id)
+  expect(leases[0]!.sha256).not.toBe(leases[1]!.sha256)
+  await sessions[0]!({ type: 'upload-close', id: leases[0]!.id })
+  await expect(sessions[0]!({ type: 'upload-chunk', id: leases[0]!.id, index: 0 })).rejects.toThrow('失效')
+  const bytes = Buffer.concat(
+    await Promise.all(
+      Array.from({ length: leases[1]!.count }, async (_, index) =>
+        Buffer.from(
+          decodeBase64((await sessions[1]!({ type: 'upload-chunk', id: leases[1]!.id, index })) as string)
+        )
+      )
+    )
+  )
+  expect(bytes.length).toBe(leases[1]!.bytes)
+  expect(JSON.parse(bytes.toString()).records[0].rawContent.messages[0].text).toBe(
+    '公开槽位1中文😀'.repeat(20000)
+  )
+  await sessions[1]!({ type: 'upload-close', id: leases[1]!.id })
+})
 
 it('后台解析到上传的完整字节等同旧路径，正文不返回主线程', async () => {
   vi.useFakeTimers({ toFake: ['Date'] })

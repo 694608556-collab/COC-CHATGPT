@@ -36,7 +36,7 @@ public final class NativeTableKernelTest {
     }
     @Test public void sealedOwnerProofBindsExactlyTheSnapshotSentToNativeKernel()throws Exception{
         Context target=InstrumentationRegistry.getInstrumentation().getTargetContext();
-        assertEquals("coc.logbook.debug55",target.getPackageName());
+        assertEquals("coc.logbook.debug55231023",target.getPackageName());
         File root=new File(target.getCacheDir(),"public-kernel-proof-"+UUID.randomUUID());assertTrue(root.mkdir());
         TableSession owner=new TableSession(root,"public://isolated-kernel",7,"character-table","public.xlsx",null);
         try{
@@ -49,7 +49,7 @@ public final class NativeTableKernelTest {
         }finally{owner.close();assertTrue(root.delete());}
     }
     @Test public void readOnlyKernelNeedsNoUnusedIndexButKeepsOwnedSourceCleanup()throws Exception{
-        Context target=InstrumentationRegistry.getInstrumentation().getTargetContext();assertEquals("coc.logbook.debug55",target.getPackageName());
+        Context target=InstrumentationRegistry.getInstrumentation().getTargetContext();assertEquals("coc.logbook.debug55231023",target.getPackageName());
         File root=new File(target.getCacheDir(),"public-kernel-deferred-"+UUID.randomUUID());assertTrue(root.mkdir());
         TableSession owner=new TableSession(root,"public://isolated-kernel",7,"character-table","public.xlsx",null,true);
         try{
@@ -62,7 +62,7 @@ public final class NativeTableKernelTest {
         }finally{owner.close();assertTrue(root.delete());}
     }
     @Test public void completeFallbackCreatesTheSameIndexOnFirstStringWrite()throws Exception{
-        Context target=InstrumentationRegistry.getInstrumentation().getTargetContext();assertEquals("coc.logbook.debug55",target.getPackageName());
+        Context target=InstrumentationRegistry.getInstrumentation().getTargetContext();assertEquals("coc.logbook.debug55231023",target.getPackageName());
         File root=new File(target.getCacheDir(),"public-kernel-spill-"+UUID.randomUUID());assertTrue(root.mkdir());
         TableSession owner=new TableSession(root,"public://isolated-kernel",7,"character-table","public.xlsx",null,true);
         try{
@@ -80,7 +80,7 @@ public final class NativeTableKernelTest {
         }finally{owner.close();assertTrue(root.delete());}
     }
     @Test public void memorySnapshotUsesCanonicalShaAndOwnsAnImmutableCopy()throws Exception{
-        Context target=InstrumentationRegistry.getInstrumentation().getTargetContext();assertEquals("coc.logbook.debug55",target.getPackageName());
+        Context target=InstrumentationRegistry.getInstrumentation().getTargetContext();assertEquals("coc.logbook.debug55231023",target.getPackageName());
         File root=new File(target.getCacheDir(),"public-kernel-memory-"+UUID.randomUUID());assertTrue(root.mkdir());
         TableSession owner=new TableSession(root,"public://isolated-kernel",7,"character-table","public.xlsx",null,true);
         try{
@@ -92,7 +92,7 @@ public final class NativeTableKernelTest {
         }finally{owner.close();assertTrue(root.delete());}
     }
     @Test public void memoryBudgetOverflowKeepsTheCompleteOriginalDiskSource()throws Exception{
-        Context target=InstrumentationRegistry.getInstrumentation().getTargetContext();assertEquals("coc.logbook.debug55",target.getPackageName());
+        Context target=InstrumentationRegistry.getInstrumentation().getTargetContext();assertEquals("coc.logbook.debug55231023",target.getPackageName());
         File root=new File(target.getCacheDir(),"public-kernel-memory-overflow-"+UUID.randomUUID());assertTrue(root.mkdir());
         TableSession owner=new TableSession(root,"public://isolated-kernel",7,"character-table","public.xlsx",null,true);
         try{

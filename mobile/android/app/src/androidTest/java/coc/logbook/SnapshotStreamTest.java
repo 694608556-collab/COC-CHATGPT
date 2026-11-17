@@ -30,6 +30,22 @@ public class SnapshotStreamTest {
         refuses(SAMPLE+"{}");
         refuses(SAMPLE.replace("\"public😀\"","not_json"));
     }
+    @Test public void stringSpansPreserveEscapesBoundariesAndStrictValidation() throws Exception {
+        for(int length:new int[]{0,1,7,8191,32767,32768,65536})for(int chunk:new int[]{1,7,32768}) {
+            String padding=new String(new char[length]).replace('\0','中');
+            String token="\""+padding+"\\\"\\\\\\n\\u4e2d😀\"";
+            String json="{\"ke\\u0079\":"+token+",\"discard\":"+token+",\"tail\":\"end\"}";
+            Reader input=new StringReader(json){@Override public int read(char[] b,int o,int n)throws IOException{return super.read(b,o,Math.min(n,chunk));}};
+            java.util.Map<String,String> values=new java.util.LinkedHashMap<>();
+            try(SnapshotJson cursor=new SnapshotJson(input)) {
+                cursor.object(name->{if(name.equals("discard"))cursor.discardString();else values.put(name,cursor.string());});cursor.end();
+            }
+            assertEquals(padding+"\"\\\n中😀",values.get("key"));assertEquals("end",values.get("tail"));
+            refuses(SAMPLE.replace("public😀",padding+"\n"));
+            refuses(SAMPLE.replace("public😀",padding+"\\q"));
+            refuses(SAMPLE.replace("public😀",padding+"\\u12x4"));
+        }
+    }
     @Test public void rejectsMalformedUtf8BeforeCommit() throws Exception {
         File file=File.createTempFile("public-snapshot-",".json",InstrumentationRegistry.getInstrumentation().getTargetContext().getCacheDir());
         try {
@@ -56,5 +72,18 @@ public class SnapshotStreamTest {
             try{db.replace(broken,1);fail("Partial stream committed");}catch(IOException expected){}
             assertEquals(1,db.revision()); assertEquals(indexed(SAMPLE),db.snapshot());
         } finally {context.deleteDatabase(name);}
+    }
+    @Test public void bulkBodyWritesPreserveSurrogateAndRawTokenBoundaries()throws Exception {
+        Context context=InstrumentationRegistry.getInstrumentation().getTargetContext();String name="public-body-spans-"+UUID.randomUUID()+".sqlite";
+        int prefix="{\"messages\":[{\"text\":\"".length();
+        try(LogbookDatabase db=new LogbookDatabase(context,name)) {
+            int index=0;
+            for(int length:new int[]{65534-prefix,65535-prefix,65536-prefix,131070-prefix,131071-prefix,131072-prefix}) {
+                String padding=new String(new char[length]).replace('\0','中');
+                String candidate=SAMPLE.replace("\"public😀\"",org.json.JSONObject.quote(padding+"😀\n\u0000完整末尾"));
+                assertEquals(++index,db.replace(new StringReader(candidate),index-1));
+                assertEquals(indexed(candidate),db.snapshot());
+            }
+        }finally{context.deleteDatabase(name);}
     }
 }

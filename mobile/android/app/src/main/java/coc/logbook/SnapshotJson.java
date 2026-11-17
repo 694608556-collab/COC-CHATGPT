@@ -5,9 +5,7 @@ import java.util.*;
 
 /** Strict snapshot cursor. Ignored strings are validated without retaining text;
  * Android 9 JsonReader.skipValue still materializes long strings. */
-final class SnapshotJson implements AutoCloseable {
-    interface Field { void accept(String name) throws Exception; }
-    interface Element { void accept() throws Exception; }
+final class SnapshotJson implements SnapshotStream.Cursor {
     private final Reader input;
     private final char[] buffer = new char[32768];
     private int position, limit, depth;
@@ -24,7 +22,7 @@ final class SnapshotJson implements AutoCloseable {
     private void space() throws IOException { while (peek() == ' ' || peek() == '\t' || peek() == '\r' || peek() == '\n') take(); }
     private void expect(int value) throws IOException { space(); if (take() != value) fail(); }
     private void enter() { if (++depth > 256) fail(); }
-    void object(Field field) throws Exception {
+    public void object(SnapshotStream.Field field) throws Exception {
         expect('{'); enter(); Set<String> keys = new HashSet<>(); space();
         if (peek() != '}') for (;;) {
             String key = string(); if (!keys.add(key)) fail(); expect(':'); field.accept(key); space();
@@ -32,16 +30,26 @@ final class SnapshotJson implements AutoCloseable {
         }
         expect('}'); depth--;
     }
-    void array(Element element) throws Exception {
+    public void array(SnapshotStream.Element element) throws Exception {
         expect('['); enter(); space();
         if (peek() != ']') for (;;) { element.accept(); space(); if (peek() != ',') break; take(); }
         expect(']'); depth--;
     }
-    String string() throws IOException { return string(true); }
-    void discardString() throws IOException { string(false); }
+    public String string() throws IOException { return string(true); }
+    public void discardString() throws IOException { string(false); }
     private String string(boolean retain) throws IOException {
         expect('"'); StringBuilder text = retain ? new StringBuilder() : null;
         for (;;) {
+            // Validate ordinary UTF-16 spans directly in the existing buffer. Escapes and
+            // control characters still take the strict path, including across refills.
+            int start = position;
+            while (position < limit) {
+                char value = buffer[position];
+                if (value == '"' || value == '\\' || value < 32) break;
+                position++;
+            }
+            if (retain && position > start) text.append(buffer, start, position - start);
+            if (position == limit) { if (peek() < 0) fail(); continue; }
             int value = take();
             if (value == '"') return retain ? text.toString() : null;
             if (value < 32) fail();
@@ -81,15 +89,15 @@ final class SnapshotJson implements AutoCloseable {
         }
         return retain ? text.toString() : null;
     }
-    void versionTwo() throws IOException { if (Double.parseDouble(number(true)) != 2) throw new IllegalArgumentException("备份版本不兼容。"); }
+    public void versionTwo() throws IOException { if (Double.parseDouble(number(true)) != 2) throw new IllegalArgumentException("备份版本不兼容。"); }
     private void literal(String text) throws IOException { for (int index = 0; index < text.length(); index++) if (take() != text.charAt(index)) fail(); }
-    void skip() throws Exception {
+    public void skip() throws Exception {
         space(); int value = peek();
         if (value == '"') { string(false); return; }
         if (value == '{') { object(key -> skip()); return; }
         if (value == '[') { array(() -> skip()); return; }
         if (value == 't') literal("true"); else if (value == 'f') literal("false"); else if (value == 'n') literal("null"); else number(false);
     }
-    void end() throws IOException { space(); if (peek() != -1) fail(); }
+    public void end() throws IOException { space(); if (peek() != -1) fail(); }
     @Override public void close() throws IOException { input.close(); }
 }

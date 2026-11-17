@@ -4,6 +4,58 @@ import { exampleBackup } from '../data/fixtures'
 import { previewBackup } from '../data/backup'
 import type { FetchProgress } from './fetch-records'
 
+it.each([6, 8, 12] as const)(
+  'Android %i 个流水线槽位有界，下载与两份后台暂存交叠且保留完整顺序',
+  async (concurrency) => {
+    const base = (await previewBackup(new TextEncoder().encode(JSON.stringify(exampleBackup())))).snapshot
+      .records[0]!
+    const records = Array.from({ length: 14 }, (_, index) => ({ ...base, id: 'public-pipeline-' + index }))
+    const waiting: Array<() => void> = []
+    let entered = 0,
+      active = 0,
+      peak = 0
+    const pending = fetchRecords(
+      {
+        fetchLog: async () => {
+          throw Error('Dedicated pipeline required')
+        }
+      },
+      records,
+      {
+        concurrency,
+        releaseBodies: true,
+        fetchAndStage: async (record) => {
+          entered++
+          active++
+          peak = Math.max(peak, active)
+          await new Promise<void>((resolve) => waiting.push(resolve))
+          active--
+          return { ...record, rawContent: undefined, status: 'valid' }
+        }
+      }
+    )
+    // Attach immediately so the deliberate unsupported-concurrency red case is observed cleanly.
+    const outcome = pending.then(
+      (value) => ({ value }),
+      (error) => ({ error })
+    )
+    for (let i = 0; i < 12; i++) await Promise.resolve()
+    const firstWave = entered
+    while (entered < records.length && waiting.length) {
+      waiting.splice(0).forEach((release) => release())
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    }
+    waiting.splice(0).forEach((release) => release())
+    const result = await outcome
+    expect(result).not.toHaveProperty('error')
+    expect(firstWave).toBe(concurrency)
+    expect(peak).toBe(concurrency)
+    expect('value' in result && result.value.map((record) => record.id)).toEqual(
+      records.map((record) => record.id)
+    )
+  }
+)
+
 it('五场公开样本对照 2／3／4 路：有界、顺序稳定、完整正文、进度真实且输入不变', async () => {
   const base = (await previewBackup(new TextEncoder().encode(JSON.stringify(exampleBackup())))).snapshot
     .records[0]!

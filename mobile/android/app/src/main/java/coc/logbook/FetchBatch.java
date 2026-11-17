@@ -35,11 +35,10 @@ final class FetchBatch implements AutoCloseable {
     void require(String token){if(!id.equals(token))throw new IllegalArgumentException("检测批次已失效。");}
     void stage(File snapshot)throws Exception{
         if(deviceSpace)StorageBudget.require(available,StorageBudget.estimate(snapshot.length(),4));
-        SnapshotStream.validate(java.nio.file.Files.newBufferedReader(snapshot.toPath(),StandardCharsets.UTF_8));
         long start=file.length();Map<String,String> metadata=new LinkedHashMap<>();int[] count={0};boolean[] body={false};
         MessageDigest digest=MessageDigest.getInstance("SHA-256");
-        try(Writer out=new BufferedWriter(new OutputStreamWriter(new DigestOutputStream(new FileOutputStream(file,true),digest),StandardCharsets.UTF_8),32768);
-            Reader input=java.nio.file.Files.newBufferedReader(snapshot.toPath(),StandardCharsets.UTF_8)){
+        try(Reader input=SnapshotStream.openValidated(snapshot);
+            Writer out=new BufferedWriter(new OutputStreamWriter(new DigestOutputStream(new FileOutputStream(file,true),digest),StandardCharsets.UTF_8),32768)){
             RawJson reader=new RawJson(input);
             reader.object((field,value)->{
                 if(!field.equals("records")){value.skip();return;}

@@ -79,7 +79,7 @@ public final class PublicIoTimingTest {
     }
     @Test public void publicImportsExportsAndSearchKeepFullContentAndRecordElapsedTime()throws Exception{
         Instrumentation instrumentation=InstrumentationRegistry.getInstrumentation();Context target=instrumentation.getTargetContext(),tests=instrumentation.getContext();
-        assertEquals("Never run against production","coc.logbook.debug55",target.getPackageName());
+        assertEquals("Never run against production","coc.logbook.debug55231023",target.getPackageName());
         assertFalse("Never replace an existing test database",target.getDatabasePath("coc-logbook.sqlite").exists());
         android.content.SharedPreferences prefs=target.getSharedPreferences("archive-location",0);assertFalse("Never replace an existing test grant",prefs.contains("tree"));
         String id="public-"+UUID.randomUUID();
@@ -233,7 +233,7 @@ public final class PublicIoTimingTest {
             }
         }finally{
             if(monitor!=null)instrumentation.removeMonitor(monitor);
-            assertTrue("Only our isolated database may be removed",target.getPackageName().equals("coc.logbook.debug55"));target.deleteDatabase("coc-logbook.sqlite");
+            assertTrue("Only our isolated database may be removed",target.getPackageName().equals("coc.logbook.debug55231023"));target.deleteDatabase("coc-logbook.sqlite");
             if(tree.toString().equals(prefs.getString("tree",""))||outputTree.toString().equals(prefs.getString("tree","")))prefs.edit().remove("tree").remove("label").commit();
             android.content.SharedPreferences.Editor editor=prefs.edit();if(originalDocuments==null)editor.remove("created-documents");else editor.putString("created-documents",originalDocuments);editor.commit();
             if(granted)target.getContentResolver().releasePersistableUriPermission(tree,modes);

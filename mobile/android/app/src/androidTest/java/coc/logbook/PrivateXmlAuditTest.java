@@ -21,7 +21,7 @@ import static org.junit.Assert.*;
 public final class PrivateXmlAuditTest {
     @Test public void measurePlatformXmlValidationWithoutImportingData() throws Exception {
         Context target=InstrumentationRegistry.getInstrumentation().getTargetContext(), tests=InstrumentationRegistry.getInstrumentation().getContext();
-        assertEquals("coc.logbook.debug55",target.getPackageName());
+        assertEquals("coc.logbook.debug55231023",target.getPackageName());
         boolean localCard="true".equals(InstrumentationRegistry.getArguments().getString("localPrivateCard"));
         String id="public-"+UUID.randomUUID();
         Uri tree=DocumentsContract.buildTreeDocumentUri(PublicIoProvider.AUTHORITY,id);

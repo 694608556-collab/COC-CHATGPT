@@ -52,7 +52,7 @@ public final class LogbookPlugin extends Plugin {
     private Set<String> namingNames;
     private long namingReadAt;
     private final Object namingLock = new Object();
-    private final NetworkQueue networkQueue = new NetworkQueue();
+    private final NetworkQueue networkQueue = new NetworkQueue(6,6);
     private final java.util.concurrent.ExecutorService backupWriter = java.util.concurrent.Executors.newSingleThreadExecutor();
     private static final java.util.concurrent.atomic.AtomicBoolean backupRunning = new java.util.concurrent.atomic.AtomicBoolean();
     private final android.os.CancellationSignal importWarmCancellation=new android.os.CancellationSignal();
@@ -1068,6 +1068,17 @@ public final class LogbookPlugin extends Plugin {
             Integer index=call.getInt("index");if(index==null)throw new IllegalArgumentException("缺少分段序号。");
             snapshotUpload.append(call.getString("id",""),index,Base64.decode(base64,Base64.NO_WRAP));call.resolve();
         } catch(Exception error){call.reject("数据暂存失败："+error.getMessage(),error);} });
+    }
+    /** Lossless bounded wire transfer; original upload length/hash, authorization and CAS still apply. */
+    @PluginMethod public void appendSnapshotEditEncoded(PluginCall call) {
+        execute(() -> { try {
+            String base64=call.getString("base64","");
+            Integer index=call.getInt("index"),rawBytes=call.getInt("rawBytes");
+            if(snapshotUpload==null||index==null||rawBytes==null||base64.length()>349528)
+                throw new IllegalArgumentException("快照传输分段不合法。");
+            snapshotUpload.appendEncoded(call.getString("id",""),index,call.getString("encoding",""),rawBytes,Base64.decode(base64,Base64.NO_WRAP));call.resolve();
+        } catch(OutOfMemoryError error){call.reject("快照传输内存不足；整批未保存。");}
+          catch(Exception error){call.reject("数据暂存失败："+error.getMessage(),error);} });
     }
     @PluginMethod public void cancelSnapshotEdit(PluginCall call) {
         execute(() -> {try {if(snapshotUpload!=null)snapshotUpload.cancel(call.getString("id",""));call.resolve();}

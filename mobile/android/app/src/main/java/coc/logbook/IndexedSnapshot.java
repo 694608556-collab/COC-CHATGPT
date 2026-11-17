@@ -35,12 +35,20 @@ final class IndexedSnapshot {
         private final long key;private final String kind;private final char[] buffer=new char[65536];private int length,position;
         BodyWriter(long key,String kind){this.key=key;this.kind=kind;}
         public void write(int c)throws IOException{buffer[length++]=(char)c;if(length==buffer.length)flushPart(false);}
-        public void write(char[] chars,int offset,int count)throws IOException{for(int i=0;i<count;i++)write(chars[offset+i]);}
+        public void write(char[] chars,int offset,int count)throws IOException{
+            if(offset<0||count<0||offset>chars.length-count)throw new IndexOutOfBoundsException();
+            while(count>0){
+                int copied=Math.min(count,buffer.length-length);
+                System.arraycopy(chars,offset,buffer,length,copied);length+=copied;offset+=copied;count-=copied;
+                if(length==buffer.length)flushPart(false);
+            }
+        }
         private void flushPart(boolean end){
             if(length==0)return;int count=!end&&Character.isHighSurrogate(buffer[length-1])?length-1:length;
             String text=new String(buffer,0,count);
-            if(deviceSpace)try{StorageBudget.require(available,StorageBudget.estimate(JsonFields.bytes(text),4));}catch(Exception error){throw new IllegalStateException("正文写入所需空间不足；原数据保留。",error);}
-            db.execSQL("INSERT INTO indexed_bodies VALUES(?,?,?,?,?)",new Object[]{key,kind,position++,text,JsonFields.bytes(text)});
+            long bytes=JsonFields.bytes(text);
+            if(deviceSpace)try{StorageBudget.require(available,StorageBudget.estimate(bytes,4));}catch(Exception error){throw new IllegalStateException("正文写入所需空间不足；原数据保留。",error);}
+            db.execSQL("INSERT INTO indexed_bodies VALUES(?,?,?,?,?)",new Object[]{key,kind,position++,text,bytes});
             if(count<length)buffer[0]=buffer[count];length-=count;
         }
         public void flush(){} public void close(){flushPart(true);}
