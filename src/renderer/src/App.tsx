@@ -1,3 +1,4 @@
+import { DISPLAY_SIZES, useDisplaySize } from './useDisplaySize'
 import type { Coc7ImportPreview } from '../../shared/coc7-import'
 
 import { CharacterEditor } from './components/CharacterEditor'
@@ -955,6 +956,7 @@ function RecordDetail({
 }
 
 export default function App(): React.JSX.Element {
+  const displaySize = useDisplaySize()
   const [page, setPage] = useState<Page>('records')
   const [snapshot, setSnapshot] = useState<AppSnapshot>(emptySnapshot)
   const [appVersion, setAppVersion] = useState('')
@@ -2189,6 +2191,18 @@ export default function App(): React.JSX.Element {
                       深色
                     </button>
                   </div>
+                </section>
+                <section className="settings-card">
+                  <h2>显示字号</h2>
+                  <div className="segmented" aria-label="显示字号">
+                    {DISPLAY_SIZES.map((size) => (
+                      <button key={size.value} className={displaySize.size === size.value ? 'active' : ''}
+                        aria-pressed={displaySize.size === size.value} onClick={() => displaySize.chooseSize(size.value)}>
+                        {size.label}
+                      </button>
+                    ))}
+                  </div>
+                  {displaySize.error && <p role="alert">{displaySize.error}</p>}
                 </section>
                 <section className="settings-card">
                   <h2>下载归档位置</h2>

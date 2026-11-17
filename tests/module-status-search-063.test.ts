@@ -85,7 +85,7 @@ describe('0.6.3 module play status', () => {
   it('keeps the status label styled like the module name label', () => {
     // “跑团状态”和“模组名”共用同一套标签样式
     const labelRule = styles.slice(styles.indexOf('.module-head-fields > label,'), styles.indexOf('.play-status-picker {'))
-    expect(labelRule).toContain('font-size: 12px')
+    expect(labelRule).toContain('font-size: calc(12px * var(--display-scale, 1))')
     expect(labelRule).toContain('font-weight: 650')
     // 点选控件与输入框同高
     const picker = styles.slice(styles.indexOf('.play-status-picker {'), styles.indexOf('.play-status-option {'))

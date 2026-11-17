@@ -24,7 +24,7 @@ describe('0.4.0 layout contract', () => {
 
   it('locks one base font size instead of inheriting the 16px browser default', () => {
     const rootBlock = styles.slice(styles.indexOf(':root {'), styles.indexOf(":root[data-theme"))
-    expect(rootBlock).toContain('font-size: 13px')
+    expect(rootBlock).toContain('font-size: calc(13px * var(--display-scale, 1))')
   })
 
   it('keeps the accent-soft token defined for both themes', () => {
@@ -39,7 +39,7 @@ describe('0.4.0 layout contract', () => {
 
   it('shrinks the toolbar buttons to the shared control size', () => {
     const rule = styles.slice(styles.indexOf('.toolbar .secondary'), styles.indexOf('.toolbar .secondary') + 120)
-    expect(rule).toContain('font-size: 13px')
+    expect(rule).toContain('font-size: calc(13px * var(--display-scale, 1))')
   })
 
   it('starts the participants row with KP after removing the obsolete edit icon', () => {
@@ -72,8 +72,8 @@ describe('0.4.0 layout contract', () => {
   it('aligns confirmation dialog buttons to one size', () => {
     expect(styles).toContain('.modal-actions .danger-button')
     expect(styles).toContain('.modal-actions .danger-link')
-    const rule = styles.slice(styles.indexOf('.modal-actions .secondary'), styles.indexOf('.modal-actions .secondary') + 200)
-    expect(rule).toContain('font-size: 13px')
+    const rule = styles.slice(styles.indexOf('.modal-actions .secondary'), styles.indexOf('}', styles.indexOf('.modal-actions .secondary')))
+    expect(rule).toContain('font-size: calc(13px * var(--display-scale, 1))')
     expect(rule).toContain('border-radius: 8px')
   })
 
